@@ -1,0 +1,28 @@
+{
+  "version": "5.0.0-py3820",
+  "platform": "Linux",
+  "application_sha256": {
+    "app/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/main.py": "de74fe63c386280fcf473fc7f66cd9789b85a44ff1aa921be4c59b8da7c5eed6",
+    "app/ui/theme.py": "f645e986cbd78b0d77bba30727f7135c2ec352943490472106dddcc4bd5538b0",
+    "app/ui/export_panel.py": "b17e8e79c873ffdc99d3040a429151ee28be15280def9cb22adc850f3c4e4e54",
+    "app/ui/point_tools.py": "a2198778b124a7752c9de8e63078a0b1ef235d1c1bddaf9bf9397175064415df",
+    "app/ui/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/core/reporting.py": "884d537002b49645b8b0da42f673378230828999291cff4351f69f03bddfe238",
+    "app/core/exclusions.py": "4c1115896ca5d4854200aa400948ccfaa289e54809ccef11e386279952e153d2",
+    "app/core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/core/loader.py": "f0cdcc7bdcebb53bc29781fbe0fe8a39d51f75f14d3e318ea85f042565cf813a",
+    "app/core/demo.py": "9c6fb82f9f1556d4169c3cb6c404053ee9845a2aaeab36ce7437501c8b8188e8",
+    "app/core/config.py": "b9e12edb30c5dc2ca96ce17f1ea553efbb8cdda83ca283a2bb406cb58703eedb",
+    "app/core/storage.py": "909c1876e689ebaffd2aadbffe7a97348f7a28f76bff346b48459daf69d3bbe6",
+    "app/core/export.py": "bcde4ae2517c22c0e99c50973f7b1d30d584134ced9c1b6ec3805b90784b6171",
+    "app/modules/production.py": "4f4d0f67c01a14779d71faee1942cf39bc95359086401f90f976f5a0817f077d",
+    "app/modules/gdi.py": "8b1ec8ae15894fa6866ba289966c012dcf68d58a79c652db7b0a2160668bc316",
+    "app/modules/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/modules/response.py": "ea942743316b450424535e432ef7b0de29267fff8b4f536c4e38b4f489a35fad",
+    "app/modules/charts.py": "b2a09986f61fb675fb7740da3a88ead520c58ba59009d522cb779395f3aed036",
+    "app/modules/legacy_fit.py": "46815db8e23c025e88927093b83c7da7485a26899ed875d7d8cf595470c6fac0"
+  },
+  "python": "CPython 3.8.20 x64",
+  "dependencies": "requirements-lock-py38.txt"
+}

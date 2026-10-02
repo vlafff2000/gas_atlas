@@ -1,0 +1,11 @@
+{
+  "rows": 1000000,
+  "file_mib": 215.42840957641602,
+  "import_seconds": 13.42539696700078,
+  "save_seconds": 0.9539125409992266,
+  "reload_seconds": 1.2018139520005207,
+  "identity_seconds": 0.48567437199926644,
+  "exclusion_seconds": 0.5558261500009394,
+  "peak_rss_mib": 1137.98046875,
+  "result": "PASS"
+}

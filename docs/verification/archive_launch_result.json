@@ -1,0 +1,8 @@
+{
+  "result": "PASS",
+  "launcher": "Linux run.sh from /tmp",
+  "python": "3.8.20",
+  "health": 200,
+  "page": 200,
+  "dependency_environment": "validated existing CPython 3.8.20 venv"
+}

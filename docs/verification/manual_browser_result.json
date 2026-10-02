@@ -1,0 +1,7 @@
+{
+  "checks": [
+    "table_checkbox_excludes_measurement",
+    "table_checkbox_restores_selected_measurement"
+  ],
+  "result": "PASS"
+}

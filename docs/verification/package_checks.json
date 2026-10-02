@@ -1,0 +1,9 @@
+{
+  "result": "PASS",
+  "python": "Python 3.8.20",
+  "windows_code_compile": "PASS",
+  "windows_bat_crlf": "PASS",
+  "linux_shell_syntax": "PASS",
+  "dependencies_unchanged": "PASS",
+  "native_windows_launch": "not performed"
+}

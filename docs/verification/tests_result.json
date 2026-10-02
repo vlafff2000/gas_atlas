@@ -1,0 +1,9 @@
+{
+  "result": "PASS",
+  "python": "3.8.20",
+  "platform": "Linux x64",
+  "tests": 50,
+  "passed": 50,
+  "seconds": 16.21,
+  "source": "extracted Linux release ZIP"
+}

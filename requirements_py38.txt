@@ -1,0 +1,11 @@
+# Full application stack. CPython 3.8, 64-bit.
+streamlit==1.40.1
+plotly==5.24.1
+pandas==2.0.3
+numpy==1.24.4
+scipy==1.10.1
+pyarrow==14.0.2
+openpyxl==3.1.5
+xlrd==2.0.1
+matplotlib==3.7.5
+portalocker==2.10.1

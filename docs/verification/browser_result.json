@@ -1,0 +1,13 @@
+{
+  "checks": [
+    "first_version_theme_deploy_hidden",
+    "gdi_single_click_excludes_and_refits",
+    "restore_returns_original_fit",
+    "production_point_click",
+    "response_overlay_axes_and_metric_click",
+    "export_preview_matches_no_curves_and_exclusions",
+    "exclusions_survive_restart_restore_all"
+  ],
+  "page_errors": [],
+  "result": "PASS"
+}

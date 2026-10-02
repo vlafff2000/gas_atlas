@@ -1,0 +1,20 @@
+[theme]
+base = "light"
+primaryColor = "#16746c"
+backgroundColor = "#f3f6f7"
+secondaryBackgroundColor = "#e9eff1"
+textColor = "#1a3340"
+font = "sans serif"
+
+[server]
+maxUploadSize = 512
+maxMessageSize = 512
+headless = true
+enableCORS = true
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
