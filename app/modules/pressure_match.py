@@ -67,9 +67,9 @@ def normalize(table,cfg=None):
         d=pd.DataFrame({'date':dates(table[date]),'well':table[cfg['well']].map(well_id),'value':numeric(table[cfg['value']]),'_row':table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2)})
     else:
         cols=[c for c in table if c!=date and not str(c).startswith('Unnamed:')]
-        parts=[]
+        parts=[];parsed=dates(table[date]);source_rows=table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2)
         for c in cols:
-            parts.append(pd.DataFrame({'date':dates(table[date]),'well':well_id(c),'value':numeric(table[c]),'_row':table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2)}))
+            parts.append(pd.DataFrame({'date':parsed,'well':well_id(c),'value':numeric(table[c]),'_row':source_rows}))
         d=pd.concat(parts,ignore_index=True) if parts else pd.DataFrame(columns=['date','well','value','_row'])
     d=d[d.date.notna()&d.well.ne('')&~d.well.isin(['nan','None'])]
     return d.reset_index(drop=True)
@@ -171,6 +171,28 @@ def tables(d,cfg=None):
     out['Данные кросс-плота']=d.drop(columns=[c for c in d if c.startswith('_')],errors='ignore')
     return out
 
+BOX_EXACT_LIMIT=1500
+
+def add_box(fig,values,label,name,color=None,outliers=True,**extra):
+    """Box with whiskers. Large groups send exact quartiles instead of every raw value (tens of MB otherwise)."""
+    values=np.asarray(values,dtype=float);values=values[np.isfinite(values)]
+    marker={'marker_color':color} if color else {}
+    if len(values)<=BOX_EXACT_LIMIT:
+        fig.add_trace(go.Box(y=values,x=[label]*len(values),name=name,boxpoints='outliers' if outliers else False,quartilemethod='linear',**marker,**extra));return
+    q1,median,q3=np.percentile(values,[25,50,75]);iqr=q3-q1;low,high=q1-1.5*iqr,q3+1.5*iqr
+    inside=values[(values>=low)&(values<=high)]
+    fig.add_trace(go.Box(x=[label],q1=[q1],median=[median],q3=[q3],lowerfence=[inside.min()],upperfence=[inside.max()],mean=[values.mean()],name=name,**marker,**extra))
+    out=values[(values<low)|(values>high)]
+    if outliers and len(out):
+        out=out[np.linspace(0,len(out)-1,min(len(out),300)).astype(int)] if len(out)>300 else out
+        fig.add_trace(go.Scatter(x=[label]*len(out),y=out,mode='markers',name=name+' · выбросы',showlegend=False,marker={'size':4,**({'color':color} if color else {})},hoverinfo='y',meta={'selectable':False}))
+
+def downsample_sorted(values,limit=2000):
+    values=np.sort(values)
+    if len(values)<=limit:return values,np.arange(1,len(values)+1)/len(values)*100
+    index=np.unique(np.linspace(0,len(values)-1,limit).astype(int))
+    return values[index],(index+1)/len(values)*100
+
 @cached_chart
 def figure(d,name,cfg=None,title=None):
     cfg=cfg or {};unit=cfg.get('unit','бар');single=len(d.well.unique())==1 if not d.empty else False
@@ -181,10 +203,13 @@ def figure(d,name,cfg=None,title=None):
     if d.empty:return fig
     mode=cfg.get('color','scenario');column={'well':'well','group':'group','scenario':'scenario','object':'object','object_group':'object_group'}.get(mode,'scenario');palette=charts.well_colors(d[column])
     if name=='cross':
-        for label,g in d.groupby(column,sort=False):
+        limit=cfg.get('screen_limit');shown=d.sample(limit,random_state=0).sort_index() if limit and len(d)>limit else d
+        trace=go.Scattergl if limit and len(d)>5000 else go.Scatter
+        for label,g in shown.groupby(column,sort=False):
             custom=np.column_stack([g.get('_point_id',pd.Series('',index=g.index)),g.well,g.date.dt.strftime('%d.%m.%Y'),g.scenario,g.error,g.threshold])
-            fig.add_trace(go.Scatter(x=g.fact,y=g.model,mode='markers',name=str(label),marker={'color':palette[label],'size':6},customdata=custom,
+            fig.add_trace(trace(x=g.fact,y=g.model,mode='markers',name=str(label),marker={'color':palette[label],'size':6 if len(shown)<20000 else 4},customdata=custom,
                 meta={'module':'pressure_match','selectable':True},hovertemplate='Скв. %{customdata[1]} · %{customdata[3]}<br>%{customdata[2]}<br>Факт: %{x:.3f}<br>Модель: %{y:.3f}<br>|ΔP|: %{customdata[4]:.3f}<br>Порог: %{customdata[5]:.3f}<extra></extra>'))
+        if len(shown)<len(d):fig.add_annotation(text='Показана выборка {:,} из {:,} точек; статистика и таблицы — по всем.'.format(len(shown),len(d)).replace(',',' '),xref='paper',yref='paper',x=0,y=1.04,showarrow=False,font={'size':11})
         lo=max(0,min(d.fact.min(),d.model.min()));hi=max(d.fact.max(),d.model.max());x=np.array([lo,hi if hi>lo else lo+1])
         for label,y,color,dash in [('Идеальное совпадение',x,'#64748B','solid')]:fig.add_trace(go.Scatter(x=x,y=y,mode='lines',name=label,line={'color':color,'dash':dash}))
         if cfg.get('bands',True):
@@ -212,17 +237,19 @@ def figure(d,name,cfg=None,title=None):
         rows=[('Все данные',d),('Последние 3 года',d[d.recent])]
         for fond in ordered(d.fond):rows.extend([(fond,d[d.fond.eq(fond)]),(fond+' · 3 года',d[d.fond.eq(fond)&d.recent])])
         for label,g in rows:
-            if not g.empty:fig.add_trace(go.Box(y=g.error,x=[label]*len(g),name=label,boxpoints='outliers' if cfg.get('outliers',True) else False,quartilemethod='linear'))
+            if not g.empty:add_box(fig,g.error,label,label,outliers=cfg.get('outliers',True))
         fig.update_xaxes(title='Период и фонд',type='category')
     elif name in ('box','fond_box','object_box'):
         col={'box':'well','fond_box':'fond','object_box':'object'}[name]
-        categories=sorted(d[col].unique(),key=lambda c:d.loc[d[col].eq(c),'error'].median());palette=charts.well_colors(categories)
+        medians=d.groupby(col).error.median();categories=sorted(medians.index,key=lambda c:medians[c]);palette=charts.well_colors(categories)
+        colors=charts.well_colors(d[column]) if mode in ('group','object_group') else None
+        parts={}
+        for (category,scenario),g in d.groupby([col,'scenario'],sort=True):parts.setdefault(category,[]).append((scenario,g))
         for category in categories:
-            for scenario,g in d[d[col].eq(category)].groupby('scenario'):
+            for scenario,g in parts[category]:
                 label=(str(category)+' · ' if not (single and col=='well') else '')+str(scenario)
-                color=palette[category]
-                if mode in ('group','object_group'):color=charts.well_colors(d[column])[g[column].iloc[0]]
-                fig.add_trace(go.Box(y=g.error,x=[str(category)]*len(g),name=label,boxpoints='outliers' if cfg.get('outliers',True) else False,quartilemethod='linear',marker_color=color,meta={'selectable':False}))
+                color=colors[g[column].iloc[0]] if colors else palette[category]
+                add_box(fig,g.error,str(category),label,color,cfg.get('outliers',True),meta={'selectable':False})
         fig.update_layout(boxmode='group');fig.update_xaxes(title={'box':'Скважина (по медиане)','fond_box':'Фонд','object_box':'Объект'}[name],type='category',categoryorder='array',categoryarray=categories)
     elif name=='hist':
         edges=np.histogram_bin_edges(d.error.to_numpy(),bins=int(cfg.get('bins',20)));centers=(edges[:-1]+edges[1:])/2
@@ -232,7 +259,7 @@ def figure(d,name,cfg=None,title=None):
         fig.update_layout(barmode='group');fig.update_yaxes(title='Количество точек');fig.update_xaxes(type='linear')
     elif name=='cdf':
         for label,g in d.groupby(column,sort=False):
-            values=np.sort(g.error);fig.add_trace(go.Scatter(x=values,y=np.arange(1,len(values)+1)/len(values)*100,name=str(label),mode='lines',line={'color':palette[label],'dash':'solid'}))
+            values,share=downsample_sorted(g.error.to_numpy());fig.add_trace(go.Scatter(x=values,y=share,name=str(label),mode='lines',line={'color':palette[label],'dash':'solid'}))
         fig.update_yaxes(title='Доля точек с отклонением ≤ X, %',range=[0,100]);fig.update_xaxes(rangemode='tozero')
     elif name=='percentiles':
         for (obj,scenario),g in d.groupby(['object','scenario'],sort=False):

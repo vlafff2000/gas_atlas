@@ -14,11 +14,11 @@ FIELDS={'well':'Скважина','date':'Дата','q':'Расход газа',
 FIELDS.update({f:aliases[0] for f,aliases in ALIASES.items() if f not in FIELDS})
 MODULE_CHOICES=['auto','production','gdi','response','object_pressure','operations','water','bottom','construction','groups','subgroups']
 
-@st.cache_data(show_spinner=False,max_entries=8)
+@st.cache_data(show_spinner=False,max_entries=64)
 def samples(content,name,encoding='auto',delimiter='auto'):
     return tabular.read_content(content,name,31,encoding,delimiter)
 
-@st.cache_data(show_spinner=False,max_entries=3)
+@st.cache_data(show_spinner=False,max_entries=48)
 def full_tables(content,name,encoding='auto',delimiter='auto'):
     return tabular.read_content(content,name,None,encoding,delimiter)[1]
 

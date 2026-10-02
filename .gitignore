@@ -5,3 +5,4 @@ patch_backups/
 storage/
 logs/
 .pytest_cache/
+dist/
