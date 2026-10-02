@@ -83,3 +83,11 @@ def test_screen_crossplot_is_sampled_but_exports_stay_complete(tmp_path):
     count=lambda fig:sum(len(t.x) for t in fig.data if t.meta and t.meta.get('selectable'))
     assert count(full)==len(d) and count(shown)==300
     assert any(a.text.startswith('Показана выборка') for a in shown.layout.annotations)
+
+def test_rows_without_well_are_dropped_and_do_not_break_filtering():
+    table=pd.DataFrame({'Дата':['2023-01-01','2023-01-02','2023-01-03'],'Скважина':['5',None,float('nan')],'Давление':[100.,101.,102.]})
+    norm=pm.normalize(table,{'format':'long','date':'Дата','well':'Скважина','value':'Давление'})
+    assert norm.well.tolist()==['5']
+    data=pd.DataFrame({'object':'o','scenario':'s','well':['5',None],'date':pd.to_datetime(['2023-01-01']*2),'fact':[100.,100.],'model':[101.,101.],'fond':'Неизвестный','group':'Без группы','subgroup':''})
+    d,_=pm.filter_data(data,{},{},{});assert d.well.tolist()==['5']
+    import json;json.dumps({str(w):1 for w in data.well.unique()},sort_keys=True)

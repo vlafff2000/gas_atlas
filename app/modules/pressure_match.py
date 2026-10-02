@@ -38,7 +38,7 @@ def per_unique(values,function):
     codes,uniques=pd.factorize(values)
     mapped=pd.Series([function(v) for v in uniques],dtype=object).to_numpy()
     result=np.empty(len(codes),dtype=object);ok=codes>=0
-    result[ok]=mapped[codes[ok]] if len(mapped) else None;result[~ok]=None
+    result[ok]=mapped[codes[ok]] if len(mapped) else None;result[~ok]='nan'
     return result
 
 def dates(values):
@@ -99,7 +99,7 @@ def normalize(table,cfg=None):
         for c in cols:
             parts.append(pd.DataFrame({'date':parsed,'well':well_id(c),'value':numeric(table[c]),'_row':source_rows}))
         d=pd.concat(parts,ignore_index=True) if parts else pd.DataFrame(columns=['date','well','value','_row'])
-    d=d[d.date.notna()&d.well.ne('')&~d.well.isin(['nan','None'])]
+    d=d[d.date.notna()&d.well.notna()&d.well.ne('')&~d.well.isin(['nan','None'])]
     return d.reset_index(drop=True)
 
 def normalize_fonds(table):
@@ -136,6 +136,8 @@ def pair(fact,model,object_name,scenario,fonds=None,duplicate='first'):
 
 def filter_data(data,settings,mapping,cfg=None):
     cfg=cfg or {};d=data.copy();d.attrs={}
+    if d.empty:return d,{}
+    d=d[d.well.notna()&d.well.astype(str).ne('nan')].copy()  # projects saved by v5.8.x UI builds may hold rows without a well
     if d.empty:return d,{}
     d['date']=pd.to_datetime(d.date)
     # Reference script takes the latest source date before invalid pressures are discarded.

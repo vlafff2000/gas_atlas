@@ -247,7 +247,7 @@ _FILTERED=OrderedDict()
 
 def filtered(source,manifest,mapping,cfg):
     """Filtering millions of pairs takes seconds; reruns that change nothing (tabs, popovers) reuse the result."""
-    key=(manifest.get('snapshot'),manifest.get('name'),len(source),manifest['revision'],json.dumps([manifest['settings'].get('season_start'),manifest['settings'].get('season_end'),cfg,{w:mapping.get(w,{}).get('group') for w in source.well.unique()}],sort_keys=True,default=str))
+    key=(manifest.get('snapshot'),manifest.get('name'),len(source),manifest['revision'],json.dumps([manifest['settings'].get('season_start'),manifest['settings'].get('season_end'),cfg,{str(w):mapping.get(w,{}).get('group') for w in source.well.unique()}],sort_keys=True,default=str))
     if key not in _FILTERED:
         _FILTERED[key]=pm.filter_data(source,manifest['settings'],mapping,cfg)
         while len(_FILTERED)>3:_FILTERED.popitem(last=False)
