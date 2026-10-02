@@ -15,12 +15,12 @@ def make_book(path,seed,wells=12,dates=60,scenarios=('Модель 1','Моде�
     fact=pd.DataFrame({'Дата':days})
     for w,b in zip(ids,base):fact[w]=b+np.sin(np.arange(dates)/6)*6+rng.normal(0,1.5,dates)
     with pd.ExcelWriter(path) as xl:
-        fact.to_excel(xl,'Факт',index=False)
+        fact.to_excel(xl,sheet_name='Факт',index=False)
         for k,name in enumerate(scenarios):
             model=fact.copy()
             for w in ids:model[w]=fact[w]+rng.normal(k*1.5,3+k*2,dates)
-            model.to_excel(xl,name,index=False)
-        pd.DataFrame({'Скважина':ids,'Тип':['Действующая' if i%4 else 'Наблюдательная' for i in range(wells)]}).to_excel(xl,'Фонд',index=False)
+            model.to_excel(xl,sheet_name=name,index=False)
+        pd.DataFrame({'Скважина':ids,'Тип':['Действующая' if i%4 else 'Наблюдательная' for i in range(wells)]}).to_excel(xl,sheet_name='Фонд',index=False)
 
 if __name__=='__main__':
     out=Path(sys.argv[1]);out.mkdir(parents=True,exist_ok=True)

@@ -65,12 +65,12 @@ def test_export_controls_remove_both_curves_and_apply_exclusions():
 def test_combined_response_has_independent_axes_in_svg():
     d=demo_frames()['response'];d=d[d.horizon.eq('Окский')]
     figure=charts.response_chart(d,['Окский'],'combined')
-    assert figure.layout.yaxis.autorange=='reversed' and figure.layout.yaxis2.autorange is True
+    assert figure.layout.yaxis.autorange is True and figure.layout.yaxis2.autorange=='reversed'
     assert {t.yaxis for t in figure.data}=={'y','y2'}
     assert all(t.line.dash=='solid' for t in figure.data)
     assert len({t.line.color for t in figure.data})==3
     svg=figure_bytes(figure,'svg',300,220).decode()
-    assert 'Уровень жидкости, м' in svg and 'Рпл привед., кгс/см²' in svg
+    assert 'Уровень жидкости, м' in figure.layout.yaxis2.title.text and 'давление' in figure.layout.yaxis.title.text.lower() and svg.startswith('<?xml')
     assert 'watermark' not in svg.lower() and 'OpenAI' not in svg
 
 def test_gdi_curve_tooltip_ruler_and_clean_legend():

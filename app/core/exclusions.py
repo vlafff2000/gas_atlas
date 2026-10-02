@@ -9,6 +9,13 @@ KEYS={'pressure_match':['object','scenario','well','date','fact','model'],'produ
       'operations':['well','date','kind'], 'water':['well','date'], 'bottom':['well','date'],
       'construction':['well','date','element','top_m','bottom_m','diameter_mm']}
 
+def _text(series):
+    """str() once per distinct value; hashes identically to series.astype(str) but is far cheaper on millions of rows."""
+    codes,uniques=pd.factorize(series.fillna(''))
+    categories=pd.Index([str(u) for u in uniques],dtype=object)
+    if not categories.is_unique:return series.fillna('').astype(str)
+    return pd.Categorical.from_codes(codes,categories)
+
 def identify(df,module):
     d=df.copy()
     if d.empty:
@@ -18,7 +25,7 @@ def identify(df,module):
     for field in KEYS[module]:
         if field=='date': values[field]=pd.to_datetime(d[field]).astype('datetime64[ns]')
         elif field in ('q','dp2','top_m','bottom_m','diameter_mm'): values[field]=pd.to_numeric(d[field],errors='coerce').astype(float) if field in d else np.nan
-        else: values[field]=d[field].fillna('').astype(str) if field in d else ''
+        else: values[field]=_text(d[field]) if field in d else ''
     hashed=pd.util.hash_pandas_object(values,index=False)
     if module=='gdi':
         # Independent duplicate measurements retain their own reversible identity.

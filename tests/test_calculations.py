@@ -83,9 +83,9 @@ def test_gdi_replace_entire_study():
     assert len(merged[merged.date.eq(d.date.max())])==2
 
 def test_response_reverse_and_color():
-    d=demo_frames()['response']; fig=charts.response_chart(d,['Окский'])
+    d=demo_frames()['response']; d=d[d.horizon.eq('Окский')]; fig=charts.response_chart(d,['Окский'])
     assert fig.layout.yaxis.autorange=='reversed'
-    assert len({t.line.color for t in fig.data if t.name.startswith('Окский')})==3
+    assert len({t.line.color for t in fig.data})==3
     assert all(t.line.dash=='solid' for t in fig.data)
 
 def test_all_exports_readable():

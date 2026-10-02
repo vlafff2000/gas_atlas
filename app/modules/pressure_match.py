@@ -8,6 +8,7 @@ strict abs(model-fact) < per-group threshold. Those conventions are explicit.
 import csv
 import io
 import re
+import warnings
 from functools import partial
 import numpy as np
 import pandas as pd
@@ -32,20 +33,47 @@ def well_id(value):
         if matches:s=matches[-1]
     return s.lstrip('№#').strip()
 
+def per_unique(values,function):
+    """Apply a slow per-value function once per distinct value (millions of rows, a few hundred wells / dates)."""
+    codes,uniques=pd.factorize(values)
+    mapped=pd.Series([function(v) for v in uniques],dtype=object).to_numpy()
+    result=np.empty(len(codes),dtype=object);ok=codes>=0
+    result[ok]=mapped[codes[ok]] if len(mapped) else None;result[~ok]=None
+    return result
+
 def dates(values):
+    """Parse once per distinct value: a date column repeats the same few thousand dates for every well."""
+    if pd.api.types.is_datetime64_any_dtype(values):return pd.to_datetime(values).dt.normalize()
+    codes,uniques=pd.factorize(values)
+    parsed=_dates_series(pd.Series(uniques,dtype=object)).to_numpy('datetime64[ns]')
+    result=np.full(len(codes),np.datetime64('NaT','ns'),dtype='datetime64[ns]');ok=codes>=0
+    if len(parsed):result[ok]=parsed[codes[ok]]
+    return pd.Series(result,index=values.index)
+
+def _dates_series(values):
     if pd.api.types.is_datetime64_any_dtype(values):return pd.to_datetime(values).dt.normalize()
     text=values.astype(str).str.strip();iso=text.str.match(r'^\d{4}-\d{2}-\d{2}')
     result=pd.Series(pd.NaT,index=values.index,dtype='datetime64[ns]')
     result.loc[iso]=pd.to_datetime(text[iso],errors='coerce')
     rest=~iso
-    result.loc[rest]=pd.to_datetime(text[rest],errors='coerce',dayfirst=True)
+    if rest.any():
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore',UserWarning)  # mixed free-form date strings are parsed one by one on purpose
+            result.loc[rest]=pd.to_datetime(text[rest],errors='coerce',dayfirst=True)
     # Excel serial dates are accepted only within a plausible calendar range.
     numeric=pd.to_numeric(values,errors='coerce');serial=rest&numeric.between(20000,80000)
     result.loc[serial]=pd.to_datetime(numeric[serial],unit='D',origin='1899-12-30',errors='coerce')
     return result.dt.normalize()
 
-def numeric(values):
+def numeric_slow(values):
     return pd.to_numeric(values.astype(str).str.replace('\u00a0','',regex=False).str.replace(' ','',regex=False).str.replace(',','.',regex=False),errors='coerce')
+
+def numeric(values):
+    """Plain numbers go through the fast path; only text cells (decimal commas, spaces) take the string route."""
+    fast=pd.to_numeric(values,errors='coerce')
+    text=fast.isna()&values.notna()
+    if text.any():fast=fast.copy();fast[text]=numeric_slow(values[text])
+    return fast
 
 def read_tables(content,name):
     from app.core.tabular import read_content,headed
@@ -64,7 +92,7 @@ def normalize(table,cfg=None):
     if date not in table:raise ValueError('Выберите колонку даты.')
     if cfg['format']=='long':
         if cfg['well'] not in table or cfg['value'] not in table:raise ValueError('Выберите колонки скважины и давления.')
-        d=pd.DataFrame({'date':dates(table[date]),'well':table[cfg['well']].map(well_id),'value':numeric(table[cfg['value']]),'_row':table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2)})
+        d=pd.DataFrame({'date':dates(table[date]),'well':per_unique(table[cfg['well']],well_id),'value':numeric(table[cfg['value']]),'_row':table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2)})
     else:
         cols=[c for c in table if c!=date and not str(c).startswith('Unnamed:')]
         parts=[];parsed=dates(table[date]);source_rows=table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2)
@@ -116,7 +144,7 @@ def filter_data(data,settings,mapping,cfg=None):
     d['recent_start']=d.object.map(starts);d['recent']=d.date.ge(d.recent_start)
     recent_start=', '.join(sorted(set(str(v.date()) for v in starts)))
     d['object_group']=d.object.map(cfg.get('object_groups',{})).fillna('Без категории')
-    d['group']=d.well.map(lambda w:mapping.get(w,{}).get('group','Без группы'))
+    d['group']=per_unique(d.well,lambda w:mapping.get(w,{}).get('group','Без группы'))
     for col,field in [('object','objects'),('scenario','scenarios'),('fond','fonds'),('well','wells'),('group','groups')]:
         if cfg.get(field) is not None:d=d[d[col].isin(cfg[field])]
     span=cfg.get('dates')
@@ -130,15 +158,17 @@ def filter_data(data,settings,mapping,cfg=None):
     d['signed_error']=d.model-d.fact;d['error']=d.signed_error.abs()
     d['relative_error']=d.error/d.fact.abs().where(d.fact.ne(0))*100
     thresholds=cfg.get('group_thresholds',{})
-    d['threshold']=d.group.map(lambda g:float(thresholds.get(g,cfg.get('threshold',10))))
+    d['threshold']=per_unique(d.group,lambda g:float(thresholds.get(g,cfg.get('threshold',10)))).astype(float)
     measure=d.relative_error if cfg.get('threshold_mode')=='relative' else d.error
     d['within']=measure.le(d.threshold) if cfg.get('inclusive',False) else measure.lt(d.threshold)
     d['valid_threshold']=measure.notna()
     month=d.date.dt.month;start=settings.get('season_start',11);end=settings.get('season_end',4)
     withdrawal=(month.ge(start)|month.le(end)) if start>end else month.between(start,end)
     d['kind']=np.where(withdrawal,'withdrawal','injection')
-    tmp=production.periods(d.assign(season='',year=''),start,end)
-    d['period']=np.where(withdrawal,'Отбор '+tmp.period,'Закачка '+d.date.dt.year.astype(str))
+    # Season labels depend on the date only: compute them for the distinct dates, then map back.
+    days=d[['date']].drop_duplicates().assign(season='',year='',kind='withdrawal')
+    label=production.periods(days,start,end).set_index('date').period
+    d['period']=np.where(withdrawal,'Отбор '+d.date.map(label).astype(str),'Закачка '+d.date.dt.year.astype(str))
     if cfg.get('periods') is not None:d=d[d.period.isin(cfg['periods'])]
     stats['used']=len(d)
     return d.sort_values(['object','scenario','well','date']).reset_index(drop=True),stats

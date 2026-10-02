@@ -1,0 +1,36 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  tests:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.8', '3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install (exact lock on 3.8, version ranges on newer Python)
+        run: |
+          python tools/check_runtime.py
+          python -m pip install --upgrade pip
+          python -m pip install -r "$(python -c 'import sys;sys.path.insert(0,"tools");from check_runtime import requirements_name;print(requirements_name())')" pytest
+      - name: Tests
+        run: python -m pytest tests -q
+  package:
+    needs: tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build archive
+        run: |
+          mkdir -p dist && git archive --format=zip --prefix=Gas_Atlas/ -o dist/Gas_Atlas.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gas_Atlas
+          path: dist/Gas_Atlas.zip

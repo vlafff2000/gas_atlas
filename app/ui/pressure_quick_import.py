@@ -12,8 +12,7 @@ import tempfile
 from pathlib import Path
 import pandas as pd
 import streamlit as st
-from app.core import tabular
-from app.core.logging_utils import show_error
+from app.core import tabular,profiles
 from app.modules import pressure_match as pm
 from app.ui.import_editor import pressure_layout,pressure_table,fonds_table,sheet_editor,text_options
 
@@ -37,6 +36,8 @@ def _labels(preview,header):
 def auto_spec(preview,fonds=False):
     """Same structure that import_editor.sheet_editor returns, built from detected defaults."""
     columns=range(preview.shape[1])
+    remembered=profiles.find(preview,'pressure_fond' if fonds else 'pressure')
+    if remembered:return remembered
     if fonds:
         labels=_labels(preview,0)
         wells=[j for j,v in enumerate(labels) if re.search(r'скваж|well|^скв',v,re.I)]
@@ -250,6 +251,10 @@ def render(store,pid,manifest,raw_frames,key):
             role=choices.get(fine,{}).get('role',next(r['Роль'] for r in rows if (r['_sha'],r['Лист'])==fine))
             spec=sheet_editor(record['raw'].head(31),sheet,key('pmq_fine_')+sha[:10]+sheet,pressure=True,fonds=role==FOND)
             if spec.get('enabled') and spec.get('valid',True):
+                kind='pressure_fond' if role==FOND else 'pressure'
+                if st.checkbox('Запомнить для файлов с такой же шапкой',value=profiles.find(record['raw'].head(31),kind) is not None,key=key('pmq_remember_'+sha[:10]+sheet),help='В следующий раз такая разметка применится автоматически.'):profiles.save(record['raw'].head(31),spec,kind)
+                else:profiles.forget(record['raw'].head(31),spec,kind)
+            if spec.get('enabled') and spec.get('valid',True):
                 overrides[(sha,sheet)]={**spec,'fonds':True} if role==FOND else spec
             else:overrides.pop(fine,None)
             if st.button('Вернуть автоматические настройки листа',key=key('pmq_reset')):
@@ -290,6 +295,6 @@ def render(store,pid,manifest,raw_frames,key):
             generation=state.get('generation',0)+1;st.session_state.pop(key('pmq_result'),None)
             st.session_state[key('pmq_state')]={'cache':{},'choices':{},'overrides':{},'generation':generation}
             st.session_state[key('pmq_done')]=('success','Сохранено: '+str(len(data))+' строк, объектов '+str(data.object.nunique()))
-            st.session_state[key('pm_show_import')]=False
+            st.session_state[key('pm_import_open')]=False
         except Exception as error:st.session_state[key('pmq_done')]=('error',str(error))
     st.button('Сохранить в проект',type='primary',key=key('pmq_commit'),on_click=commit,disabled=bool(held['errors']))

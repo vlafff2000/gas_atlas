@@ -6,3 +6,4 @@ storage/
 logs/
 .pytest_cache/
 dist/
+exports/

@@ -110,6 +110,8 @@ def render(store,pid,manifest,frames,raw_frames,mapping,viewer,point_controls,ke
     dashboard_gdi=st.session_state.get(ek('dashboard_gdi'),current.get('well_dashboard',{}).get('gdi',{}))
     for name,field in [('n','n'),('orientation','orientation'),('curves','curves'),('db','db_curves'),('crosshair','crosshair'),('excluded','show_excluded'),('seasons','seasons')]:
         if field in dashboard_gdi:st.session_state.setdefault(ek('dashboard_gdi_'+name),dashboard_gdi[field])
+    focus=st.session_state.get(ek('focus_module'))
+    if focus in available:available=[focus]+[m for m in available if m!=focus]  # tab opened from a viewer page comes first
     tabs=st.tabs([MODULES[m] for m in available]) if available else []
     for module,tab in zip(available,tabs):
         with tab:

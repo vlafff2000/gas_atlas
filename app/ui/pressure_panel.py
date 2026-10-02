@@ -1,5 +1,6 @@
 """Compact two-pane pressure dashboard inspired by the supplied HTML page."""
 import io,json,tempfile,hashlib
+from collections import OrderedDict
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from app.core.export import csv_bytes
 from app.core.logging_utils import show_error
 from app.modules import pressure_match as pm,charts
 from app.modules.pressure_workbook import workbook_bytes
+from app.ui.filters import filter_bar
 from app.ui.selection import checklist,parse_wells,paginate
 
 from app.ui.import_editor import samples,full_tables,text_options,sheet_editor,pressure_table,fonds_table
@@ -30,7 +32,9 @@ def import_panel(store,pid,manifest,raw_frames,key):
     if done:getattr(st,done[0])(done[1])
     has='pressure_match' in raw_frames
     title='Данные давлений · загрузить или обновить' if has else 'Загрузка данных давлений'
-    with st.expander(title,expanded=not has):
+    # A bordered container, not an expander: the import forms use expanders and Streamlit forbids nesting them.
+    if has and not st.toggle(title,value=False,key=key('pm_import_open')):return
+    with st.container(border=True):
         mode=st.radio('Способ загрузки',['Быстрая (автоматически)','Подробная (по листам)'],horizontal=True,key=key('pm_import_style'),
             help='Быстрая: перетащите сразу все файлы — факт, модели и фонды определятся сами, проверка в одной таблице. Подробная: ручная настройка шапки и колонок каждого листа.')
         if mode.startswith('Быстрая'):
@@ -239,6 +243,17 @@ def options(data,mapping,key,compact=False,default=None,bar=False,slots=None):
 
 SCREEN_POINTS=30000
 PER_WELL=('time','error_time','box')
+_FILTERED=OrderedDict()
+
+def filtered(source,manifest,mapping,cfg):
+    """Filtering millions of pairs takes seconds; reruns that change nothing (tabs, popovers) reuse the result."""
+    key=(manifest.get('snapshot'),manifest.get('name'),len(source),manifest['revision'],json.dumps([manifest['settings'].get('season_start'),manifest['settings'].get('season_end'),cfg,{w:mapping.get(w,{}).get('group') for w in source.well.unique()}],sort_keys=True,default=str))
+    if key not in _FILTERED:
+        _FILTERED[key]=pm.filter_data(source,manifest['settings'],mapping,cfg)
+        while len(_FILTERED)>3:_FILTERED.popitem(last=False)
+    _FILTERED.move_to_end(key)
+    return _FILTERED[key]
+
 TABS={'Кроссплот':['cross'],'Динамика':['time','error_time'],'Распределения':['overall_box','box','fond_box','hist','cdf'],'Объекты':['object_box','percentiles']}
 SUMMARY_COLUMNS=['object','scenario','Точек','Среднее отклонение','RMSE','Смещение модели','В пределах порога, %']
 SUMMARY_NAMES={'object':'Объект','scenario':'Сценарий','Точек':'Точек','Среднее отклонение':'Средн. |ΔP|','RMSE':'RMSE','Смещение модели':'Смещение','В пределах порога, %':'В пороге, %'}
@@ -252,7 +267,7 @@ def render(store,pid,manifest,frames,raw_frames,mapping,controls,key,style,viewe
     if 'pressure_match' not in frames:
         st.info('Загрузите книгу с листами «Факт», «Модель», «Фонд» либо отдельные файлы факта и моделей.');return
     raw=raw_frames['pressure_match'];source=frames['pressure_match']
-    with st.container(border=True):
+    with filter_bar():
         slots={};cfg=options(raw,mapping,key,default=manifest['settings'].get('panels',{}).get('pressure_match',{}),bar=True,slots=slots)
         if slots['save'].button('Сохранить',key=key('pm_save'),help='Запомнить текущие фильтры и параметры в проекте.',use_container_width=True):
             settings={**manifest['settings'],'panels':{**manifest['settings'].get('panels',{}),'pressure_match':cfg}}
@@ -260,7 +275,7 @@ def render(store,pid,manifest,frames,raw_frames,mapping,controls,key,style,viewe
         def to_export():
             for name in list(st.session_state):
                 if name.startswith(key('exp_pressure_')):st.session_state.pop(name,None)
-            st.session_state[key('exp_modules')]=['pressure_match']
+            st.session_state[key('exp_modules')]=['pressure_match'];st.session_state[key('exp_focus_module')]='pressure_match'
             from app.core.config import MODULES
             for module in MODULES:st.session_state[key('exp_'+module+'_enabled')]=module=='pressure_match'
             st.session_state['next_nav']='Экспорт'
@@ -275,7 +290,7 @@ def render(store,pid,manifest,frames,raw_frames,mapping,controls,key,style,viewe
                     for w in selected:groups.setdefault(w,{})['group']=group.strip()
                     store.commit(pid,groups=groups,expected=manifest['revision'],action='Группы кроссплота');st.rerun()
     viewer['pressure_match']=cfg
-    d,diagnostics=pm.filter_data(source,manifest['settings'],mapping,cfg)
+    d,diagnostics=filtered(source,manifest,mapping,cfg)
     stats=pm.statistics(d,cfg['percentiles']);cols=st.columns(4)
     for col,(label,value) in zip(cols,[('Сопоставленных точек',stats.get('Точек',0)),('Средняя |ΔP|',stats.get('Среднее отклонение',np.nan)),('RMSE',stats.get('RMSE',np.nan)),('В пределах порога, %',stats.get('В пределах порога, %',np.nan))]):col.metric(label,str(value) if isinstance(value,int) else f'{value:.2f}' if np.isfinite(value) else '—')
     st.caption('Пропущено неполных пар: '+str(diagnostics.get('missing',0))+'; нулевых: '+str(diagnostics.get('zeros',0))+'; отрицательных: '+str(diagnostics.get('negative',0))+'. Последние 3 года: с '+diagnostics.get('recent_start','—')+'.')

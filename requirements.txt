@@ -1,1 +1,2 @@
--r requirements-lock-py38.txt
+# Installed by tools/install.py: exact lock on Python 3.8, version ranges on newer Python.
+-r requirements-modern.txt

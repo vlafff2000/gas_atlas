@@ -95,6 +95,12 @@ def trim_rows(rows):
         while row and (row[-1] is None or row[-1]==''):row.pop()
         yield row
 
+def _calamine_book(path):
+    try:
+        from python_calamine import CalamineWorkbook
+        return CalamineWorkbook.from_path(str(path))
+    except Exception:return None
+
 def iter_tables(path,encoding='auto',delimiter='auto'):
     if Path(path).stat().st_size>512*1024**2:raise ValueError('Размер файла превышает 512 МБ.')
     fmt=format_of(path)
@@ -107,6 +113,11 @@ def iter_tables(path,encoding='auto',delimiter='auto'):
                 if event=='end' and elem.tag==T+'table-row':elem.clear()
         for name in names:yield name,ods_rows(path,name)
     elif fmt=='xlsx':
+        fast=_calamine_book(path)
+        if fast is not None:
+            # Rust reader: about 10x faster than openpyxl on large workbooks.
+            for name in fast.sheet_names:yield name,trim_rows(fast.get_sheet_by_name(name).to_python(skip_empty_area=False))
+            return
         book=openpyxl.load_workbook(path,read_only=True,data_only=True)
         try:
             for sheet in book:yield sheet.title,trim_rows(sheet.iter_rows(values_only=True))

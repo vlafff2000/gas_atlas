@@ -23,6 +23,7 @@ from app.core.performance import context,select_wells,index_for,chart_cache
 from app.core.logging_utils import setup,show_error
 from app.ui.selection import choose_group_wells,histogram_size,parse_wells,checklist,paginate
 from app.ui import navigation
+from app.ui.filters import filter_bar
 
 st.set_page_config(page_title='Газовый атлас',page_icon='◈',layout='wide',initial_sidebar_state='expanded',menu_items={})
 apply(); store=Store(STORAGE);log_path=setup(ROOT)
@@ -69,6 +70,8 @@ with st.sidebar:
     fast_mode=st.toggle('Быстрый просмотр',value=True,key='fast_mode',help='Использовать подготовленные индексы, расчеты и графики. После изменения данных или исключений результаты обновляются автоматически.')
     memory_mode=st.selectbox('Хранение данных',['ram','hybrid'],format_func=lambda x:'Весь активный проект в RAM' if x=='ram' else 'Гибридный: модули по мере открытия',key='memory_mode')
     memory_budget=st.number_input('Лимит предварительной загрузки, ГБ',min_value=0.5,max_value=64.,value=2.,step=0.5,key='memory_budget',help='Если оценка памяти выше лимита, используется гибридный режим. Лимит относится к предварительной загрузке, а не ко всему процессу Python.')
+    from app.ui.filters import pin_toggle
+    pin_toggle()
     click_edit=st.toggle('Исключать точки кликом',value=False,key='click_edit',help='Клик по измеренной точке исключает ее из расчетов. Вернуть точки можно в разделе «Исключенные точки».')
     st.divider(); st.caption('Локальная работа · версия '+VERSION)
 
@@ -120,6 +123,7 @@ with st.sidebar.expander('Оформление графиков'):
     if st.button('Сохранить оформление',key=pid+'_style_save'):
         store.commit(pid,settings={**settings,'chart_style':chart_style},expected=revision,action='Оформление графиков');st.rerun()
 key=lambda value:pid+'_'+value
+if page!='Экспорт':st.session_state.pop(key('exp_focus_module'),None)
 point_controls=PointControls(store,pid,revision,settings,raw_frames,click_edit)
 point_controls.notify()
 viewer_configs=st.session_state.setdefault(key('viewer_configs'),{})
@@ -177,104 +181,9 @@ if page=='Обзор':
         if st.button('Создать отдельный демопроект'): make_demo()
 
 elif page=='Импорт данных':
-    from app.core.loader import load_file,merge_frames,ImportResult
-    from app.core.templates import input_templates
-    heading('Импорт данных','Загрузите общую книгу с несколькими листами, отдельные файлы или вставьте таблицу из Excel.')
-    a,b,c=st.columns(3)
-    mode=a.selectbox('Тип таблицы',['auto','production','gdi','response','object_pressure','operations','water','bottom','construction','groups','subgroups'],format_func=lambda v:{'auto':'Автоопределение','groups':'Группы (в том числе без заголовков)','subgroups':'Подгруппы (в том числе без заголовков)'}.get(v,MODULES.get(v,v)))
-    kind=b.selectbox('Для листов динамики без названия',['withdrawal','injection'],format_func=lambda v:'Отбор' if v=='withdrawal' else 'Закачка')
-    punit=c.selectbox('Расходы динамики без единиц',['м³/сут','тыс. м³/сут'])
-    a,b=st.columns(2)
-    gunit=a.selectbox('Q ГДИ без единиц',['тыс. м³/сут','м³/сут'])
-    pressure_unit=b.selectbox('Единицы давлений в файлах',['кгс/см²','МПа'])
-    st.caption('Давления внутри проекта: кгс/см². При выборе МПа пересчитываются давления, ΔP² и коэффициенты БД. Единицы Q в заголовке имеют приоритет; a и b БД считаются заданными для единиц Q исходного файла и пересчитываются вместе с ним.')
-    files=st.file_uploader('Excel / CSV / TXT',type=['xlsx','xls','xlsm','ods','csv','tsv','txt','dat'],accept_multiple_files=True)
-    pasted=st.text_area('Или вставьте таблицу с заголовками',height=120)
-    from app.ui.import_editor import file_editor,parse_pressure_book
-    incoming=[(f.name,f.getvalue()) for f in files]
-    if pasted.strip():incoming.append(('Вставленная_таблица.txt',pasted.encode('utf-8')))
-    import_options={};editor_errors=[]
-    for i,(name,content) in enumerate(incoming):
-        try:import_options[i]=file_editor(content,name,key('import_editor_'+str(i)),mode)
-        except Exception as error:editor_errors.append(name+': '+str(error));show_error(editor_errors[-1])
-    signature=json.dumps([mode,kind,punit,gunit,pressure_unit,[(name,hashlib.sha256(content).hexdigest()) for name,content in incoming],import_options],ensure_ascii=False,sort_keys=True)
-    previous=st.session_state.get(key('pending'))
-    if previous and previous.get('signature')!=signature:
-        shutil.rmtree(previous['staging'],ignore_errors=True);st.session_state.pop(key('pending'),None)
-    with st.expander('Шаблоны и примеры'):
-        for filename,content in input_templates().items():st.download_button('Скачать '+filename,content,filename,key=key('xlsx_'+filename))
-        st.caption('Давление объекта: ровно две колонки — Дата и Пластовое давление, кгс/см2. Выберите тип «Давление объекта» или автоопределение.')
-        st.markdown('**Динамика:** Скважина, Дата, Расход. **ГДИ:** Скважина, Дата, Q, Рпл, Рзаб. **Реагирование:** Скважина, Дата, Горизонт, Уровень жидкости, Рпл привед.')
-        st.caption('Также поддерживаются матрицы расходов: даты в первом столбце, скважины в первой строке. Группы: Скважина, Группа, Подгруппа.')
-        for p in sorted((ROOT/'examples').glob('*')):
-            if p.suffix in ('.csv','.xlsx','.txt'): st.download_button(p.name,p.read_bytes(),p.name,key=key('template_'+p.name))
-    if st.button('Проверить файлы',type='primary',disabled=not incoming or bool(editor_errors) or any(not spec.get('valid',True) for cfg in import_options.values() for spec in cfg['sheets'].values())):
-        staging=Path(tempfile.mkdtemp(prefix='gas_atlas_import_')); parsed={}; issues=[]; originals=[]; rejected=0; warnings_count=0
-        status=st.empty(); progress=st.progress(0.)
-        for i,(name,content) in enumerate(incoming):
-            path=staging/str(i)/Path(name).name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(content)
-            try:
-                if import_options[i].get('pressure_book'):r=parse_pressure_book(content,name,import_options[i])
-                else:r=load_file(path,mode,kind,punit,gunit,sheet_options=import_options[i]['sheets'],encoding=import_options[i]['encoding'],delimiter=import_options[i]['delimiter'],progress=lambda sh,n:status.info(f'{name} / {sh}: обработано {n:,} строк'))
-                if pressure_unit=='МПа':
-                    factor=10.197162129779
-                    if 'gdi' in r.frames:
-                        d=r.frames['gdi']
-                        for col in ('p_res','p_bh'):
-                            if col in d: d[col]*=factor
-                        for col in ('dp2','a_db','b_db'):
-                            if col in d: d[col]*=factor**2
-                    if 'response' in r.frames and 'pressure' in r.frames['response']: r.frames['response']['pressure']*=factor
-                    if 'object_pressure' in r.frames:r.frames['object_pressure']['pressure']*=factor
-                    if 'operations' in r.frames:
-                        for col in ('p_res','p_bh','p_wellhead','p_line'):
-                            if col in r.frames['operations']:r.frames['operations'][col]*=factor
-                for mod,d in r.frames.items(): parsed[mod]=pd.concat([parsed[mod],d],ignore_index=True) if mod in parsed else d
-                issues.extend(r.issues); rejected+=r.rejected; warnings_count+=r.warnings
-                if r.frames: originals.append(str(path))
-            except Exception as e:
-                issues.append({'Файл':name,'Лист':'','Строка':0,'Уровень':'ошибка','Причина':str(e)}); rejected+=1
-            progress.progress((i+1)/len(incoming))
-        status.empty(); progress.empty()
-        old=st.session_state.pop(key('pending'),None)
-        if old: shutil.rmtree(old['staging'],ignore_errors=True)
-        st.session_state[key('pending')]={'frames':parsed,'issues':issues,'rejected':rejected,'warnings':warnings_count,'originals':originals,'staging':str(staging),'signature':signature}
-    import_status=st.session_state.pop(key('import_status'),None)
-    if import_status:
-        getattr(st,import_status[0])(import_status[1])
-    pending=st.session_state.get(key('pending'))
-    if pending:
-        st.subheader('Результат проверки')
-        st.write({MODULES.get(k,'Группы'):len(v) for k,v in pending['frames'].items()})
-        if pending['issues']:
-            st.warning(f'Отклоненных строк / файлов: {pending["rejected"]}. Предупреждений: {pending["warnings"]}. В журнале до 2000 замечаний на файл.')
-            show_frame(pd.DataFrame(pending['issues']),200)
-            st.download_button('Скачать журнал проверки',csv_bytes(pd.DataFrame(pending['issues'])),'import_issues.csv')
-        for mod,d in pending['frames'].items():
-            with st.expander(MODULES.get(mod,'Группы')+' — предпросмотр'): show_frame(d,30)
-        policy=st.radio('Повторы и обновление',['new','old','replace'],format_func=lambda v:{'new':'Добавить, совпадения заменить новыми','old':'Добавить, совпадения оставить прежними','replace':'Заменить целиком только импортируемые модули'}[v])
-        st.caption('Повтор ГДИ заменяет исследование целиком по скважине, дате, методу и номеру исследования. Расходы за одну дату не суммируются.')
-        accepted=True if not pending['rejected'] else st.checkbox('Загрузить корректные строки, исключив перечисленные ошибки')
-        def apply_import():
-            try:
-                updated=dict(raw_frames); groups=dict(m['groups']); duplicate_count=0
-                for mod,d in pending['frames'].items():
-                    if mod=='groups':
-                        for row in d.itertuples():
-                            change={}
-                            if row.group and row.group!='Без группы': change['group']=row.group
-                            if row.subgroup: change['subgroup']=row.subgroup
-                            groups.setdefault(row.well,{}).update(change)
-                    else:
-                        updated[mod],count=merge_frames(updated.get(mod),d,mod,policy); duplicate_count+=count
-                originals=m.get('imports',[])+[store.keep_original(pid,p) for p in pending['originals']]
-                store.commit(pid,updated,groups=groups,imports=originals,expected=revision,action='Импорт данных')
-                store.event(pid,'Результат импорта',{'removed_duplicates':duplicate_count,'rejected':pending['rejected']})
-                shutil.rmtree(pending['staging'],ignore_errors=True); del st.session_state[key('pending')]
-                st.session_state[key('import_status')]=('success','Данные сохранены')
-            except Exception as e:
-                st.session_state[key('import_status')]=('error',str(e))
-        st.button('Применить загрузку',type='primary',disabled=not pending['frames'] or not accepted,on_click=apply_import)
+    from app.ui.general_import import render as import_page
+    heading('Импорт данных','Простой режим: перетащите все файлы сразу. Подробный: настройка шапки и колонок каждого листа.')
+    import_page(store,pid,m,raw_frames,key,ROOT,show_frame)
 
 elif page in ('Производительность скважин','Гистограммы по эксплуатации скважин'):
     from app.ui.production_view import render as production_view
@@ -286,17 +195,18 @@ elif page=='ГДИ':
     heading('Газодинамические исследования','ΔP² = Рпл² − Рзаб² = aQ + bQ². Коэффициенты БД и расчетные значения доступны для сравнения.')
     if not empty('gdi'):
         data=frames['gdi']; all_wells=ordered(catalog['modules']['gdi']['wells'])
-        a,b,c=st.columns([2,1,1])
-        saved=settings.get('panels',{}).get('gdi',{})
-        with a:ws=checklist('Скважины',all_wells,[w for w in saved.get('wells',all_wells[:1]) if w in all_wells],key('gdi_wells'),lambda x:'№ '+x)
-        n=b.selectbox('Последние даты исследований',[1,2,3,0],index=[1,2,3,0].index(saved.get('n',3)),format_func=lambda x:'Все' if x==0 else str(x),key=key('gdi_n'))
-        orientation=c.selectbox('Оси',['standard','swapped'],index=0 if saved.get('orientation','standard')=='standard' else 1,format_func=lambda x:'X = Q, Y = ΔP²' if x=='standard' else 'X = ΔP², Y = Q')
-        a,b,c=st.columns(3);curves=a.checkbox('Расчетные кривые',saved.get('curves',True));db_curves=b.checkbox('Кривые по коэффициентам БД',saved.get('db_curves',True));crosshair=c.checkbox('Перекрестная линейка',saved.get('crosshair',True))
-        seasons=ordered(data.season[data.season.ne('')]) if 'season' in data else []
-        season_filter=checklist('Сезоны из исходного файла (пусто — все)',seasons,[],key('gdi_seasons')) if seasons else []
-        viewer_configs['gdi']={'wells':ws,'n':n,'orientation':orientation,'curves':curves,'db_curves':db_curves,'crosshair':crosshair,'seasons':season_filter}
-        show_excluded=st.checkbox('Показывать исключенные точки',saved.get('show_excluded',True))
-        viewer_configs['gdi']['show_excluded']=show_excluded
+        with filter_bar(pin=False):
+            a,b,c=st.columns([2,1,1])
+            saved=settings.get('panels',{}).get('gdi',{})
+            with a:ws=checklist('Скважины',all_wells,[w for w in saved.get('wells',all_wells[:1]) if w in all_wells],key('gdi_wells'),lambda x:'№ '+x)
+            n=b.selectbox('Последние даты исследований',[1,2,3,0],index=[1,2,3,0].index(saved.get('n',3)),format_func=lambda x:'Все' if x==0 else str(x),key=key('gdi_n'))
+            orientation=c.selectbox('Оси',['standard','swapped'],index=0 if saved.get('orientation','standard')=='standard' else 1,format_func=lambda x:'X = Q, Y = ΔP²' if x=='standard' else 'X = ΔP², Y = Q')
+            a,b,c=st.columns(3);curves=a.checkbox('Расчетные кривые',saved.get('curves',True));db_curves=b.checkbox('Кривые по коэффициентам БД',saved.get('db_curves',True));crosshair=c.checkbox('Перекрестная линейка',saved.get('crosshair',True))
+            seasons=ordered(data.season[data.season.ne('')]) if 'season' in data else []
+            season_filter=checklist('Сезоны из исходного файла (пусто — все)',seasons,[],key('gdi_seasons')) if seasons else []
+            viewer_configs['gdi']={'wells':ws,'n':n,'orientation':orientation,'curves':curves,'db_curves':db_curves,'crosshair':crosshair,'seasons':season_filter}
+            show_excluded=st.checkbox('Показывать исключенные точки',saved.get('show_excluded',True))
+            viewer_configs['gdi']['show_excluded']=show_excluded
         chosen=gdi.select_studies(data,ws,n,season_filter)
         original_gdi=gdi.select_studies(raw_frames['gdi'],ws,n,season_filter)
         if chosen.empty: st.info('Выберите скважины с данными.')
@@ -325,23 +235,24 @@ elif page=='Графики реагирования':
     heading('Реагирование горизонтов','Сравнение скважин внутри горизонта; уровень и приведенное давление на одной диаграмме или отдельно.')
     if not empty('response'):
         d=frames['response'];hs=ordered(d.horizon);saved=settings.get('panels',{}).get('response',{})
-        a,b=st.columns(2)
-        with a:working=checklist('Рабочие горизонты',hs,[h for h in settings.get('working_horizons',[]) if h in hs],key('working_horizons'))
-        with b:selected=checklist('Показывать горизонты',hs,[h for h in saved.get('horizons',hs) if h in hs],key('response_horizons'))
-        if st.button('Сохранить рабочие горизонты'):
-            store.commit(pid,settings={**settings,'working_horizons':working},expected=revision,action='Выбор рабочих горизонтов');st.success('Сохранено')
-        wells=ordered(d.loc[d.horizon.isin(selected),'well'])
-        ws=checklist('Скважины',wells,[w for w in saved.get('wells',wells[:10]) if w in wells],key('response_wells'),lambda x:'№ '+x)
-        default_span=saved.get('dates',[d.date.min().date(),d.date.max().date()])
-        span=st.date_input('Период',tuple(pd.Timestamp(v).date() for v in default_span),key=key('response_dates'))
-        a,b=st.columns(2)
-        modes=['separate','combined','level','pressure'];splits=['horizon','all','well']
-        view=a.selectbox('Вид графиков',modes,index=modes.index(saved.get('view','separate')),format_func=lambda x:{'separate':'Уровень и давление отдельно','combined':'Уровень + давление (две шкалы Y)','level':'Только уровень','pressure':'Только давление'}[x],key=key('response_view'))
-        split=b.selectbox('Построение',splits,index=splits.index(saved.get('split','horizon')),format_func=lambda x:{'horizon':'Отдельно по горизонтам','all':'Все выбранные на одной диаграмме','well':'Отдельно по скважинам'}[x],key=key('response_split'))
-        st.caption('При совмещении давление — слева, уровень — справа с обратной шкалой. В графиках по скважине: объект — красный, уровень — мятный, ГДМ — фиолетовый, пересчет — синий.')
-        cfg={'wells':ws,'horizons':selected,'working':working,'dates':[str(v) for v in span],'view':view,'split':split}
-        viewer_configs['response']=cfg
-        if st.button('Сохранить параметры графиков'):remember_panel('response',cfg)
+        with filter_bar(pin=False):
+            a,b=st.columns(2)
+            with a:working=checklist('Рабочие горизонты',hs,[h for h in settings.get('working_horizons',[]) if h in hs],key('working_horizons'))
+            with b:selected=checklist('Показывать горизонты',hs,[h for h in saved.get('horizons',hs) if h in hs],key('response_horizons'))
+            if st.button('Сохранить рабочие горизонты'):
+                store.commit(pid,settings={**settings,'working_horizons':working},expected=revision,action='Выбор рабочих горизонтов');st.success('Сохранено')
+            wells=ordered(d.loc[d.horizon.isin(selected),'well'])
+            ws=checklist('Скважины',wells,[w for w in saved.get('wells',wells[:10]) if w in wells],key('response_wells'),lambda x:'№ '+x)
+            default_span=saved.get('dates',[d.date.min().date(),d.date.max().date()])
+            span=st.date_input('Период',tuple(pd.Timestamp(v).date() for v in default_span),key=key('response_dates'))
+            a,b=st.columns(2)
+            modes=['separate','combined','level','pressure'];splits=['horizon','all','well']
+            view=a.selectbox('Вид графиков',modes,index=modes.index(saved.get('view','separate')),format_func=lambda x:{'separate':'Уровень и давление отдельно','combined':'Уровень + давление (две шкалы Y)','level':'Только уровень','pressure':'Только давление'}[x],key=key('response_view'))
+            split=b.selectbox('Построение',splits,index=splits.index(saved.get('split','horizon')),format_func=lambda x:{'horizon':'Отдельно по горизонтам','all':'Все выбранные на одной диаграмме','well':'Отдельно по скважинам'}[x],key=key('response_split'))
+            st.caption('При совмещении давление — слева, уровень — справа с обратной шкалой. В графиках по скважине: объект — красный, уровень — мятный, ГДМ — фиолетовый, пересчет — синий.')
+            cfg={'wells':ws,'horizons':selected,'working':working,'dates':[str(v) for v in span],'view':view,'split':split}
+            viewer_configs['response']=cfg
+            if st.button('Сохранить параметры графиков'):remember_panel('response',cfg)
         f=d[d.horizon.isin(selected)&d.well.isin(ws)]
         original=raw_frames['response'];original=original[original.horizon.isin(selected)&original.well.isin(ws)]
         if len(span)==2:

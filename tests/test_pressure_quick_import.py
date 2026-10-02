@@ -58,7 +58,7 @@ def test_separate_cp1251_files_are_grouped_by_object(tmp_path):
 
 def test_unrecognized_sheet_names_use_order_and_ask_for_review(tmp_path):
     path=tmp_path/'Книга.xlsx';frame=pd.DataFrame({'Дата':pd.date_range('2023-01-01',periods=6),'5':np.arange(6)+100.})
-    with pd.ExcelWriter(path) as xl:frame.to_excel(xl,'Лист1',index=False);frame.assign(**{'5':frame['5']+2}).to_excel(xl,'Лист2',index=False)
+    with pd.ExcelWriter(path) as xl:frame.to_excel(xl,sheet_name='Лист1',index=False);frame.assign(**{'5':frame['5']+2}).to_excel(xl,sheet_name='Лист2',index=False)
     files={'k':(path.name,path.read_bytes())};cache=loaded(files);rows=q.build_rows(files,cache,{},'Проект')
     assert [r['Роль'] for r in rows]==[q.FACT,q.MODEL] and all('проверьте' in r['Статус'] for r in rows)
     data,*_=q.assemble(rows,cache,'first');assert len(data)==6 and np.allclose(data.model-data.fact,2)

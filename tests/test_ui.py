@@ -36,7 +36,7 @@ def test_import_paste_apply(ui):
     assert not ui.exception
     next(b for b in ui.button if b.label=='Применить загрузку').click().run()
     assert not ui.exception
-    assert any('Данные сохранены' in s.value for s in ui.success)
+    assert any('Данные сохранены' in s.value for s in ui.success),([e.value for e in ui.error],[w.value for w in ui.warning],[s.value for s in ui.success])
 
 def test_export_generation(ui):
     ui.sidebar.radio[0].set_value('Экспорт').run()
