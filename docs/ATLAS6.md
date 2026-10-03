@@ -45,6 +45,7 @@ API:
 | `POST /api/projects/{id}/exclusions/undo` | отменить последнее исключение |
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |
 | `POST /api/modules/{id}/options` `{project, param, params}` | варианты зависимого списка |
+| `/api/import/*`, `/api/projects/{id}/import/*` | импорт данных (файлы → распознавание → проверка → применение), см. `atlas/api_import.py` и `docs/parity/import.md` |
 
 Ошибки приходят как `{"error": "текст для пользователя"}`: 400 — неверный параметр,
 404 — нет проекта или модуля, 409 — в проекте нет нужных данных, 500 — сбой модуля (подробности в журнале).

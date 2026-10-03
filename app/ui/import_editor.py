@@ -10,9 +10,8 @@ from app.core.loader import ALIASES,detect_layout,column_map
 from app.core.config import MODULES
 from app.core.well_import import REQUIRED
 
-FIELDS={'well':'Скважина','date':'Дата','q':'Расход газа','p_res':'Пластовое давление','p_bh':'Забойное давление','dp2':'ΔP²','level':'Уровень жидкости','pressure':'Приведенное давление','horizon':'Горизонт','group':'Группа','subgroup':'Подгруппа','value':'Давление','fond':'Тип / фонд'}
-FIELDS.update({f:aliases[0] for f,aliases in ALIASES.items() if f not in FIELDS})
-MODULE_CHOICES=['auto','production','gdi','response','object_pressure','operations','water','bottom','construction','groups','subgroups']
+from app.core.import_rules import FIELDS,MODULE_CHOICES,pressure_layout,pressure_table,fonds_table
+from app.core import import_rules
 
 @st.cache_data(show_spinner=False,max_entries=64)
 def samples(content,name,encoding='auto',delimiter='auto'):
@@ -30,17 +29,6 @@ def text_options(content,name,prefix):
         delimiter=b.selectbox('Разделитель · '+name,['auto','\t',',',';','|','whitespace'],key=prefix+'_delimiter',format_func=lambda v:{'auto':'Автоопределение','\t':'Табуляция','; ':'Точка с запятой и пробел',';':'Точка с запятой',',':'Запятая','|':'Вертикальная черта','whitespace':'Пробелы'}.get(v,v))
         if delimiter=='; ':delimiter=';'
     return encoding,delimiter
-
-def pressure_layout(raw):
-    from app.modules import pressure_match as pm
-    for i in range(min(30,len(raw))):
-        labels=list(raw.iloc[i]);table=tabular.headed(raw,i);cfg=pm.detect_columns(table)
-        recognized=any(re.search(pm.ALIASES['date'],str(v),re.I) for v in labels)
-        if recognized or i+1<len(raw) and pd.notna(pm.dates(pd.Series([raw.iloc[i+1,0]])).iloc[0]):
-            mapping={k:labels.index(cfg[k]) for k in ('date','well','value') if cfg[k] is not None and cfg[k] in labels}
-            mapping.setdefault('date',0)
-            return {'header':i,'mapping':mapping,'wide':cfg['format']=='wide'}
-    return {'header':0,'mapping':{'date':0},'wide':True}
 
 def sheet_editor(raw,sheet,prefix,module='auto',pressure=False,fonds=False):
     st.markdown('**Лист: '+sheet+'**')
@@ -136,48 +124,8 @@ def file_editor(content,name,prefix,module='auto'):
         with st.container(border=True):options[sheet]=sheet_editor(raw,sheet,prefix+'_'+sheet,module)
     return {'sheets':options,'encoding':encoding,'delimiter':delimiter}
 
-def pressure_table(raw,spec):
-    if not spec.get('enabled') or not spec.get('valid',True):raise ValueError('Лист отключен или сопоставление колонок некорректно.')
-    data=tabular.headed(raw,spec['header']);mapping=spec['mapping'];offset=spec['header']+2
-    if spec['wide']:
-        if 'date' not in mapping:raise ValueError('Выберите колонку даты.')
-        datecol=mapping['date'];parts=[]
-        for col in spec['wellcols']:
-            parts.append(pd.DataFrame({'Дата':data.iloc[:,datecol],'Скважина':spec['names'][str(col)],'Давление':data.iloc[:,col],'Строка источника':range(offset,offset+len(data))}))
-        data=pd.concat(parts,ignore_index=True)
-        cfg={'format':'long','date':'Дата','well':'Скважина','value':'Давление','row_offset':offset,'row_column':'Строка источника'}
-    else:
-        if not {'date','well','value'}<=mapping.keys():raise ValueError('Назначьте дату, скважину и давление.')
-        data=data.iloc[:,[mapping[f] for f in ('date','well','value')]].copy();data.columns=['Дата','Скважина','Давление'];cfg={'format':'long','date':'Дата','well':'Скважина','value':'Давление','row_offset':offset}
-    cfg['source_signature']=json.dumps(spec,ensure_ascii=False,sort_keys=True)+str(raw.attrs.get('source_options',''))
-    return data,cfg
-
-def fonds_table(raw,spec):
-    from app.modules.pressure_match import normalize_fonds
-    if not spec.get('enabled'):return {}
-    if not spec.get('valid',True):raise ValueError('Исправьте колонки фонда.')
-    rows=tabular.headed(raw,spec['header']);result={}
-    for wc,fc in spec['fond_pairs']:
-        pair=rows.iloc[:,[wc,fc]].copy();pair.columns=['Скважина','Тип'];result.update(normalize_fonds(pair))
-    return result
-
-
 def parse_pressure_book(content,name,options):
-    from app.modules import pressure_match as pm
-    from app.core.loader import ImportResult
-    raw=full_tables(content,name,options['encoding'],options['delimiter']);specs=options['sheets']
-    fact,cfg=pressure_table(raw[options['fact']],specs[options['fact']]);fact=pm.normalize(fact,cfg)
-    fonds={};parts=[];notes=[]
-    for sheet in options['fonds']:fonds.update(fonds_table(raw[sheet],specs[sheet]))
-    for sheet in options['models']:
-        model,cfg=pressure_table(raw[sheet],specs[sheet]);data,diagnostics=pm.pair(fact,pm.normalize(model,cfg),options['object'],sheet,fonds,options.get('duplicate','first'))
-        data['file']=name;data['sheet']=options['fact'];parts.append(data);notes+=diagnostics
-    if not parts:raise ValueError('Выберите хотя бы один лист модели для кроссплота.')
-    data=pd.concat(parts,ignore_index=True)
-    if data.empty:raise ValueError('Не распознаны даты и скважины. Проверьте шапку.')
-    result=ImportResult(frames={'pressure_match':data},counts={'pressure_match':len(data)})
-    for note in notes:result.issue(name,options['fact'],0,str(note),'предупреждение')
-    return result
+    return import_rules.parse_pressure_book(content,name,options,full_tables(content,name,options['encoding'],options['delimiter']))
 
 
 def preview_project(file):

@@ -4,6 +4,7 @@ import { ChartView } from './ChartView'
 import { ParamBar } from './ParamBar'
 import { TableView } from './TableView'
 import { formatDate } from './format'
+import { ImportPage } from './ImportPage'
 
 const remembered = {
   get: <T,>(key: string, fallback: T): T => {
@@ -33,11 +34,12 @@ export function App() {
     setProjects(list => list?.map(p => (p.id === next.id ? next : p)) ?? list), [])
 
   useEffect(() => { if (project) remembered.set('project', project.id) }, [project])
+  const page = moduleId?.startsWith('@') ? moduleId : null      // служебные страницы: '#/@import'
   useEffect(() => {
-    if (!spec) return
+    if (!spec || page) return
     remembered.set('module', spec.id)
     if (location.hash !== '#/' + spec.id) history.replaceState(null, '', '#/' + spec.id)
-  }, [spec])
+  }, [spec, page])
   useEffect(() => {
     const onHash = () => setModuleId(location.hash.slice(2))
     window.addEventListener('hashchange', onHash)
@@ -73,6 +75,7 @@ export function App() {
           </select>
         </label>
         <nav aria-label="Разделы">
+          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page === '@import' ? 'page' : undefined}>Импорт данных</a></li></ul></section>
           {groups.map(([group, items]) => (
             <section key={group}>
               <h2>{group}</h2>
@@ -81,7 +84,7 @@ export function App() {
                   const missing = project ? m.needs.filter(n => !project.tables[n]) : []
                   return (
                     <li key={m.id}>
-                      <a href={'#/' + m.id} aria-current={m.id === spec?.id ? 'page' : undefined}
+                      <a href={'#/' + m.id} aria-current={m.id === spec?.id && !page ? 'page' : undefined}
                          className={missing.length ? 'no-data' : undefined}
                          title={missing.length ? 'В проекте нет нужных данных' : m.description}>
                         {m.title}
@@ -96,7 +99,10 @@ export function App() {
       </aside>
 
       <main className="workspace">
-        {projects && projects.length === 0 ? (
+        {page === '@import' ? (
+          <ImportPage project={project} onProject={updateProject}
+                      onCreated={async id => { await loadProjects(); setProjectId(id) }} />
+        ) : projects && projects.length === 0 ? (
           <Empty onDemo={createDemo} />
         ) : spec && project ? (
           <ModuleView key={spec.id + project.id} spec={spec} project={project} onProject={updateProject} />
@@ -112,7 +118,7 @@ function Empty({ onDemo }: { onDemo: () => void }) {
   return (
     <div className="empty">
       <h1>Проектов пока нет</h1>
-      <p>Свои данные пока загружаются в версии 5.8: проекты у обеих версий общие и появятся здесь сами.</p>
+      <p>Создайте проект и загрузите свои файлы в разделе <a href="#/@import">«Импорт данных»</a>. Проекты общие с версией 5.8.</p>
       <p>Чтобы посмотреть, как работает новый интерфейс, откройте демонстрационный объект с синтетическими данными.</p>
       <button type="button" className="primary" onClick={onDemo}>Открыть демонстрационный объект</button>
     </div>

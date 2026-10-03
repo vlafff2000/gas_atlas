@@ -228,6 +228,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/exclusions', E(exclusions), methods=['POST']),
         Route('/api/projects/{pid}/exclusions/undo', E(undo), methods=['POST']),
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
+        *__import__('atlas.api_import', fromlist=['routes']).routes(projects),   # раздел «Импорт данных»
         Route('/api/{rest:path}', api_not_found, methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
         Route('/', index),
     ]
