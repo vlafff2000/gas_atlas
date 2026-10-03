@@ -70,8 +70,8 @@ def test_registered_and_needs_data(env):
     client, pid, _ = env
     spec = next(m for m in client.get('/api/modules').json() if m['id'] == 'pressure')
     assert spec['needs'] == ['pressure_match'] and spec['title'] == 'Кроссплот давлений'
-    demo = client.post('/api/projects/demo').json()['id']      # без данных давлений — понятная ошибка 409
-    r = client.post('/api/modules/pressure/run', json={'project': demo, 'params': {}})
+    empty = client.post('/api/projects', json={'name': 'Без давлений'}).json()['id']   # без данных давлений — понятная ошибка 409
+    r = client.post('/api/modules/pressure/run', json={'project': empty, 'params': {}})
     assert r.status_code == 409 and 'Кроссплот давлений' in r.json()['error']
 
 
