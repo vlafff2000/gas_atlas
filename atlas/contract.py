@@ -16,7 +16,7 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text']
 
 
 class ParamError(ValueError):
@@ -88,6 +88,8 @@ class Param:
                 return pd.Timestamp(str(value)).strftime('%Y-%m-%d')
             except (TypeError, ValueError):
                 raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД') from None
+        if self.kind == 'text':
+            return str(value)[:5000]
         if self.kind == 'choice':
             if self.options and value not in {o.value for o in self.options}:
                 raise ParamError(f'«{self.label}»: недопустимое значение {value!r}')
@@ -149,18 +151,28 @@ class Column:
 
 @dataclass(frozen=True)
 class TableAction:
-    """Флажки в строках таблицы и кнопка применения. Пока один вид: исключение точек.
+    """Действие над строками таблицы и кнопка применения.
 
-    ``id_column`` — идентификатор точки (``_point_id``); ``checked_column`` — колонка с текущим
-    состоянием (снятый флажок восстанавливает точку). Без неё флажки только добавляют исключения.
+    ``exclude`` — флажки исключения точек: ``id_column`` — идентификатор точки (``_point_id``);
+    ``checked_column`` — колонка с текущим состоянием (снятый флажок восстанавливает точку).
+    Без неё флажки только добавляют исключения.
+
+    ``assign`` — назначение групп скважин: ``id_column`` — скважина, ``fields`` — колонки, которые
+    уходят в проект (``group``, ``subgroup``), ``editable`` — какие из них правятся в ячейках.
+    ``submit='all'`` отправляет все строки как есть (автоматические подгруппы), ``'changed'`` — только изменённые.
+    ``journal`` — запись в журнале проекта.
     """
-    kind: Literal['exclude']
-    dataset: DatasetKind
+    kind: Literal['exclude', 'assign']
+    dataset: DatasetKind | None
     id_column: str
     label: str
     reason: str = 'Ручная проверка'
     checked_column: str = ''
     reason_editable: bool = True
+    fields: tuple[str, ...] = ()
+    editable: tuple[str, ...] = ()
+    submit: Literal['changed', 'all'] = 'changed'
+    journal: str = ''
 
 
 @dataclass
@@ -256,6 +268,7 @@ class Data(Mapping):
         self.settings: dict[str, Any] = {}
         self.revision: int | None = None
         self.mapping: dict[str, dict[str, str]] = {}    # скважина -> {'group': ..., 'subgroup': ...}
+        self.wells: list[str] = []                       # все скважины проекта (по всем наборам), по номеру
 
     def __getitem__(self, kind):
         return self._frames[kind]
@@ -347,7 +360,8 @@ def _table_json(t: Table) -> dict[str, Any]:
     frame = t.frame[keys + extra]
     action = None
     if t.action:
-        action = {**asdict(t.action), 'dataset': t.action.dataset.value,
+        action = {**asdict(t.action), 'dataset': t.action.dataset.value if t.action.dataset else None,
+                  'values': {k: _column(t.frame[k]) for k in t.action.fields},
                   'ids': _column(frame[t.action.id_column]),
                   'checked': [bool(v) for v in frame[t.action.checked_column]] if t.action.checked_column else None}
     return {'id': t.id, 'title': t.title, 'columns': [asdict(c) for c in t.columns], 'note': t.note,

@@ -43,3 +43,22 @@ def figure(df,mapping,group,kind,periods,overlay=None,metric='daily',interactive
             if interactive:g=charts.decimate(g,'value')
             fig.add_trace(go.Scatter(x=g.date,y=g.value,name='№ '+well+' · '+period,mode='lines',line={'width':1.4,'color':palette[well]},connectgaps=False,meta={'selectable':False},hovertemplate='%{x|%d.%m.%Y}<br>%{y:.3f}<extra>%{fullData.name}</extra>'))
     fig.update_yaxes(rangemode='tozero');return fig
+
+
+def ranking(f,mapping):
+    """«Аналитика фонда»: рейтинг скважин по среднему дебиту за выбранные периоды (таблица 5.8)."""
+    positive=f[f.q.gt(0)]
+    stats=f.groupby('well').agg(Объем_млн_м3=('q',lambda v:v.sum()/1e6),Записей=('q','size'),Нулевых=('q',lambda v:v.eq(0).sum()))
+    stats['Средний_тыс_м3_сут']=positive.groupby('well').q.mean()/1000; stats['Средний_тыс_м3_сут']=stats['Средний_тыс_м3_сут'].fillna(0)
+    stats['Активных_дней']=positive.groupby('well').q.size(); stats=stats.fillna(0).sort_values('Средний_тыс_м3_сут',ascending=False).reset_index().rename(columns={'well':'Скважина'})
+    stats['Группа']=stats['Скважина'].map(lambda w:mapping.get(w,{}).get('group','Без группы'))
+    return stats
+
+
+def program(gdi_df,wells,start,end):
+    """«Проверка выполнения программы»: число дат ГДИ каждой скважины программы в периоде."""
+    d=gdi_df[gdi_df.date.between(pd.Timestamp(start),pd.Timestamp(end))]
+    counts=d.groupby('well').date.nunique()
+    out=pd.DataFrame({'Скважина':list(wells),'Дат исследований':[int(counts.get(w,0)) for w in wells]})
+    out['Статус']=out['Дат исследований'].map(lambda n:'Проведено' if n else 'Нет исследования')
+    return out

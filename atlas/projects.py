@@ -17,7 +17,7 @@ from typing import Any, Iterable, Mapping
 import pandas as pd
 
 from app.core import exclusions
-from app.core.config import DEFAULT_SETTINGS, STORAGE, natural_key
+from app.core.config import DEFAULT_SETTINGS, STORAGE, natural_key, ordered
 from app.core.history import filter_details
 from app.core.performance import Project as FrameCache
 from app.core.storage import Store
@@ -111,6 +111,7 @@ class Projects:
         for well, value in m.get('groups', {}).items():
             mapping.setdefault(well, {}).update(value)
         data.mapping = mapping
+        data.wells = ordered(cache.catalog()['wells'])
         with self._lock:
             for stale in [k for k in self._views if k[0] == pid]:
                 self._views.pop(stale)
@@ -126,7 +127,7 @@ class Projects:
             raise MissingData(missing)
         keep = (*needs, *optional)
         out = Data({k: data[k] for k in keep if k in data}, {k: data.raw[k] for k in keep if k in data.raw}, data.excluded)
-        out.settings, out.revision, out.mapping = data.settings, data.revision, data.mapping
+        out.settings, out.revision, out.mapping, out.wells = data.settings, data.revision, data.mapping, data.wells
         return out
 
     def options(self, pid: str, dataset: DatasetKind, column: str) -> list[str]:
@@ -202,6 +203,42 @@ class Projects:
         ids = [k for k, v in items.items() if batch and v.get('batch') == batch] or [latest['id']]
         dataset = KNOWN[latest.get('module', 'gdi')]
         return self.change_exclusions(pid, dataset, remove=ids)
+
+    def assign_groups(self, pid: str, changes: Mapping[str, Mapping[str, Any]], action: str = 'Назначение групп',
+                      expected: int | None = None) -> dict[str, Any]:
+        """Группы и подгруппы скважин (``manifest.groups``), как страница «Группы» 5.8.
+
+        ``changes``: скважина -> {'group'?, 'subgroup'?}. Пустая группа — «Без группы», как в 5.8.
+        Остальные назначения проекта не меняются."""
+        if action not in ('Назначение групп', 'Автоматические подгруппы'):
+            raise ParamError('Неизвестное действие с группами')
+        if not isinstance(changes, Mapping) or not changes:
+            raise ParamError('Нет изменений для сохранения')
+        data = self.data(pid)
+        known = set(data.wells)
+        unknown = [str(w) for w in changes if str(w) not in known]
+        if unknown:
+            raise ParamError('Нет таких скважин в проекте: ' + ', '.join(unknown[:5]) + '. Обновите страницу.')
+        groups = copy.deepcopy(self.manifest(pid).get('groups', {}))
+        for well, value in changes.items():
+            if not isinstance(value, Mapping) or not set(value) <= {'group', 'subgroup'}:
+                raise ParamError('Назначение скважины: ожидаются поля group и subgroup')
+            well = str(well)
+            current = {'group': data.mapping.get(well, {}).get('group', 'Без группы'),
+                       'subgroup': data.mapping.get(well, {}).get('subgroup', ''), **groups.get(well, {})}
+            if 'group' in value:
+                current['group'] = str(value['group'] or '').strip()[:200] or 'Без группы'
+            if 'subgroup' in value:
+                current['subgroup'] = str(value['subgroup'] or '').strip()[:200]
+            groups[well] = current
+        try:
+            m = self.store.commit(pid, groups=groups, expected=expected, action=action,
+                                  details={'wells': len(changes)})
+        except ValueError as e:
+            if 'изменен' in str(e):
+                raise Conflict('Проект изменён в другом окне (например, в версии 5.8). Обновите данные и повторите.') from None
+            raise
+        return self.summary(m)
 
     # --- сохранённые параметры и расчёты ---
     def saved_state(self, pid: str, module, panel_index: int = 0) -> dict[str, Any]:

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Cell, Table } from './api'
+import type { Assignments, Cell, Table } from './api'
 import { formatCell } from './format'
 
 const PAGE = 500
@@ -14,12 +14,16 @@ interface Props {
   table: Table
   onDownload: (format: 'xlsx' | 'csv') => Promise<void>
   onApply?: (add: string[], remove: string[], reason: string) => Promise<void>
+  onAssign?: (changes: Assignments, journal: string) => Promise<void>
 }
 
-export function TableView({ table, onDownload, onApply }: Props) {
+export function TableView({ table, onDownload, onApply, onAssign }: Props) {
   const [sort, setSort] = useState<{ col: number; dir: 1 | -1 } | null>(null)
   const [limit, setLimit] = useState(PAGE)
-  const action = table.action
+  const action = table.action?.kind === 'exclude' ? table.action : null
+  const assign = table.action?.kind === 'assign' ? table.action : null
+  const [edits, setEdits] = useState<Assignments>({})
+  useEffect(() => { setEdits({}) }, [assign])
   const initial = useMemo(() => new Set(action?.ids.filter((_, i) => action.checked?.[i]) ?? []), [action])
   const [checked, setChecked] = useState<Set<string>>(initial)
   const [reason, setReason] = useState(action?.reason ?? '')
@@ -60,6 +64,26 @@ export function TableView({ table, onDownload, onApply }: Props) {
     try { await onApply(add, remove, reason) } catch (e) { setFailure((e as Error).message) } finally { setBusy(false) }
   }
 
+  // Назначение групп: правка ячеек и отправка изменённых (или всех) строк.
+  const original = (i: number, field: string) => String(assign?.values[field]?.[i] ?? '')
+  const current = (i: number, field: string) => edits[assign!.ids[i]]?.[field] ?? original(i, field)
+  const edit = (i: number, field: string, value: string) =>
+    setEdits(e => ({ ...e, [assign!.ids[i]]: { ...e[assign!.ids[i]], [field]: value } }))
+  const rowChanged = (i: number) => !!assign && assign.fields.some(f => current(i, f) !== original(i, f))
+  const assignments: Assignments = {}
+  if (assign) {
+    assign.ids.forEach((id, i) => {
+      if (assign.submit === 'all' || rowChanged(i)) assignments[id] = Object.fromEntries(assign.fields.map(f => [f, current(i, f)]))
+    })
+  }
+  const assignCount = Object.keys(assignments).length
+  const submitAssign = async () => {
+    if (!onAssign || !assign || !assignCount) return
+    setBusy(true); setFailure('')
+    try { await onAssign(assignments, assign.journal); setEdits({}) }
+    catch (e) { setFailure((e as Error).message) } finally { setBusy(false) }
+  }
+
   const body = (
     <>
       {table.count === 0 ? <p className="muted table-empty">Нет строк для выбранных условий.</p> : (
@@ -82,13 +106,18 @@ export function TableView({ table, onDownload, onApply }: Props) {
               {order.slice(0, limit).map(i => {
                 const id = action?.ids[i]
                 const on = id !== undefined && checked.has(id)
-                const changed = id !== undefined && on !== initial.has(id)
+                const changed = (id !== undefined && on !== initial.has(id)) || rowChanged(i)
                 return (
                   <tr key={i} className={(on ? 'is-excluded' : '') + (changed ? ' is-changed' : '')}>
                     {action && id !== undefined && (
                       <td className="check"><input type="checkbox" checked={on} onChange={() => flip(id)} aria-label="Исключить точку" /></td>
                     )}
-                    {table.columns.map((c, k) => <td key={c.key} className={c.kind}>{formatCell(table.rows[k][i], c)}</td>)}
+                    {table.columns.map((c, k) => assign?.editable.includes(c.key) ? (
+                      <td key={c.key} className="edit">
+                        <input value={current(i, c.key)} maxLength={200} aria-label={c.label}
+                          onChange={e => edit(i, c.key, e.target.value)} />
+                      </td>
+                    ) : <td key={c.key} className={c.kind}>{formatCell(table.rows[k][i], c)}</td>)}
                   </tr>
                 )
               })}
@@ -113,6 +142,17 @@ export function TableView({ table, onDownload, onApply }: Props) {
           </button>
           <span className="muted">
             {changes ? `Исключить: ${add.length}, вернуть: ${remove.length}` : 'Отметьте строки'}
+          </span>
+          {failure && <span className="field-error">{failure}</span>}
+        </div>
+      )}
+      {assign && table.count > 0 && onAssign && (
+        <div className="table-action">
+          <button type="button" className="primary" disabled={!assignCount || busy} onClick={submitAssign}>
+            {busy ? 'Сохраняю…' : assign.label}
+          </button>
+          <span className="muted">
+            {assign.submit === 'all' ? `Скважин: ${assignCount}` : assignCount ? `Изменено скважин: ${assignCount}` : 'Измените ячейки'}
           </span>
           {failure && <span className="field-error">{failure}</span>}
         </div>
