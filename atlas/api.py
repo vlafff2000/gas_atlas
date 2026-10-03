@@ -114,7 +114,12 @@ def create_app(projects: Projects | None = None) -> Starlette:
         return projects.list()
 
     def create_demo(request, body):
-        return JSONResponse({'id': projects.create_demo()}, status_code=201)
+        rows = body.get('rows') or {}
+        if not isinstance(rows, dict) or not all(isinstance(v, int) and 0 <= v <= 5_000_000 for v in rows.values()):
+            raise ParamError('Объёмы демо — целые числа строк от 0 до 5 000 000')
+        if rows.get('production') == 0:
+            raise ParamError('Нужна хотя бы одна строка отбора и закачки')
+        return JSONResponse({'id': projects.create_demo(large=bool(body.get('large')), rows=rows)}, status_code=201)
 
     def project(request, body):
         return projects.summary(projects.manifest(request.path_params['pid']))

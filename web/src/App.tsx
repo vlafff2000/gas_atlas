@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
+import { api, ApiError, LARGE_DEMO_HINT, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
@@ -57,8 +57,8 @@ export function App() {
   }, [modules])
 
   const openProject = (id: string) => { loadProjects().then(() => setProjectId(id)) }
-  const createDemo = async () => {
-    const { id } = await api.createDemo()
+  const createDemo = async (large = false) => {
+    const { id } = await api.createDemo(large)
     await loadProjects()
     setProjectId(id)
   }
@@ -131,13 +131,20 @@ export function App() {
   )
 }
 
-function Empty({ onDemo, onOpen }: { onDemo: () => void; onOpen: (id: string) => void }) {
+function Empty({ onDemo, onOpen }: { onDemo: (large?: boolean) => Promise<void>; onOpen: (id: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  const large = () => { setBusy(true); onDemo(true).finally(() => setBusy(false)) }
   return (
     <div className="empty">
       <h1>Проектов пока нет</h1>
       <p>Создайте проект и загрузите свои файлы в разделе <a href="#/@import">«Импорт данных»</a>. Проекты общие с версией 5.8.</p>
       <p>Чтобы посмотреть, как работает новый интерфейс, откройте демонстрационный объект с синтетическими данными.</p>
-      <button type="button" className="primary" onClick={onDemo}>Открыть демонстрационный объект</button>
+      <div className="toolbar">
+        <button type="button" className="primary" disabled={busy} onClick={() => onDemo()}>Открыть демонстрационный объект</button>
+        <button type="button" className="quiet" disabled={busy} onClick={large} title={LARGE_DEMO_HINT}>
+          {busy ? 'Создание большого демо…' : 'Большой демо-объект (2 млн строк)'}
+        </button>
+      </div>
       <RestoreBox onOpen={onOpen} />
     </div>
   )
