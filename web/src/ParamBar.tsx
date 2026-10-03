@@ -119,6 +119,14 @@ function Field({ param: p, value, options, onChange }:
       </label>
     )
   }
+  if (p.kind === 'date') {
+    return (
+      <label className="field date" title={p.help}>
+        <span className="field-label">{p.label}</span>
+        <input type="date" value={(value as string | null) ?? ''} onChange={e => onChange(e.target.value || null)} />
+      </label>
+    )
+  }
   if (p.kind === 'choice') {
     const index = p.options.findIndex(o => o.value === value)
     return (
@@ -127,14 +135,6 @@ function Field({ param: p, value, options, onChange }:
         <select value={index} onChange={e => onChange(p.options[Number(e.target.value)].value)}>
           {p.options.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
         </select>
-      </label>
-    )
-  }
-  if (p.kind === 'date') {
-    return (
-      <label className="field date" title={p.help}>
-        <span className="field-label">{p.label}</span>
-        <input type="date" value={(value as string | null) ?? ''} onChange={e => onChange(e.target.value || null)} />
       </label>
     )
   }

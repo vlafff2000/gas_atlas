@@ -63,10 +63,10 @@ export interface Table {
 }
 export interface Axis {
   label: string; unit: string; scale: 'value' | 'log' | 'time' | 'category'; inverse: boolean; from_zero: boolean
-  step: number | null; categories: string[] | null
+  step: number | null; categories: string[] | null; minimum: number | null; maximum: number | null
 }
 export interface Series {
-  name: string; kind: 'points' | 'line' | 'bar'; group: string; dashed: boolean; dash: string; width: number
+  name: string; kind: 'points' | 'line' | 'bar' | 'box'; group: string; dashed: boolean; dash: string; width: number
   legend: boolean; tooltip: string
   color: string; symbol: 'circle' | 'square' | 'diamond' | 'triangle'; hollow: boolean
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
-import { BarChart, LineChart, ScatterChart } from 'echarts/charts'
+import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
 import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { Cell, Chart, Series } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 
-echarts.use([BarChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
+echarts.use([BarChart, BoxplotChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
   DataZoomComponent, AxisPointerComponent, CanvasRenderer])
 
 // Палитра 5.8 (app/core/config.py COLORS): цвета исследований остаются привычными.
@@ -43,7 +43,9 @@ function toOption(chart: Chart, excludeMode: boolean): echarts.EChartsCoreOption
   const legend = groups.filter(g => chart.series.some(s => key(s) === g && s.legend))
 
   const axis = (a: Chart['x'], position: 'x' | 'y') => ({
-    type: a.scale, inverse: a.inverse, scale: !a.from_zero, min: a.from_zero && a.scale !== 'category' ? 0 : undefined,
+    type: a.scale, inverse: a.inverse, scale: !a.from_zero,
+    min: a.scale === 'category' ? undefined : a.minimum ?? (a.from_zero ? 0 : undefined),
+    max: a.scale === 'category' ? undefined : a.maximum ?? undefined,
     interval: a.step && a.scale === 'value' ? a.step : undefined,
     data: a.scale === 'category' ? a.categories ?? [] : undefined,
     name: axisTitle(a.label, a.unit), nameLocation: 'middle', nameGap: position === 'x' ? 30 : 56,
@@ -71,7 +73,12 @@ function toOption(chart: Chart, excludeMode: boolean): echarts.EChartsCoreOption
     legend: { bottom: 0, left: 0, type: 'scroll', data: legend, textStyle: { color: INK }, itemWidth: 14, itemHeight: 10 },
     tooltip: {
       trigger: 'item', borderColor: LINE, textStyle: { color: INK, fontSize: 12 }, confine: true,
-      formatter: (p: { seriesName: string; data: [Cell, Cell, string, string] }) => {
+      formatter: (p: { seriesName: string; seriesType: string; name: string; data: [Cell, Cell, string, string] }) => {
+        if (p.seriesType === 'boxplot') {
+          const names = ['Нижний ус', 'Q1', 'Медиана', 'Q3', 'Верхний ус']
+          return [`<b>${escapeHtml(p.seriesName)}</b>`, escapeHtml(p.name),
+            ...(p.data as unknown as number[]).slice(-5).map((v, i) => `${names[i]}: ${formatNumber(v)}`)].join('<br>')
+        }
         const [x, y, id, label] = p.data
         const at = (a: Chart['x'], v: Cell) =>
           v === null ? '' : a.scale === 'time' && typeof v === 'string' ? formatDate(v)
@@ -87,11 +94,17 @@ function toOption(chart: Chart, excludeMode: boolean): echarts.EChartsCoreOption
     toolbox: {
       right: 8, top: 0, itemSize: 14, iconStyle: { borderColor: MUTED },
       feature: {
-        dataZoom: { title: { zoom: 'Увеличить область', back: 'Назад' } },
+        // filterMode 'none': линия, выходящая за границы оси, обрезается, а не пропадает целиком
+        dataZoom: { filterMode: 'none', title: { zoom: 'Увеличить область', back: 'Назад' } },
         restore: { title: 'Сбросить масштаб' },
       },
     },
     series: chart.series.map(s => {
+      if (s.kind === 'box') {     // y — пять чисел на категорию оси X; пустая категория — без ящика
+        const empty = ['-', '-', '-', '-', '-']
+        return { name: key(s), type: 'boxplot', color: color(s), data: s.y.map(v => Array.isArray(v) ? v : empty),
+          itemStyle: { color: color(s) + '55', borderColor: color(s) }, boxWidth: [6, 40] }
+      }
       const data = s.x.map((x, j) => [x, s.y[j], s.ids?.[j] ?? '', s.labels?.[j] ?? ''])
         .filter(([x, y]) => s.kind !== 'points' || (x !== null && y !== null))
       const common = { name: key(s), data, color: color(s) }
