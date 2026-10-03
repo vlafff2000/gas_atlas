@@ -7,7 +7,20 @@ from app.core.config import COLORS, ordered, natural_key
 def periods(df,start=11,end=4):
     if df.attrs.get('_atlas_period_rule')==(start,end) and 'period' in df:return df
     if df.empty: return df.assign(period=pd.Series(dtype=str))
-    d=df.copy(); year=d.date.dt.year; month=d.date.dt.month
+    d=df.copy()
+    # The rule is row-wise over (date year, month, kind, season, year): evaluate it once per distinct
+    # combination (hundreds) instead of string operations on every row (seconds on a million rows).
+    keys=pd.DataFrame({'y':d.date.dt.year,'m':d.date.dt.month},index=d.index)
+    for c in ('kind','season','year'):
+        if c in d: keys[c]=d[c]
+    codes=keys.groupby(list(keys.columns),sort=False,dropna=False).ngroup().to_numpy()
+    _,first=np.unique(codes,return_index=True)
+    d['period']=_period_values(d.iloc[first],start,end)[codes]
+    return d
+
+def _period_values(d,start,end):
+    """Season label per row (the 5.8 rule as written; ``periods`` applies it to distinct rows)."""
+    year=d.date.dt.year; month=d.date.dt.month
     if start>end:
         y=np.where(month.ge(start),year,year-1)
         derived=pd.Series(y,index=d.index).astype(str)+'-'+pd.Series(y+1,index=d.index).astype(str)
@@ -16,8 +29,7 @@ def periods(df,start=11,end=4):
     season=d.get('season',pd.Series('',index=d.index)).fillna('').astype(str).str.replace(r'[–—]','-',regex=True).str.replace(r'\s','',regex=True)
     supplied_year=d.get('year',pd.Series('',index=d.index)).fillna('').astype(str).str.replace(r'\.0$','',regex=True)
     inj=supplied_year.where(supplied_year.str.fullmatch(r'\d{4}'),year.astype(str))
-    d['period']=np.where(d.kind.eq('injection'),inj,season.where(season.ne(''),derived))
-    return d
+    return np.where(d.kind.eq('injection'),inj,season.where(season.ne(''),derived))
 
 def period_colors(df,kind):
     from app.core.performance import index_for

@@ -3,7 +3,7 @@ import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
 import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { Axis, Chart, ChartEvent, Series } from './api'
+import type { Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
@@ -37,7 +37,14 @@ interface Props {
   excludeMode: boolean
   onExclude: (dataset: string, id: string) => void
   onDownload: (format: string, dpi: number) => Promise<void>
+  /** Точки линий в окне оси X: при увеличении (и в режимах «Замеры» / «Исключать точки») прореженная линия заменяется точками окна. */
+  fetchWindow?: (x0: number, x1: number, raw: boolean) => Promise<WindowReply>
 }
+
+/** Подгруженное окно: серии с точками в границах [from, to] поверх прореженного графика `base`. */
+interface Patch { base: Chart; from: number; to: number; raw: boolean; series: WindowReply['series'] }
+/** Оси после подгрузки окна остаются прежними: X — на весь график (сброс масштаба возвращает всё), Y — как её видел пользователь. */
+type AxisPin = { x: [number, number] | null; y: [number, number] | null; y2: [number, number] | null }
 
 const key = (s: Series) => s.group || s.name
 /** Отметки замеров на линии: заданы модулем, нужны для исключения кликом или включён вид «Замеры».
@@ -82,7 +89,7 @@ function timeSpan(chart: Chart) {
 }
 export const hasNavigator = (chart: Chart) => timeSpan(chart) > NAVIGATOR_SPAN
 
-function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode): echarts.EChartsCoreOption {
+function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode, pin: AxisPin | null, base: Chart): echarts.EChartsCoreOption {
   const color = colorOf(chart)
   const tips = new Map<string, string[]>()
   for (const s of chart.series) {
@@ -92,9 +99,13 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const legend = [...new Set(chart.series.map(key))].filter(g => chart.series.some(s => key(s) === g && s.legend))
   const total = chart.series.reduce((n, s) => n + s.x.length, 0)
   const time = chart.x.scale === 'time'
-  const navigator = hasNavigator(chart)
+  const navigator = hasNavigator(base)      // по полному графику: подгрузка окна не должна убирать навигатор
 
   const axis = (a: Axis, position: 'x' | 'y' | 'y2') => {
+    const plain = axisBase(a, position), fixed = pin?.[position]
+    return fixed ? { ...plain, min: fixed[0], max: fixed[1] } : plain
+  }
+  const axisBase = (a: Axis, position: 'x' | 'y' | 'y2') => {
     const y = position !== 'x'
     return {
       type: a.scale, inverse: a.inverse, scale: !a.from_zero,
@@ -251,14 +262,22 @@ interface Plotted { x: number; label: string; kind: ChartEvent['kind'] }
 const syncKey = (chart: Chart) =>
   chart.x.scale === 'category' ? null : chart.x.scale === 'time' ? 'time' : `${chart.x.scale}|${chart.x.label}|${chart.x.unit}`
 
-export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) {
+export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
   const stage = useRef<HTMLDivElement>(null)
   const instance = useRef<echarts.ECharts | null>(null)
+  const [patch, setPatch] = useState<Patch | null>(null)
+  const chart = useMemo<Chart>(() => {
+    if (!patch || patch.base !== given) return given
+    return { ...given, series: given.series.map((s, i) => { const w = patch.series[i]; return w ? { ...s, x: w.x, y: w.y, ids: w.ids, labels: w.labels, total: w.total } : s }) }
+  }, [given, patch])
+  const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
   const state = useRef({
-    chart, excludeMode, onExclude, tracks: [] as Track[], selected: {} as Record<string, boolean>,
+    chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
+    edges: (() => null) as () => [number, number] | null,
+    excludeMode, onExclude, tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
@@ -281,6 +300,8 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
   state.current.excludeMode = excludeMode
   state.current.mode = mode
   state.current.onExclude = onExclude
+  state.current.base = given
+  state.current.fetchWindow = fetchWindow
   state.current.hiddenEvents = new Set(offEvents)
 
   useEffect(() => {
@@ -589,7 +610,63 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
       schedule()
     })
     zr.on('dblclick', () => ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 }))
-    ch.on('datazoom', schedule)
+    // Окно оси X → точки окна: при увеличении, а также в режимах «Замеры» и «Исключать точки» (там нужны все замеры)
+    let timer = 0, seq = 0
+    const edges = (): [number, number] | null => {
+      const r = gridRect()
+      if (!r) return null
+      const a = ch.convertFromPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [r.x, r.y + r.height]) as [number, number]
+      const b = ch.convertFromPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [r.x + r.width, r.y]) as [number, number]
+      return Number.isFinite(a[0]) && Number.isFinite(b[0]) ? [Math.min(a[0], b[0]), Math.max(a[0], b[0])] : null
+    }
+    const axisExtent = (index: number): [number, number] | null => {
+      try {
+        const axis = (ch as unknown as { getModel(): { getComponent(n: string, i: number): { axis?: { scale: { getExtent(): number[] } } } | undefined } })
+          .getModel().getComponent('yAxis', index)?.axis
+        const e = axis?.scale.getExtent()
+        return e && Number.isFinite(e[0]) && Number.isFinite(e[1]) ? [e[0], e[1]] : null
+      } catch { return null }
+    }
+    const dataExtent = (c: Chart): [number, number] => {
+      let lo = Infinity, hi = -Infinity
+      for (const s of c.series) {
+        if (s.kind !== 'line') continue
+        for (const v of [s.x[0], s.x[s.x.length - 1]]) {
+          const n = toNumber(v, c.x.scale)
+          if (Number.isFinite(n)) { lo = Math.min(lo, n); hi = Math.max(hi, n) }
+        }
+      }
+      return [lo, hi]
+    }
+    st.edges = edges
+    st.ensure = () => {
+      const base = st.base, load = st.fetchWindow
+      if (!load || !base.series.some(s => s.total > s.x.length) || base.x.scale === 'category') return
+      const view = edges()
+      if (!view) return
+      const [lo, hi] = dataExtent(base), span = hi - lo
+      if (!(span > 0)) return
+      const raw = st.mode === 'facts' || st.excludeMode
+      const whole = view[0] <= lo + span * 0.01 && view[1] >= hi - span * 0.01
+      const have = st.patch
+      if (whole && !raw) {
+        if (have) { st.patch = null; st.pin = null; ++seq; setPatch(null) }
+        return
+      }
+      const width = view[1] - view[0]
+      if (have && have.base === base && have.raw === raw && view[0] >= have.from && view[1] <= have.to
+        && (whole || width >= (have.to - have.from) * 0.2)) return
+      const from = whole ? lo : view[0] - width * 0.25, to = whole ? hi : view[1] + width * 0.25
+      const id = ++seq
+      load(from, to, raw).then(reply => {
+        if (id !== seq || st.base !== base) return
+        st.pin = { x: [lo, hi], y: axisExtent(0), y2: base.y2 ? axisExtent(1) : null }
+        const next: Patch = { base, from, to, raw, series: reply.series }
+        st.patch = next
+        setPatch(next)
+      }).catch(() => { /* остаётся прореженный график; пометка «показана часть точек» это говорит */ })
+    }
+    ch.on('datazoom', () => { schedule(); window.clearTimeout(timer); timer = window.setTimeout(st.ensure, 250) })
     // столбцы и ящики (ось категорий): щелчок по точке-выбросу тоже исключает её
     ch.on('click', (p: { seriesIndex?: number; data?: unknown }) => {
       if (st.tracks.length) return
@@ -605,6 +682,7 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
     const observer = new ResizeObserver(() => { ch.resize(); schedule() })
     observer.observe(el)
     return () => {
+      window.clearTimeout(timer); ++seq
       observer.disconnect(); unsync(); publish(st.id, null, null)
       window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin)
       if (st.frame) cancelAnimationFrame(st.frame)
@@ -630,19 +708,26 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
     st.spans = { x: span(st.tracks, t => t.xs), y: span(st.tracks.filter(t => !t.axis), t => t.ys), y2: span(st.tracks.filter(t => t.axis), t => t.ys) }
     st.blur = chart.series.reduce((n, s) => n + s.x.length, 0) <= BLUR_LIMIT
     st.focused = -1
-    instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode), { notMerge: true })
+    const view = st.patch && st.patch.base === given ? st.edges() : null      // масштаб сохраняется при подмене точек окна
+    instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode, st.patch ? st.pin : null, given), { notMerge: true })
+    if (view) instance.current?.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: view[0], endValue: view[1] })
     st.selected = {}
     applyLegend()
     if (boxRef.current) instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: true })
     st.draw()
+    const later = window.setTimeout(st.ensure, 0)
+    return () => window.clearTimeout(later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chart, excludeMode, mode, theme])
+
+  // новый расчёт (другие параметры, исключение точки) — подгруженное окно относится к прежнему графику
+  useEffect(() => { state.current.patch = null; state.current.pin = null; setPatch(null) }, [given])
 
   // новый расчёт — прежние закреплённые подсказки относятся к другим данным
   useEffect(() => {
     const st = state.current
     st.pins.forEach(p => p.el.remove()); st.pins = []
-  }, [chart])
+  }, [given])
   // разница с первой подсказкой — в единицах новой темы и вида не меняется, но номера и отметки перерисовать
   useEffect(() => { state.current.draw() }, [offEvents])
 
@@ -693,6 +778,7 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
           <DownloadMenu onDownload={onDownload} />
         </span>
       </figcaption>
+      {thinned.length > 0 && <ThinNote chart={chart} thinned={thinned.map(([, i]) => i)} windowed={!!patch && patch.base === given} patch={patch} />}
       <div className="chart-stage" ref={stage}>
         <div ref={box} className="chart-canvas" role="img" aria-label={chart.title} />
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
@@ -859,6 +945,27 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
         </button>
       )}
     </div>
+  )
+}
+
+const count = (n: number) => n.toLocaleString('ru-RU')
+
+/** Пометка «показана часть точек»: линии прорежены методом М4 (пики и провалы сохранены), все точки — при увеличении. */
+function ThinNote({ chart, thinned, windowed, patch }: { chart: Chart; thinned: number[]; windowed: boolean; patch: Patch | null }) {
+  let shown = 0, total = 0
+  for (const i of thinned) {
+    const s = chart.series[i]
+    shown += s.x.length
+    total += windowed && patch?.series[i] ? patch.series[i].window : s.total
+  }
+  const part = shown < total
+  const where = windowed ? ' в видимой области' : ''
+  return (
+    <span className={'chart-thin' + (part ? ' part' : '')}
+      title={'Линии прорежены методом М4: на каждый участок оставлены первая, последняя, наибольшая и наименьшая точки и разрывы, пики и провалы не теряются. '
+        + 'Увеличьте масштаб или включите «Замеры» — подгрузятся все точки видимой области. Таблицы и выгрузки графиков (PNG, SVG, PDF, CSV, XLSX) всегда содержат все данные.'}>
+      {part ? `Показано ${count(shown)} из ${count(total)} точек${where} · увеличьте масштаб для всех` : `Все точки${where}: ${count(total)}`}
+    </span>
   )
 }
 

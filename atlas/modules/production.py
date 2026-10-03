@@ -16,6 +16,7 @@ from ._production import (DIRECTIONS, GROUP_NOTE, KINDS, CURVE_NOTE, PRODUCTION,
 
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
 INDIVIDUAL, GROUPS = {'mode': 'individual'}, {'mode': 'groups'}
+MANY_CURVES = 200       # столько кривых на одном графике уже не различить, а строятся они десятки секунд
 
 
 class ProductionModule(ProductionBase):
@@ -59,6 +60,13 @@ class ProductionModule(ProductionBase):
         ws = sel.wells()
         if not ws or not sel.periods:
             return self.nothing_selected(result)
+        curves = len(ws) * len(sel.periods)
+        if curves > MANY_CURVES:
+            result.notes.append(Note(
+                f'Выбрано {curves:,} кривых ({len(ws)} скважин × {len(sel.periods)} периодов) на одном графике: '
+                'он строится долго и плохо читается. Выберите меньше скважин или периодов (например, одну группу или '
+                'последние сезоны). Линии показаны с прореживанием, пики и провалы сохранены; при увеличении видны все '
+                'точки, выгрузки и таблицы содержат все данные.'.replace(',', ' '), 'warning'))
         result.charts.append(curve_chart(sel, ws, 'date' if params['view'] == 'time' else 'cumulative'))
         result.notes.append(Note(CURVE_NOTE))
         self.common_tables(result, sel, ws)

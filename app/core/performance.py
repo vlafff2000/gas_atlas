@@ -61,6 +61,35 @@ def select_wells(df,wells):
     return df.iloc[positions].copy()
 
 
+def compact_strings(df,min_rows=20000):
+    """Повторяющиеся строки (файл, лист, сезон, группа, скважина…) хранить одним объектом на значение.
+
+    Тип колонок остаётся object, значения и пропуски те же — код расчётов не замечает разницы, а память
+    на миллионе строк уменьшается в разы (каждая ячейка иначе — отдельная строка Python). Пропуск None становится NaN — для pandas это одно и то же."""
+    if len(df)<min_rows:return df
+    for column in df.columns:
+        values=df[column]
+        if values.dtype!=object:continue
+        codes,uniques=pd.factorize(values)
+        if len(uniques)*2>len(values):continue
+        df[column]=pd.Categorical.from_codes(codes,pd.Index(uniques,dtype=object)).astype(object)
+    return df
+
+
+def memory_bytes(df,sample=2000):
+    """Approximate ``memory_usage(deep=True)``: text columns are measured on an even sample of rows.
+
+    The exact deep count walks every string (seconds per million rows) and is only shown as a rough figure."""
+    total=int(df.memory_usage(index=True,deep=False).sum())
+    if len(df)<=sample:return int(df.memory_usage(index=True,deep=True).sum())
+    rows=np.linspace(0,len(df)-1,sample).astype(int)
+    part=df.iloc[rows]
+    for column in df.columns:
+        if df[column].dtype==object:
+            total+=int((part[column].memory_usage(index=False,deep=True)-part[column].memory_usage(index=False,deep=False))*len(df)/sample)
+    return total
+
+
 def prepare_table(raw,module,settings,token):
     d=exclusions.apply({module:raw},settings)[module]
     # Never attach mutable metadata to the raw snapshot shared with other sessions.
@@ -84,9 +113,9 @@ class Project:
     def raw(self,module):
         with self.lock:
             if module not in self._raw:
-                d=pd.read_parquet(self.path/(module+'.parquet'));self.disk_reads+=1
-                self._raw[module]=exclusions.identify(d,module)
-                self._memory[id(self._raw[module])]=int(self._raw[module].memory_usage(index=True,deep=True).sum())
+                d=compact_strings(pd.read_parquet(self.path/(module+'.parquet')));self.disk_reads+=1
+                self._raw[module]=exclusions.identify(d,module,copy=False)     # d is a fresh private read
+                self._memory[id(self._raw[module])]=memory_bytes(self._raw[module])
             return self._raw[module]
 
     def prepared(self,module,settings,fast=True):

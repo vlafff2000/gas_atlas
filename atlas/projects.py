@@ -28,6 +28,7 @@ from .contract import Data, MissingData, ParamError
 from .domain import DatasetKind
 
 _CACHE_PROJECTS = 3
+WARM_ROWS = 100_000     # меньшие проекты и так открываются мгновенно
 KNOWN = {k.value: k for k in DatasetKind}
 
 # Настройки, которые интерфейс 6 может менять напрямую, с проверкой значения (как поля «Настроек» 5.8).
@@ -85,8 +86,9 @@ class ProjectInfo:
 
 
 class Projects:
-    def __init__(self, root=STORAGE):
+    def __init__(self, root=STORAGE, warm: bool = False):
         self.store = Store(root)
+        self.warm = warm        # после открытия большого проекта готовить суточный набор «Поскважинного анализа» в фоне
         self._lock = threading.RLock()
         self._frames: OrderedDict[tuple, FrameCache] = OrderedDict()
         self._views: OrderedDict[tuple, Data] = OrderedDict()
@@ -167,6 +169,8 @@ class Projects:
         data.mapping = mapping
         data.project = ProjectInfo(pid, m, self.store, cache)
         data.wells = ordered(cache.catalog()['wells'])
+        if self.warm and len(shown.get('production', ())) >= WARM_ROWS:
+            self._warm_wells(data)
         with self._lock:
             for stale in [k for k in self._views if k[0] == pid]:
                 self._views.pop(stale)
@@ -174,6 +178,17 @@ class Projects:
             while len(self._views) > _CACHE_PROJECTS:
                 self._views.popitem(last=False)
         return data
+
+    @staticmethod
+    def _warm_wells(data: Data) -> None:
+        """Суточный набор объекта (14–16 с на 2 млн строк) строится один раз; запрос пользователя ждёт тот же кэш, а не считает заново."""
+        def build():
+            try:
+                from app.modules import well_analysis
+                well_analysis.dataset({k.value: data[k] for k in data}, data.settings, data.mapping)
+            except Exception:       # прогрев необязателен: ошибку покажет сам раздел
+                pass
+        threading.Thread(target=build, name='warm-wells', daemon=True).start()
 
     def select(self, pid: str, needs, optional=()) -> Data:
         data = self.data(pid)
