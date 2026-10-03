@@ -125,10 +125,13 @@ async function download(path: string, body: unknown) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+export const LARGE_DEMO_HINT = 'Синтетика для проверки скорости: отбор и закачка 1 000 000 строк, ГДИ 300 000, '
+  + 'реагирование 200 000, кроссплот 500 000 пар. Создание занимает 10–20 секунд.'
+
 export const api = {
   modules: () => request<ModuleSpec[]>('/api/modules'),
   projects: () => request<Project[]>('/api/projects'),
-  createDemo: () => request<{ id: string }>('/api/projects/demo', { method: 'POST' }),
+  createDemo: (large = false) => request<{ id: string }>('/api/projects/demo', json('POST', { large })),
   options: (project: string, dataset: string, column: string) =>
     request<string[]>(`/api/projects/${project}/options?dataset=${encodeURIComponent(dataset)}&column=${encodeURIComponent(column)}`),
   run: (module: string, project: string, params: Params, signal?: AbortSignal) =>
