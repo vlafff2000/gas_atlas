@@ -135,6 +135,5 @@ def render(store,pid,manifest,raw_frames,key):
             generation=state.get('generation',0)+1;st.session_state.pop(key('pmq_result'),None)
             st.session_state[key('pmq_state')]={'cache':{},'choices':{},'overrides':{},'generation':generation}
             st.session_state[key('pmq_done')]=('success','Сохранено: '+str(len(data))+' строк, объектов '+str(data.object.nunique()))
-            st.session_state[key('pm_import_open')]=False
         except Exception as error:st.session_state[key('pmq_done')]=('error',str(error))
     st.button('Сохранить в проект',type='primary',key=key('pmq_commit'),on_click=commit,disabled=bool(held['errors']))

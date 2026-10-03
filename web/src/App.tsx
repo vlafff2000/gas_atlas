@@ -80,7 +80,7 @@ export function App() {
           </select>
         </label>
         <nav aria-label="Разделы">
-          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page === '@import' ? 'page' : undefined}>Импорт данных</a></li></ul></section>
+          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page?.startsWith('@import') ? 'page' : undefined}>Импорт данных</a></li></ul></section>
           {groups.filter(([, items]) => items.some(m => inMenu(m.id, project))).map(([group, items]) => (
             <section key={group}>
               <h2>{group}</h2>
@@ -112,8 +112,8 @@ export function App() {
       </aside>
 
       <main className="workspace">
-        {page === '@import' ? (
-          <ImportPage project={project} onProject={updateProject}
+        {page === '@import' || page === '@import/pressure' ? (
+          <ImportPage key={page} project={project} onProject={updateProject} pressure={page === '@import/pressure'}
                       onCreated={async id => { await loadProjects(); setProjectId(id) }} />
         ) : projects && projects.length === 0 ? (
           <Empty onDemo={createDemo} onOpen={openProject} />
@@ -275,6 +275,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     onProject(await api.assignGroups(project.id, changes, journal))      // новая ревизия → пересчёт
     setToast({ text: `Сохранено назначений: ${Object.keys(changes).length}. Группы обновлены во всех разделах.`, undo: false })
   }
+  const assignCategories = async (changes: Assignments) => {
+    onProject(await api.assignCategories(project.id, changes))
+    setToast({ text: `Сохранено категорий: ${Object.keys(changes).length}. Их видит и версия 5.8.`, undo: false })
+  }
   const undo = async () => {
     try {
       const r = await api.undo(project.id)
@@ -341,7 +345,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
       </div>
 
       {status.kind === 'error' && (
-        <div className={'note ' + (status.missing ? 'info' : 'warning')} role="alert">{status.message}</div>
+        <div className={'note ' + (status.missing ? 'info' : 'warning')} role="alert">
+          {status.message}
+          {status.missing && <> <a href={spec.needs.includes('pressure_match') ? '#/@import/pressure' : '#/@import'}>Открыть импорт</a></>}
+        </div>
       )}
 
       {result && (
@@ -375,7 +382,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             <TableView key={t.id} table={t}
               onDownload={format => api.exportTables(spec.id, project.id, params, t.id, format)}
               onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
-              onAssign={t.action?.kind === 'assign' ? assignGroups : undefined} />
+              onAssign={t.action?.kind !== 'assign' ? undefined : t.action.target === 'object-categories' ? assignCategories : assignGroups} />
           ))}
         </div>
       )}

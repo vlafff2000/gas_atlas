@@ -70,8 +70,8 @@ def test_registered_and_needs_data(env):
     client, pid, _ = env
     spec = next(m for m in client.get('/api/modules').json() if m['id'] == 'pressure')
     assert spec['needs'] == ['pressure_match'] and spec['title'] == 'Кроссплот давлений'
-    demo = client.post('/api/projects/demo').json()['id']      # без данных давлений — понятная ошибка 409
-    r = client.post('/api/modules/pressure/run', json={'project': demo, 'params': {}})
+    empty = client.post('/api/projects', json={'name': 'Без давлений'}).json()['id']   # без данных давлений — понятная ошибка 409
+    r = client.post('/api/modules/pressure/run', json={'project': empty, 'params': {}})
     assert r.status_code == 409 and 'Кроссплот давлений' in r.json()['error']
 
 
@@ -247,3 +247,46 @@ def test_export_box_chart(env):
         assert r.status_code == 200 and len(r.content) > 1000
     r = client.post('/api/modules/pressure/export', json={'project': pid, 'params': {'view': 'stats'}, 'target': 'tables'})
     assert r.status_code == 200 and r.content[:2] == b'PK'
+
+
+def test_object_categories_shared_with_58(env):
+    client, pid, projects = env
+    body = run(client, pid)
+    editor = table(body, 'object-categories')
+    objects = editor['action']['ids']
+    assert len(objects) == 2 and editor['action']['target'] == 'object-categories'
+    assert editor['action']['editable'] == ['category'] and editor['collapsed'] is True
+    # 5.8 записала свой вид с категорией первого объекта: 6 её показывает и применяет
+    m = projects.manifest(pid)
+    panel = {**(m['settings'].get('panels') or {}).get('pressure_match', {}), 'object_groups': {objects[0]: 'ПХГ'},
+             'threshold': 6.0}
+    settings = {**m['settings'], 'panels': {**m['settings'].get('panels', {}), 'pressure_match': panel}}
+    projects.store.commit(pid, settings=settings, expected=m['revision'], action='Параметры кроссплота')
+    body = run(client, pid, color='object_group')
+    editor = table(body, 'object-categories')
+    assert editor['collapsed'] is False
+    assert frame_of(editor).set_index('object').category.to_dict() == {objects[0]: 'ПХГ', objects[1]: 'Без категории'}
+    # Правка в 6: только изменённые объекты; пустое название — «Без категории», как поле 5.8 по умолчанию
+    r = client.post(f'/api/projects/{pid}/object-categories',
+                    json={'changes': {objects[0]: {'category': ''}, objects[1]: {'category': '  Месторождение '}}})
+    assert r.status_code == 200, r.text
+    saved = projects.manifest(pid)['settings']['panels']['pressure_match']
+    assert saved['object_groups'] == {objects[0]: 'Без категории', objects[1]: 'Месторождение'}
+    assert saved['threshold'] == 6.0                       # остальной вид 5.8 не тронут
+    assert pressure.CATEGORIES_JOURNAL in set(projects.store.history(pid)['Действие'])
+    # 5.8 читает сохранённый вид как есть (default панели) и окрашивает теми же категориями, что и 6
+    data = projects.data(pid)
+    d58, _ = legacy.filter_data(data[PM], data.settings, data.mapping, saved)
+    d6, _, cfg = legacy_view(projects, pid, {'color': 'object_group'})
+    assert cfg['object_groups'] == saved['object_groups']
+    assert d58.groupby('object').object_group.first().to_dict() == {objects[0]: 'Без категории', objects[1]: 'Месторождение'}
+    assert d6.groupby('object').object_group.first().to_dict() == d58.groupby('object').object_group.first().to_dict()
+    cross = run(client, pid, color='object_group')['charts'][0]
+    assert {'Месторождение', 'Без категории'} <= {s['name'] for s in cross['series']}
+    # «Сохранить» в 6 сохраняет категории в виде
+    assert client.post(f'/api/projects/{pid}/state/pressure', json={'params': {}}).status_code == 200
+    assert projects.manifest(pid)['settings']['panels']['pressure_match']['object_groups'] == saved['object_groups']
+    # Неизвестный объект и пустые изменения — понятная ошибка
+    for changes in ({'Нет такого': {'category': 'x'}}, {}):
+        r = client.post(f'/api/projects/{pid}/object-categories', json={'changes': changes})
+        assert r.status_code == 400

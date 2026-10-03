@@ -15,6 +15,8 @@ from app.ui.selection import checklist,parse_wells,paginate
 
 from app.ui.import_editor import samples,full_tables,text_options,sheet_editor,pressure_table,fonds_table
 
+IMPORT_SECTIONS=['Таблицы исследований и эксплуатации','Данные давлений (кроссплот)']
+
 def read(content,name):return full_tables(content,name)
 
 def _pressure_source(file,prefix):
@@ -28,20 +30,39 @@ def _pressure_source(file,prefix):
     return data,preview,prefix
 
 def import_panel(store,pid,manifest,raw_frames,key):
+    """«Импорт данных» → «Данные давлений (кроссплот)»: быстрая и подробная загрузка, демонстрационные варианты."""
     done=st.session_state.pop(key('pmq_done'),None)
     if done:getattr(st,done[0])(done[1])
-    has='pressure_match' in raw_frames
-    title='Данные давлений · загрузить или обновить' if has else 'Загрузка данных давлений'
-    # A bordered container, not an expander: the import forms use expanders and Streamlit forbids nesting them.
-    if has and not st.toggle(title,value=False,key=key('pm_import_open')):return
-    with st.container(border=True):
-        mode=st.radio('Способ загрузки',['Быстрая (автоматически)','Подробная (по листам)'],horizontal=True,key=key('pm_import_style'),
-            help='Быстрая: перетащите сразу все файлы — факт, модели и фонды определятся сами, проверка в одной таблице. Подробная: ручная настройка шапки и колонок каждого листа.')
-        if mode.startswith('Быстрая'):
-            from app.ui.pressure_quick_import import render as quick_import
-            quick_import(store,pid,manifest,raw_frames,key)
-        else:
-            detailed_import(store,pid,manifest,raw_frames,key)
+    if 'pressure_match' in raw_frames:
+        old=raw_frames['pressure_match'];st.caption('В проекте данные давлений: объектов '+str(old.object.nunique())+', строк '+str(len(old))+'. Новые объекты добавятся к ним.')
+    mode=st.radio('Способ загрузки',['Быстрая (автоматически)','Подробная (по листам)'],horizontal=True,key=key('pm_import_style'),
+        help='Быстрая: перетащите сразу все файлы — факт, модели и фонды определятся сами, проверка в одной таблице. Подробная: ручная настройка шапки и колонок каждого листа.')
+    if mode.startswith('Быстрая'):
+        from app.ui.pressure_quick_import import render as quick_import
+        quick_import(store,pid,manifest,raw_frames,key)
+    else:
+        detailed_import(store,pid,manifest,raw_frames,key)
+    demo_panel(store,pid,manifest,raw_frames,key)
+
+def demo_panel(store,pid,manifest,raw_frames,key):
+    from app.core import pressure_demo
+    with st.expander('Демонстрационные варианты'):
+        variants={v['value']:v for v in pressure_demo.variants()}
+        chosen=st.selectbox('Вариант',list(variants),format_func=lambda v:variants[v]['label'],key=key('pm_demo_variant'))
+        st.caption(variants[chosen]['description']+' Книги можно скачать и загрузить выше, как рабочие файлы.')
+        if st.button('Подготовить книги',key=key('pm_demo_books')):
+            st.session_state[key('pm_demo_files')]=(chosen,pressure_demo.books(chosen))
+        prepared=st.session_state.get(key('pm_demo_files'))
+        if prepared and prepared[0]==chosen:
+            for i,(name,content) in enumerate(prepared[1]):
+                st.download_button('Скачать '+name,content,name,key=key('pm_demo_download_'+str(i)))
+        if not manifest.get('demo'):
+            st.caption('Загрузить вариант сразу в проект можно только в демонстрационном проекте: рабочие проекты не заполняются выдуманными замерами.')
+        elif st.button('Загрузить вариант в демонстрационный проект',type='primary',key=key('pm_demo_load'),
+                help='Данные давлений проекта заменяются выбранным вариантом.'):
+            frames=dict(raw_frames);frames['pressure_match']=pressure_demo.frame(chosen)
+            store.commit(pid,frames,expected=manifest['revision'],action='Демонстрационные данные давлений',details={'variant':variants[chosen]['label']})
+            st.session_state[key('pmq_done')]=('success','Загружен вариант «'+variants[chosen]['label']+'»');st.rerun()
 
 def detailed_import(store,pid,manifest,raw_frames,key):
     with st.container():
@@ -262,10 +283,14 @@ def scenario_summary(d,cfg):
     rows=[{'object':o,'scenario':s,**pm.statistics(g,cfg['percentiles'])} for (o,s),g in d.groupby(['object','scenario'],sort=False)]
     return pd.DataFrame(rows)[SUMMARY_COLUMNS].rename(columns=SUMMARY_NAMES).round(2)
 
+def to_import(key):
+    st.session_state[key('import_section')]=IMPORT_SECTIONS[1];st.session_state['next_nav']='Импорт данных'
+
 def render(store,pid,manifest,frames,raw_frames,mapping,controls,key,style,viewer,quick_download):
-    import_panel(store,pid,manifest,raw_frames,key)
     if 'pressure_match' not in frames:
-        st.info('Загрузите книгу с листами «Факт», «Модель», «Фонд» либо отдельные файлы факта и моделей.');return
+        st.info('Данных давлений в проекте пока нет. Загрузите книгу с листами «Факт», «Модель», «Фонд» либо отдельные файлы факта и моделей '
+            'в разделе «Импорт данных» → «Данные давлений (кроссплот)». Там же — демонстрационные варианты.')
+        st.button('Открыть импорт данных давлений',type='primary',key=key('pm_to_import'),on_click=to_import,args=(key,));return
     raw=raw_frames['pressure_match'];source=frames['pressure_match']
     with filter_bar():
         slots={};cfg=options(raw,mapping,key,default=manifest['settings'].get('panels',{}).get('pressure_match',{}),bar=True,slots=slots)

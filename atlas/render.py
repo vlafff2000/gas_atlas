@@ -22,9 +22,19 @@ def axis_title(label: str, unit: str) -> str:
     return f'{label}, {unit}' if unit else label
 
 
+# Палитра графиков Атласа 6 (web/src/chartTheme.ts): модули отдают цвета 5.8, выгрузка заменяет их по номеру,
+# как экран, — цвета серий в файле совпадают с тем, что видно в окне.
+PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#8a5a14']
+LEGACY = {old.lower(): new for old, new in zip(COLORS, PALETTE)}
+
+
+def series_color(color: str) -> str:
+    return LEGACY.get(color.lower(), color)
+
+
 def group_colors(chart: Chart) -> dict[str, str]:
     groups = list(dict.fromkeys(s.group or s.name for s in chart.series))
-    return {g: COLORS[i % len(COLORS)] for i, g in enumerate(groups)}
+    return {g: PALETTE[i % len(PALETTE)] for i, g in enumerate(groups)}
 
 
 def to_plotly(chart: Chart):
@@ -32,7 +42,7 @@ def to_plotly(chart: Chart):
     palette = group_colors(chart)
     fig = go.Figure()
     for s in chart.series:
-        color = s.color or palette[s.group or s.name]
+        color = series_color(s.color) if s.color else palette[s.group or s.name]
         if s.kind == 'box':
             # Пять чисел ящика как значения: квартили по ним совпадают, усы — крайние значения в пределах 1,5 IQR.
             first = True
@@ -53,7 +63,7 @@ def to_plotly(chart: Chart):
                                    'line': {'color': color, 'width': 1.8 if s.hollow else 0}}
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='lines+markers' if s.markers else 'lines',
                                      name=s.name, showlegend=s.legend, yaxis='y2' if s.axis == 'y2' else 'y',
-                                     connectgaps=False, line={'color': color, 'dash': dash, 'width': s.width or 1.8},
+                                     connectgaps=False, line={'color': color, 'dash': dash, 'width': s.width or 2},
                                      **extra))
         else:
             symbol = SYMBOLS[s.symbol] + ('-open' if s.hollow else '')

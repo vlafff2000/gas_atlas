@@ -91,6 +91,8 @@ async function save(response: Response, fallback: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+export interface PressureDemo { value: string; label: string; description: string; books: string[] }
+
 export const importApi = {
   options: async () => (await send('/api/import/options')).json() as Promise<ImportOptions>,
   upload: async (file: Blob, name: string) =>
@@ -117,6 +119,14 @@ export const importApi = {
   }, signal?: AbortSignal) => post<PressureInspect>(`/api/projects/${project}/import/pressure`, body, signal),
   pressureApply: (project: string, pending: string, mode: string) =>
     post<Applied>(`/api/projects/${project}/import/pressure/apply`, { pending, mode }),
+  /** Демонстрационные варианты кроссплота: книги факт + модели + фонд, как рабочие файлы. */
+  pressureDemos: async () => (await send('/api/import/pressure-demo')).json() as Promise<PressureDemo[]>,
+  pressureDemoBook: async (variant: string, name: string) =>
+    (await send(`/api/import/pressure-demo/${encodeURIComponent(variant)}/${encodeURIComponent(name)}`)).blob(),
+  pressureDemoSave: async (variant: string, name: string) =>
+    save(await send(`/api/import/pressure-demo/${encodeURIComponent(variant)}/${encodeURIComponent(name)}`), name),
+  pressureDemoApply: (project: string, variant: string) =>
+    post<Applied>(`/api/projects/${project}/import/pressure-demo`, { variant }),
   /** «Новый проект»: POST /api/projects (раздел «Проекты»). */
   createProject: (name: string) => post<{ id: string }>('/api/projects', { name }),
 }
