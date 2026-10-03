@@ -9,7 +9,7 @@ from app.core.config import MODULES,VERSION,ordered
 from app.core.export import figure_bytes,decode_arrays
 from app.core.logging_utils import show_error
 from app.core.performance import Frames
-from app.core.bulk_export import export_plan,export_word,bundle_exports
+from app.core.bulk_export import export_plan,export_word,bundle_exports,migrate_preset
 from app.core.documents import DEFAULT_CAPTIONS
 from app.modules import production,gdi,well_charts
 from app.ui.selection import checklist
@@ -17,21 +17,6 @@ from app.ui.selection import checklist
 @st.cache_data(show_spinner=False,max_entries=8)
 def file_preview(figure_json,width):
     return figure_bytes(go.Figure(decode_arrays(json.loads(figure_json))),'png',150,width)
-
-
-def migrate_preset(values):
-    values=dict(values);modules=list(values.get('modules',[]))
-    view=values.get('production_view')
-    if view in ('hist','mixed'):
-        if 'histograms' not in modules:modules.append('histograms')
-        if view=='hist':modules=[m for m in modules if m!='production']
-        for field in ('wells','groups','split','direction','histaxis','hist_size','groupmode','size','panels'):
-            if 'production_'+field in values:values.setdefault('histograms_'+field,values['production_'+field])
-        values['production_view']='curve'
-    for kind in ('withdrawal','injection'):
-        if 'periods_'+kind in values:
-            values.setdefault('production_periods_'+kind,values['periods_'+kind]);values.setdefault('histograms_periods_'+kind,values['periods_'+kind])
-    values['modules']=modules;return values
 
 
 def render(store,pid,manifest,frames,raw_frames,mapping,viewer,point_controls,key):

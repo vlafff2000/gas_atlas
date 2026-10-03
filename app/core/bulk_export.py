@@ -111,3 +111,19 @@ def bundle_exports(store,pid,paths,metadata=None):
                 z.write(p,p.name)
             z.writestr('files.json',_json([Path(p).name for p in unique]))
         return store.save_export_file(pid,'Все_созданные_файлы.zip',target,metadata or {})
+
+
+# Presets saved by older versions (shared by 5.8 export panel and Atlas 6).
+def migrate_preset(values):
+    values=dict(values);modules=list(values.get('modules',[]))
+    view=values.get('production_view')
+    if view in ('hist','mixed'):
+        if 'histograms' not in modules:modules.append('histograms')
+        if view=='hist':modules=[m for m in modules if m!='production']
+        for field in ('wells','groups','split','direction','histaxis','hist_size','groupmode','size','panels'):
+            if 'production_'+field in values:values.setdefault('histograms_'+field,values['production_'+field])
+        values['production_view']='curve'
+    for kind in ('withdrawal','injection'):
+        if 'periods_'+kind in values:
+            values.setdefault('production_periods_'+kind,values['periods_'+kind]);values.setdefault('histograms_periods_'+kind,values['periods_'+kind])
+    values['modules']=modules;return values
