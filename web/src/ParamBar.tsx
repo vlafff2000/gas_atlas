@@ -130,6 +130,14 @@ function Field({ param: p, value, options, onChange }:
       </label>
     )
   }
+  if (p.kind === 'date') {
+    return (
+      <label className="field" title={p.help || 'Пусто — без границы'}>
+        <span className="field-label">{p.label}</span>
+        <input type="date" value={(value as string) ?? ''} onChange={e => onChange(e.target.value)} />
+      </label>
+    )
+  }
   return <NumberField param={p} value={value as number} onChange={onChange} />
 }
 

@@ -16,7 +16,7 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date']
 
 
 class ParamError(ValueError):
@@ -61,6 +61,14 @@ class Param:
     def coerce(self, value: Any) -> Any:
         if value is None:
             return self.default
+        if self.kind == 'date':     # ISO-дата 'ГГГГ-ММ-ДД'; пустая строка — без границы
+            text = str(value).strip()[:10]
+            if not text:
+                return ''
+            try:
+                return dt.date.fromisoformat(text).isoformat()
+            except ValueError:
+                raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД') from None
         try:
             if self.kind == 'boolean':
                 if isinstance(value, str):
@@ -182,6 +190,8 @@ class Axis:
     from_zero: bool = False
     step: float | None = None         # шаг делений (dtick в 5.8)
     categories: list[str] | None = None   # для scale='category': порядок подписей
+    minimum: float | None = None      # заданные границы оси (None — автоматически)
+    maximum: float | None = None
 
 
 @dataclass
@@ -189,7 +199,7 @@ class Series:
     name: str
     x: Sequence[Any]
     y: Sequence[Any]
-    kind: Literal['points', 'line', 'bar'] = 'points'
+    kind: Literal['points', 'line', 'bar', 'box'] = 'points'   # box: y — [низ, Q1, медиана, Q3, верх] на категорию
     group: str = ''                  # общий цвет и общий пункт легенды
     dashed: bool = False
     dash: Literal['', 'solid', 'dash', 'dot', 'dashdot', 'longdash'] = ''   # пусто — по ``dashed``
