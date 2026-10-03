@@ -8,6 +8,7 @@ import { TableView } from './TableView'
 import { formatDate } from './format'
 import { inMenu, PROJECT_PAGES } from './api_projects'
 import { ProjectPages, RestoreBox } from './ProjectPage'
+import { ImportPage } from './ImportPage'
 
 const remembered = {
   get: <T,>(key: string, fallback: T): T => {
@@ -33,7 +34,7 @@ export function App() {
 
   const project = projects?.find(p => p.id === projectId) ?? projects?.[0] ?? null
   const spec = modules?.find(m => m.id === moduleId) ?? modules?.[0] ?? null
-  const page = moduleId?.startsWith('@') ? moduleId : null      // «Экспорт», «Проекты», «Настройки» …
+  const page = moduleId?.startsWith('@') ? moduleId : null      // служебные страницы: «Импорт», «Экспорт», «Проекты», «Настройки», «Паспорт»
   const updateProject = useCallback((next: Project) =>
     setProjects(list => list?.map(p => (p.id === next.id ? next : p)) ?? list), [])
 
@@ -79,6 +80,7 @@ export function App() {
           </select>
         </label>
         <nav aria-label="Разделы">
+          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page === '@import' ? 'page' : undefined}>Импорт данных</a></li></ul></section>
           {groups.map(([group, items]) => (
             <section key={group}>
               <h2>{group}</h2>
@@ -100,7 +102,7 @@ export function App() {
           ))}
           {project && (
             <section>
-              <h2>Проект</h2>
+              <h2>Документы и настройки</h2>
               <ul>{PROJECT_PAGES.filter(p => inMenu(p.id, project)).map(p => (
                 <li key={p.id}><a href={'#/' + p.id} aria-current={page === p.id ? 'page' : undefined}>{p.title}</a></li>
               ))}</ul>
@@ -110,7 +112,10 @@ export function App() {
       </aside>
 
       <main className="workspace">
-        {projects && projects.length === 0 ? (
+        {page === '@import' ? (
+          <ImportPage project={project} onProject={updateProject}
+                      onCreated={async id => { await loadProjects(); setProjectId(id) }} />
+        ) : projects && projects.length === 0 ? (
           <Empty onDemo={createDemo} onOpen={openProject} />
         ) : page === '@passport' && project ? (
           <PassportPage key={project.id} project={project} onProject={updateProject} />
@@ -130,7 +135,7 @@ function Empty({ onDemo, onOpen }: { onDemo: () => void; onOpen: (id: string) =>
   return (
     <div className="empty">
       <h1>Проектов пока нет</h1>
-      <p>Свои данные пока загружаются в версии 5.8: проекты у обеих версий общие и появятся здесь сами.</p>
+      <p>Создайте проект и загрузите свои файлы в разделе <a href="#/@import">«Импорт данных»</a>. Проекты общие с версией 5.8.</p>
       <p>Чтобы посмотреть, как работает новый интерфейс, откройте демонстрационный объект с синтетическими данными.</p>
       <button type="button" className="primary" onClick={onDemo}>Открыть демонстрационный объект</button>
       <RestoreBox onOpen={onOpen} />
