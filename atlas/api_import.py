@@ -13,6 +13,8 @@
 | `POST /api/projects/{pid}/import/table` `{pending, table, format}` | журнал проверки / таблица CSV, XLSX |
 | `POST /api/projects/{pid}/import/pressure` `{files, choices, overrides, duplicate}` | данные давлений: роли листов и сопоставление |
 | `POST /api/projects/{pid}/import/pressure/apply` `{pending, mode}` | сохранить данные давлений |
+| `GET /api/import/pressure-demo`, `GET /api/import/pressure-demo/{variant}/{name}` | демонстрационные варианты кроссплота и их книги |
+| `POST /api/projects/{pid}/import/pressure-demo` `{variant}` | вариант сразу в демонстрационный проект |
 """
 from __future__ import annotations
 
@@ -91,6 +93,11 @@ def routes(projects) -> list[Route]:
             content, name, mime = render.tables_file([t], t.title)
         return attachment(content, name, mime)
 
+    def demo_book(request, body):
+        name = request.path_params['name']
+        return attachment(imports.pressure_demo_book(request.path_params['variant'], name), name,
+                          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
     pid = lambda request: request.path_params['pid']   # noqa: E731
     return [
         Route('/api/import/files', _wrap(upload, raw_body=True), methods=['POST']),
@@ -100,10 +107,14 @@ def routes(projects) -> list[Route]:
         Route('/api/import/profile', _wrap(lambda r, b: imports.profile(b)), methods=['POST']),
         Route('/api/import/templates', _wrap(lambda r, b: imports.templates())),
         Route('/api/import/templates/{name}', _wrap(template)),
+        Route('/api/import/pressure-demo', _wrap(lambda r, b: imports.pressure_demo_variants())),
+        Route('/api/import/pressure-demo/{variant}/{name}', _wrap(demo_book)),
         Route('/api/projects/{pid}/import/check', _wrap(lambda r, b: imports.check(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/apply', _wrap(lambda r, b: imports.apply(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/table', _wrap(table), methods=['POST']),
         Route('/api/projects/{pid}/import/pressure', _wrap(lambda r, b: imports.pressure_inspect(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/pressure/apply', _wrap(lambda r, b: imports.pressure_apply(pid(r), b)),
+              methods=['POST']),
+        Route('/api/projects/{pid}/import/pressure-demo', _wrap(lambda r, b: imports.pressure_demo_apply(pid(r), b)),
               methods=['POST']),
     ]

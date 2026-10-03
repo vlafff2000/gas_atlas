@@ -64,3 +64,6 @@ fieldset.choices label { display: inline-flex; gap: 6px; align-items: center; }
 .new-project { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; background: var(--surface);
   border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .new-project strong { width: 100%; }
+
+.demo-variants { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 14px; display: grid; gap: 8px; }
+.demo-variants summary { cursor: pointer; color: var(--accent-strong); }

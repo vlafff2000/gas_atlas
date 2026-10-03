@@ -61,3 +61,21 @@ def test_crossplot_page_with_pressure_data(tmp_path,ui):
     for tab in ['Динамика','Распределения','Объекты','Статистика','Кроссплот']:
         next(r for r in ui.radio if r.label=='Представление').set_value(tab).run()
         assert not ui.exception,tab
+
+def test_crossplot_import_lives_in_import_section(ui):
+    ui.sidebar.radio[0].set_value('Кроссплот давлений').run()
+    assert not ui.exception and not any(r.label=='Способ загрузки' for r in ui.radio)
+    next(b for b in ui.button if b.label=='Открыть импорт данных давлений').click().run()
+    assert not ui.exception and ui.sidebar.radio[0].value=='Импорт данных'
+    assert any(r.label=='Способ загрузки' for r in ui.radio)
+
+def test_crossplot_demo_variant_in_demo_project(ui):
+    ui.sidebar.radio[0].set_value('Импорт данных').run()
+    next(r for r in ui.radio if r.label=='Раздел импорта').set_value('Данные давлений (кроссплот)').run()
+    next(s for s in ui.selectbox if s.label=='Вариант').set_value('objects').run()
+    next(b for b in ui.button if b.label=='Загрузить вариант в демонстрационный проект').click().run(timeout=60)
+    assert not ui.exception
+    data=Store(config.STORAGE).load(Store(config.STORAGE).list()[0]['id'])[1]['pressure_match']
+    assert data.object.nunique()==3
+    ui.sidebar.radio[0].set_value('Кроссплот давлений').run()
+    assert not ui.exception and int(ui.metric[0].value)>0

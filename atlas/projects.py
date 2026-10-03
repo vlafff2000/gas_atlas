@@ -105,9 +105,12 @@ class Projects:
                 'excluded': len(settings.get('excluded_points', {}))}
 
     def create_demo(self) -> str:
+        from app.core import pressure_demo
         from app.core.demo import demo_frames
         pid = self.store.create('Демонстрационный объект', demo=True)
-        self.store.commit(pid, frames=demo_frames(), action='Демонстрационные данные')
+        frames = demo_frames()
+        frames['pressure_match'] = pressure_demo.frame()
+        self.store.commit(pid, frames=frames, action='Демонстрационные данные')
         return pid
 
     def manifest(self, pid: str) -> dict[str, Any]:

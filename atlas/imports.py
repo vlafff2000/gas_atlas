@@ -26,6 +26,7 @@ from app.core import pressure_import as pq
 from app.core import profiles, tabular
 from app.core.config import MODULES, ROOT
 from app.core.loader import column_map, detect_layout, load_file
+from app.core import pressure_demo
 from app.core.templates import input_templates
 from app.core.well_import import REQUIRED
 
@@ -666,6 +667,32 @@ class Imports:
         self._forget(p)
         return {'message': f'Сохранено: {len(data)} строк, объектов {data.object.nunique()}',
                 'project': self.projects.summary(saved)}
+
+    # ---------- демонстрационные варианты кроссплота (app/core/pressure_demo.py) ----------
+    @staticmethod
+    def pressure_demo_variants() -> list[dict[str, Any]]:
+        return pressure_demo.variants()
+
+    @staticmethod
+    def pressure_demo_book(variant: str, name: str) -> bytes:
+        for book, content in pressure_demo.books(variant):
+            if book == name:
+                return content
+        raise KeyError('Нет такой книги')
+
+    def pressure_demo_apply(self, pid: str, body: dict) -> dict[str, Any]:
+        """Вариант сразу в проект — только в демонстрационном: рабочие проекты не заполняются выдуманными замерами."""
+        m = self.projects.manifest(pid)
+        if not m.get('demo'):
+            raise ParamError('Демонстрационные варианты загружаются только в демонстрационный проект.')
+        variant = body.get('variant') or pressure_demo.DEFAULT
+        label = {v['value']: v['label'] for v in pressure_demo.variants()}.get(variant)
+        if label is None:
+            raise ParamError('Нет такого демонстрационного варианта')
+        frames = self._raw_frames(pid, m)
+        frames['pressure_match'] = pressure_demo.frame(variant)
+        saved = self._commit(pid, frames, m.get('revision'), 'Демонстрационные данные давлений', details={'variant': label})
+        return {'message': f'Загружен вариант «{label}»', 'project': self.projects.summary(saved)}
 
     # ---------- шаблоны и примеры ----------
     @staticmethod
