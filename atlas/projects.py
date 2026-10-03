@@ -104,7 +104,12 @@ class Projects:
                 'menu': navigation.visible(settings),     # разделы 5.8, показанные в меню (как в боковой панели 5.8)
                 'excluded': len(settings.get('excluded_points', {}))}
 
-    def create_demo(self) -> str:
+    def create_demo(self, large: bool = False, rows: Mapping[str, Any] | None = None) -> str:
+        """Демо-объект; ``large`` — большой объём для проверки скорости (``app.core.demo_large``)."""
+        if large:
+            from app.core.demo_large import DEFAULTS, create_large_demo
+            sizes = {k: int(v) for k, v in (rows or {}).items() if k in DEFAULTS and v is not None}
+            return create_large_demo(self.store, **sizes)
         from app.core.demo import demo_frames
         pid = self.store.create('Демонстрационный объект', demo=True)
         self.store.commit(pid, frames=demo_frames(), action='Демонстрационные данные')

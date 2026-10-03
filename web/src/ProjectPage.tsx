@@ -1,6 +1,6 @@
 // Раздел «Проекты» (5.8: app/ui/extras.py) и общий вход для страниц «Экспорт», «Проекты», «Настройки».
 import { useCallback, useEffect, useState } from 'react'
-import type { Project } from './api'
+import { api, LARGE_DEMO_HINT, type Project } from './api'
 import { bytes, projectsApi, saveLink, type ProjectDetails, type RestorePreview } from './api_projects'
 import { ExportPage } from './ExportPage'
 import { SettingsPage } from './SettingsPage'
@@ -66,6 +66,9 @@ function ProjectsPage({ project, projects, onProject, onOpen }: PageProps) {
     const created = await projectsApi.copy(project.id)
     onOpen(created.id)
   })
+  const largeDemo = () => act('demo', async () => {
+    onOpen((await api.createDemo(true)).id)
+  })
   const create = () => act('create', async () => {
     const created = await projectsApi.create(newName)
     setNewName('')
@@ -130,6 +133,12 @@ function ProjectsPage({ project, projects, onProject, onOpen }: PageProps) {
               onKeyDown={e => { if (e.key === 'Enter' && newName.trim()) create() }} />
           </label>
           <button type="button" className="primary" disabled={busy !== null || !newName.trim()} onClick={create}>Создать</button>
+        </div>
+        <div className="form-row">
+          <button type="button" className="quiet" disabled={busy !== null} onClick={largeDemo}
+            title={LARGE_DEMO_HINT}>
+            {busy === 'demo' ? 'Создание большого демо-объекта…' : 'Создать большой демо-объект (2 млн строк)'}
+          </button>
         </div>
       </section>
 
