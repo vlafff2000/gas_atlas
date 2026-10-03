@@ -1,0 +1,66 @@
+/* Раздел «Импорт данных». Цвета и радиусы — переменные из styles.css. */
+.small { font-size: 13px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button {
+  background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 14px; cursor: pointer; color: var(--muted);
+}
+.tabs button[aria-selected='true'] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 700; }
+.import .form-row { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; }
+.import .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 16px; }
+.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.field select, .field input, .import textarea, .grid select, .grid input, .names input {
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 8px; background: var(--surface); color: var(--ink);
+  font-size: 14px; min-width: 0;
+}
+.import textarea { width: 100%; display: block; margin: 6px 0; font-family: ui-monospace, monospace; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.segmented label { padding: 6px 12px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.segmented label:has(input:checked) { background: var(--accent-soft); color: #0d5a61; }
+.segmented input { accent-color: var(--accent-strong); }
+.drop {
+  border: 2px dashed var(--line); border-radius: var(--radius); padding: 18px; display: flex; flex-wrap: wrap;
+  align-items: center; gap: 12px; justify-content: space-between; background: var(--surface); color: var(--muted);
+}
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.file-picker { display: grid; gap: 8px; }
+.file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 14px; }
+.file-list li { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+button.link { background: none; border: 0; color: var(--accent-strong); cursor: pointer; padding: 0; font-size: 13px; }
+.metrics { display: flex; gap: 12px; flex-wrap: wrap; }
+.metrics div {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 14px;
+  display: grid; min-width: 120px;
+}
+.metrics span { font-size: 13px; color: var(--muted); }
+.metrics strong { font-size: 22px; }
+.table-scroll { overflow: auto; max-height: 560px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+table.grid { border-collapse: collapse; width: 100%; font-size: 14px; }
+table.grid th, table.grid td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+table.grid th { position: sticky; top: 0; background: var(--bg); font-weight: 700; z-index: 1; }
+table.grid td.ok { color: var(--accent-strong); }
+.bad, table.grid td.bad { color: #b42318; }
+.boxed { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; background: var(--surface); }
+.boxed h3 { font-size: 17px; }
+.sheet-editor { display: grid; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+.sheet-preview { overflow: auto; max-height: 260px; border: 1px solid var(--line); border-radius: var(--radius); }
+.sheet-preview table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.sheet-preview th, .sheet-preview td { padding: 2px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.sheet-preview thead th { position: sticky; top: 0; background: var(--bg); }
+.sheet-preview tbody th { color: var(--muted); font-weight: 400; background: var(--bg); }
+.sheet-preview tr.header-row td { background: var(--accent-soft); font-weight: 700; }
+table.names { border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+table.names td, table.names th { padding: 2px 8px; text-align: left; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 14px; }
+.check { display: inline-flex; gap: 6px; align-items: center; }
+.pair { display: contents; }
+.toggle.disabled { opacity: .55; }
+fieldset.choices { border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 12px; }
+fieldset.choices legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
+fieldset.choices label { display: inline-flex; gap: 6px; align-items: center; }
+.check-result { display: grid; gap: 12px; }
+.check-result h2 { font-size: 20px; }
+.templates summary, .import details summary { cursor: pointer; color: var(--accent-strong); }
+.templates .links { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.new-project { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.new-project strong { width: 100%; }

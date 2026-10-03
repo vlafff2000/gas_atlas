@@ -1,0 +1,5 @@
+# Gas Atlas 6: Python 3.10+. Расчётное ядро 5.8 + сервер + окно приложения.
+-r requirements-modern.txt
+starlette>=0.40
+uvicorn>=0.30
+pywebview>=5.0; sys_platform == "win32"

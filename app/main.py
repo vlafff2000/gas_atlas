@@ -16,7 +16,7 @@ from app.core.storage import Store
 from app.core.demo import demo_frames,well_demo_frames
 from app.core import exclusions,reporting
 from app.core.export import csv_bytes,xlsx_bytes,figure_bytes,export_zip,safe_name
-from app.modules import production,gdi,response,charts
+from app.modules import production,gdi,response,charts,group_analysis
 from app.ui.theme import apply,heading
 from app.ui.point_tools import PointControls
 from app.core.performance import context,select_wells,index_for,chart_cache
@@ -294,12 +294,9 @@ elif page=='Аналитика фонда':
         d=production.periods(frames['production'],settings['season_start'],settings['season_end'])
         kind=st.selectbox('Режим',['withdrawal','injection'],format_func=lambda x:'Отбор' if x=='withdrawal' else 'Закачка')
         ps=st.multiselect('Периоды',ordered(d.loc[d.kind.eq(kind),'period']),default=ordered(d.loc[d.kind.eq(kind),'period']))
-        f=d[d.kind.eq(kind)&d.period.isin(ps)]; positive=f[f.q.gt(0)]
+        f=d[d.kind.eq(kind)&d.period.isin(ps)]
         if not f.empty:
-            stats=f.groupby('well').agg(Объем_млн_м3=('q',lambda v:v.sum()/1e6),Записей=('q','size'),Нулевых=('q',lambda v:v.eq(0).sum()))
-            stats['Средний_тыс_м3_сут']=positive.groupby('well').q.mean()/1000; stats['Средний_тыс_м3_сут']=stats['Средний_тыс_м3_сут'].fillna(0)
-            stats['Активных_дней']=positive.groupby('well').q.size(); stats=stats.fillna(0).sort_values('Средний_тыс_м3_сут',ascending=False).reset_index().rename(columns={'well':'Скважина'})
-            stats['Группа']=stats['Скважина'].map(lambda w:mapping.get(w,{}).get('group','Без группы'))
+            stats=group_analysis.ranking(f,mapping)
             show_frame(stats); st.download_button('Рейтинг · CSV',csv_bytes(stats),'ranking.csv')
     if 'gdi' in frames:
         st.subheader('Качество последних ГДИ')
@@ -310,10 +307,8 @@ elif page=='Аналитика фонда':
             span=st.date_input('Период программы',(dt.date.today().replace(month=1,day=1),dt.date.today()))
             if planned and len(span)==2:
                 import re
-                ws=ordered(re.split(r'[\s,;]+',planned.strip())); d=frames['gdi']; d=d[d.date.between(pd.Timestamp(span[0]),pd.Timestamp(span[1]))]
-                counts=d.groupby('well').date.nunique()
-                program=pd.DataFrame({'Скважина':ws,'Дат исследований':[int(counts.get(w,0)) for w in ws]})
-                program['Статус']=program['Дат исследований'].map(lambda n:'Проведено' if n else 'Нет исследования')
+                ws=ordered(re.split(r'[\s,;]+',planned.strip()))
+                program=group_analysis.program(frames['gdi'],ws,span[0],span[1])
                 show_frame(program); st.download_button('Выполнение программы',csv_bytes(program),'program.csv')
 
 elif page=='Группы':
