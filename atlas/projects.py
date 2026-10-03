@@ -29,7 +29,10 @@ _CACHE_PROJECTS = 3
 KNOWN = {k.value: k for k in DatasetKind}
 
 # Настройки, которые интерфейс 6 может менять напрямую, с проверкой значения.
-EDITABLE_SETTINGS = {'r2_threshold': lambda v: 0 <= float(v) <= 1}
+EDITABLE_SETTINGS = {
+    'r2_threshold': lambda v: 0 <= float(v) <= 1,
+    'working_horizons': lambda v: isinstance(v, list) and all(isinstance(h, str) for h in v),
+}
 
 
 class Conflict(RuntimeError):
@@ -154,7 +157,8 @@ class Projects:
             if not ok:
                 raise ParamError(f'Недопустимое значение настройки {name}')
             cfg[name] = float(value) if name == 'r2_threshold' else value
-        return self.summary(self._commit(pid, cfg, expected, 'Изменение правил', {'changed': dict(values)}))
+        action = 'Выбор рабочих горизонтов' if set(values) == {'working_horizons'} else 'Изменение правил'   # как в 5.8
+        return self.summary(self._commit(pid, cfg, expected, action, {'changed': dict(values)}))
 
     def change_exclusions(self, pid: str, dataset: DatasetKind, add: Iterable[str] = (), remove: Iterable[str] = (),
                           reason: str = 'Исключено вручную', metric: str | None = None,
@@ -170,7 +174,9 @@ class Projects:
         for identifier in dict.fromkeys(str(i) for i in add):
             if identifier in items:
                 continue
-            entry = exclusions.entry(raw, dataset.value, identifier, metric, reason)
+            # Реагирование: показатель (уровень / давление) — в самом идентификаторе точки, как в 5.8.
+            field = metric or (identifier.rsplit(':', 1)[-1] if dataset is DatasetKind.RESPONSE else None)
+            entry = exclusions.entry(raw, dataset.value, identifier, field, reason)
             if entry is None:
                 raise ParamError('Точка не найдена в данных проекта. Обновите страницу.')
             added.append(entry)

@@ -23,7 +23,7 @@ atlas/
   projects.py   проекты: адаптер к app/core/storage.py, кэш данных в памяти, исключённые точки
   api.py        HTTP/JSON (Starlette), раздаёт и собранный интерфейс
   __main__.py   запуск: сервер + окно
-  modules/      по файлу на модуль: gdi.py, production.py, histograms.py (общее — _production.py)
+  modules/      по файлу на модуль: gdi.py, production.py, histograms.py (общее — _production.py), response.py
   web/dist/     собранный интерфейс (в git, чтобы пользователю не нужен был Node)
 web/            исходники интерфейса: React + TypeScript + ECharts
 tests/atlas/    тесты ядра; паритет ГДИ с 5.8 — побитовый
@@ -40,7 +40,7 @@ API:
 | `POST /api/modules/{id}/run` `{project, params}` | расчёт, ответ — `Result` в JSON |
 | `POST /api/modules/{id}/export` `{project, params, target, id, format, dpi}` | график (SVG/PDF/PNG) или таблицы (XLSX, одна таблица — CSV) |
 | `GET /api/projects/{id}` | сводка проекта: ревизия, наборы данных, общие настройки, число исключений |
-| `PATCH /api/projects/{id}/settings` `{values}` | общие настройки проекта (пока `r2_threshold`) |
+| `PATCH /api/projects/{id}/settings` `{values}` | общие настройки проекта (`r2_threshold`, `working_horizons`) |
 | `POST /api/projects/{id}/exclusions` `{dataset, add, remove, reason}` | исключить / вернуть точки (журнал как в 5.8) |
 | `POST /api/projects/{id}/exclusions/undo` | отменить последнее исключение |
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |
@@ -85,14 +85,15 @@ class WaterControl(Module):
 5. Пустая выборка — заметка, а не исключение.
 
 Виды параметров: `number`, `integer`, `boolean`, `choice` (варианты в `options`), `multi`
-(варианты в `options` или из данных через `source`). Пустой `multi` по соглашению означает «все».
+(варианты в `options` или из данных через `source`), `date` (строка `ГГГГ-ММ-ДД`; пусто — `None`). Пустой `multi` по соглашению означает «все».
 `section` группирует параметры на панели; `setting` привязывает параметр к общей настройке проекта.
 
 Что модуль может вернуть, кроме таблиц и графиков:
 - точки графика с `ids` и `dataset` — щелчок в режиме «Исключать точки кликом» исключает точку;
 - `Table.action` — флажки в строках и кнопка применения (ручной фильтр, подтверждение выбросов);
 - `Table.note`, `Table.collapsed`, `Note` — пояснения и свёрнутые таблицы;
-- столбцы (`Series.kind='bar'`, ось `scale='category'`), подсказка на каждую точку (`Series.labels`), штрихи и толщина линий.
+- столбцы (`Series.kind='bar'`, ось `scale='category'`), подсказка на каждую точку (`Series.labels`), штрихи и толщина линий;
+- линии с точками (`Series.markers`, полые — `hollow`), вторая шкала справа (`Chart.y2`, серия с `axis='y2'`), обратная ось (`Axis.inverse`).
 
 Зависимые списки: `Param(dynamic=True, depends=('kind',), auto='last:3')` и метод `Module.options(name, data, params)` —
 интерфейс спрашивает варианты у модуля при смене параметров, из которых они зависят, отбрасывает недопустимое

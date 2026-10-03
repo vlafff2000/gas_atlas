@@ -16,7 +16,7 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date']
 
 
 class ParamError(ValueError):
@@ -59,7 +59,7 @@ class Param:
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
 
     def coerce(self, value: Any) -> Any:
-        if value is None:
+        if value is None or (self.kind == 'date' and value == ''):
             return self.default
         try:
             if self.kind == 'boolean':
@@ -83,6 +83,11 @@ class Param:
             raise
         except (TypeError, ValueError):
             raise ParamError(f'«{self.label}»: ожидается {"целое " if self.kind == "integer" else ""}число') from None
+        if self.kind == 'date':
+            try:
+                return pd.Timestamp(str(value)).strftime('%Y-%m-%d')
+            except (TypeError, ValueError):
+                raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД') from None
         if self.kind == 'choice':
             if self.options and value not in {o.value for o in self.options}:
                 raise ParamError(f'«{self.label}»: недопустимое значение {value!r}')
@@ -202,6 +207,8 @@ class Series:
     labels: Sequence[str] | None = None  # строка подсказки на каждую точку (поверх X и Y)
     ids: Sequence[str] | None = None  # идентификаторы точек: по ним щелчок исключает точку
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
+    markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
+    axis: Literal['y', 'y2'] = 'y'   # 'y2' — правая ось Chart.y2
 
 
 @dataclass
@@ -212,6 +219,7 @@ class Chart:
     y: Axis
     series: list[Series] = field(default_factory=list)
     crosshair: bool = False
+    y2: Axis | None = None           # вторая шкала справа (две шкалы Y)
 
 
 @dataclass
@@ -355,4 +363,5 @@ def _series_json(s: Series) -> dict[str, Any]:
 
 def _chart_json(c: Chart) -> dict[str, Any]:
     return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
+            'y2': asdict(c.y2) if c.y2 else None,
             'series': [_series_json(s) for s in c.series]}
