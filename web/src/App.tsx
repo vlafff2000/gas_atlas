@@ -9,6 +9,8 @@ import { formatDate } from './format'
 import { inMenu, PROJECT_PAGES } from './api_projects'
 import { ProjectPages, RestoreBox } from './ProjectPage'
 import { ImportPage } from './ImportPage'
+import { SectionSearch, type Section } from './SectionSearch'
+import { sidebarCollapsed, theme, usePref, type Theme } from './chartPrefs'
 
 const remembered = {
   get: <T,>(key: string, fallback: T): T => {
@@ -56,6 +58,23 @@ export function App() {
     return [...out.entries()]
   }, [modules])
 
+  // быстрый переход к разделу: Ctrl+K (⌘K) из любого места
+  const collapsed = usePref(sidebarCollapsed)
+  const currentTheme = usePref(theme)
+  const [search, setSearch] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K' || e.code === 'KeyK')) { e.preventDefault(); setSearch(o => !o) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const sections = useMemo<Section[]>(() => [
+    { id: '@import', title: 'Импорт данных', group: 'Данные', hint: 'загрузка файлов' },
+    ...groups.flatMap(([group, items]) => items.filter(m => inMenu(m.id, project)).map(m => ({ id: m.id, title: m.title, group, hint: m.description }))),
+    ...(project ? PROJECT_PAGES.filter(p => inMenu(p.id, project)).map(p => ({ id: p.id, title: p.title, group: 'Документы и настройки' })) : []),
+  ], [groups, project])
+
   const openProject = (id: string) => { loadProjects().then(() => setProjectId(id)) }
   const createDemo = async () => {
     const { id } = await api.createDemo()
@@ -66,12 +85,20 @@ export function App() {
   if (fatal) return <div className="fatal"><h1>Газовый атлас</h1><p>{fatal}</p></div>
 
   return (
-    <div className="shell">
+    <div className={'shell' + (collapsed ? ' collapsed' : '')}>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
-          <span>Газовый атлас</span>
+          <span className="brand-name">Газовый атлас</span>
+          <button type="button" className="side-toggle" onClick={() => sidebarCollapsed.set(!collapsed)}
+            aria-expanded={!collapsed} title={collapsed ? 'Показать меню' : 'Свернуть меню'}>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d={collapsed ? 'M6 3.5 10.5 8 6 12.5' : 'M10 3.5 5.5 8 10 12.5'} /></svg>
+          </button>
         </div>
+        <button type="button" className="side-search" onClick={() => setSearch(true)} title="Найти раздел (Ctrl+K)">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+          <span className="side-label">Найти раздел</span><kbd className="side-label">Ctrl K</kbd>
+        </button>
         <label className="project-picker">
           <span>Объект</span>
           <select value={project?.id ?? ''} disabled={!projects?.length} onChange={e => setProjectId(e.target.value)}>
@@ -109,7 +136,19 @@ export function App() {
             </section>
           )}
         </nav>
+        <div className="theme-switch segmented" role="radiogroup" aria-label="Тема">
+          {([['light', 'Светлая'], ['dark', 'Тёмная'], ['system', 'Авто']] as [Theme, string][]).map(([t, label]) => (
+            <button key={t} type="button" role="radio" aria-checked={currentTheme === t} onClick={() => theme.set(t)}
+              title={t === 'system' ? 'Как в системе' : label + ' тема'}>
+              {t === 'light' ? <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3" /><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" /></svg>
+                : t === 'dark' ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" /></svg>
+                : <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="8" rx="1" /><path d="M6 13.5h4" /></svg>}
+              <span className="side-label">{label}</span>
+            </button>
+          ))}
+        </div>
       </aside>
+      <SectionSearch sections={sections} open={search} onClose={() => setSearch(false)} onGo={id => { location.hash = '#/' + id }} />
 
       <main className="workspace">
         {page === '@import' || page === '@import/pressure' ? (
@@ -346,6 +385,13 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
 
       {result && (
         <div className={'results' + (status.kind === 'running' ? ' stale' : '')}>
+          {!!result.summary?.length && (
+            <dl className="summary-strip" aria-label="Итоги выборки">
+              {result.summary.map(st => (
+                <div key={st.label} title={st.hint || undefined}><dt>{st.label}</dt><dd>{st.value}</dd></div>
+              ))}
+            </dl>
+          )}
           {result.notes.map((n, i) => <div key={i} className={'note ' + n.level}>{n.text}</div>)}
           <CommandBar result={result} project={project.id} onDone={text => exclusionDone(text, false)} onError={text => setToast({ text, undo: false })} />
           {result.charts.length > 0 && (

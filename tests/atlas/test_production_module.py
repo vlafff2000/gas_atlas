@@ -79,9 +79,13 @@ def test_curve_matches_58_figure(env, view, xmode):
     fig = legacy_charts.production_curve(df, p['kind'], p['periods'], ws, xmode)
     chart = body['charts'][0]
     assert chart['title'] == 'Скважины №31, 45, 540' and len(chart['series']) == len(fig.data)
+    # ≈ 5.8: у нескольких скважин цвет — скважина, стиль линии — период (легенда рядами «Скважина» / «Период»)
+    well_color = legacy_charts.well_colors(ws)
     for old, new in zip(fig.data, chart['series']):
-        assert old.name == new['name'] and old.line.color == new['color']
-        assert old.line.dash == new['dash'] and new['kind'] == 'line'
+        well, period = old.name[len('№ '):].split(' · ')
+        assert old.name == new['name'] and new['color'] == well_color[well]
+        assert new['dash'] == legacy_charts.DASH[p['periods'].index(period)] and new['kind'] == 'line'
+        assert new['facets'] == {'Скважина': '№ ' + well, 'Период': period}
         y_old = np.asarray(old.y, float); y_new = np.array([np.nan if v is None else v for v in new['y']])
         assert np.array_equal(y_old, y_new, equal_nan=True)
         if xmode == 'cumulative':
@@ -89,6 +93,11 @@ def test_curve_matches_58_figure(env, view, xmode):
         else:    # даты: ISO-строки, а не наносекунды
             assert new['x'] == pd.to_datetime(list(old.x)).strftime('%Y-%m-%d').tolist()
         assert len(new['ids']) == len(new['labels']) == len(new['y'])
+    if xmode == 'date':      # смена режима и ГДИ — отметки на оси времени
+        kinds = {e['kind'] for e in chart['events']}
+        assert 'regime' in kinds and all(chart['x'] and e['x'] for e in chart['events'])
+    else:
+        assert chart['events'] == []
     assert chart['y']['from_zero'] and (chart['x']['step'] is None or chart['x']['step'] > 0)
     assert chart['x']['scale'] == ('time' if xmode == 'date' else 'value')
 
@@ -258,3 +267,19 @@ def test_table_csv_like_58(env):
     many = client.post('/api/modules/production/export', json={'project': pid, 'params': p, 'target': 'tables',
                                                                'format': 'csv'})
     assert many.status_code == 400
+
+
+def test_summary_strip_and_legend_facets(env):
+    client, pid, projects = env
+    p = pick(client, pid, projects)
+    body = run(client, pid, view='time', **p)
+    stats = {s['label']: s['value'] for s in body['summary']}
+    assert stats['Скважин'] == '3' and stats['Режим'] == 'Отбор' and stats['Исключено точек'] == '0'
+    assert stats['Периоды'] == f"{p['periods'][0]} – {p['periods'][-1]}"
+    # несколько скважин и периодов: легенда рядами «Скважина» и «Период»
+    facets = {tuple(sorted(s['facets'].items())) for s in body['charts'][0]['series']}
+    assert len(facets) == len(body['charts'][0]['series']) and all(s['facets'] for s in body['charts'][0]['series'])
+    # события — даты смены режима внутри периода графика
+    dates = [e['x'] for e in body['charts'][0]['events']]
+    assert dates and all(e['kind'] in ('regime', 'gdi') for e in body['charts'][0]['events'])
+    assert min(dates) >= body['charts'][0]['series'][0]['x'][0][:4]

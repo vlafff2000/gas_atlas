@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
 import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { Axis, Chart, Series } from './api'
+import type { Axis, Chart, ChartEvent, Series } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
-import { alpha, chartTokens, FONT, PALETTE, seriesColor, type ChartTokens } from './chartTheme'
+import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
-import { setHoverMode, useHoverMode } from './chartPrefs'
+import { hiddenEvents, setHoverMode, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { nextSyncId, publish, subscribe, synced } from './chartSync'
 import './chart.css'
 
 echarts.use([BarChart, BoxplotChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
@@ -20,6 +21,16 @@ const DASH: Record<string, string | number[]> = {
 }
 const LARGE = 5000          // точек в серии: дальше облако рисуется пакетно, линия — с прореживанием LTTB
 const BLUR_LIMIT = 200_000  // при наведении остальные кривые приглушаются, пока точек на графике не больше этого
+const NAVIGATOR_SPAN = 180 * 86400e3   // ползунок времени под графиком, если ряды длиннее полугода
+const MAX_PINS = 3                     // закреплённых подсказок на графике
+const EVENT_RADIUS = 6                 // пикселей: событие у курсора попадает в подсказку
+
+export const EVENT_KINDS: { kind: ChartEvent['kind']; label: string }[] = [
+  { kind: 'regime', label: 'Смена режима' }, { kind: 'gdi', label: 'ГДИ' },
+  { kind: 'repair', label: 'Ремонт' }, { kind: 'other', label: 'Прочее' },
+]
+const eventColor = (kind: ChartEvent['kind'], tk: ChartTokens) =>
+  kind === 'regime' ? tk.muted : kind === 'gdi' ? tk.accent : kind === 'repair' ? '#d9480f' : tk.faint
 
 interface Props {
   chart: Chart
@@ -37,7 +48,8 @@ const dashOf = (s: Series) => DASH[s.dash || (s.dashed ? 'dash' : 'solid')]
 
 function colorOf(chart: Chart) {
   const groups = [...new Set(chart.series.map(key))]
-  return (s: Series) => s.color ? seriesColor(s.color) : PALETTE[groups.indexOf(key(s)) % PALETTE.length]
+  const p = palette()
+  return (s: Series) => s.color ? seriesColor(s.color) : p[groups.indexOf(key(s)) % p.length]
 }
 
 /** Подпись значения оси: время — дата, остальное — число с точностью по размаху оси. */
@@ -56,6 +68,20 @@ function formatter(a: Axis, span: number) {
   }
 }
 
+/** Размах оси времени в мс по всем сериям (для решения, нужен ли ползунок). */
+function timeSpan(chart: Chart) {
+  if (chart.x.scale !== 'time') return 0
+  let lo = Infinity, hi = -Infinity
+  for (const s of chart.series) {
+    for (const v of [s.x[0], s.x[s.x.length - 1]]) {
+      const n = toNumber(v ?? null, 'time')
+      if (Number.isFinite(n)) { lo = Math.min(lo, n); hi = Math.max(hi, n) }
+    }
+  }
+  return hi > lo ? hi - lo : 0
+}
+export const hasNavigator = (chart: Chart) => timeSpan(chart) > NAVIGATOR_SPAN
+
 function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode): echarts.EChartsCoreOption {
   const color = colorOf(chart)
   const tips = new Map<string, string[]>()
@@ -66,6 +92,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const legend = [...new Set(chart.series.map(key))].filter(g => chart.series.some(s => key(s) === g && s.legend))
   const total = chart.series.reduce((n, s) => n + s.x.length, 0)
   const time = chart.x.scale === 'time'
+  const navigator = hasNavigator(chart)
 
   const axis = (a: Axis, position: 'x' | 'y' | 'y2') => {
     const y = position !== 'x'
@@ -102,21 +129,11 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     animation: false,
     useUTC: true,
     textStyle: { fontFamily: FONT, color: tk.ink },
-    grid: { left: 64, right: chart.y2 ? 64 : 20, top: 34, bottom: legend.length ? 76 : 44 },
+    grid: { left: 64, right: chart.y2 ? 64 : 20, top: 34, bottom: navigator ? 80 : 44 },
     xAxis: axis(chart.x, 'x'),
     yAxis: chart.y2 ? [axis(chart.y, 'y'), axis(chart.y2, 'y2')] : axis(chart.y, 'y'),
-    legend: {
-      show: legend.length > 1 || chart.series.length > 1, bottom: 2, left: 4, right: 4, type: 'scroll',
-      // у линии без отметок в легенде только штрих её стиля, без кружка
-      data: legend.map(name => {
-        const s = chart.series.find(o => key(o) === name && o.legend)!
-        const plain = s.kind === 'line' && !hasMarkers(s, excludeMode, mode)
-        return plain ? { name, itemStyle: { opacity: 0 } } : { name }
-      }),
-      textStyle: { color: tk.ink, fontSize: 12 }, itemWidth: 18, itemHeight: 10, itemGap: 18,
-      pageIconColor: tk.muted, pageIconInactiveColor: tk.grid, pageTextStyle: { color: tk.muted },
-      inactiveColor: tk.axis,
-    },
+    // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
+    legend: { show: false, data: legend },
     tooltip: custom ? { show: false } : {
       trigger: hasBox ? 'item' : 'axis', confine: true, className: 'atlas-tip', padding: 0, borderWidth: 0,
       backgroundColor: 'transparent', extraCssText: 'box-shadow:none;',
@@ -141,6 +158,19 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       // Ctrl + колесо — масштаб, перетаскивание — сдвиг; страница при этом прокручивается колесом как обычно
       { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false },
       ...(time ? [] : [{ type: 'inside', yAxisIndex: chart.y2 ? [0, 1] : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false }]),
+      // навигатор: весь период тенью и выбранное окно, его края и середину можно тянуть
+      ...(navigator ? [{
+        type: 'slider', xAxisIndex: 0, filterMode: 'none', height: 22, bottom: 8, left: 64, right: chart.y2 ? 64 : 20,
+        brushSelect: false, showDataShadow: true, showDetail: false, borderColor: tk.axis, backgroundColor: 'transparent', borderRadius: 4,
+        fillerColor: alpha(tk.accent, 0.12),
+        dataBackground: { lineStyle: { color: tk.faint, width: 1 }, areaStyle: { color: alpha(tk.faint, 0.18) } },
+        selectedDataBackground: { lineStyle: { color: tk.accent, width: 1 }, areaStyle: { color: alpha(tk.accent, 0.18) } },
+        handleSize: '110%', handleStyle: { color: tk.surface, borderColor: tk.accent, borderWidth: 1.5 },
+        moveHandleSize: 5, moveHandleStyle: { color: alpha(tk.accent, 0.45) },
+        emphasis: { handleStyle: { borderColor: tk.ink }, moveHandleStyle: { color: tk.accent } },
+        textStyle: { color: tk.muted, fontSize: 11 },
+        labelFormatter: (v: number) => formatDate(new Date(v).toISOString().slice(0, 10)),
+      }] : []),
     ],
     // кнопки масштаба — в заголовке графика (ChartView), панель ECharts скрыта и даёт только выделение области
     toolbox: {
@@ -214,18 +244,32 @@ function tipHtml(head: string, rows: TipRow[], extra: string[], foot = '') {
 
 const MAX_ROWS = 10
 
+interface Pin { x: number; y: number; axis: 0 | 1; html: string; el: HTMLDivElement }
+interface Plotted { x: number; label: string; kind: ChartEvent['kind'] }
+
+/** Ключ общего перекрестия: все графики по времени — вместе, остальные — с той же подписью и единицей оси X. */
+const syncKey = (chart: Chart) =>
+  chart.x.scale === 'category' ? null : chart.x.scale === 'time' ? 'time' : `${chart.x.scale}|${chart.x.label}|${chart.x.unit}`
+
 export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
+  const stage = useRef<HTMLDivElement>(null)
   const instance = useRef<echarts.ECharts | null>(null)
   const state = useRef({
     chart, excludeMode, onExclude, tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1 }, blur: true, draw: (() => {}) as () => void,
+    id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
+    renderPins: (() => {}) as () => void,
   })
   const mode = useHoverMode()
+  const theme = useAppliedTheme()
+  const offEvents = usePref(hiddenEvents)
   const [boxZoom, setBoxZoom] = useState(false)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())       // скрытые пункты легенды (ключи серий)
+  const [facetOff, setFacetOff] = useState<Set<string>>(new Set())   // скрытые значения признаков: 'Период\u0001 2024'
   const boxRef = useRef(false)
   boxRef.current = boxZoom
   const toggleBoxZoom = () => {
@@ -237,6 +281,7 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
   state.current.excludeMode = excludeMode
   state.current.mode = mode
   state.current.onExclude = onExclude
+  state.current.hiddenEvents = new Set(offEvents)
 
   useEffect(() => {
     const el = box.current!
@@ -244,7 +289,7 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
     instance.current = ch
     ;(el as unknown as { __echart?: echarts.ECharts }).__echart = ch     // для отладки и проверок в браузере
     const st = state.current
-    const canvas = overlay.current!, card = tip.current!
+    const canvas = overlay.current!, card = tip.current!, host = stage.current!
 
     const gridRect = () => {
       const grid = (ch as unknown as { getModel(): { getComponent(t: string): { coordinateSystem?: { getRect(): { x: number; y: number; width: number; height: number } } } | undefined } })
@@ -279,25 +324,69 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
       } else st.map.y[1] = st.map.y[0]
     }
 
-    const clear = () => {
-      const g = canvas.getContext('2d')!
-      g.setTransform(1, 0, 0, 1, 0, 0)
-      g.clearRect(0, 0, canvas.width, canvas.height)
-      card.hidden = true
-      el.style.cursor = ''
-      if (st.focused >= 0) { ch.dispatchAction({ type: 'downplay' }); st.focused = -1 }
-      st.current = null
+    const fmtX = () => formatter(st.chart.x, st.spans.x)
+    const fmtY = (a: 0 | 1) => formatter(a && st.chart.y2 ? st.chart.y2 : st.chart.y, a ? st.spans.y2 : st.spans.y)
+    const unit = (a: 0 | 1) => (a && st.chart.y2 ? st.chart.y2 : st.chart.y).unit
+
+    /** Закреплённые подсказки: номер, карточка, разница с первой, крестик. */
+    const renderPins = () => {
+      const first = st.pins[0]
+      st.pins.forEach((p, i) => {
+        let delta = ''
+        if (i > 0 && first) {
+          const dx = p.x - first.x
+          const xs = st.chart.x.scale === 'time'
+            ? `${dx >= 0 ? '+' : '−'}${formatNumber(Math.abs(dx) / 86400e3, 0)} сут`
+            : `${dx >= 0 ? '+' : '−'}${fmtX()(Math.abs(dx))}`
+          const ys = p.axis === first.axis
+            ? `${p.y - first.y >= 0 ? '+' : '−'}${fmtY(p.axis)(Math.abs(p.y - first.y))}${unit(p.axis) ? ' ' + unit(p.axis) : ''}` : ''
+          delta = `<div class="tip-delta"><span>к №1</span><b>${escapeHtml(xs)}</b>${ys ? `<b>${escapeHtml(ys)}</b>` : ''}</div>`
+        }
+        p.el.innerHTML = `<span class="pin-badge">${i + 1}</span>`
+          + `<button type="button" class="pin-close" data-unpin="${i}" title="Открепить" aria-label="Открепить подсказку">×</button>`
+          + p.html.replace(/<\/div>$/, delta + '</div>')
+      })
+    }
+    st.renderPins = renderPins
+    const addPin = (x: number, y: number, axis: 0 | 1) => {
+      if (card.hidden || !card.innerHTML) return
+      const copy = document.createElement('div')
+      copy.innerHTML = card.innerHTML
+      copy.querySelectorAll('.tip-foot').forEach(n => n.remove())
+      const el = document.createElement('div')
+      el.className = 'atlas-tip pinned'
+      host.appendChild(el)
+      st.pins.push({ x, y, axis, html: copy.innerHTML, el })
+      while (st.pins.length > MAX_PINS) st.pins.shift()!.el.remove()
+      renderPins()
+    }
+    const onUnpin = (e: MouseEvent) => {
+      const b = (e.target as HTMLElement).closest('[data-unpin]')
+      if (!b) return
+      const i = Number(b.getAttribute('data-unpin'))
+      st.pins.splice(i, 1)[0]?.el.remove()
+      renderPins(); schedule()
+    }
+    host.addEventListener('click', onUnpin)
+
+    /** События у курсора по X: строки для подсказки. */
+    const nearEvents = (px: number) => {
+      const out: string[] = []
+      let more = 0
+      for (const e of st.events) {
+        if (st.hiddenEvents.has(e.kind)) continue
+        if (Math.abs(st.map.x(e.x) - px) > EVENT_RADIUS) continue
+        if (out.length < 4) out.push(`<span class="tip-event" style="--c:${eventColor(e.kind, st.tokens!)}">${escapeHtml(e.label)}</span>`)
+        else more++
+      }
+      if (more) out.push(`<span class="tip-sub">и ещё событий: ${more}</span>`)
+      return out
     }
 
     const draw = () => {
       st.frame = 0
       const tk = st.tokens!, chart = st.chart
       const m = st.mouse, rect = gridRect()
-      if (!m || !rect || !st.tracks.length || st.down
-        || m[0] < rect.x || m[0] > rect.x + rect.width || m[1] < rect.y || m[1] > rect.y + rect.height) { clear(); return }
-      calibrate(rect)
-      const h = hover(st.tracks, view, m[0], m[1], chart.x.scale, a => (a && chart.y2 ? chart.y2 : chart.y).scale, st.mode)
-      st.current = h
       const dpr = window.devicePixelRatio || 1
       const w = el.clientWidth, hh = el.clientHeight
       if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(hh * dpr)) {
@@ -307,23 +396,95 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
       const g = canvas.getContext('2d')!
       g.setTransform(dpr, 0, 0, dpr, 0, 0)
       g.clearRect(0, 0, w, hh)
-      const fmtX = formatter(chart.x, st.spans.x)
-      const fmtY = (a: 0 | 1) => formatter(a && chart.y2 ? chart.y2 : chart.y, a ? st.spans.y2 : st.spans.y)
-      const unit = (a: 0 | 1) => (a && chart.y2 ? chart.y2 : chart.y).unit
+      if (!rect || !tk) { card.hidden = true; return }
+      const ready = st.tracks.length > 0 || st.events.length > 0
+      if (ready) calibrate(rect)
+      const inside = (px: number, py: number) => px >= rect.x && px <= rect.x + rect.width && py >= rect.y && py <= rect.y + rect.height
       const colors = colorOf(chart)
 
+      // события: пунктир смены режима через весь график, у остальных — флажок сверху и тонкая линия
+      if (st.events.length) {
+        let last = -Infinity, lastKind = ''
+        // много событий — линии через весь график не нужны, остаются флажки сверху
+        const crowded = st.events.filter(e => e.kind !== 'regime' && !st.hiddenEvents.has(e.kind)).length > 14
+        for (const e of st.events) {
+          if (st.hiddenEvents.has(e.kind)) continue
+          const px = Math.round(st.map.x(e.x)) + 0.5
+          if (px < rect.x || px > rect.x + rect.width) continue
+          if (Math.abs(px - last) < 2 && lastKind === e.kind) continue
+          last = px; lastKind = e.kind
+          const c = eventColor(e.kind, tk)
+          g.save()
+          g.strokeStyle = alpha(c, e.kind === 'regime' ? 0.55 : 0.3); g.lineWidth = 1
+          g.setLineDash(e.kind === 'regime' ? [5, 4] : [2, 3])
+          if (e.kind === 'regime' || !crowded) { g.beginPath(); g.moveTo(px, rect.y); g.lineTo(px, rect.y + rect.height); g.stroke() }
+          g.setLineDash([])
+          g.fillStyle = c
+          g.beginPath(); g.moveTo(px - 4, rect.y - 7); g.lineTo(px + 4, rect.y - 7); g.lineTo(px, rect.y - 1); g.closePath(); g.fill()
+          g.restore()
+        }
+      }
+
+      // закреплённые подсказки: отметка с номером и карточка рядом, следуют за масштабом
+      st.pins.forEach((p, i) => {
+        if (!Number.isFinite(p.y)) { p.el.hidden = true; return }
+        const [px, py] = view.toPixel(p.x, p.y, p.axis)
+        if (!inside(px, py)) { p.el.hidden = true; return }
+        g.fillStyle = tk.ink; g.strokeStyle = tk.surface; g.lineWidth = 2
+        g.beginPath(); g.arc(px, py, 8, 0, Math.PI * 2); g.fill(); g.stroke()
+        g.fillStyle = tk.surface; g.font = `700 10px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'
+        g.fillText(String(i + 1), px, py + 0.5)
+        p.el.hidden = false
+        const bw = p.el.offsetWidth, bh = p.el.offsetHeight
+        let left = px + 14, top = py - 14 - bh
+        if (left + bw > w - 4) left = px - 14 - bw
+        if (top < 4) top = py + 14
+        p.el.style.transform = `translate(${Math.round(Math.max(4, left))}px, ${Math.round(Math.min(hh - bh - 4, top))}px)`
+      })
+
+      const own = !!(m && !st.down && ready && inside(m[0], m[1]))
+      if (!own) {
+        card.hidden = true
+        el.style.cursor = ''
+        if (st.focused >= 0) { ch.dispatchAction({ type: 'downplay' }); st.focused = -1 }
+        st.current = null
+        publish(st.id, null, null)
+        // общее перекрестие: курсор на другом графике с той же осью X
+        const s = synced()
+        if (s && s.source !== st.id && s.key === st.sync && st.tracks.length) {
+          const px = st.map.x(s.x)
+          if (px >= rect.x && px <= rect.x + rect.width) {
+            g.save()
+            g.strokeStyle = alpha(tk.accent, 0.7); g.lineWidth = 1; g.setLineDash([4, 3])
+            g.beginPath(); g.moveTo(Math.round(px) + 0.5, rect.y); g.lineTo(Math.round(px) + 0.5, rect.y + rect.height); g.stroke()
+            g.restore()
+            const h = hover(st.tracks, view, px, rect.y + rect.height / 2, chart.x.scale, a => (a && chart.y2 ? chart.y2 : chart.y).scale, st.mode)
+            for (const v of h.values) {
+              if (!v.track.curve || !inside(v.px, v.py)) continue
+              g.fillStyle = colors(v.track.series); g.strokeStyle = tk.surface; g.lineWidth = 2
+              g.beginPath(); g.arc(v.px, v.py, 3.5, 0, Math.PI * 2); g.fill(); g.stroke()
+            }
+            pill(g, fmtX()(s.x), px, rect.y + rect.height + 4, 'top', tk)
+          }
+        }
+        return
+      }
+      const h = hover(st.tracks, view, m![0], m![1], chart.x.scale, a => (a && chart.y2 ? chart.y2 : chart.y).scale, st.mode)
+      st.current = h
+      publish(st.id, st.sync, h.point?.x ?? (st.mode === 'facts' && h.focus ? h.focus.x : h.x))
+
       // перекрестие: вертикаль у кривых, полное — где раздел его включает
-      const cx = h.point ? h.point.px : st.mode === 'facts' && h.focus ? h.focus.px : m[0]
+      const cx = h.point ? h.point.px : st.mode === 'facts' && h.focus ? h.focus.px : m![0]
       const vertical = chart.crosshair || h.values.some(v => v.track.curve)
       g.lineWidth = 1
       g.strokeStyle = alpha(tk.ink, 0.28)
       if (vertical) { g.beginPath(); g.moveTo(Math.round(cx) + 0.5, rect.y); g.lineTo(Math.round(cx) + 0.5, rect.y + rect.height); g.stroke() }
       if (chart.crosshair) {
-        const cy = h.point ? h.point.py : m[1]
+        const cy = h.point ? h.point.py : m![1]
         g.beginPath(); g.moveTo(rect.x, Math.round(cy) + 0.5); g.lineTo(rect.x + rect.width, Math.round(cy) + 0.5); g.stroke()
         const [, yv] = view.fromPixel(cx, cy)
         pill(g, fmtY(0)(yv), rect.x - 4, cy, 'right', tk)
-        pill(g, fmtX(view.fromPixel(cx, cy)[0]), cx, rect.y + rect.height + 4, 'top', tk)
+        pill(g, fmtX()(view.fromPixel(cx, cy)[0]), cx, rect.y + rect.height + 4, 'top', tk)
       }
       // отметки на кривых в позиции курсора
       for (const v of h.values) {
@@ -351,21 +512,22 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
 
       // подсказка
       const xTitle = axisTitle(chart.x.label, chart.x.unit)
+      const events = nearEvents(cx)
+      const foot = selectable ? 'Щелчок исключит точку' : st.excludeMode ? '' : 'Щелчок закрепит подсказку'
       let html = ''
       if (h.point) {
         const p = h.point, s = p.track.series, j = p.track.src[p.k]
         const label = s.labels?.[j] ?? ''
         const yTitle = axisTitle((p.track.axis && chart.y2 ? chart.y2 : chart.y).label, '')
-        html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX(p.x))}</b>`,
+        html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(p.x))}</b>`,
           [{ name: s.name, color: colors(s), dash: false, symbol: s.symbol, value: '', strong: true },
             { name: yTitle, color: 'transparent', dash: false, value: `<b>${escapeHtml(fmtY(p.track.axis)(p.y))}</b> ${escapeHtml(unit(p.track.axis))}` }],
-          [...(label ? label.split(' · ').map(escapeHtml) : []), ...(tipsOf(chart, s)).map(escapeHtml)],
-          selectable ? 'Щелчок исключит точку' : '')
+          [...(label ? label.split(' · ').map(escapeHtml) : []), ...(tipsOf(chart, s)).map(escapeHtml), ...events], foot)
       } else if (h.values.length) {
         const curves = h.values
         const focus = h.focus
         const others = curves.filter(v => v !== focus)
-          .sort((a, b) => Math.abs(a.py - m[1]) - Math.abs(b.py - m[1])).slice(0, focus ? MAX_ROWS - 1 : MAX_ROWS)
+          .sort((a, b) => Math.abs(a.py - m![1]) - Math.abs(b.py - m![1])).slice(0, focus ? MAX_ROWS - 1 : MAX_ROWS)
           .sort((a, b) => a.py - b.py)
         const row = (v: typeof curves[number], strong = false): TipRow => ({
           name: v.track.series.name, color: colors(v.track.series), dash: dashOf(v.track.series) !== 'solid', strong,
@@ -378,21 +540,24 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
           const exact = st.mode === 'facts' || near === focus.x
           if (!exact) extra.push('<span class="tip-sub">≈ между замерами (интерполяция)</span>')
           if (s.labels?.[j] || s.ids) {
-            if (!exact) extra.push(`<span class="tip-sub">Ближайший замер · ${escapeHtml(fmtX(near))}</span>`)
+            if (!exact) extra.push(`<span class="tip-sub">Ближайший замер · ${escapeHtml(fmtX()(near))}</span>`)
             if (s.labels?.[j]) extra.push(...s.labels[j].split(' · ').map(escapeHtml))
           }
           extra.push(...tipsOf(chart, s).map(escapeHtml))
         }
+        extra.push(...events)
         const hidden = curves.length - others.length - (focus ? 1 : 0)
         const rows = [...(focus ? [row(focus, true)] : []), ...others.map(v => row(v))]
-        html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX(h.focus?.x ?? h.x))}</b>`, rows,
-          extra, hidden > 0 ? `ещё ${hidden} — ближе к курсору, чтобы увидеть` : '')
+        html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(h.focus?.x ?? h.x))}</b>`, rows,
+          extra, hidden > 0 ? `ещё ${hidden} — ближе к курсору, чтобы увидеть` : foot)
+      } else if (events.length) {
+        html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(h.x))}</b>`, [], events)
       }
       if (!html) { card.hidden = true; return }
       card.innerHTML = html
       card.hidden = false
       const bw = card.offsetWidth, bh = card.offsetHeight
-      const ax = h.point?.px ?? h.focus?.px ?? m[0], ay = h.point?.py ?? h.focus?.py ?? m[1]
+      const ax = h.point?.px ?? h.focus?.px ?? m![0], ay = h.point?.py ?? h.focus?.py ?? m![1]
       let left = ax + 18, top = ay - bh / 2
       if (left + bw > w - 4) left = ax - 18 - bw
       if (left < 4) left = Math.max(4, Math.min(w - bw - 4, ax - bw / 2))
@@ -401,6 +566,7 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
     }
     st.draw = draw
     const schedule = () => { if (!st.frame) st.frame = requestAnimationFrame(draw) }
+    const unsync = subscribe(() => { if (!st.mouse) schedule() })
 
     const zr = ch.getZr()
     zr.on('mousemove', (e: { offsetX: number; offsetY: number }) => { st.mouse = [e.offsetX, e.offsetY]; schedule() })
@@ -410,15 +576,19 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
       const d = st.down
       st.down = null
       const moved = !d || Math.hypot(e.offsetX - d[0], e.offsetY - d[1]) > 4
-      const p = st.current?.point
+      const h = st.current, p = h?.point
       if (!moved && p && st.excludeMode && p.track.series.dataset && p.track.series.ids) {
         const id = p.track.series.ids[p.track.src[p.k]]
         if (id) st.onExclude(p.track.series.dataset, id)
+      } else if (!moved && h && !boxRef.current) {
+        // щелчок закрепляет подсказку там, где она сейчас: у точки, у выделенной кривой или у курсора
+        if (p) addPin(p.x, p.y, p.track.axis)
+        else if (h.focus) addPin(h.focus.x, h.focus.y, h.focus.track.axis)
+        else if (h.values.length) addPin(h.x, view.fromPixel(e.offsetX, e.offsetY)[1], 0)
       }
       schedule()
     })
     zr.on('dblclick', () => ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 }))
-    ch.on('legendselectchanged', (e: unknown) => { st.selected = { ...(e as { selected: Record<string, boolean> }).selected }; schedule() })
     ch.on('datazoom', schedule)
     // столбцы и ящики (ось категорий): щелчок по точке-выбросу тоже исключает её
     ch.on('click', (p: { seriesIndex?: number; data?: unknown }) => {
@@ -427,16 +597,31 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
       const id = Array.isArray(p.data) ? (p.data[2] as string | undefined) : undefined
       if (st.excludeMode && series?.dataset && id) st.onExclude(series.dataset, id)
     })
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !st.pins.length) return
+      st.pins.forEach(p => p.el.remove()); st.pins = []; schedule()
+    }
+    window.addEventListener('keydown', onKey)
     const observer = new ResizeObserver(() => { ch.resize(); schedule() })
     observer.observe(el)
-    return () => { observer.disconnect(); if (st.frame) cancelAnimationFrame(st.frame); ch.dispose(); instance.current = null }
+    return () => {
+      observer.disconnect(); unsync(); publish(st.id, null, null)
+      window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin)
+      if (st.frame) cancelAnimationFrame(st.frame)
+      ch.dispose(); instance.current = null
+    }
   }, [])
 
   useEffect(() => {
     const st = state.current, el = box.current!
+    setDarkPalette(theme === 'dark')
     st.chart = chart
+    st.sync = syncKey(chart)
     st.tokens = chartTokens(el)
     st.tracks = buildTracks(chart.series, chart.x, !!chart.y2, s => hasMarkers(s, excludeMode, mode))
+    st.events = chart.x.scale === 'time'
+      ? (chart.events ?? []).map(e => ({ x: toNumber(e.x, 'time'), label: e.label, kind: e.kind })).filter(e => Number.isFinite(e.x)).sort((a, b) => a.x - b.x)
+      : []
     const span = (t: Track[], f: (t: Track) => Float64Array) => {
       let lo = Infinity, hi = -Infinity
       for (const tr of t) for (const v of f(tr)) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v }
@@ -445,15 +630,43 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
     st.spans = { x: span(st.tracks, t => t.xs), y: span(st.tracks.filter(t => !t.axis), t => t.ys), y2: span(st.tracks.filter(t => t.axis), t => t.ys) }
     st.blur = chart.series.reduce((n, s) => n + s.x.length, 0) <= BLUR_LIMIT
     st.focused = -1
-    // легенда: скрытые серии остаются скрытыми после пересчёта, если они есть на новом графике
     instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode), { notMerge: true })
-    const names = new Set(chart.series.map(key))
-    const hidden = Object.entries(st.selected).filter(([n, on]) => !on && names.has(n)).map(([n]) => n)
-    for (const name of hidden) instance.current?.dispatchAction({ type: 'legendUnSelect', name })
-    st.selected = Object.fromEntries(hidden.map(n => [n, false]))
+    st.selected = {}
+    applyLegend()
     if (boxRef.current) instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: true })
     st.draw()
-  }, [chart, excludeMode, mode])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chart, excludeMode, mode, theme])
+
+  // новый расчёт — прежние закреплённые подсказки относятся к другим данным
+  useEffect(() => {
+    const st = state.current
+    st.pins.forEach(p => p.el.remove()); st.pins = []
+  }, [chart])
+  // разница с первой подсказкой — в единицах новой темы и вида не меняется, но номера и отметки перерисовать
+  useEffect(() => { state.current.draw() }, [offEvents])
+
+  // легенда: видимость серий = не скрыт пункт и не скрыто ни одно значение её признаков
+  setDarkPalette(theme === 'dark')
+  const legend = useMemo(() => legendModel(chart, excludeMode, mode), [chart, excludeMode, mode, theme])
+  const applyLegend = () => {
+    const ch = instance.current, st = state.current
+    if (!ch) return
+    for (const item of legend.items) {
+      const on = !hidden.has(item.name) && !item.facets.every(f => [...f.entries()].some(([k, v]) => facetOff.has(k + '\u0001' + v)))
+      if ((st.selected[item.name] !== false) === on) continue
+      ch.dispatchAction({ type: on ? 'legendSelect' : 'legendUnSelect', name: item.name })
+      st.selected[item.name] = on
+    }
+  }
+  useEffect(() => { applyLegend(); state.current.draw() })    // после каждого изменения легенды или графика
+
+  const highlight = (name: string | null) => {
+    const ch = instance.current
+    if (!ch || !state.current.blur) return
+    ch.dispatchAction({ type: 'downplay' })
+    if (name) ch.dispatchAction({ type: 'highlight', seriesName: name })
+  }
 
   return (
     <figure className={'chart' + (excludeMode ? ' exclude-mode' : '')}>
@@ -480,12 +693,172 @@ export function ChartView({ chart, excludeMode, onExclude, onDownload }: Props) 
           <DownloadMenu onDownload={onDownload} />
         </span>
       </figcaption>
-      <div className="chart-stage">
+      <div className="chart-stage" ref={stage}>
         <div ref={box} className="chart-canvas" role="img" aria-label={chart.title} />
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
         <div ref={tip} className="atlas-tip floating" hidden />
       </div>
+      <ChartLegend model={legend} hidden={hidden} facetOff={facetOff} events={chart.x.scale === 'time' ? chart.events ?? [] : []}
+        offEvents={offEvents} onHighlight={highlight}
+        onToggle={(name, only) => setHidden(h => {
+          if (only) {
+            const others = legend.items.map(i => i.name).filter(n => n !== name)
+            const isolated = !h.has(name) && others.every(n => h.has(n))
+            return isolated ? new Set() : new Set(others)
+          }
+          const n = new Set(h); if (n.has(name)) n.delete(name); else n.add(name); return n
+        })}
+        onFacet={(facet, value, only) => setFacetOff(off => {
+          const values = legend.facets.find(f => f.name === facet)?.values.map(v => v.value) ?? []
+          const id = (v: string) => facet + '\u0001' + v
+          const n = new Set(off)
+          if (only) {
+            const isolated = !off.has(id(value)) && values.filter(v => v !== value).every(v => off.has(id(v)))
+            for (const v of values) { if (isolated || v === value) n.delete(id(v)); else n.add(id(v)) }
+            return n
+          }
+          if (n.has(id(value))) n.delete(id(value)); else n.add(id(value))
+          return n
+        })}
+        onEvent={kind => hiddenEvents.set(offEvents.includes(kind) ? offEvents.filter(k => k !== kind) : [...offEvents, kind])} />
     </figure>
+  )
+}
+
+// ---------- легенда ----------
+
+interface LegendItem {
+  name: string; color: string; dash: string | number[]; line: boolean; symbol: string | null; hollow: boolean
+  facets: Map<string, string>[]      // признаки серий этого пункта (у пункта может быть несколько серий)
+}
+interface FacetValue { value: string; color: string | null; dash: string | number[] | null }
+interface LegendModel { items: LegendItem[]; facets: { name: string; values: FacetValue[] }[]; plain: LegendItem[] }
+
+/** Пункты легенды и ряды признаков. Ряд — признак, у которого больше одного значения; значение рисуется
+ *  цветом, если он у всех его серий общий, иначе стилем линии, если общий он. */
+function legendModel(chart: Chart, excludeMode: boolean, mode: HoverMode): LegendModel {
+  const color = colorOf(chart)
+  const items: LegendItem[] = []
+  const byName = new Map<string, LegendItem>()
+  for (const s of chart.series) {
+    const name = key(s)
+    let item = byName.get(name)
+    if (!item) {
+      if (!chart.series.some(o => key(o) === name && o.legend)) continue
+      const first = chart.series.find(o => key(o) === name && o.legend)!
+      item = {
+        name, color: color(first), dash: dashOf(first), line: first.kind === 'line', hollow: first.hollow,
+        symbol: first.kind === 'points' || (first.kind === 'line' && hasMarkers(first, excludeMode, mode)) ? first.symbol : null,
+        facets: [],
+      }
+      byName.set(name, item); items.push(item)
+    }
+    item.facets.push(new Map(Object.entries(s.facets ?? {})))
+  }
+  const names: string[] = []
+  for (const s of chart.series) for (const f of Object.keys(s.facets ?? {})) if (!names.includes(f)) names.push(f)
+  const facets = names.map(name => {
+    const values: FacetValue[] = []
+    for (const s of chart.series) {
+      const v = s.facets?.[name]
+      if (v === undefined || values.some(o => o.value === v)) continue
+      const all = chart.series.filter(o => o.facets?.[name] === v)
+      const c = color(all[0]), d = dashOf(all[0])
+      values.push({
+        value: v, color: all.every(o => color(o) === c) ? c : null,
+        dash: all.every(o => JSON.stringify(dashOf(o)) === JSON.stringify(d)) ? d : null,
+      })
+    }
+    return { name, values }
+  }).filter(f => f.values.length > 1)
+  // серии без признаков (или с одним значением) остаются обычными пунктами
+  const plain = facets.length ? items.filter(i => i.facets.every(f => f.size === 0)) : items
+  return { items, facets, plain }
+}
+
+function Swatch({ color, dash, line, symbol, hollow }: { color: string; dash: string | number[] | null; line: boolean; symbol?: string | null; hollow?: boolean }) {
+  const pattern = Array.isArray(dash) ? dash.join(' ') : undefined
+  const mark = { fill: hollow ? 'var(--chart-surface)' : color, stroke: color }    // var() — только через style, не атрибут
+  return (
+    <svg className="legend-key" viewBox="0 0 22 12" aria-hidden="true">
+      {line && <line x1="1" y1="6" x2="21" y2="6" style={{ stroke: color }} strokeWidth={2.2} strokeDasharray={pattern} strokeLinecap="round" />}
+      {symbol && (symbol === 'square' ? <rect x="7.5" y="2.5" width="7" height="7" style={mark} strokeWidth={1.4} />
+        : symbol === 'diamond' ? <path d="M11 1.8 15.2 6 11 10.2 6.8 6Z" style={mark} strokeWidth={1.4} />
+        : symbol === 'triangle' ? <path d="M11 2 15 10H7Z" style={mark} strokeWidth={1.4} />
+        : <circle cx="11" cy="6" r="3.6" style={mark} strokeWidth={1.4} />)}
+      {!line && !symbol && <rect x="5" y="2" width="12" height="8" rx="2" style={{ fill: color }} />}
+    </svg>
+  )
+}
+
+interface LegendProps {
+  model: LegendModel; hidden: Set<string>; facetOff: Set<string>; events: ChartEvent[]; offEvents: string[]
+  onToggle: (name: string, only: boolean) => void; onFacet: (facet: string, value: string, only: boolean) => void
+  onEvent: (kind: string) => void; onHighlight: (name: string | null) => void
+}
+
+function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onFacet, onEvent, onHighlight }: LegendProps) {
+  const [open, setOpen] = useState(false)
+  const [overflow, setOverflow] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = root.current
+    if (el) setOverflow(el.scrollHeight > el.clientHeight + 2)
+  })
+  const kinds = EVENT_KINDS.filter(k => events.some(e => e.kind === k.kind))
+  const tk = { muted: 'var(--chart-muted)', accent: 'var(--chart-accent)', faint: 'var(--chart-faint)' } as ChartTokens
+  if (model.items.length < 2 && !kinds.length) return null
+  const hint = 'Щелчок — скрыть или показать, двойной щелчок — только этот'
+  return (
+    <div className="chart-legend-wrap">
+      <div ref={root} className={'chart-legend' + (open ? ' open' : '')}>
+        {model.facets.map(f => (
+          <div key={f.name} className="legend-row">
+            <span className="legend-title">{f.name}</span>
+            {f.values.map(v => (
+              <button key={v.value} type="button" className="legend-item" aria-pressed={!facetOff.has(f.name + '\u0001' + v.value)} title={hint}
+                onClick={e => onFacet(f.name, v.value, e.detail > 1)}>
+                {(v.color || v.dash) && <Swatch color={v.color ?? 'var(--chart-ink)'} dash={v.dash} line />}
+                <span>{v.value}</span>
+              </button>
+            ))}
+          </div>
+        ))}
+        {model.plain.length > (model.facets.length ? 0 : 1) && (
+          <div className="legend-row">
+            {model.facets.length > 0 && <span className="legend-title">Кривые</span>}
+            {model.plain.map(i => (
+              <button key={i.name} type="button" className="legend-item" aria-pressed={!hidden.has(i.name)} title={hint}
+                onClick={e => onToggle(i.name, e.detail > 1)}
+                onMouseEnter={() => onHighlight(i.name)} onMouseLeave={() => onHighlight(null)}>
+                <Swatch color={i.color} dash={i.dash} line={i.line} symbol={i.symbol} hollow={i.hollow} />
+                <span>{i.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {kinds.length > 0 && (
+          <div className="legend-row">
+            <span className="legend-title">События</span>
+            {kinds.map(k => (
+              <button key={k.kind} type="button" className="legend-item" aria-pressed={!offEvents.includes(k.kind)}
+                title="Показать или скрыть отметки на всех графиках" onClick={() => onEvent(k.kind)}>
+                <svg className="legend-key" viewBox="0 0 22 12" aria-hidden="true">
+                  <path d="M7 1h8l-4 6Z" style={{ fill: eventColor(k.kind, tk) }} />
+                  <line x1="11" y1="7" x2="11" y2="12" style={{ stroke: eventColor(k.kind, tk) }} strokeDasharray="2 1.5" />
+                </svg>
+                <span>{k.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {(overflow || open) && (
+        <button type="button" className="legend-more" onClick={() => setOpen(o => !o)}>
+          {open ? 'Свернуть легенду' : `Вся легенда (${model.items.length})`}
+        </button>
+      )}
+    </div>
   )
 }
 

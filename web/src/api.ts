@@ -73,10 +73,16 @@ export interface Series {
   color: string; symbol: 'circle' | 'square' | 'diamond' | 'triangle'; hollow: boolean
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null
   markers: boolean; axis: 'y' | 'y2'
+  facets: Record<string, string> | null     // признаки для легенды рядами: {'Скважина': '№ 101', 'Период': '2024'}
 }
-export interface Chart { id: string; title: string; x: Axis; y: Axis; y2: Axis | null; series: Series[]; crosshair: boolean }
+export interface ChartEvent { x: string; label: string; kind: 'gdi' | 'regime' | 'repair' | 'other'; well: string }
+export interface Chart {
+  id: string; title: string; x: Axis; y: Axis; y2: Axis | null; series: Series[]; crosshair: boolean
+  events?: ChartEvent[]
+}
+export interface Stat { label: string; value: string; hint: string }
 export interface Note { text: string; level: 'info' | 'warning' }
-export interface Result { tables: Table[]; charts: Chart[]; notes: Note[]; elapsed_ms: number; revision: number }
+export interface Result { tables: Table[]; charts: Chart[]; notes: Note[]; elapsed_ms: number; revision: number; summary?: Stat[] }
 export interface SavedState { panel: Params | null; history: { date: string; params: Params }[] }
 export interface ExclusionChange { added: number; removed: number; excluded: number }
 

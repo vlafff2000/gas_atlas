@@ -12,8 +12,18 @@ export const LEGACY: Record<string, string> = {
   '#9955cc': PALETTE[4], '#149ba5': PALETTE[5], '#bd548d': PALETTE[6], '#8c7542': PALETTE[7],
 }
 
+/** Та же палитра для тёмного фона: светлее на шаг, порядок и различимость пар сохранены. */
+export const DARK_PALETTE = ['#5598ea', '#f2814f', '#2fc48d', '#f2b733', '#ef97b9', '#3aa83a', '#8d80e3', '#b98a4c']
+let dark = false
+/** Тёмная тема включена — цвета серий берутся из тёмной палитры (вызывает ChartView при смене темы). */
+export function setDarkPalette(on: boolean) { dark = on }
+export const palette = () => (dark ? DARK_PALETTE : PALETTE)
+
 export function seriesColor(color: string) {
-  return LEGACY[color.toLowerCase()] ?? color
+  const c = LEGACY[color.toLowerCase()] ?? color
+  if (!dark) return c
+  const i = PALETTE.indexOf(c.toLowerCase())
+  return i >= 0 ? DARK_PALETTE[i] : c
 }
 
 export interface ChartTokens { ink: string; muted: string; faint: string; grid: string; axis: string; surface: string; accent: string }
