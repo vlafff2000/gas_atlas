@@ -33,7 +33,16 @@ def to_plotly(chart: Chart):
     fig = go.Figure()
     for s in chart.series:
         color = s.color or palette[s.group or s.name]
-        if s.kind == 'bar':
+        if s.kind == 'box':
+            # Пять чисел ящика как значения: квартили по ним совпадают, усы — крайние значения в пределах 1,5 IQR.
+            first = True
+            for category, stats in zip(s.x, s.y):
+                if stats is None:
+                    continue
+                fig.add_trace(go.Box(x=[str(category)] * len(stats), y=list(stats), name=s.name,
+                                     showlegend=s.legend and first, marker_color=color, boxpoints=False))
+                first = False
+        elif s.kind == 'bar':
             fig.add_trace(go.Bar(x=[str(v) for v in s.x], y=list(s.y), name=s.name, showlegend=s.legend,
                                  marker_color=color))
         elif s.kind == 'line':
@@ -67,6 +76,8 @@ def to_plotly(chart: Chart):
             axis.rangemode = 'tozero'
         if spec.step and spec.scale in ('value', 'log'):
             axis.dtick = spec.step
+        if spec.minimum is not None and spec.maximum is not None and spec.scale == 'value':
+            axis.range = [spec.minimum, spec.maximum]
         if spec.inverse:
             axis.autorange = 'reversed'
     return fig

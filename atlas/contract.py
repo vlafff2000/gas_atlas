@@ -187,6 +187,8 @@ class Axis:
     from_zero: bool = False
     step: float | None = None         # шаг делений (dtick в 5.8)
     categories: list[str] | None = None   # для scale='category': порядок подписей
+    minimum: float | None = None      # заданные границы оси (None — автоматически)
+    maximum: float | None = None
 
 
 @dataclass
@@ -194,7 +196,7 @@ class Series:
     name: str
     x: Sequence[Any]
     y: Sequence[Any]
-    kind: Literal['points', 'line', 'bar'] = 'points'
+    kind: Literal['points', 'line', 'bar', 'box'] = 'points'   # box: y — [низ, Q1, медиана, Q3, верх] на категорию
     group: str = ''                  # общий цвет и общий пункт легенды
     dashed: bool = False
     dash: Literal['', 'solid', 'dash', 'dot', 'dashdot', 'longdash'] = ''   # пусто — по ``dashed``
