@@ -4,7 +4,7 @@
 
 ## Запуск
 
-Windows: `run_atlas_windows.bat` (нужен Python 3.10+ в `.venv`; недостающие пакеты из
+Windows: `run_atlas_windows.bat` (нужен Python 3.8+ в `.venv`; недостающие пакеты из
 `requirements-atlas.txt` поставятся сами). Открывается окно приложения (pywebview).
 Linux: `bash run_atlas.sh` — то же в браузере.
 
