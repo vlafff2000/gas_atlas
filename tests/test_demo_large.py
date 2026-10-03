@@ -60,3 +60,14 @@ def test_saved_project_opens_in_58(tmp_path):
                                                        'pressure_match': 1200}
     assert manifest['settings']['working_horizons'] == ['Окский']
     assert len(data['production']) == 5000
+
+
+def test_frame_index_is_not_copied_with_attrs(frames):
+    """pandas>=2.1 копирует DataFrame.attrs глубоко при каждом iloc/merge: индекс должен передаваться по ссылке,
+    иначе кривые «Производительности» на миллионе строк строятся минутами."""
+    import copy
+    from app.core.performance import index_for, prepare_table
+    d = prepare_table(frames['production'], 'production', {}, 'test')
+    index = index_for(d)
+    assert index is not None and copy.deepcopy(index) is index
+    assert d.iloc[:10].attrs.get('_atlas_index') is index

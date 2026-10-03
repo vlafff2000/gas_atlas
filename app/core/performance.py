@@ -42,6 +42,11 @@ class FrameIndex:
         tmp['positive']=tmp.q.gt(0);tmp['zero']=tmp.q.eq(0)
         self.stats=tmp.groupby(['kind','well','period']).agg(total=('q','sum'),active=('positive','sum'),zero=('zero','sum'),records=('q','size'))
 
+    def __deepcopy__(self,memo):
+        # Read-only after construction. pandas>=2.1 deep-copies DataFrame.attrs on every derived frame
+        # (iloc, merge, ...), which copied the whole index each time: minutes on a million rows.
+        return self
+
 
 def index_for(df):
     value=df.attrs.get('_atlas_index')
