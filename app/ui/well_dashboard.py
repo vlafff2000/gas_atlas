@@ -58,14 +58,8 @@ def render(frames,raw_frames,settings,mapping,catalog,point_controls,key,style,v
     stats=analysis['seasons'];data=analysis['daily']
     st.subheader('Скважина №'+well+' · '+mapping.get(well,{}).get('group','Без группы'))
     cols=list(st.columns(3))+list(st.columns(3))
-    cols[0].metric('Газ за выбранные периоды, млн м³',number(stats.gas_volume.sum(min_count=1) if not stats.empty else np.nan,3))
-    cols[1].metric('Средний суточный объем, тыс. м³',number(data.loc[data.active,'gas_volume_m3'].mean()/1000 if not data.empty else np.nan,2))
-    cols[2].metric('Отработанные дни',number(stats.active_days.sum() if not stats.empty else np.nan,0))
-    cols[3].metric('Известные часы работы',number(stats.hours.sum(min_count=1) if not stats.empty else np.nan,1))
-    cols[4].metric('Последний отбитый забой, м',number(analysis['bottom'].iloc[-1].bottom_m if not analysis['bottom'].empty else np.nan,1))
-    water=analysis['water'];last=water.iloc[-1] if not water.empty else None
-    state='Неизвестно' if last is None else 'Есть' if last['Состояние'] in ('Вода измерена','Вода отмечена') else 'Не отмечена' if last['Признак']=='Нет' else 'Замер равен нулю'
-    cols[5].metric('Вода по последнему контролю',state,help='Нет наблюдений' if last is None else last['Дата'].strftime('%d.%m.%Y')+'; состояние относится к дате наблюдения.')
+    for col,(label,value,precision,hint) in zip(cols,well_analysis.metrics(analysis)):
+        col.metric(label,number(value,precision) if precision is not None else value,help=hint)
     gasdays=int(data.gas_volume_m3.notna().sum()) if not data.empty else 0
     knownhours=int(data.work_hours.notna().sum()) if not data.empty else 0
     st.caption('Данные газа: '+str(gasdays)+' суток; часы известны: '+str(knownhours)+' суток. Дата состояния: '+pd.Timestamp(asof).strftime('%d.%m.%Y')+'.')

@@ -119,6 +119,14 @@ function Field({ param: p, value, options, onChange }:
       </label>
     )
   }
+  if (p.kind === 'date') {
+    return (
+      <label className="field date" title={p.help}>
+        <span className="field-label">{p.label}</span>
+        <input type="date" value={(value as string | null) ?? ''} onChange={e => onChange(e.target.value || null)} />
+      </label>
+    )
+  }
   if (p.kind === 'choice') {
     const index = p.options.findIndex(o => o.value === value)
     return (
@@ -130,7 +138,21 @@ function Field({ param: p, value, options, onChange }:
       </label>
     )
   }
+  if (p.kind === 'text') return <TextField param={p} value={(value as string) ?? ''} onChange={onChange} />
   return <NumberField param={p} value={value as number} onChange={onChange} />
+}
+
+function TextField({ param: p, value, onChange }: { param: Param; value: string; onChange: (v: unknown) => void }) {
+  // Пересчёт — по выходу из поля, а не на каждую букву.
+  const [text, setText] = useState(value)
+  useEffect(() => { setText(value) }, [value])
+  return (
+    <label className="field text" title={p.help}>
+      <span className="field-label">{p.label}</span>
+      <textarea rows={2} value={text} placeholder={p.help} onChange={e => setText(e.target.value)}
+        onBlur={() => { if (text !== value) onChange(text) }} />
+    </label>
+  )
 }
 
 function NumberField({ param: p, value, onChange }: { param: Param; value: number; onChange: (v: unknown) => void }) {

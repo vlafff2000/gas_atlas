@@ -16,7 +16,7 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text']
 
 
 class ParamError(ValueError):
@@ -59,7 +59,7 @@ class Param:
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
 
     def coerce(self, value: Any) -> Any:
-        if value is None:
+        if value is None or (self.kind == 'date' and value == ''):
             return self.default
         try:
             if self.kind == 'boolean':
@@ -83,6 +83,13 @@ class Param:
             raise
         except (TypeError, ValueError):
             raise ParamError(f'«{self.label}»: ожидается {"целое " if self.kind == "integer" else ""}число') from None
+        if self.kind == 'date':
+            try:
+                return pd.Timestamp(str(value)).strftime('%Y-%m-%d')
+            except (TypeError, ValueError):
+                raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД') from None
+        if self.kind == 'text':
+            return str(value)[:5000]
         if self.kind == 'choice':
             if self.options and value not in {o.value for o in self.options}:
                 raise ParamError(f'«{self.label}»: недопустимое значение {value!r}')
@@ -144,18 +151,29 @@ class Column:
 
 @dataclass(frozen=True)
 class TableAction:
-    """Флажки в строках таблицы и кнопка применения. Пока один вид: исключение точек.
+    """Действие над строками таблицы и кнопка применения.
 
-    ``id_column`` — идентификатор точки (``_point_id``); ``checked_column`` — колонка с текущим
-    состоянием (снятый флажок восстанавливает точку). Без неё флажки только добавляют исключения.
+    ``exclude`` — флажки исключения точек: ``id_column`` — идентификатор точки (``_point_id``);
+    ``checked_column`` — колонка с текущим состоянием (снятый флажок восстанавливает точку).
+    Без неё флажки только добавляют исключения.
+
+    ``assign`` — назначение групп скважин: ``id_column`` — скважина, ``fields`` — колонки, которые
+    уходят в проект (``group``, ``subgroup``), ``editable`` — какие из них правятся в ячейках.
+    ``submit='all'`` отправляет все строки как есть (автоматические подгруппы), ``'changed'`` — только изменённые.
+    ``journal`` — запись в журнале проекта.
     """
-    kind: Literal['exclude']
-    dataset: DatasetKind
+    kind: Literal['exclude', 'assign']
+    dataset: DatasetKind | None
     id_column: str
     label: str
     reason: str = 'Ручная проверка'
     checked_column: str = ''
     reason_editable: bool = True
+    column: str = 'Исключить'         # заголовок столбца флажков («Исключено» в журнале исключений)
+    fields: tuple[str, ...] = ()
+    editable: tuple[str, ...] = ()
+    submit: Literal['changed', 'all'] = 'changed'
+    journal: str = ''
 
 
 @dataclass
@@ -182,6 +200,8 @@ class Axis:
     from_zero: bool = False
     step: float | None = None         # шаг делений (dtick в 5.8)
     categories: list[str] | None = None   # для scale='category': порядок подписей
+    minimum: float | None = None      # заданные границы оси (None — автоматически)
+    maximum: float | None = None
 
 
 @dataclass
@@ -189,7 +209,7 @@ class Series:
     name: str
     x: Sequence[Any]
     y: Sequence[Any]
-    kind: Literal['points', 'line', 'bar'] = 'points'
+    kind: Literal['points', 'line', 'bar', 'box'] = 'points'   # box: y — [низ, Q1, медиана, Q3, верх] на категорию
     group: str = ''                  # общий цвет и общий пункт легенды
     dashed: bool = False
     dash: Literal['', 'solid', 'dash', 'dot', 'dashdot', 'longdash'] = ''   # пусто — по ``dashed``
@@ -202,6 +222,8 @@ class Series:
     labels: Sequence[str] | None = None  # строка подсказки на каждую точку (поверх X и Y)
     ids: Sequence[str] | None = None  # идентификаторы точек: по ним щелчок исключает точку
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
+    markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
+    axis: Literal['y', 'y2'] = 'y'   # 'y2' — правая ось Chart.y2
 
 
 @dataclass
@@ -212,6 +234,7 @@ class Chart:
     y: Axis
     series: list[Series] = field(default_factory=list)
     crosshair: bool = False
+    y2: Axis | None = None           # вторая шкала справа (две шкалы Y)
 
 
 @dataclass
@@ -221,16 +244,32 @@ class Note:
 
 
 @dataclass
+class Command:
+    """Кнопка под результатом: POST на адрес API проекта, затем проект обновляется и модуль пересчитывается.
+
+    ``path`` — относительно ``/api/projects/{проект}/`` (например ``'exclusions/state'``), ``body`` — тело запроса.
+    """
+    label: str
+    path: str
+    body: dict[str, Any] = field(default_factory=dict)
+    confirm: str = ''                 # вопрос перед выполнением; пусто — без вопроса
+    done: str = ''                    # сообщение после успеха
+    primary: bool = False
+
+
+@dataclass
 class Result:
     tables: list[Table] = field(default_factory=list)
     charts: list[Chart] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
+    commands: list[Command] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return {
             'tables': [_table_json(t) for t in self.tables],
             'charts': [_chart_json(c) for c in self.charts],
             'notes': [asdict(n) for n in self.notes],
+            'commands': [asdict(c) for c in self.commands],
         }
 
 
@@ -246,6 +285,9 @@ class Data(Mapping):
         self.settings: dict[str, Any] = {}
         self.revision: int | None = None
         self.mapping: dict[str, dict[str, str]] = {}    # скважина -> {'group': ..., 'subgroup': ...}
+        # Сведения о проекте (atlas.projects.ProjectInfo): name, demo, tables, history(), catalog(). Задаёт ядро.
+        self.project: Any = None
+        self.wells: list[str] = []                       # все скважины проекта (по всем наборам), по номеру
 
     def __getitem__(self, kind):
         return self._frames[kind]
@@ -337,7 +379,8 @@ def _table_json(t: Table) -> dict[str, Any]:
     frame = t.frame[keys + extra]
     action = None
     if t.action:
-        action = {**asdict(t.action), 'dataset': t.action.dataset.value,
+        action = {**asdict(t.action), 'dataset': t.action.dataset.value if t.action.dataset else None,
+                  'values': {k: _column(t.frame[k]) for k in t.action.fields},
                   'ids': _column(frame[t.action.id_column]),
                   'checked': [bool(v) for v in frame[t.action.checked_column]] if t.action.checked_column else None}
     return {'id': t.id, 'title': t.title, 'columns': [asdict(c) for c in t.columns], 'note': t.note,
@@ -355,4 +398,5 @@ def _series_json(s: Series) -> dict[str, Any]:
 
 def _chart_json(c: Chart) -> dict[str, Any]:
     return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
+            'y2': asdict(c.y2) if c.y2 else None,
             'series': [_series_json(s) for s in c.series]}

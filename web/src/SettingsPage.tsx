@@ -1,0 +1,132 @@
+// Раздел «Настройки» (5.8: страница «Настройки» в app/main.py и «Оформление графиков» боковой панели).
+import { useCallback, useEffect, useState } from 'react'
+import { projectsApi, saveLink } from './api_projects'
+import { RestoreBox, Toast, useDetails, type PageProps } from './ProjectPage'
+
+const STYLE = [['points', 'Показывать точки'], ['legend', 'Легенда'], ['grid', 'Сетка']] as const
+
+export function SettingsPage({ project, onProject, onOpen }: PageProps) {
+  const { details } = useDetails(project.id, project.revision)
+  const s = project.settings
+  const [start, setStart] = useState(String(s.season_start ?? 11))
+  const [end, setEnd] = useState(String(s.season_end ?? 4))
+  const [threshold, setThreshold] = useState(String(s.r2_threshold ?? 0.95))
+  const [manometers, setManometers] = useState(((s.manometer_wells as string[] | null) ?? []).join(', '))
+  const [pages, setPages] = useState<string[] | null>(null)
+  const [style, setStyle] = useState<Record<string, boolean>>({})
+  const [originals, setOriginals] = useState(true)
+  const [toast, setToast] = useState<string | null>(null)
+  const closeToast = useCallback(() => setToast(null), [])
+
+  useEffect(() => {
+    setStart(String(s.season_start ?? 11)); setEnd(String(s.season_end ?? 4)); setThreshold(String(s.r2_threshold ?? 0.95))
+    setManometers(((s.manometer_wells as string[] | null) ?? []).join(', '))
+    const saved = (s.chart_style as Record<string, boolean> | null) ?? {}
+    setStyle({ points: true, legend: true, grid: true, ...saved })
+  }, [s.season_start, s.season_end, s.r2_threshold, s.manometer_wells, s.chart_style])
+  useEffect(() => { if (details) setPages(details.visible_pages) }, [details])
+
+  const save = async (values: Record<string, unknown>, done: string) => {
+    try { onProject(await projectsApi.settings(project.id, values)); setToast(done) }
+    catch (e) { setToast((e as Error).message) }
+  }
+  const month = (v: string) => Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 12
+  const r2 = Number(threshold)
+  const rulesValid = month(start) && month(end) && threshold.trim() !== '' && r2 >= 0 && r2 <= 1
+
+  return (
+    <>
+      <header className="module-title">
+        <div>
+          <h1>Настройки проекта</h1>
+          <p className="lede">Правила периодов, разделы меню, резервные копии и восстановление.</p>
+        </div>
+      </header>
+
+      <section className="form-block">
+        <h2>Правила</h2>
+        <div className="form-row">
+          <label className={'field number' + (month(start) ? '' : ' invalid')}>
+            <span className="field-label">Первый месяц сезона отбора</span>
+            <input type="number" min={1} max={12} step={1} value={start} onChange={e => setStart(e.target.value)} />
+          </label>
+          <label className={'field number' + (month(end) ? '' : ' invalid')}>
+            <span className="field-label">Последний месяц сезона отбора</span>
+            <input type="number" min={1} max={12} step={1} value={end} onChange={e => setEnd(e.target.value)} />
+          </label>
+          <label className={'field number' + (r2 >= 0 && r2 <= 1 ? '' : ' invalid')}>
+            <span className="field-label">Порог R²</span>
+            <input type="number" min={0} max={1} step={0.01} value={threshold} onChange={e => setThreshold(e.target.value)} />
+          </label>
+        </div>
+        <label className="field wide">
+          <span className="field-label">Скважины с глубинными манометрами (через запятую)</span>
+          <input value={manometers} onChange={e => setManometers(e.target.value)} />
+        </label>
+        <p className="muted small-text">Явный сезон в исходной таблице имеет приоритет над правилом месяцев. Закачка группируется по году.
+          Изменение порога применяется к следующему расчету ГДИ.</p>
+        <div className="form-row">
+          <button type="button" className="primary" disabled={!rulesValid}
+            onClick={() => save({ season_start: Number(start), season_end: Number(end), r2_threshold: r2, manometer_wells: manometers },
+              'Правила сохранены. Расчеты обновятся с учетом новых правил.')}>Сохранить правила</button>
+        </div>
+      </section>
+
+      <section className="form-block">
+        <h2>Разделы меню</h2>
+        {pages && details ? (
+          <>
+            <div className="check-grid">
+              {details.pages.map(p => (
+                <label key={p} className="toggle">
+                  <input type="checkbox" checked={p === 'Настройки' || pages.includes(p)} disabled={p === 'Настройки'}
+                    onChange={e => setPages(e.target.checked ? details.pages.filter(x => x === p || pages.includes(x)) : pages.filter(x => x !== p))} />
+                  <span>{p}</span>
+                </label>
+              ))}
+            </div>
+            <p className="muted small-text">Настройки остаются доступными при любом выборе. Скрытые разделы сохраняют данные и параметры.
+              Состав меню общий с версией 5.8; разделы, которых еще нет в 6, учитываются, когда появятся.</p>
+            <div className="form-row">
+              <button type="button" className="quiet" onClick={() => save({ visible_pages: pages }, 'Состав меню сохранен.')}>Сохранить состав меню</button>
+              <button type="button" className="quiet" onClick={() => save({ visible_pages: null }, 'Восстановлено меню по умолчанию.')}>Восстановить меню по умолчанию</button>
+            </div>
+          </>
+        ) : <p className="muted">Загрузка…</p>}
+      </section>
+
+      <section className="form-block">
+        <h2>Оформление графиков</h2>
+        <div className="form-row">
+          {STYLE.map(([field, label]) => (
+            <label key={field} className="toggle">
+              <input type="checkbox" checked={style[field] ?? true} onChange={e => setStyle({ ...style, [field]: e.target.checked })} />
+              <span>{label}</span>
+            </label>
+          ))}
+          <button type="button" className="quiet" onClick={() => save({ chart_style: style }, 'Оформление сохранено.')}>Сохранить оформление</button>
+        </div>
+        <p className="muted small-text">Действует на выгрузки раздела «Экспорт» и на графики версии 5.8.</p>
+      </section>
+
+      <section className="form-block">
+        <h2>Резервная копия проекта</h2>
+        <div className="form-row">
+          <label className="toggle">
+            <input type="checkbox" checked={originals} onChange={e => setOriginals(e.target.checked)} />
+            <span>Включить исходные файлы</span>
+          </label>
+          <button type="button" className="quiet" onClick={() => saveLink(projectsApi.backupUrl(project.id, originals))}>Скачать резервную копию</button>
+        </div>
+        <RestoreBox onOpen={onOpen} label="Восстановить копию или перенести старый .gas.json как отдельный проект" />
+      </section>
+
+      <div className="toolbar">
+        <button type="button" className="quiet" disabled={!details?.log} title={details?.log ? '' : 'Журнал ошибок пока пуст'}
+          onClick={() => saveLink(projectsApi.logUrl)}>Скачать журнал ошибок</button>
+        <span className="muted">Проекты автоматически сохраняются после импорта и изменения настроек. Для переноса на другой компьютер используйте резервную копию.</span>
+      </div>
+      <Toast text={toast} onClose={closeToast} />
+    </>
+  )
+}

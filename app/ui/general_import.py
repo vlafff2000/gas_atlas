@@ -19,40 +19,7 @@ from app.core.templates import input_templates
 from app.core.well_import import REQUIRED
 from app.ui.import_editor import file_editor,parse_pressure_book,samples,sheet_editor,text_options,FIELDS,MODULE_CHOICES
 
-TYPES={'auto':'Автоопределение','groups':'Группы (в том числе без заголовков)','subgroups':'Подгруппы (в том числе без заголовков)'}
-TEXT_TYPES=['xlsx','xls','xlsm','ods','csv','tsv','txt','dat']
-PRESSURE_WORDS=(('факт','hist','fact'),('модел','gdm','model'))
-PSI_TO_KGF=10.197162129779
-
-def type_label(value):
-    return TYPES.get(value) or MODULES.get(value,value)
-
-def is_pressure_book(names):
-    low=[n.lower() for n in names]
-    return any(any(w in n for w in PRESSURE_WORDS[0]) for n in low) and any(any(w in n for w in PRESSURE_WORDS[1]) for n in low)
-
-def auto_spec(raw,module):
-    """Same structure the detailed editor produces, built from the detected layout."""
-    head=raw.values.tolist();layout=detect_layout(head,module)
-    if layout['module'] is None:raise ValueError('Колонки не подходят для типа «'+type_label(module)+'»')
-    required={**REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'groups':{'well'}}.get(layout['module'],set())
-    missing=required-layout['mapping'].keys()
-    if not layout['wide'] and missing:raise ValueError('Не найдены колонки: '+', '.join(FIELDS.get(f,f) for f in sorted(missing)))
-    if layout['module']=='gdi' and not ('dp2' in layout['mapping'] or {'p_res','p_bh'}<=layout['mapping'].keys()):raise ValueError('Для ГДИ нужны Рпл и Рзаб либо ΔP²')
-    header=layout['header'];columns=range(raw.shape[1])
-    labels=[('' if pd.isna(v) else str(v).strip()) for v in (raw.iloc[header] if header>=0 else ['']*raw.shape[1])]
-    mapping=dict(layout['mapping']);datecol=mapping.get('date',0)
-    return {'enabled':True,'valid':True,'module':layout['module'],'header':int(header),'mapping':mapping,'wide':bool(layout['wide']),'datecol':datecol,
-            'wellcols':[i for i in columns if i!=datecol and labels[i] and not labels[i].startswith('Unnamed:')] if layout['wide'] else [],
-            'names':{str(i):v for i,v in enumerate(labels)},'fond_pairs':[]}
-
-def describe(raw,module):
-    try:
-        layout=detect_layout(raw.values.tolist(),module)
-    except Exception:return None,''
-    if layout['module'] is None:return None,''
-    fields=', '.join(FIELDS.get(f,f) for f in layout['mapping']) if not layout['wide'] else 'матрица: даты × скважины'
-    return layout['module'],fields
+from app.core.import_rules import TYPES,TEXT_TYPES,PRESSURE_WORDS,PSI_TO_KGF,type_label,is_pressure_book,auto_spec,describe,to_kgf,merge_import
 
 def simple_options(incoming,mode,key):
     """One table for all sheets of all files. Returns (options per file index, problems)."""
@@ -177,19 +144,7 @@ def render(store,pid,manifest,raw_frames,key,root,show_frame):
             try:
                 if import_options[i].get('pressure_book'):r=parse_pressure_book(content,name,import_options[i])
                 else:r=load_file(path,mode,kind,punit,gunit,sheet_options=import_options[i]['sheets'],encoding=import_options[i]['encoding'],delimiter=import_options[i]['delimiter'],progress=lambda sh,n:status.info(name+' / '+sh+': обработано '+format(n,',')+' строк'))
-                if pressure_unit=='МПа':
-                    factor=PSI_TO_KGF
-                    if 'gdi' in r.frames:
-                        g=r.frames['gdi']
-                        for col in ('p_res','p_bh'):
-                            if col in g:g[col]*=factor
-                        for col in ('dp2','a_db','b_db'):
-                            if col in g:g[col]*=factor**2
-                    if 'response' in r.frames and 'pressure' in r.frames['response']:r.frames['response']['pressure']*=factor
-                    if 'object_pressure' in r.frames:r.frames['object_pressure']['pressure']*=factor
-                    if 'operations' in r.frames:
-                        for col in ('p_res','p_bh','p_wellhead','p_line'):
-                            if col in r.frames['operations']:r.frames['operations'][col]*=factor
+                if pressure_unit=='МПа':to_kgf(r.frames)
                 for module,frame in r.frames.items():parsed[module]=pd.concat([parsed[module],frame],ignore_index=True) if module in parsed else frame
                 issues.extend(r.issues);rejected+=r.rejected;warnings_count+=r.warnings
                 if r.frames:originals.append(str(path))
@@ -217,16 +172,7 @@ def render(store,pid,manifest,raw_frames,key,root,show_frame):
     accepted=True if not pending['rejected'] else st.checkbox('Загрузить корректные строки, исключив перечисленные ошибки')
     def apply_import():
         try:
-            updated=dict(raw_frames);groups=dict(manifest['groups']);duplicates=0
-            for module,frame in pending['frames'].items():
-                if module=='groups':
-                    for row in frame.itertuples():
-                        change={}
-                        if row.group and row.group!='Без группы':change['group']=row.group
-                        if row.subgroup:change['subgroup']=row.subgroup
-                        groups.setdefault(row.well,{}).update(change)
-                else:
-                    updated[module],count=merge_frames(updated.get(module),frame,module,policy);duplicates+=count
+            updated,groups,duplicates=merge_import(raw_frames,manifest['groups'],pending['frames'],policy)
             originals=manifest.get('imports',[])+[store.keep_original(pid,p) for p in pending['originals']]
             store.commit(pid,updated,groups=groups,imports=originals,expected=revision,action='Импорт данных')
             store.event(pid,'Результат импорта',{'removed_duplicates':duplicates,'rejected':pending['rejected']})

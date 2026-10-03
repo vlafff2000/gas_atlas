@@ -16,7 +16,8 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, R
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import VERSION, registry, render
+from . import VERSION, api_exclusions, registry, render
+from . import api_export, api_projects
 from .contract import MissingData, ParamError, Result
 from .domain import DatasetKind
 from .projects import Conflict, Projects
@@ -137,6 +138,10 @@ def create_app(projects: Projects | None = None) -> Starlette:
                                           body.get('remove') or [], body.get('reason') or 'Исключено вручную',
                                           body.get('metric'))
 
+    def groups(request, body):
+        return projects.assign_groups(request.path_params['pid'], body.get('changes') or {},
+                                      body.get('action') or 'Назначение групп', body.get('revision'))
+
     def undo(request, body):
         return projects.undo_exclusion(request.path_params['pid'])
 
@@ -227,7 +232,12 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/options', E(options)),
         Route('/api/projects/{pid}/exclusions', E(exclusions), methods=['POST']),
         Route('/api/projects/{pid}/exclusions/undo', E(undo), methods=['POST']),
+        Route('/api/projects/{pid}/groups', E(groups), methods=['POST']),
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
+        *api_exclusions.routes(projects),
+        *api_projects.routes(projects), *api_export.routes(projects),   # «Проекты», «Настройки», «Экспорт»
+        *__import__('atlas.api_passport', fromlist=['routes']).routes(projects),   # «Паспорт скважины»
+        *__import__('atlas.api_import', fromlist=['routes']).routes(projects),   # раздел «Импорт данных»
         Route('/api/{rest:path}', api_not_found, methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
         Route('/', index),
     ]
