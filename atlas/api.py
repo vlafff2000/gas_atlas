@@ -142,6 +142,10 @@ def create_app(projects: Projects | None = None) -> Starlette:
         return projects.assign_groups(request.path_params['pid'], body.get('changes') or {},
                                       body.get('action') or 'Назначение групп', body.get('revision'))
 
+    def object_categories(request, body):
+        return projects.assign_object_categories(request.path_params['pid'], body.get('changes') or {},
+                                                 body.get('revision'))
+
     def undo(request, body):
         return projects.undo_exclusion(request.path_params['pid'])
 
@@ -233,6 +237,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/exclusions', E(exclusions), methods=['POST']),
         Route('/api/projects/{pid}/exclusions/undo', E(undo), methods=['POST']),
         Route('/api/projects/{pid}/groups', E(groups), methods=['POST']),
+        Route('/api/projects/{pid}/object-categories', E(object_categories), methods=['POST']),
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
         *api_exclusions.routes(projects),
         *api_projects.routes(projects), *api_export.routes(projects),   # «Проекты», «Настройки», «Экспорт»
