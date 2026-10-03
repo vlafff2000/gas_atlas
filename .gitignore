@@ -8,3 +8,4 @@ logs/
 dist/
 exports/
 !atlas/web/dist/
+build/

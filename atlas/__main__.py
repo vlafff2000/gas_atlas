@@ -62,23 +62,26 @@ def main(argv=None) -> None:
     if not args.browser:
         try:
             import webview  # pywebview
-        except ImportError:
-            print('pywebview не установлен — открываю в браузере (pip install pywebview)')
+        except Exception as error:  # нет пакета или не загрузился pythonnet/.NET
+            print(f'Окно приложения недоступно ({error}) — открываю в браузере')
     if webview is not None:
         try:  # выгрузка графиков и таблиц из окна приложения (pywebview 5+)
             webview.settings['ALLOW_DOWNLOADS'] = True
         except (AttributeError, TypeError):
             pass
-        webview.create_window('Газовый атлас', url, width=1440, height=900, min_size=(1024, 680))
-        webview.start()
-        server.should_exit = True
-    else:
-        webbrowser.open(url)
-        print(f'Газовый атлас {VERSION}: {url}  (остановка — Ctrl+C)')
         try:
-            thread.join()
-        except KeyboardInterrupt:
+            webview.create_window('Газовый атлас', url, width=1440, height=900, min_size=(1024, 680))
+            webview.start()
             server.should_exit = True
+            return
+        except Exception as error:  # напр. нет WebView2 на Windows или GTK/Qt на Linux
+            print(f'Окно приложения не открылось ({error}) — открываю в браузере')
+    webbrowser.open(url)
+    print(f'Газовый атлас {VERSION}: {url}  (остановка — Ctrl+C)')
+    try:
+        thread.join()
+    except KeyboardInterrupt:
+        server.should_exit = True
 
 
 if __name__ == '__main__':

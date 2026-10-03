@@ -24,8 +24,8 @@ def main():
     subprocess.check_call([str(executable),'-m','pip','install','--disable-pip-version-check','--upgrade','pip'])
     subprocess.check_call([str(executable),'-m','pip','install','--disable-pip-version-check','--only-binary=:all:','-r',name])
     subprocess.check_call([str(executable),'-m','pip','check'])
-    subprocess.check_call([str(executable),'-m','compileall','-q','app','tools'])
-    print('Installation complete. Start run_windows.bat or bash run.sh.')
+    subprocess.check_call([str(executable),'-m','compileall','-q','app','atlas','tools'])
+    print('Installation complete. Start run_atlas_windows.bat / bash run_atlas.sh (Gas Atlas 6) or run_windows.bat / bash run.sh (5.8).')
     return 0
 
 if __name__=='__main__':

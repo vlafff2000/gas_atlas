@@ -19,25 +19,7 @@ jobs:
         run: |
           python tools/check_runtime.py
           python -m pip install --upgrade pip
-          python -m pip install -r "$(python -c 'import sys;sys.path.insert(0,"tools");from check_runtime import requirements_name;print(requirements_name())')" pytest
-      - name: Tests
-        run: python -m pytest tests -q
-  atlas:
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ['3.8', '3.11', '3.13']
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-          cache: pip
-      - name: Install (exact lock on 3.8, version ranges on newer Python)
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r "$(python -c 'import sys;sys.path.insert(0,"tools");from check_runtime import requirements_name;print(requirements_name())')" -r requirements-atlas.txt pytest httpx
+          python -m pip install -r "$(python -c 'import sys;sys.path.insert(0,"tools");from check_runtime import requirements_name;print(requirements_name())')" pytest httpx
       - name: Tests (5.8 + atlas)
         run: python -m pytest tests -q
   web:
@@ -55,7 +37,7 @@ jobs:
       - name: Built interface is committed
         run: git status --porcelain atlas/web/dist && test -z "$(git status --porcelain atlas/web/dist)"
   package:
-    needs: [tests, atlas, web]
+    needs: [tests, web]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -66,3 +48,45 @@ jobs:
         with:
           name: Gas_Atlas
           path: dist/Gas_Atlas.zip
+  portable:
+    needs: [tests, web]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: windows, os: windows-2022}
+          - {target: linux, os: ubuntu-22.04}
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build portable folder (own Python 3.8, no install needed)
+        run: python tools/build_portable.py ${{ matrix.target }}
+      - name: Start both apps from the unpacked archive
+        run: |
+          mkdir t && cd t
+          python -c "import sys,zipfile,tarfile; p=sys.argv[1]; zipfile.ZipFile(p).extractall('.') if p.endswith('.zip') else tarfile.open(p).extractall('.')" ../dist/Gas_Atlas_portable_*
+          cd Gas_Atlas
+          PY=python/bin/python3.8; [ -f python/python.exe ] && PY=python/python.exe
+          export PYTHONNOUSERSITE=1 GAS_ATLAS_PORT=8766
+          "$PY" -s -m atlas --server --port 8765 > atlas6.log 2>&1 &
+          "$PY" -s tools/launch.py --no-browser > atlas58.log 2>&1 &
+          ok=
+          for i in $(seq 90); do
+            curl -sf http://127.0.0.1:8765/api/modules > modules.json && curl -sf http://127.0.0.1:8766/_stcore/health && ok=1 && break
+            sleep 1
+          done
+          cat atlas6.log atlas58.log
+          test -n "$ok" && head -c 200 modules.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gas_Atlas_portable_${{ matrix.target }}
+          path: dist/Gas_Atlas_portable_*
+          compression-level: 0
