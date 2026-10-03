@@ -80,7 +80,7 @@ export function App() {
           </select>
         </label>
         <nav aria-label="Разделы">
-          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page === '@import' ? 'page' : undefined}>Импорт данных</a></li></ul></section>
+          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page?.startsWith('@import') ? 'page' : undefined}>Импорт данных</a></li></ul></section>
           {groups.filter(([, items]) => items.some(m => inMenu(m.id, project))).map(([group, items]) => (
             <section key={group}>
               <h2>{group}</h2>
@@ -112,8 +112,8 @@ export function App() {
       </aside>
 
       <main className="workspace">
-        {page === '@import' ? (
-          <ImportPage project={project} onProject={updateProject}
+        {page === '@import' || page === '@import/pressure' ? (
+          <ImportPage key={page} project={project} onProject={updateProject} pressure={page === '@import/pressure'}
                       onCreated={async id => { await loadProjects(); setProjectId(id) }} />
         ) : projects && projects.length === 0 ? (
           <Empty onDemo={createDemo} onOpen={openProject} />
@@ -338,7 +338,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
       </div>
 
       {status.kind === 'error' && (
-        <div className={'note ' + (status.missing ? 'info' : 'warning')} role="alert">{status.message}</div>
+        <div className={'note ' + (status.missing ? 'info' : 'warning')} role="alert">
+          {status.message}
+          {status.missing && <> <a href={spec.needs.includes('pressure_match') ? '#/@import/pressure' : '#/@import'}>Открыть импорт</a></>}
+        </div>
       )}
 
       {result && (

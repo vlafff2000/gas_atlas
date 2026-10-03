@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Project } from './api'
 import {
   importApi, type Applied, type Book, type CheckFile, type FileInfo, type FileOptions, type ImportOptions, type Pending,
-  type PressureChoice, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
+  type PressureChoice, type PressureDemo, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
 } from './api_import'
 import { SheetEditor } from './SheetEditor'
 import { TableView } from './TableView'
@@ -21,11 +21,13 @@ interface Props {
   project: Project | null
   onProject: (p: Project) => void
   onCreated: (id: string) => Promise<void>
+  /** Открыть сразу подраздел «Данные давлений» (адрес `#/@import/pressure`, ссылка со страницы кроссплота). */
+  pressure?: boolean
 }
 
-export function ImportPage({ project, onProject, onCreated }: Props) {
+export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
   const [options, setOptions] = useState<ImportOptions | null>(null)
-  const [tab, setTab] = useState<'tables' | 'pressure'>('tables')
+  const [tab, setTab] = useState<'tables' | 'pressure'>(pressure ? 'pressure' : 'tables')
   const [failure, setFailure] = useState('')
   useEffect(() => { importApi.options().then(setOptions).catch(e => setFailure((e as Error).message)) }, [])
 
@@ -35,7 +37,7 @@ export function ImportPage({ project, onProject, onCreated }: Props) {
         <div>
           <h1>Импорт данных</h1>
           <p className="lede">Простой режим: перетащите все файлы сразу. Подробный: настройка шапки и колонок каждого листа.
-            Данные давлений для кроссплота загружаются на отдельной вкладке.</p>
+            Данные давлений для кроссплота — отдельный подраздел, там же демонстрационные варианты.</p>
         </div>
       </header>
       {failure && <div className="note warning">{failure}</div>}
@@ -546,6 +548,8 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
       <FilePicker uploads={uploads}
                   help="Перетащите сразу все файлы: книги Excel / ODS, CSV, TXT. Книга с листами «Факт», «Модель…», «Фонд» распознается автоматически; отдельные файлы — по словам «факт» и «модель» в названии." />
       {!files.length && <div className="note info">Выберите файлы. Программа сама определит факт, модели, фонды, шапку и структуру. Если данные уже есть в проекте, новые объекты добавятся к ним.</div>}
+      <PressureDemos project={project} onProject={onProject} onMessage={setMessage}
+                     onTry={list => { uploads.clear(); uploads.add(list) }} />
       {message && <div className={'note ' + (message.ok ? 'info' : 'warning')} role="status">{message.text}</div>}
       {result && (
         <>
@@ -630,5 +634,64 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
         </>
       )}
     </section>
+  )
+}
+
+function PressureDemos({ project, onProject, onMessage, onTry }: {
+  project: Project; onProject: (p: Project) => void; onMessage: (m: { text: string; ok: boolean }) => void
+  onTry: (list: { blob: Blob; name: string }[]) => void
+}) {
+  const [variants, setVariants] = useState<PressureDemo[]>([])
+  const [chosen, setChosen] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    importApi.pressureDemos().then(v => { setVariants(v); setChosen(c => c || v[0]?.value || '') })
+      .catch(e => onMessage({ text: (e as Error).message, ok: false }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const variant = variants.find(v => v.value === chosen)
+  if (!variant) return null
+  const run = async (work: () => Promise<void>) => {
+    setBusy(true)
+    try { await work() } catch (e) { onMessage({ text: (e as Error).message, ok: false }) }
+    setBusy(false)
+  }
+  const tryImport = () => run(async () => {
+    const list = await Promise.all(variant.books.map(async name => ({ name, blob: await importApi.pressureDemoBook(variant.value, name) })))
+    onTry(list)
+  })
+  const load = () => run(async () => {
+    const r = await importApi.pressureDemoApply(project.id, variant.value)
+    onProject(r.project); onMessage({ text: r.message, ok: true })
+  })
+  return (
+    <details className="demo-variants">
+      <summary>Демонстрационные варианты</summary>
+      <div className="form-row">
+        <label className="field">Вариант
+          <select value={chosen} onChange={e => setChosen(e.target.value)}>
+            {variants.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <p className="muted small">{variant.description} Книги — обычные файлы Excel с листами «Факт», «Модель…», «Фонд»:
+        их можно скачать и загрузить, как рабочие.</p>
+      <div className="toolbar">
+        {variant.books.map(name => (
+          <button key={name} type="button" className="quiet" disabled={busy}
+                  onClick={() => run(() => importApi.pressureDemoSave(variant.value, name))}>Скачать {name}</button>
+        ))}
+      </div>
+      {project.demo ? (
+        <div className="toolbar">
+          <button type="button" className="quiet" disabled={busy} onClick={tryImport}
+                  title="Книги варианта попадут в список файлов выше: проверка, сопоставление и сохранение — как с рабочими файлами">Открыть в импорте</button>
+          <button type="button" className="primary" disabled={busy} onClick={load}
+                  title="Данные давлений демонстрационного проекта заменяются выбранным вариантом">Загрузить в демонстрационный проект</button>
+        </div>
+      ) : (
+        <p className="muted small">Загрузить вариант сразу в проект можно только в демонстрационном проекте: рабочие проекты не заполняются выдуманными замерами.</p>
+      )}
+    </details>
   )
 }
