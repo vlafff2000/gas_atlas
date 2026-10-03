@@ -36,6 +36,24 @@ class Conflict(RuntimeError):
     """Проект изменён параллельно (например, в 5.8). Текст — для пользователя."""
 
 
+class ProjectInfo:
+    """Сведения о проекте для модулей «Обзор», «Исключенные точки», «История фильтра».
+    Журнал и каталог читаются по запросу: другим модулям они не нужны."""
+
+    def __init__(self, pid: str, manifest: Mapping[str, Any], store: Store, cache: FrameCache):
+        self.id, self.name, self.demo = pid, manifest.get('name', ''), bool(manifest.get('demo'))
+        self.tables = dict(manifest.get('tables', {}))
+        self._store, self._cache = store, cache
+
+    def history(self) -> pd.DataFrame:
+        """Журнал действий 5.8: «Дата», «Действие», «Подробности» (JSON), новые сверху, до 500 записей."""
+        return self._store.history(self.id)
+
+    def catalog(self) -> dict[str, Any]:
+        """Состав проекта как в 5.8 (``Project.catalog``): строки, скважины, даты по наборам."""
+        return self._cache.catalog()
+
+
 class Projects:
     def __init__(self, root=STORAGE):
         self.store = Store(root)
@@ -108,6 +126,7 @@ class Projects:
         for well, value in m.get('groups', {}).items():
             mapping.setdefault(well, {}).update(value)
         data.mapping = mapping
+        data.project = ProjectInfo(pid, m, self.store, cache)
         with self._lock:
             for stale in [k for k in self._views if k[0] == pid]:
                 self._views.pop(stale)
@@ -124,6 +143,7 @@ class Projects:
         keep = (*needs, *optional)
         out = Data({k: data[k] for k in keep if k in data}, {k: data.raw[k] for k in keep if k in data.raw}, data.excluded)
         out.settings, out.revision, out.mapping = data.settings, data.revision, data.mapping
+        out.project = data.project
         return out
 
     def options(self, pid: str, dataset: DatasetKind, column: str) -> list[str]:

@@ -43,6 +43,7 @@ API:
 | `PATCH /api/projects/{id}/settings` `{values}` | общие настройки проекта (пока `r2_threshold`) |
 | `POST /api/projects/{id}/exclusions` `{dataset, add, remove, reason}` | исключить / вернуть точки (журнал как в 5.8) |
 | `POST /api/projects/{id}/exclusions/undo` | отменить последнее исключение |
+| `POST /api/projects/{id}/exclusions/state` `{at, side, revision}` | «История фильтра»: восстановить состояние до / после изменения (`atlas/api_exclusions.py`) |
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |
 | `POST /api/modules/{id}/options` `{project, param, params}` | варианты зависимого списка |
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError, defaults, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
+import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
 import { TableView } from './TableView'
 import { formatDate } from './format'
@@ -297,7 +298,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             </select>
           </label>
         )}
-        {result && <button type="button" className="quiet" onClick={saveView}>{spec.save_label}</button>}
+        {result && spec.save_label && <button type="button" className="quiet" onClick={saveView}>{spec.save_label}</button>}
         {result && result.tables.length > 0 && (
           <button type="button" className="quiet" onClick={() => api.exportTables(spec.id, project.id, params).catch(e => setToast({ text: (e as Error).message, undo: false }))}>
             Все таблицы XLSX
@@ -312,6 +313,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
       {result && (
         <div className={'results' + (status.kind === 'running' ? ' stale' : '')}>
           {result.notes.map((n, i) => <div key={i} className={'note ' + n.level}>{n.text}</div>)}
+          <CommandBar result={result} project={project.id} onDone={text => exclusionDone(text, false)} onError={text => setToast({ text, undo: false })} />
           {result.charts.length > 0 && (
             <>
               {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее из расчета. Расчетные кривые и серые исключенные точки не выбираются.</div>}

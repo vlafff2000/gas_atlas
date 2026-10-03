@@ -53,6 +53,7 @@ export type Cell = string | number | boolean | null
 export interface TableAction {
   kind: 'exclude'; dataset: string; id_column: string; label: string; reason: string
   checked_column: string; reason_editable: boolean; ids: string[]; checked: boolean[] | null
+  column?: string
 }
 export interface Table {
   id: string; title: string; columns: Column[]; rows: Cell[][]; count: number
