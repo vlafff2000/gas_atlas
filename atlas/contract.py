@@ -59,7 +59,7 @@ class Param:
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
 
     def coerce(self, value: Any) -> Any:
-        if value is None:
+        if value is None or (self.kind == 'date' and value == ''):
             return self.default
         try:
             if self.kind == 'boolean':
@@ -84,12 +84,10 @@ class Param:
         except (TypeError, ValueError):
             raise ParamError(f'«{self.label}»: ожидается {"целое " if self.kind == "integer" else ""}число') from None
         if self.kind == 'date':
-            if value == '':
-                return None
             try:
-                return pd.Timestamp(str(value)).date().isoformat()
+                return pd.Timestamp(str(value)).strftime('%Y-%m-%d')
             except (TypeError, ValueError):
-                raise ParamError(f'«{self.label}»: ожидается дата') from None
+                raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД') from None
         if self.kind == 'text':
             return str(value)[:5000]
         if self.kind == 'choice':

@@ -132,7 +132,7 @@ function Field({ param: p, value, options, onChange }:
   }
   if (p.kind === 'date') {
     return (
-      <label className="field" title={p.help}>
+      <label className="field date" title={p.help}>
         <span className="field-label">{p.label}</span>
         <input type="date" value={(value as string | null) ?? ''} onChange={e => onChange(e.target.value || null)} />
       </label>
