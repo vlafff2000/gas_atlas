@@ -298,6 +298,16 @@ class Projects:
             raise
         return self.summary(m)
 
+    def assign_object_categories(self, pid: str, changes: Mapping[str, Any],
+                                 expected: int | None = None) -> dict[str, Any]:
+        """Категории объектов кроссплота давлений — в сохранённом виде 5.8, где их вводит раздел «Категории»."""
+        from .modules.pressure import CATEGORIES_JOURNAL, with_categories
+        raw = self.data(pid).raw.get(DatasetKind.PRESSURE_MATCH)
+        objects = [str(o) for o in raw.object.unique()] if raw is not None and not raw.empty else []
+        settings = with_categories(self.manifest(pid).get('settings', {}), objects, changes)
+        return self.summary(self._commit(pid, settings, expected, CATEGORIES_JOURNAL,
+                                         {'object_groups': settings['panels']['pressure_match']['object_groups']}))
+
     # --- сохранённые параметры и расчёты ---
     def saved_state(self, pid: str, module, panel_index: int = 0) -> dict[str, Any]:
         m = self.manifest(pid)
