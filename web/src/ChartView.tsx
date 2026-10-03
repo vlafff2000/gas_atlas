@@ -29,9 +29,10 @@ interface Props {
 }
 
 const key = (s: Series) => s.group || s.name
-/** Отметки замеров на линии: заданы модулем, нужны для исключения кликом или включён вид «Замеры». */
+/** Отметки замеров на линии: заданы модулем, нужны для исключения кликом или включён вид «Замеры».
+ *  Расчётные линии (аппроксимация, модель) без ids — не замеры, их отметки не показываются. */
 const hasMarkers = (s: Series, excludeMode: boolean, mode: HoverMode) =>
-  s.markers || (excludeMode && !!s.ids) || (mode === 'facts' && s.x.length <= LARGE)
+  s.markers || (!!s.ids && (excludeMode || (mode === 'facts' && s.x.length <= LARGE)))
 const dashOf = (s: Series) => DASH[s.dash || (s.dashed ? 'dash' : 'solid')]
 
 function colorOf(chart: Chart) {
