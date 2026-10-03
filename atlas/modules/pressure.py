@@ -15,8 +15,8 @@ from app.core.config import ordered
 from app.modules import pressure_match as legacy
 from app.modules.charts import well_colors
 
-from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
-                        Table, TableAction)
+from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series,
+                        Source, Table, TableAction)
 from ..domain import DatasetKind
 
 PM = DatasetKind.PRESSURE_MATCH
@@ -44,6 +44,10 @@ METHOD_NOTE = ('Абсолютные ошибки и процентили рас
                'Совпадение по порогу учитывает выбранные < / ≤; IQR-выбросы не исключаются из статистики автоматически.')
 FILTER_NOTE = ('Отметьте «Исключить» и примените изменения. Исходные значения сохраняются; снятый флажок восстанавливает '
                'пару. Статистика и графики пересчитываются по действующим парам.')
+CATEGORY_NOTE = ('Произвольное название, например ПХГ или месторождение; пустое — «Без категории». Категории общие с 5.8 '
+                 '(раздел «Категории» кроссплота) и окрашивают точки при цвете «Категории объектов».')
+NO_CATEGORY = 'Без категории'    # как ``pressure_match.filter_data`` и поле «Категория» в 5.8
+CATEGORIES_JOURNAL = 'Категории объектов'
 EMPTY_NOTE = 'Нет пар после выбранных фильтров. Расширьте объекты, сценарии, период или снимите «Последние 3 года».'
 
 def _fixed(axis: str) -> tuple[Param, ...]:
@@ -136,6 +140,7 @@ class PressureModule(Module):
                 result.tables.append(Table(f'stats-{STAT_ORDER.index(title)}', title, frame, stat_columns(frame),
                                            collapsed=not (view == 'stats' and title == 'Сводная объектов')))
             result.notes.append(Note(METHOD_NOTE))
+        result.tables.append(category_table(raw, cfg, collapsed=params['color'] != 'object_group'))
         points = point_table(raw, cfg, data)
         if points is not None:
             result.tables.append(points)
@@ -227,7 +232,7 @@ def config(params: Mapping[str, Any], raw: pd.DataFrame, settings: Mapping[str, 
         'bands': params['bands'], 'percentile_lines': params['percentile_lines'], 'outliers': params['outliers'],
         'percentiles': percentiles,
         'group_thresholds': {g: float(params['group_threshold']) for g in params['threshold_groups']},
-        # Категории объектов задаются в 5.8 и хранятся в её сохранённом виде (раздел «Категории»).
+        # Категории объектов хранятся в сохранённом виде 5.8 (раздел «Категории»); правятся таблицей «Категории объектов».
         'object_groups': dict(saved_panel(settings).get('object_groups') or {}),
         'axes': {},
     }
@@ -242,6 +247,45 @@ def config(params: Mapping[str, Any], raw: pd.DataFrame, settings: Mapping[str, 
                 cfg['axes'][f'{axis}_range'] = [lo, hi]
                 cfg['axes'][f'{axis}_dtick'] = float(params[f'{axis}_step'])
     return cfg
+
+
+def category_table(raw: pd.DataFrame, cfg: Mapping[str, Any], collapsed: bool = True) -> Table:
+    """Редактор категорий: все объекты данных, как поля «Категория · объект» в 5.8."""
+    objects = ordered(raw.object.astype(str)) if not raw.empty else []
+    names = cfg.get('object_groups') or {}
+    frame = pd.DataFrame({'object': objects, 'category': [str(names.get(o, NO_CATEGORY)) for o in objects]},
+                         columns=['object', 'category'])
+    return Table('object-categories', CATEGORIES_JOURNAL, frame, [Column('object', 'Объект'), Column('category', 'Категория')],
+                 note=CATEGORY_NOTE, collapsed=collapsed,
+                 action=TableAction('assign', None, 'object', 'Сохранить категории', fields=('category',),
+                                    editable=('category',), journal=CATEGORIES_JOURNAL, target='object-categories'))
+
+
+def with_categories(settings: Mapping[str, Any], objects: list[str], changes: Mapping[str, Any]) -> dict[str, Any]:
+    """Настройки проекта с новыми категориями объектов в сохранённом виде 5.8 (``panels.pressure_match.object_groups``).
+
+    ``changes``: объект -> название (или {'category': название}). Остальные параметры вида и других объектов
+    не меняются; если вида ещё нет, 5.8 и 6 берут для остальных параметров значения по умолчанию."""
+    if not isinstance(changes, Mapping) or not changes:
+        raise ParamError('Нет изменений для сохранения')
+    known = set(objects)
+    unknown = [str(o) for o in changes if str(o) not in known]
+    if unknown:
+        raise ParamError('Нет таких объектов в данных кроссплота: ' + ', '.join(unknown[:5]) + '. Обновите страницу.')
+    out = dict(settings)
+    panels = dict(out.get('panels') or {})
+    panel = dict(panels.get('pressure_match') or {})
+    names = {str(k): str(v) for k, v in (panel.get('object_groups') or {}).items()}
+    for obj, value in changes.items():
+        if isinstance(value, Mapping):
+            if set(value) != {'category'}:
+                raise ParamError('Категория объекта: ожидается поле category')
+            value = value['category']
+        names[str(obj)] = str(value if value is not None else '').strip()[:200] or NO_CATEGORY
+    panel['object_groups'] = names
+    panels['pressure_match'] = panel
+    out['panels'] = panels
+    return out
 
 
 def selected_raw(raw: pd.DataFrame, cfg: Mapping[str, Any], mapping) -> pd.DataFrame:

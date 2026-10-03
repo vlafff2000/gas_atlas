@@ -56,6 +56,7 @@ export interface TableAction {
   column?: string
   // assign: значения полей по строкам, какие из них правятся, что отправлять, запись журнала
   fields: string[]; editable: string[]; submit: 'changed' | 'all'; journal: string; values: Record<string, Cell[]>
+  target: 'groups' | 'object-categories'   // куда уходят назначения: группы скважин или категории объектов кроссплота
 }
 export type Assignments = Record<string, Record<string, string>>
 export interface Table {
@@ -133,6 +134,8 @@ export const api = {
     request<ExclusionChange>(`/api/projects/${id}/exclusions`, json('POST', { dataset, add, remove, reason })),
   assignGroups: (id: string, changes: Assignments, action: string) =>
     request<Project>(`/api/projects/${id}/groups`, json('POST', { changes, action })),
+  assignCategories: (id: string, changes: Assignments) =>
+    request<Project>(`/api/projects/${id}/object-categories`, json('POST', { changes })),
   undo: (id: string) => request<ExclusionChange>(`/api/projects/${id}/exclusions/undo`, json('POST', {})),
   savedState: (id: string, module: string, panel = 0) =>
     request<SavedState>(`/api/projects/${id}/state/${module}?panel=${panel}`),
