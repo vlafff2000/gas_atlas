@@ -1,4 +1,4 @@
-# Gas Atlas 6: Python 3.10+. Расчётное ядро 5.8 + сервер + окно приложения.
+# Gas Atlas 6 на Python 3.9+: расчётное ядро 5.8 + сервер + окно приложения. На 3.8 всё зафиксировано в requirements-lock-py38.txt.
 -r requirements-modern.txt
 starlette>=0.40
 uvicorn>=0.30

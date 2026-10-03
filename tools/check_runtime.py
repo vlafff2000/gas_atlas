@@ -13,8 +13,9 @@ def check(quiet=False):
     return valid
 
 def requirements_name():
-    """Python 3.8 keeps the exact tested lock; newer interpreters use version ranges (wheels exist for them)."""
-    return 'requirements-lock-py38.txt' if sys.version_info[:2]==(3,8) else 'requirements-modern.txt'
+    """Python 3.8 keeps the exact tested lock; newer interpreters use version ranges (wheels exist for them).
+    Both cover 5.8 and Gas Atlas 6."""
+    return 'requirements-lock-py38.txt' if sys.version_info[:2]==(3,8) else 'requirements-atlas.txt'
 
 if __name__=='__main__':
     sys.exit(0 if check('--quiet' in sys.argv) else 1)
