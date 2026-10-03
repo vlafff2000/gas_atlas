@@ -268,6 +268,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     onProject(await api.assignGroups(project.id, changes, journal))      // новая ревизия → пересчёт
     setToast({ text: `Сохранено назначений: ${Object.keys(changes).length}. Группы обновлены во всех разделах.`, undo: false })
   }
+  const assignCategories = async (changes: Assignments) => {
+    onProject(await api.assignCategories(project.id, changes))
+    setToast({ text: `Сохранено категорий: ${Object.keys(changes).length}. Их видит и версия 5.8.`, undo: false })
+  }
   const undo = async () => {
     try {
       const r = await api.undo(project.id)
@@ -368,7 +372,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             <TableView key={t.id} table={t}
               onDownload={format => api.exportTables(spec.id, project.id, params, t.id, format)}
               onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
-              onAssign={t.action?.kind === 'assign' ? assignGroups : undefined} />
+              onAssign={t.action?.kind !== 'assign' ? undefined : t.action.target === 'object-categories' ? assignCategories : assignGroups} />
           ))}
         </div>
       )}
