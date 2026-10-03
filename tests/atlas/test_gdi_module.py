@@ -147,6 +147,6 @@ def test_state_roundtrip_in_58_format(frame):
     params = module.spec.coerce({'wells': ['31'], 'last_n': 2, 'orientation': 'swapped', 'crosshair': False})
     state = module.save_state(params, Data({GDI: frame}))
     assert state['wells'] == ['31'] and state['n'] == 2 and state['orientation'] == 'swapped'
-    assert module.spec.coerce(module.load_state(state)) | {'threshold': params['threshold']} == params
+    assert {**module.spec.coerce(module.load_state(state)), 'threshold': params['threshold']} == params
     everything = module.save_state(module.spec.coerce({}), Data({GDI: frame}))
     assert everything['wells'] == ['31', '45', '70', '73', '89', '132', '540', '541']

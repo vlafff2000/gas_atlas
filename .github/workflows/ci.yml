@@ -27,15 +27,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.11', '3.13']
+        python: ['3.8', '3.11', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - name: Install
-        run: python -m pip install -r requirements-atlas.txt pytest httpx
+      - name: Install (exact lock on 3.8, version ranges on newer Python)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "$(python -c 'import sys;sys.path.insert(0,"tools");from check_runtime import requirements_name;print(requirements_name())')" -r requirements-atlas.txt pytest httpx
       - name: Tests (5.8 + atlas)
         run: python -m pytest tests -q
   web:
