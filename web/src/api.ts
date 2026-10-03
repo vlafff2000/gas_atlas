@@ -67,8 +67,9 @@ export interface Series {
   legend: boolean; tooltip: string
   color: string; symbol: 'circle' | 'square' | 'diamond' | 'triangle'; hollow: boolean
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null
+  markers: boolean; axis: 'y' | 'y2'
 }
-export interface Chart { id: string; title: string; x: Axis; y: Axis; series: Series[]; crosshair: boolean }
+export interface Chart { id: string; title: string; x: Axis; y: Axis; y2: Axis | null; series: Series[]; crosshair: boolean }
 export interface Note { text: string; level: 'info' | 'warning' }
 export interface Result { tables: Table[]; charts: Chart[]; notes: Note[]; elapsed_ms: number; revision: number }
 export interface SavedState { panel: Params | null; history: { date: string; params: Params }[] }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError, defaults, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
 import { ParamBar } from './ParamBar'
+import { PassportPage } from './PassportPage'
 import { TableView } from './TableView'
 import { formatDate } from './format'
 
@@ -33,11 +34,12 @@ export function App() {
     setProjects(list => list?.map(p => (p.id === next.id ? next : p)) ?? list), [])
 
   useEffect(() => { if (project) remembered.set('project', project.id) }, [project])
+  const passport = moduleId === 'passport'      // отдельная страница, не модуль (PassportPage.tsx)
   useEffect(() => {
-    if (!spec) return
+    if (!spec || passport) return
     remembered.set('module', spec.id)
     if (location.hash !== '#/' + spec.id) history.replaceState(null, '', '#/' + spec.id)
-  }, [spec])
+  }, [spec, passport])
   useEffect(() => {
     const onHash = () => setModuleId(location.hash.slice(2))
     window.addEventListener('hashchange', onHash)
@@ -81,7 +83,7 @@ export function App() {
                   const missing = project ? m.needs.filter(n => !project.tables[n]) : []
                   return (
                     <li key={m.id}>
-                      <a href={'#/' + m.id} aria-current={m.id === spec?.id ? 'page' : undefined}
+                      <a href={'#/' + m.id} aria-current={m.id === spec?.id && !passport ? 'page' : undefined}
                          className={missing.length ? 'no-data' : undefined}
                          title={missing.length ? 'В проекте нет нужных данных' : m.description}>
                         {m.title}
@@ -92,12 +94,15 @@ export function App() {
               </ul>
             </section>
           ))}
+          <section><h2>Документы</h2><ul><li><a href="#/passport" aria-current={passport ? 'page' : undefined}>Паспорт скважины</a></li></ul></section>
         </nav>
       </aside>
 
       <main className="workspace">
         {projects && projects.length === 0 ? (
           <Empty onDemo={createDemo} />
+        ) : passport && project ? (
+          <PassportPage key={project.id} project={project} onProject={updateProject} />
         ) : spec && project ? (
           <ModuleView key={spec.id + project.id} spec={spec} project={project} onProject={updateProject} />
         ) : (
