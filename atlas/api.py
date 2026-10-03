@@ -17,6 +17,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import VERSION, registry, render
+from . import api_export, api_projects
 from .contract import MissingData, ParamError, Result
 from .domain import DatasetKind
 from .projects import Conflict, Projects
@@ -228,6 +229,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/exclusions', E(exclusions), methods=['POST']),
         Route('/api/projects/{pid}/exclusions/undo', E(undo), methods=['POST']),
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
+        *api_projects.routes(projects), *api_export.routes(projects),   # «Проекты», «Настройки», «Экспорт»
         Route('/api/{rest:path}', api_not_found, methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
         Route('/', index),
     ]

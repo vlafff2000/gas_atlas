@@ -92,7 +92,7 @@ def test_threshold_is_shared_project_setting(env):
     assert r.status_code == 200 and r.json()['settings']['r2_threshold'] == .9
     assert store.manifest(pid)['settings']['r2_threshold'] == .9
     assert client.patch(f'/api/projects/{pid}/settings', json={'values': {'r2_threshold': 2}}).status_code == 400
-    assert client.patch(f'/api/projects/{pid}/settings', json={'values': {'season_start': 1}}).status_code == 400
+    assert client.patch(f'/api/projects/{pid}/settings', json={'values': {'excluded_points': {}}}).status_code == 400
 
 
 def test_saved_view_and_history_in_58_format(env):

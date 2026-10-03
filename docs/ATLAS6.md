@@ -40,7 +40,7 @@ API:
 | `POST /api/modules/{id}/run` `{project, params}` | расчёт, ответ — `Result` в JSON |
 | `POST /api/modules/{id}/export` `{project, params, target, id, format, dpi}` | график (SVG/PDF/PNG) или таблицы (XLSX, одна таблица — CSV) |
 | `GET /api/projects/{id}` | сводка проекта: ревизия, наборы данных, общие настройки, число исключений |
-| `PATCH /api/projects/{id}/settings` `{values}` | общие настройки проекта (пока `r2_threshold`) |
+| `PATCH /api/projects/{id}/settings` `{values}` | общие настройки: `r2_threshold`, `season_start/end`, `manometer_wells`, `visible_pages`, `chart_style`; проекты, копии, резервные копии, выгрузки — `atlas/api_projects.py`, экспорт — `atlas/api_export.py` |
 | `POST /api/projects/{id}/exclusions` `{dataset, add, remove, reason}` | исключить / вернуть точки (журнал как в 5.8) |
 | `POST /api/projects/{id}/exclusions/undo` | отменить последнее исключение |
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |

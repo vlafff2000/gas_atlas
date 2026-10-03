@@ -4,6 +4,8 @@ import { ChartView } from './ChartView'
 import { ParamBar } from './ParamBar'
 import { TableView } from './TableView'
 import { formatDate } from './format'
+import { inMenu, PROJECT_PAGES } from './api_projects'
+import { ProjectPages, RestoreBox } from './ProjectPage'
 
 const remembered = {
   get: <T,>(key: string, fallback: T): T => {
@@ -29,15 +31,16 @@ export function App() {
 
   const project = projects?.find(p => p.id === projectId) ?? projects?.[0] ?? null
   const spec = modules?.find(m => m.id === moduleId) ?? modules?.[0] ?? null
+  const page = moduleId?.startsWith('@') ? moduleId : null      // «Экспорт», «Проекты», «Настройки» …
   const updateProject = useCallback((next: Project) =>
     setProjects(list => list?.map(p => (p.id === next.id ? next : p)) ?? list), [])
 
   useEffect(() => { if (project) remembered.set('project', project.id) }, [project])
   useEffect(() => {
-    if (!spec) return
+    if (!spec || page) return
     remembered.set('module', spec.id)
     if (location.hash !== '#/' + spec.id) history.replaceState(null, '', '#/' + spec.id)
-  }, [spec])
+  }, [spec, page])
   useEffect(() => {
     const onHash = () => setModuleId(location.hash.slice(2))
     window.addEventListener('hashchange', onHash)
@@ -50,6 +53,7 @@ export function App() {
     return [...out.entries()]
   }, [modules])
 
+  const openProject = (id: string) => { loadProjects().then(() => setProjectId(id)) }
   const createDemo = async () => {
     const { id } = await api.createDemo()
     await loadProjects()
@@ -77,11 +81,11 @@ export function App() {
             <section key={group}>
               <h2>{group}</h2>
               <ul>
-                {items.map(m => {
+                {items.filter(m => inMenu(m.id, project)).map(m => {
                   const missing = project ? m.needs.filter(n => !project.tables[n]) : []
                   return (
                     <li key={m.id}>
-                      <a href={'#/' + m.id} aria-current={m.id === spec?.id ? 'page' : undefined}
+                      <a href={'#/' + m.id} aria-current={!page && m.id === spec?.id ? 'page' : undefined}
                          className={missing.length ? 'no-data' : undefined}
                          title={missing.length ? 'В проекте нет нужных данных' : m.description}>
                         {m.title}
@@ -92,12 +96,22 @@ export function App() {
               </ul>
             </section>
           ))}
+          {project && (
+            <section>
+              <h2>Проект</h2>
+              <ul>{PROJECT_PAGES.filter(p => inMenu(p.id, project)).map(p => (
+                <li key={p.id}><a href={'#/' + p.id} aria-current={page === p.id ? 'page' : undefined}>{p.title}</a></li>
+              ))}</ul>
+            </section>
+          )}
         </nav>
       </aside>
 
       <main className="workspace">
         {projects && projects.length === 0 ? (
-          <Empty onDemo={createDemo} />
+          <Empty onDemo={createDemo} onOpen={openProject} />
+        ) : page && project && projects ? (
+          <ProjectPages page={page} project={project} projects={projects} onProject={updateProject} onOpen={openProject} />
         ) : spec && project ? (
           <ModuleView key={spec.id + project.id} spec={spec} project={project} onProject={updateProject} />
         ) : (
@@ -108,13 +122,14 @@ export function App() {
   )
 }
 
-function Empty({ onDemo }: { onDemo: () => void }) {
+function Empty({ onDemo, onOpen }: { onDemo: () => void; onOpen: (id: string) => void }) {
   return (
     <div className="empty">
       <h1>Проектов пока нет</h1>
       <p>Свои данные пока загружаются в версии 5.8: проекты у обеих версий общие и появятся здесь сами.</p>
       <p>Чтобы посмотреть, как работает новый интерфейс, откройте демонстрационный объект с синтетическими данными.</p>
       <button type="button" className="primary" onClick={onDemo}>Открыть демонстрационный объект</button>
+      <RestoreBox onOpen={onOpen} />
     </div>
   )
 }
