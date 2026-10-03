@@ -3,6 +3,7 @@ import { api, ApiError, defaults, type ModuleSpec, type Params, type Project, ty
 import { ChartView } from './ChartView'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
+import { PassportPage } from './PassportPage'
 import { TableView } from './TableView'
 import { formatDate } from './format'
 import { inMenu, PROJECT_PAGES } from './api_projects'
@@ -111,6 +112,8 @@ export function App() {
       <main className="workspace">
         {projects && projects.length === 0 ? (
           <Empty onDemo={createDemo} onOpen={openProject} />
+        ) : page === '@passport' && project ? (
+          <PassportPage key={project.id} project={project} onProject={updateProject} />
         ) : page && project && projects ? (
           <ProjectPages page={page} project={project} projects={projects} onProject={updateProject} onOpen={openProject} />
         ) : spec && project ? (

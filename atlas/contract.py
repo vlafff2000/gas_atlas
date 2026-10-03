@@ -210,6 +210,8 @@ class Series:
     labels: Sequence[str] | None = None  # строка подсказки на каждую точку (поверх X и Y)
     ids: Sequence[str] | None = None  # идентификаторы точек: по ним щелчок исключает точку
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
+    markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
+    axis: Literal['y', 'y2'] = 'y'   # 'y2' — правая ось Chart.y2
 
 
 @dataclass
@@ -220,6 +222,7 @@ class Chart:
     y: Axis
     series: list[Series] = field(default_factory=list)
     crosshair: bool = False
+    y2: Axis | None = None           # вторая шкала справа (две шкалы Y)
 
 
 @dataclass
@@ -381,4 +384,5 @@ def _series_json(s: Series) -> dict[str, Any]:
 
 def _chart_json(c: Chart) -> dict[str, Any]:
     return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
+            'y2': asdict(c.y2) if c.y2 else None,
             'series': [_series_json(s) for s in c.series]}

@@ -67,25 +67,28 @@ function toOption(chart: Chart, excludeMode: boolean): echarts.EChartsCoreOption
   return {
     animation: false,
     textStyle: { fontFamily: 'PT Sans, sans-serif', color: INK },
-    grid: { left: 72, right: 24, top: 40, bottom: 92 },
+    grid: { left: 72, right: chart.y2 ? 72 : 24, top: 40, bottom: 92 },
     xAxis: axis(chart.x, 'x'),
-    yAxis: axis(chart.y, 'y'),
+    yAxis: chart.y2
+      ? [axis(chart.y, 'y'), { ...axis(chart.y2, 'y'), position: 'right', splitLine: { show: false } }]
+      : axis(chart.y, 'y'),
     legend: { bottom: 0, left: 0, type: 'scroll', data: legend, textStyle: { color: INK }, itemWidth: 14, itemHeight: 10 },
     tooltip: {
       trigger: 'item', borderColor: LINE, textStyle: { color: INK, fontSize: 12 }, confine: true,
-      formatter: (p: { seriesName: string; seriesType: string; name: string; data: [Cell, Cell, string, string] }) => {
+      formatter: (p: { seriesName: string; seriesIndex: number; seriesType: string; name: string; data: [Cell, Cell, string, string] }) => {
         if (p.seriesType === 'boxplot') {
           const names = ['Нижний ус', 'Q1', 'Медиана', 'Q3', 'Верхний ус']
           return [`<b>${escapeHtml(p.seriesName)}</b>`, escapeHtml(p.name),
             ...(p.data as unknown as number[]).slice(-5).map((v, i) => `${names[i]}: ${formatNumber(v)}`)].join('<br>')
         }
         const [x, y, id, label] = p.data
+        const yAxis = chart.series[p.seriesIndex]?.axis === 'y2' && chart.y2 ? chart.y2 : chart.y
         const at = (a: Chart['x'], v: Cell) =>
           v === null ? '' : a.scale === 'time' && typeof v === 'string' ? formatDate(v)
             : a.scale === 'category' || typeof v !== 'number' ? String(v) : formatNumber(v)
         return [`<b>${escapeHtml(p.seriesName)}</b>`,
           `${escapeHtml(axisTitle(chart.x.label, chart.x.unit))}: ${escapeHtml(at(chart.x, x))}`,
-          `${escapeHtml(axisTitle(chart.y.label, chart.y.unit))}: ${escapeHtml(at(chart.y, y))}`,
+          `${escapeHtml(axisTitle(yAxis.label, yAxis.unit))}: ${escapeHtml(at(yAxis, y))}`,
           ...(label ? label.split(' · ').map(escapeHtml) : []),
           ...(tips.get(p.seriesName) ?? []).map(escapeHtml),
           ...(excludeMode && id ? ['<i>Щелчок исключит точку</i>'] : [])].join('<br>')
@@ -107,11 +110,18 @@ function toOption(chart: Chart, excludeMode: boolean): echarts.EChartsCoreOption
       }
       const data = s.x.map((x, j) => [x, s.y[j], s.ids?.[j] ?? '', s.labels?.[j] ?? ''])
         .filter(([x, y]) => s.kind !== 'points' || (x !== null && y !== null))
-      const common = { name: key(s), data, color: color(s) }
+      const common = { name: key(s), data, color: color(s), yAxisIndex: s.axis === 'y2' && chart.y2 ? 1 : 0 }
       if (s.kind === 'bar') {
         return { ...common, type: 'bar', barMaxWidth: 48, itemStyle: { color: color(s) }, emphasis: { focus: 'series' } }
       }
       const selectable = excludeMode && !!s.ids
+      if (s.kind === 'line' && s.markers) {          // линия с точками (lines+markers в 5.8)
+        return { ...common, type: 'line', z: 2, connectNulls: false, showSymbol: true, symbol: SYMBOL[s.symbol],
+          symbolSize: selectable ? 8 : 6, cursor: selectable ? 'crosshair' : 'default',
+          itemStyle: s.hollow ? { color: '#fff', borderColor: color(s), borderWidth: 1.8 } : { color: color(s) },
+          emphasis: { scale: 1.6, itemStyle: { borderColor: INK, borderWidth: selectable ? 2 : 1 } },
+          lineStyle: { color: color(s), width: s.width || 1.6, type: DASH[s.dash || (s.dashed ? 'dash' : 'solid')] } }
+      }
       if (s.kind === 'line') {
         const hoverable = !!s.labels || !!s.ids      // линия с подписями точек: подсказка при наведении
         return { ...common, type: 'line', z: 1, silent: !hoverable, connectNulls: false,

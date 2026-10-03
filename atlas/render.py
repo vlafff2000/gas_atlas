@@ -47,8 +47,14 @@ def to_plotly(chart: Chart):
                                  marker_color=color))
         elif s.kind == 'line':
             dash = s.dash or ('dash' if s.dashed else 'solid')
-            fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='lines', name=s.name, showlegend=s.legend,
-                                     connectgaps=False, line={'color': color, 'dash': dash, 'width': s.width or 1.8}))
+            extra = {}
+            if s.markers:
+                extra['marker'] = {'color': 'white' if s.hollow else color, 'symbol': SYMBOLS[s.symbol], 'size': 6,
+                                   'line': {'color': color, 'width': 1.8 if s.hollow else 0}}
+            fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='lines+markers' if s.markers else 'lines',
+                                     name=s.name, showlegend=s.legend, yaxis='y2' if s.axis == 'y2' else 'y',
+                                     connectgaps=False, line={'color': color, 'dash': dash, 'width': s.width or 1.8},
+                                     **extra))
         else:
             symbol = SYMBOLS[s.symbol] + ('-open' if s.hollow else '')
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='markers', name=s.name, showlegend=s.legend,
@@ -56,7 +62,11 @@ def to_plotly(chart: Chart):
                                              'line': {'color': color, 'width': 2 if s.hollow else 0}}))
     module = chart.id.split('-', 1)[0]
     fig.update_layout(title={'text': chart.title}, meta={'module': module}, barmode='group')
-    for axis, spec in ((fig.layout.xaxis, chart.x), (fig.layout.yaxis, chart.y)):
+    axes = [(fig.layout.xaxis, chart.x), (fig.layout.yaxis, chart.y)]
+    if chart.y2 is not None:
+        fig.update_layout(yaxis2={'overlaying': 'y', 'side': 'right', 'showgrid': False})
+        axes.append((fig.layout.yaxis2, chart.y2))
+    for axis, spec in axes:
         axis.title = {'text': axis_title(spec.label, spec.unit)}
         axis.type = {'time': 'date', 'log': 'log', 'category': 'category'}.get(spec.scale, 'linear')
         if spec.scale == 'category' and spec.categories:

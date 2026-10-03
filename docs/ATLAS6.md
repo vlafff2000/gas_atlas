@@ -46,6 +46,7 @@ API:
 | `POST /api/projects/{id}/exclusions/state` `{at, side, revision}` | «История фильтра»: восстановить состояние до / после изменения (`atlas/api_exclusions.py`) |
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |
 | `POST /api/modules/{id}/options` `{project, param, params}` | варианты зависимого списка |
+| `GET /api/projects/{id}/passport?well=`, `POST …/passport/comment`, `POST …/passport/pdf` | «Паспорт скважины» (`atlas/api_passport.py`) |
 
 Ошибки приходят как `{"error": "текст для пользователя"}`: 400 — неверный параметр,
 404 — нет проекта или модуля, 409 — в проекте нет нужных данных, 500 — сбой модуля (подробности в журнале).

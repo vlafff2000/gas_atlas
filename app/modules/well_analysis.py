@@ -179,6 +179,18 @@ def signals(d,stats,history,water,bottom,construction,threshold=10):
             add('Забой',f'Часть интервала {r.top_m:g}–{r.bottom_m:g} м расположена ниже отбитого забоя {depth:g} м.','Есть геометрическое несоответствие замера и интервала конструкции.','Проверить привязку глубин и актуальность снимка конструкции.')
     return pd.DataFrame(out)
 
+def metrics(a):
+    """Карточки поскважинного анализа: (подпись, значение, знаков после запятой или None для текста, подсказка)."""
+    stats=a['seasons'];data=a['daily']
+    water=a['water'];last=water.iloc[-1] if not water.empty else None
+    state='Неизвестно' if last is None else 'Есть' if last['Состояние'] in ('Вода измерена','Вода отмечена') else 'Не отмечена' if last['Признак']=='Нет' else 'Замер равен нулю'
+    return [('Газ за выбранные периоды, млн м³',stats.gas_volume.sum(min_count=1) if not stats.empty else np.nan,3,None),
+            ('Средний суточный объем, тыс. м³',data.loc[data.active,'gas_volume_m3'].mean()/1000 if not data.empty else np.nan,2,None),
+            ('Отработанные дни',stats.active_days.sum() if not stats.empty else np.nan,0,None),
+            ('Известные часы работы',stats.hours.sum(min_count=1) if not stats.empty else np.nan,1,None),
+            ('Последний отбитый забой, м',a['bottom'].iloc[-1].bottom_m if not a['bottom'].empty else np.nan,1,None),
+            ('Вода по последнему контролю',state,None,'Нет наблюдений' if last is None else last['Дата'].strftime('%d.%m.%Y')+'; состояние относится к дате наблюдения.')]
+
 def _analyze(frames,settings,mapping,well,kind='withdrawal',periods=None,delta=None,threshold=10,method=None,asof=None):
     context=dataset(frames,settings,mapping);all_data=context['daily']
     cutoff=pd.Timestamp(asof) if asof is not None else None
