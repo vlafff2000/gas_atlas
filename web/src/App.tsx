@@ -361,6 +361,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               <div className="chart-grid">
                 {shown.map(c => (
                   <ChartView key={c.id} chart={c} excludeMode={excludeMode} onExclude={excludePoint}
+                    fetchWindow={(x0, x1, raw) => api.window(spec.id, project.id, params, c.id, x0, x1, raw, result.revision)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
                 ))}
               </div>
@@ -381,6 +382,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
           {result.tables.map(t => (
             <TableView key={t.id} table={t}
               onDownload={format => api.exportTables(spec.id, project.id, params, t.id, format)}
+              onLoad={t.deferred ? () => api.table(spec.id, project.id, params, t.id) : undefined}
               onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
               onAssign={t.action?.kind !== 'assign' ? undefined : t.action.target === 'object-categories' ? assignCategories : assignGroups} />
           ))}

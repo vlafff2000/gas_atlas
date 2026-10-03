@@ -62,6 +62,7 @@ export type Assignments = Record<string, Record<string, string>>
 export interface Table {
   id: string; title: string; columns: Column[]; rows: Cell[][]; count: number
   note: string; collapsed: boolean; action: TableAction | null
+  deferred?: boolean   // большая свёрнутая таблица: строки подгружаются при раскрытии (count — сколько их всего)
 }
 export interface Axis {
   label: string; unit: string; scale: 'value' | 'log' | 'time' | 'category'; inverse: boolean; from_zero: boolean
@@ -73,7 +74,11 @@ export interface Series {
   color: string; symbol: 'circle' | 'square' | 'diamond' | 'triangle'; hollow: boolean
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null
   markers: boolean; axis: 'y' | 'y2'
+  total: number      // точек в серии на самом деле; если больше x.length — линия прорежена (М4: пики и провалы сохранены)
 }
+/** Точки серии в видимом окне оси X (ответ /window): `window` — сколько их в окне до прореживания. */
+export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'total'> & { window: number }
+export interface WindowReply { chart: string; revision: number; series: Record<string, WindowSeries> }
 export interface Chart { id: string; title: string; x: Axis; y: Axis; y2: Axis | null; series: Series[]; crosshair: boolean }
 export interface Note { text: string; level: 'info' | 'warning' }
 export interface Result { tables: Table[]; charts: Chart[]; notes: Note[]; elapsed_ms: number; revision: number }
@@ -146,6 +151,10 @@ export const api = {
     request<Project>(`/api/projects/${id}/state/${module}`, json('POST', { params, panel })),
   paramOptions: (module: string, project: string, param: string, params: Params, signal?: AbortSignal) =>
     request<string[]>(`/api/modules/${module}/options`, json('POST', { project, param, params }, signal)),
+  window: (module: string, project: string, params: Params, chart: string, x0: number, x1: number, raw: boolean, revision: number) =>
+    request<WindowReply>(`/api/modules/${module}/window`, json('POST', { project, params, chart, x0, x1, raw, revision })),
+  table: (module: string, project: string, params: Params, id: string) =>
+    request<Table>(`/api/modules/${module}/table`, json('POST', { project, params, id })),
   exportChart: (module: string, project: string, params: Params, chart: string, format: string, dpi: number) =>
     download(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format, dpi }),
   exportTables: (module: string, project: string, params: Params, table?: string, format: 'xlsx' | 'csv' = 'xlsx') =>

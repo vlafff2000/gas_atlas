@@ -24,13 +24,18 @@ def _daily(frames,settings,mapping):
         cols=keys+['ops_period']+[c for c in ('work_hours','gas_volume_m3','water_volume_m3','water_flag','p_res','p_bh','p_wellhead','p_line','temperature','comment') if c in o]
         o=o[cols]
     else:o=pd.DataFrame(columns=keys+['ops_period'])
-    d=p.merge(o,on=keys,how='outer',validate='one_to_one')
+    if o.empty and not p.empty:
+        # No daily operations: the outer merge with an empty frame only costs time (it converts every date to object).
+        d=p.copy();d['ops_period']=pd.Series(np.nan,index=d.index,dtype=object)
+        if not d.duplicated(keys).any():d=d.sort_values(keys,kind='stable')
+        else:d=p.merge(o,on=keys,how='outer',validate='one_to_one')
+    else:d=p.merge(o,on=keys,how='outer',validate='one_to_one')
     for col in ('work_hours','gas_volume_m3','water_volume_m3','p_res','p_bh','p_wellhead','p_line','temperature'):
         if col not in d:d[col]=np.nan
     d['volume_source']=np.where(d.gas_volume_m3.notna(),'Суточная эксплуатация','Динамика')
     d['gas_volume_m3']=d.gas_volume_m3.combine_first(d.daily_q)
     d['period']=d.prod_period.combine_first(d.ops_period)
-    d['group']=d.well.map(lambda w:mapping.get(w,{}).get('group','Без группы'))
+    d['group']=d.well.map({w:mapping.get(w,{}).get('group','Без группы') for w in d.well.unique()})
     d['active']=d.work_hours.gt(0).where(d.work_hours.notna(),d.gas_volume_m3.gt(0))
     d['q_work']=d.gas_volume_m3/d.work_hours.where(d.work_hours.gt(0))*24/1000
     dp=d.p_res**2-d.p_bh**2

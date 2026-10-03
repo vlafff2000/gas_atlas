@@ -15,9 +15,19 @@ interface Props {
   onDownload: (format: 'xlsx' | 'csv') => Promise<void>
   onApply?: (add: string[], remove: string[], reason: string) => Promise<void>
   onAssign?: (changes: Assignments, journal: string) => Promise<void>
+  onLoad?: () => Promise<Table>      // для таблицы с `deferred`: полные строки
 }
 
-export function TableView({ table, onDownload, onApply, onAssign }: Props) {
+export function TableView({ table: given, onDownload, onApply, onAssign, onLoad }: Props) {
+  const [loaded, setLoaded] = useState<Table | null>(null)
+  const [loading, setLoading] = useState(false)
+  useEffect(() => { setLoaded(null) }, [given])
+  const table = loaded ?? given
+  const load = (open: boolean) => {
+    if (!open || !table.deferred || loading || !onLoad) return
+    setLoading(true)
+    onLoad().then(setLoaded).catch(e => setFailure((e as Error).message)).finally(() => setLoading(false))
+  }
   const [sort, setSort] = useState<{ col: number; dir: 1 | -1 } | null>(null)
   const [limit, setLimit] = useState(PAGE)
   const action = table.action?.kind === 'exclude' ? table.action : null
@@ -177,9 +187,9 @@ export function TableView({ table, onDownload, onApply, onAssign }: Props) {
   )
 
   return table.collapsed ? (
-    <details className="table-block">
+    <details className="table-block" onToggle={e => load((e.currentTarget as HTMLDetailsElement).open)}>
       <summary className="block-head">{head}</summary>
-      {body}
+      {table.deferred ? <p className="muted table-empty">{failure || 'Загружаю строки…'}</p> : body}
     </details>
   ) : (
     <section className="table-block">

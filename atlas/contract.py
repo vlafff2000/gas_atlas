@@ -226,6 +226,7 @@ class Series:
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
     markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
     axis: Literal['y', 'y2'] = 'y'   # 'y2' — правая ось Chart.y2
+    total: int = 0                   # сколько точек было до прореживания самим модулем (0 — столько, сколько в x)
 
 
 @dataclass
@@ -266,10 +267,12 @@ class Result:
     notes: list[Note] = field(default_factory=list)
     commands: list[Command] = field(default_factory=list)
 
-    def to_json(self) -> dict[str, Any]:
+    def to_json(self, thin: bool = True) -> dict[str, Any]:
+        """JSON для интерфейса. ``thin`` — экранное прореживание линий (atlas.thinning), большие таблицы — по запросу;
+        сам ``Result`` не меняется: выгрузки берут из него все точки."""
         return {
-            'tables': [_table_json(t) for t in self.tables],
-            'charts': [_chart_json(c) for c in self.charts],
+            'tables': [_table_json(t, defer=thin) for t in self.tables],
+            'charts': [_chart_json(c, thin) for c in self.charts],
             'notes': [asdict(n) for n in self.notes],
             'commands': [asdict(c) for c in self.commands],
         }
@@ -375,8 +378,19 @@ def _column(values: Any) -> list[Any]:
     return [plain(v) for v in (values.tolist() if hasattr(values, 'tolist') else list(values))]
 
 
-def _table_json(t: Table) -> dict[str, Any]:
+DEFER_ROWS = 20000     # свёрнутая таблица без действий больше этого не отправляется, пока её не раскроют
+
+
+def is_deferred(t: Table) -> bool:
+    return t.collapsed and t.action is None and len(t.frame) > DEFER_ROWS
+
+
+def _table_json(t: Table, defer: bool = False) -> dict[str, Any]:
     keys = [c.key for c in t.columns]
+    if defer and is_deferred(t):
+        return {'id': t.id, 'title': t.title, 'columns': [asdict(c) for c in t.columns], 'note': t.note,
+                'collapsed': t.collapsed, 'action': None, 'rows': [[] for _ in keys], 'count': len(t.frame),
+                'deferred': True}
     extra = [k for k in (t.action.id_column, t.action.checked_column) if k and k not in keys] if t.action else []
     frame = t.frame[keys + extra]
     action = None
@@ -390,15 +404,29 @@ def _table_json(t: Table) -> dict[str, Any]:
             'rows': [_column(frame[k]) for k in keys], 'count': len(frame)}  # по колонкам: компактнее
 
 
-def _series_json(s: Series) -> dict[str, Any]:
+def _series_json(s: Series, keep: Any = None) -> dict[str, Any]:
+    """``keep`` — индексы точек, которые уходят на экран (None — все). ``total`` — сколько точек в серии на самом деле."""
     out = {f.name: getattr(s, f.name) for f in fields(s) if f.name not in ('x', 'y', 'ids', 'dataset', 'labels')}
-    out.update(x=_column(s.x), y=_column(s.y), ids=None if s.ids is None else [str(v) for v in s.ids],
-               labels=None if s.labels is None else [str(v) for v in s.labels],
+    full = len(s.x)
+    out['total'] = max(s.total, full)
+
+    def take(values):
+        if values is None:
+            return None
+        if keep is None:
+            return list(values)
+        return [values[i] for i in keep] if not isinstance(values, (np.ndarray, pd.Series, pd.Index)) \
+            else (values.iloc[keep] if isinstance(values, pd.Series) else values[keep])
+    out.update(x=_column(take(s.x)), y=_column(take(s.y)),
+               ids=None if s.ids is None else [str(v) for v in take(s.ids)],
+               labels=None if s.labels is None else [str(v) for v in take(s.labels)],
                dataset=s.dataset.value if s.dataset else None)
     return out
 
 
-def _chart_json(c: Chart) -> dict[str, Any]:
+def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
+    from . import thinning
+    kept = thinning.screen_indices(c) if thin else {}
     return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
             'y2': asdict(c.y2) if c.y2 else None,
-            'series': [_series_json(s) for s in c.series]}
+            'series': [_series_json(s, kept.get(i)) for i, s in enumerate(c.series)]}

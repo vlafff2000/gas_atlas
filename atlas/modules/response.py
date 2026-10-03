@@ -3,7 +3,7 @@
 Как в 5.8 (``app/main.py``, страница «Графики реагирования»; рисунок — ``app.modules.charts.response_chart``):
 выбор горизонтов → скважин → периода; вид (уровень и давление отдельно, на двух шкалах, только одно);
 построение по горизонтам, все вместе или по скважинам. Новой математики нет: здесь выбор данных и представление,
-прореживание точек — ``charts.decimate``, цвета скважин — ``charts.well_colors``, идентификаторы точек —
+все точки остаются в результате (экранное прореживание М4 и выгрузки — atlas/thinning.py), цвета скважин — ``charts.well_colors``, идентификаторы точек —
 ``exclusions.point_id``. Полный перечень функций раздела — docs/parity/response.md.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pandas as pd
 
 from app.core import exclusions
 from app.core.config import ordered
-from app.modules.charts import decimate, well_colors, well_title
+from app.modules.charts import well_colors, well_title
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Table, TableAction)
@@ -74,7 +74,7 @@ class Selection:
 def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, palette: Mapping[str, str],
                    object_pressure: pd.DataFrame | None, manometer: set[str], by_well: bool,
                    pressure_horizons: set[str]) -> Chart:
-    """Перенос ``charts.response_chart``: те же серии, цвета, маркеры, оси и прореживание."""
+    """Перенос ``charts.response_chart``: те же серии, цвета, маркеры и оси; точки — все (прореживает только выдача на экран)."""
     wells = ordered(part.well)
     pressure_enabled = bool(set(part.horizon).intersection(pressure_horizons)) if not part.empty else False
     dual = metric == 'combined' and pressure_enabled
@@ -92,7 +92,7 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
         for field in fields:
             if field not in g or not g[field].notna().any():
                 continue
-            data = decimate(g.sort_values('date'), field)
+            data = g.sort_values('date')
             ids = (data['_point_id'].map(lambda v: exclusions.point_id('response', v, field)).tolist()
                    if '_point_id' in data else None)
             suffix = ('уровень жидкости' if field == 'level' else
@@ -111,7 +111,7 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
     if pressure_enabled and metric in ('pressure', 'combined') and object_pressure is not None \
             and not object_pressure.empty:
         data = object_pressure.sort_values('date')
-        data = decimate(data[data.date.between(part.date.min(), part.date.max())], 'pressure')
+        data = data[data.date.between(part.date.min(), part.date.max())]
         if not data.empty:
             chart.series.append(Series(
                 'Пластовое давление объекта', data.date.to_numpy(), data.pressure.to_numpy(float), 'line',

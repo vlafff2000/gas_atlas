@@ -14,7 +14,9 @@ from app.core.config import COLORS, ordered
 from app.core.performance import index_for, select_wells
 from app.modules import group_analysis
 from app.modules import production as legacy
-from app.modules.charts import DASH, decimate, well_colors
+from app.modules.charts import DASH, well_colors
+
+from ..thinning import screen_decimate
 
 from ..contract import Axis, Chart, Column, Data, Module, Note, Option, Result, Series, Table, TableAction
 from ..domain import DatasetKind
@@ -114,7 +116,8 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
     groups = data.groupby(['well', 'period'], sort=False)
     limit = min(5000, max(4, POINT_BUDGET // max(1, groups.ngroups)))
     for (well, period), g in groups:
-        g = decimate(g, 'q', limit)
+        points = len(g)
+        g = screen_decimate(g, 'q', limit)
         single = len(sel.periods) == 1
         ids = g['_point_id'].where(~g.missing, '')
         status = g.missing.map({True: 'Нет записи: показан 0', False: 'Измерение'})
@@ -125,7 +128,7 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
             g.cumulative.to_numpy() if by_cumulative else g.date.to_numpy(), g.q.to_numpy(), 'line',
             color=palette[well] if single else colors[period],
             dash='solid' if single else DASH[ws.index(well) % len(DASH)], width=2.0,
-            labels=labels.tolist(), ids=ids.tolist(), dataset=PRODUCTION))
+            labels=labels.tolist(), ids=ids.tolist(), dataset=PRODUCTION, total=points))
     return chart
 
 
@@ -167,11 +170,12 @@ def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: st
         g = g.copy()
         g['value'] = (g.total / 1000 if metric == 'daily' else g.cumulative if metric == 'cumulative'
                       else g.active.where(g.observed.gt(0)))
-        g = decimate(g, 'value')
+        points = len(g)
+        g = screen_decimate(g, 'value')
         labels = ('Наблюдений: ' + g.observed.fillna(0).astype(int).astype(str) + ' / ' + g.expected.astype(int).astype(str)
                   + ' скважин · покрытие ' + g.coverage.fillna(0).map('{:.1f}'.format) + '%')
         chart.series.append(Series('Сумма · ' + period, g.date.to_numpy(), g.value.to_numpy(), 'line',
-                                   color=colors.get(period), width=3.0, labels=labels.tolist()))
+                                   color=colors.get(period), width=3.0, labels=labels.tolist(), total=points))
     if metric != 'active':
         d = select_wells(sel.df, [w for w in overlay if w in wells])
         d = d[d.kind.eq(sel.kind) & d.period.isin(sel.periods)]
@@ -181,9 +185,10 @@ def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: st
             values = g.q.where(~g.get('_excluded', pd.Series(False, index=g.index)).fillna(False))
             g['value'] = values / 1000 if metric == 'daily' else values.cumsum() / 1e6
             g['date'] = calendar
-            g = decimate(g, 'value')
+            points = len(g)
+            g = screen_decimate(g, 'value')
             chart.series.append(Series(f'№ {well} · {period}', g.date.to_numpy(), g.value.to_numpy(), 'line',
-                                       color=palette[well], width=1.4))
+                                       color=palette[well], width=1.4, total=points))
     return chart
 
 

@@ -49,3 +49,11 @@
 .tip-sub { color: var(--chart-faint); font-size: 11px; }
 .tip-foot { margin-top: 5px; color: var(--chart-faint); font-size: 11px; }
 .exclude-mode .tip-foot { color: #c2410c; font-weight: 700; }
+
+/* пометка у графика: линии прорежены (М4), все точки — при увеличении */
+.chart-thin {
+  display: block; margin: -2px 0 4px 0; padding: 0 4px; font-size: 12px; font-weight: 400; color: var(--chart-muted, var(--muted, #6b7280));
+  white-space: nowrap; cursor: help;
+}
+.chart-thin.part { color: var(--chart-ink, inherit); }
+.chart-thin.part::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #eda100; vertical-align: 1px; }

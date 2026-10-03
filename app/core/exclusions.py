@@ -16,8 +16,8 @@ def _text(series):
     if not categories.is_unique:return series.fillna('').astype(str)
     return pd.Categorical.from_codes(codes,categories)
 
-def identify(df,module):
-    d=df.copy()
+def identify(df,module,copy=True):
+    d=df.copy() if copy else df
     if d.empty:
         d['_point_id']=pd.Series(dtype=str)
         return d
@@ -31,7 +31,9 @@ def identify(df,module):
         # Independent duplicate measurements retain their own reversible identity.
         values['_occurrence']=hashed.groupby(hashed).cumcount()
         hashed=pd.util.hash_pandas_object(values,index=False)
-    d['_point_id']=module+':'+hashed.astype(str)
+    # Same text as module+':'+hashed.astype(str), built without the intermediate column of digits.
+    prefix=module+':'
+    d['_point_id']=pd.Series([prefix+str(h) for h in hashed.tolist()],index=d.index,dtype=object)
     return d
 
 def identify_frames(frames):

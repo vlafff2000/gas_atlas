@@ -6,19 +6,22 @@ import logging
 import threading
 import time
 from collections import OrderedDict
+from contextlib import nullcontext
 from pathlib import Path
 from urllib.parse import quote
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import VERSION, api_exclusions, registry, render
+from . import VERSION, api_exclusions, registry, render, thinning
 from . import api_export, api_projects
-from .contract import MissingData, ParamError, Result
+from .contract import MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
 from .projects import Conflict, Projects
 
@@ -56,7 +59,7 @@ class Results:
 
 
 def create_app(projects: Projects | None = None) -> Starlette:
-    projects = projects or Projects()
+    projects = projects or Projects(warm=True)
     results = Results()
 
     def endpoint(work):
@@ -90,14 +93,16 @@ def create_app(projects: Projects | None = None) -> Starlette:
     def module_of(request):
         return registry.get(request.path_params['mid'])
 
-    def compute(module, pid, raw_params):
+    def compute(module, pid, raw_params, full=False):
+        """``full`` — результат без прореживания самого модуля (выгрузка графика, окно увеличения); кэшируется отдельно."""
         params = module.spec.coerce(raw_params)
         data = projects.select(pid, module.spec.needs, module.spec.optional)
-        key = (module.spec.id, pid, data.revision, json.dumps(params, sort_keys=True, ensure_ascii=False, default=str))
+        key = (module.spec.id, pid, data.revision, json.dumps(params, sort_keys=True, ensure_ascii=False, default=str), full)
         cached = results.get(key)
         if cached is None:
             started = time.perf_counter()
-            result: Result = module.run(data, params)
+            with thinning.full_resolution() if full else nullcontext():
+                result: Result = module.run(data, params)
             cached = (result, round((time.perf_counter() - started) * 1000, 1))
             results.put(key, cached)
         return cached, params, data
@@ -186,14 +191,50 @@ def create_app(projects: Projects | None = None) -> Starlette:
         (result, elapsed), _, data = compute(module, body.get('project'), body.get('params'))
         return {**result.to_json(), 'elapsed_ms': elapsed, 'revision': data.revision}
 
-    def export(request, body):
+    def chart_of(module, body, full):
+        (result, _), _, data = compute(module, body.get('project'), body.get('params'), full)
+        chart = next((c for c in result.charts if c.id == body.get('chart', body.get('id'))), None)
+        if chart is None:
+            raise Failure(404, 'График не найден. Обновите расчет.')
+        return chart, data
+
+    def full_chart(module, body):
+        """График со всеми точками: если модуль сам прореживал серии для экрана, расчёт повторяется без прореживания."""
+        chart, data = chart_of(module, body, False)
+        if any(s.total > len(s.x) for s in chart.series):
+            chart, data = chart_of(module, body, True)
+        return chart, data
+
+    def window(request, body):
+        """Точки линий в видимом окне оси X (увеличение): окно по возможности отдаётся целиком."""
+        module = module_of(request)
+        try:
+            x0, x1 = float(body['x0']), float(body['x1'])
+        except (KeyError, TypeError, ValueError):
+            raise Failure(400, 'Нужны границы окна x0 и x1') from None
+        chart, data = full_chart(module, body)
+        if body.get('revision') not in (None, data.revision):
+            raise Failure(409, 'Расчёт устарел. Обновите график.')
+        picked = thinning.window_indices(chart, min(x0, x1), max(x0, x1), raw=bool(body.get('raw')))
+        return {'chart': chart.id, 'revision': data.revision,
+                'series': {str(i): {**_series_json(chart.series[i], keep), 'window': inside} for i, (keep, inside) in picked.items()}}
+
+    def table(request, body):
+        """Большая свёрнутая таблица целиком (в расчёте она отправляется только по запросу)."""
         module = module_of(request)
         (result, _), _, _ = compute(module, body.get('project'), body.get('params'))
+        found = next((t for t in result.tables if t.id == body.get('id')), None)
+        if found is None:
+            raise Failure(404, 'Таблица не найдена. Обновите расчет.')
+        return _table_json(found)
+
+    def export(request, body):
+        module = module_of(request)
         target = body.get('target')
+        if target == 'tables':
+            (result, _), _, _ = compute(module, body.get('project'), body.get('params'))
         if target == 'chart':
-            chart = next((c for c in result.charts if c.id == body.get('id')), None)
-            if chart is None:
-                raise Failure(404, 'График не найден. Обновите расчет.')
+            chart, _ = full_chart(module, body)
             try:
                 dpi = int(body.get('dpi', 300))
             except (TypeError, ValueError):
@@ -233,6 +274,8 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/modules', E(list_modules)),
         Route('/api/modules/{mid}/run', E(run), methods=['POST']),
         Route('/api/modules/{mid}/export', E(export), methods=['POST']),
+        Route('/api/modules/{mid}/window', E(window), methods=['POST']),
+        Route('/api/modules/{mid}/table', E(table), methods=['POST']),
         Route('/api/modules/{mid}/options', E(param_options), methods=['POST']),
         Route('/api/projects', E(list_projects)),
         Route('/api/projects/demo', E(create_demo), methods=['POST']),
@@ -253,4 +296,4 @@ def create_app(projects: Projects | None = None) -> Starlette:
     ]
     if (DIST / 'assets').exists():
         routes.append(Mount('/assets', StaticFiles(directory=DIST / 'assets'), name='assets'))
-    return Starlette(routes=routes)
+    return Starlette(routes=routes, middleware=[Middleware(GZipMiddleware, minimum_size=1024)])
