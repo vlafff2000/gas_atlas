@@ -77,6 +77,7 @@ export function TableView({ table, onDownload, onApply, onAssign }: Props) {
     })
   }
   const assignCount = Object.keys(assignments).length
+  const rows = assign?.target === 'object-categories' ? 'Объектов' : 'Скважин'
   const submitAssign = async () => {
     if (!onAssign || !assign || !assignCount) return
     setBusy(true); setFailure('')
@@ -152,7 +153,7 @@ export function TableView({ table, onDownload, onApply, onAssign }: Props) {
             {busy ? 'Сохраняю…' : assign.label}
           </button>
           <span className="muted">
-            {assign.submit === 'all' ? `Скважин: ${assignCount}` : assignCount ? `Изменено скважин: ${assignCount}` : 'Измените ячейки'}
+            {assign.submit === 'all' ? `${rows}: ${assignCount}` : assignCount ? `Изменено ${rows.toLowerCase()}: ${assignCount}` : 'Измените ячейки'}
           </span>
           {failure && <span className="field-error">{failure}</span>}
         </div>
