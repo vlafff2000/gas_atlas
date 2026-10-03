@@ -192,7 +192,7 @@ def test_empty_selection_is_a_note(env):
     client, pid, _ = env
     body = run(client, pid, date_from='1990-01-01', date_to='1990-12-31')
     assert not body['charts'] and any(n['level'] == 'warning' for n in body['notes'])
-    bad = client.post('/api/modules/pressure/run', json={'project': pid, 'params': {'date_from': '31.12.2020'}})
+    bad = client.post('/api/modules/pressure/run', json={'project': pid, 'params': {'date_from': 'вчера'}})
     assert bad.status_code == 400
 
 
