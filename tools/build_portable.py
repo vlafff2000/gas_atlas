@@ -230,6 +230,9 @@ def smoke_test(folder):
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):  # Russian messages on a cp1252 Windows console
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='backslashreplace')
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('target', choices=sorted(RUNTIMES))
     parser.add_argument('--out', default=str(ROOT / 'dist'), help='куда положить архив (dist/)')

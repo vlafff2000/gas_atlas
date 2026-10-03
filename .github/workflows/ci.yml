@@ -57,6 +57,8 @@ jobs:
           - {target: windows, os: windows-2022}
           - {target: linux, os: ubuntu-22.04}
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
     defaults:
       run:
         shell: bash
