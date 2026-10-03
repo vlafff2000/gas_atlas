@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, ApiError, defaults, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
+import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
 import { ParamBar } from './ParamBar'
 import { TableView } from './TableView'
@@ -240,6 +240,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     const r = await api.exclude(project.id, dataset, add, remove, reason)
     await exclusionDone(`Фильтр сохранен: исключено ${r.added}, возвращено ${r.removed}. Кривые и таблицы пересчитаны.`)
   }
+  const assignGroups = async (changes: Assignments, journal: string) => {
+    onProject(await api.assignGroups(project.id, changes, journal))      // новая ревизия → пересчёт
+    setToast({ text: `Сохранено назначений: ${Object.keys(changes).length}. Группы обновлены во всех разделах.`, undo: false })
+  }
   const undo = async () => {
     try {
       const r = await api.undo(project.id)
@@ -338,7 +342,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
           {result.tables.map(t => (
             <TableView key={t.id} table={t}
               onDownload={format => api.exportTables(spec.id, project.id, params, t.id, format)}
-              onApply={t.action ? applyTable(t.action.dataset) : undefined} />
+              onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
+              onAssign={t.action?.kind === 'assign' ? assignGroups : undefined} />
           ))}
         </div>
       )}

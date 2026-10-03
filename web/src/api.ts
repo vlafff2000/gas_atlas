@@ -6,7 +6,7 @@ export interface Option { value: unknown; label: string }
 export interface Param {
   name: string
   label: string
-  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi'
+  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text'
   default: unknown
   help: string
   options: Option[]
@@ -51,9 +51,12 @@ export interface Project {
 export interface Column { key: string; label: string; unit: string; decimals: number | null; kind: 'text' | 'number' | 'date' }
 export type Cell = string | number | boolean | null
 export interface TableAction {
-  kind: 'exclude'; dataset: string; id_column: string; label: string; reason: string
+  kind: 'exclude' | 'assign'; dataset: string | null; id_column: string; label: string; reason: string
   checked_column: string; reason_editable: boolean; ids: string[]; checked: boolean[] | null
+  // assign: значения полей по строкам, какие из них правятся, что отправлять, запись журнала
+  fields: string[]; editable: string[]; submit: 'changed' | 'all'; journal: string; values: Record<string, Cell[]>
 }
+export type Assignments = Record<string, Record<string, string>>
 export interface Table {
   id: string; title: string; columns: Column[]; rows: Cell[][]; count: number
   note: string; collapsed: boolean; action: TableAction | null
@@ -126,6 +129,8 @@ export const api = {
     request<Project>(`/api/projects/${id}/settings`, json('PATCH', { values })),
   exclude: (id: string, dataset: string, add: string[], remove: string[], reason: string) =>
     request<ExclusionChange>(`/api/projects/${id}/exclusions`, json('POST', { dataset, add, remove, reason })),
+  assignGroups: (id: string, changes: Assignments, action: string) =>
+    request<Project>(`/api/projects/${id}/groups`, json('POST', { changes, action })),
   undo: (id: string) => request<ExclusionChange>(`/api/projects/${id}/exclusions/undo`, json('POST', {})),
   savedState: (id: string, module: string, panel = 0) =>
     request<SavedState>(`/api/projects/${id}/state/${module}?panel=${panel}`),

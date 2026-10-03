@@ -43,6 +43,7 @@ API:
 | `PATCH /api/projects/{id}/settings` `{values}` | общие настройки проекта (пока `r2_threshold`) |
 | `POST /api/projects/{id}/exclusions` `{dataset, add, remove, reason}` | исключить / вернуть точки (журнал как в 5.8) |
 | `POST /api/projects/{id}/exclusions/undo` | отменить последнее исключение |
+| `POST /api/projects/{id}/groups` `{changes, action}` | группы и подгруппы скважин (`manifest.groups`, формат 5.8) |
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |
 | `POST /api/modules/{id}/options` `{project, param, params}` | варианты зависимого списка |
 
@@ -85,12 +86,14 @@ class WaterControl(Module):
 5. Пустая выборка — заметка, а не исключение.
 
 Виды параметров: `number`, `integer`, `boolean`, `choice` (варианты в `options`), `multi`
-(варианты в `options` или из данных через `source`). Пустой `multi` по соглашению означает «все».
+(варианты в `options` или из данных через `source`), `date` (ISO-дата, пусто — умолчание модуля), `text` (многострочный текст).
+Пустой `multi` по соглашению означает «все».
 `section` группирует параметры на панели; `setting` привязывает параметр к общей настройке проекта.
 
 Что модуль может вернуть, кроме таблиц и графиков:
 - точки графика с `ids` и `dataset` — щелчок в режиме «Исключать точки кликом» исключает точку;
 - `Table.action` — флажки в строках и кнопка применения (ручной фильтр, подтверждение выбросов);
+- `TableAction(kind='assign')` — правка ячеек и запись групп скважин в проект;
 - `Table.note`, `Table.collapsed`, `Note` — пояснения и свёрнутые таблицы;
 - столбцы (`Series.kind='bar'`, ось `scale='category'`), подсказка на каждую точку (`Series.labels`), штрихи и толщина линий.
 
