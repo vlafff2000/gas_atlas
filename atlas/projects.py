@@ -17,7 +17,7 @@ from typing import Any, Iterable, Mapping
 import pandas as pd
 
 from app.core import exclusions
-from app.core.config import DEFAULT_SETTINGS, STORAGE, natural_key
+from app.core.config import DEFAULT_SETTINGS, STORAGE, natural_key, ordered
 from app.core.history import filter_details
 from app.core.performance import Project as FrameCache
 from app.core.storage import Store
@@ -40,12 +40,13 @@ EDITABLE_SETTINGS = {
     'manometer_wells': _names,
     # Состав меню: имена страниц 5.8 (``app/ui/navigation.PAGES``); None — меню по умолчанию.
     'visible_pages': lambda v: v is None or (isinstance(v, list) and all(navigation.ALIASES.get(x, x) in navigation.PAGES for x in v)),
+    'working_horizons': lambda v: isinstance(v, list) and all(isinstance(h, str) for h in v),
     'chart_style': lambda v: isinstance(v, dict) and all(k in ('points', 'legend', 'grid', 'autoscale') and isinstance(x, bool)
                                                          for k, x in v.items()),
 }
 SETTING_LABELS = {'r2_threshold': 'Порог R²', 'season_start': 'Первый месяц сезона отбора (1–12)',
                   'season_end': 'Последний месяц сезона отбора (1–12)', 'manometer_wells': 'Скважины с глубинными манометрами',
-                  'visible_pages': 'Разделы меню', 'chart_style': 'Оформление графиков'}
+                  'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков'}
 
 
 def _setting_value(name: str, value: Any) -> Any:
@@ -157,6 +158,7 @@ class Projects:
             mapping.setdefault(well, {}).update(value)
         data.mapping = mapping
         data.project = ProjectInfo(pid, m, self.store, cache)
+        data.wells = ordered(cache.catalog()['wells'])
         with self._lock:
             for stale in [k for k in self._views if k[0] == pid]:
                 self._views.pop(stale)
@@ -172,7 +174,7 @@ class Projects:
             raise MissingData(missing)
         keep = (*needs, *optional)
         out = Data({k: data[k] for k in keep if k in data}, {k: data.raw[k] for k in keep if k in data.raw}, data.excluded)
-        out.settings, out.revision, out.mapping = data.settings, data.revision, data.mapping
+        out.settings, out.revision, out.mapping, out.wells = data.settings, data.revision, data.mapping, data.wells
         out.project = data.project
         return out
 
@@ -211,6 +213,8 @@ class Projects:
             action = 'Состав меню'
             if values['visible_pages'] is not None:
                 cfg['pressure_module_menu_seen'] = True
+        elif set(values) == {'working_horizons'}:
+            action = 'Выбор рабочих горизонтов'
         elif set(values) == {'chart_style'}:
             action = 'Оформление графиков'
         return self.summary(self._commit(pid, cfg, expected, action, {'changed': dict(values)}))
@@ -229,7 +233,9 @@ class Projects:
         for identifier in dict.fromkeys(str(i) for i in add):
             if identifier in items:
                 continue
-            entry = exclusions.entry(raw, dataset.value, identifier, metric, reason)
+            # Реагирование: показатель (уровень / давление) — в самом идентификаторе точки, как в 5.8.
+            field = metric or (identifier.rsplit(':', 1)[-1] if dataset is DatasetKind.RESPONSE else None)
+            entry = exclusions.entry(raw, dataset.value, identifier, field, reason)
             if entry is None:
                 raise ParamError('Точка не найдена в данных проекта. Обновите страницу.')
             added.append(entry)
@@ -255,6 +261,42 @@ class Projects:
         ids = [k for k, v in items.items() if batch and v.get('batch') == batch] or [latest['id']]
         dataset = KNOWN[latest.get('module', 'gdi')]
         return self.change_exclusions(pid, dataset, remove=ids)
+
+    def assign_groups(self, pid: str, changes: Mapping[str, Mapping[str, Any]], action: str = 'Назначение групп',
+                      expected: int | None = None) -> dict[str, Any]:
+        """Группы и подгруппы скважин (``manifest.groups``), как страница «Группы» 5.8.
+
+        ``changes``: скважина -> {'group'?, 'subgroup'?}. Пустая группа — «Без группы», как в 5.8.
+        Остальные назначения проекта не меняются."""
+        if action not in ('Назначение групп', 'Автоматические подгруппы'):
+            raise ParamError('Неизвестное действие с группами')
+        if not isinstance(changes, Mapping) or not changes:
+            raise ParamError('Нет изменений для сохранения')
+        data = self.data(pid)
+        known = set(data.wells)
+        unknown = [str(w) for w in changes if str(w) not in known]
+        if unknown:
+            raise ParamError('Нет таких скважин в проекте: ' + ', '.join(unknown[:5]) + '. Обновите страницу.')
+        groups = copy.deepcopy(self.manifest(pid).get('groups', {}))
+        for well, value in changes.items():
+            if not isinstance(value, Mapping) or not set(value) <= {'group', 'subgroup'}:
+                raise ParamError('Назначение скважины: ожидаются поля group и subgroup')
+            well = str(well)
+            current = {'group': data.mapping.get(well, {}).get('group', 'Без группы'),
+                       'subgroup': data.mapping.get(well, {}).get('subgroup', ''), **groups.get(well, {})}
+            if 'group' in value:
+                current['group'] = str(value['group'] or '').strip()[:200] or 'Без группы'
+            if 'subgroup' in value:
+                current['subgroup'] = str(value['subgroup'] or '').strip()[:200]
+            groups[well] = current
+        try:
+            m = self.store.commit(pid, groups=groups, expected=expected, action=action,
+                                  details={'wells': len(changes)})
+        except ValueError as e:
+            if 'изменен' in str(e):
+                raise Conflict('Проект изменён в другом окне (например, в версии 5.8). Обновите данные и повторите.') from None
+            raise
+        return self.summary(m)
 
     # --- сохранённые параметры и расчёты ---
     def saved_state(self, pid: str, module, panel_index: int = 0) -> dict[str, Any]:
