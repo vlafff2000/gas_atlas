@@ -53,6 +53,7 @@ export type Cell = string | number | boolean | null
 export interface TableAction {
   kind: 'exclude' | 'assign'; dataset: string | null; id_column: string; label: string; reason: string
   checked_column: string; reason_editable: boolean; ids: string[]; checked: boolean[] | null
+  column?: string
   // assign: значения полей по строкам, какие из них правятся, что отправлять, запись журнала
   fields: string[]; editable: string[]; submit: 'changed' | 'all'; journal: string; values: Record<string, Cell[]>
 }

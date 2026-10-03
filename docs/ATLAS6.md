@@ -40,12 +40,15 @@ API:
 | `POST /api/modules/{id}/run` `{project, params}` | расчёт, ответ — `Result` в JSON |
 | `POST /api/modules/{id}/export` `{project, params, target, id, format, dpi}` | график (SVG/PDF/PNG) или таблицы (XLSX, одна таблица — CSV) |
 | `GET /api/projects/{id}` | сводка проекта: ревизия, наборы данных, общие настройки, число исключений |
-| `PATCH /api/projects/{id}/settings` `{values}` | общие настройки проекта (`r2_threshold`, `working_horizons`) |
+| `PATCH /api/projects/{id}/settings` `{values}` | общие настройки: `r2_threshold`, `season_start/end`, `manometer_wells`, `visible_pages`, `chart_style`, `working_horizons`; проекты, копии, резервные копии, выгрузки — `atlas/api_projects.py`, экспорт — `atlas/api_export.py` |
 | `POST /api/projects/{id}/exclusions` `{dataset, add, remove, reason}` | исключить / вернуть точки (журнал как в 5.8) |
 | `POST /api/projects/{id}/exclusions/undo` | отменить последнее исключение |
+| `POST /api/projects/{id}/exclusions/state` `{at, side, revision}` | «История фильтра»: восстановить состояние до / после изменения (`atlas/api_exclusions.py`) |
 | `POST /api/projects/{id}/groups` `{changes, action}` | группы и подгруппы скважин (`manifest.groups`, формат 5.8) |
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |
 | `POST /api/modules/{id}/options` `{project, param, params}` | варианты зависимого списка |
+| `GET /api/projects/{id}/passport?well=`, `POST …/passport/comment`, `POST …/passport/pdf` | «Паспорт скважины» (`atlas/api_passport.py`) |
+| `/api/import/*`, `/api/projects/{id}/import/*` | импорт данных (файлы → распознавание → проверка → применение), см. `atlas/api_import.py` и `docs/parity/import.md` |
 
 Ошибки приходят как `{"error": "текст для пользователя"}`: 400 — неверный параметр,
 404 — нет проекта или модуля, 409 — в проекте нет нужных данных, 500 — сбой модуля (подробности в журнале).

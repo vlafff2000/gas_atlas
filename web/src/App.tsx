@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
+import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
+import { PassportPage } from './PassportPage'
 import { TableView } from './TableView'
 import { formatDate } from './format'
+import { inMenu, PROJECT_PAGES } from './api_projects'
+import { ProjectPages, RestoreBox } from './ProjectPage'
+import { ImportPage } from './ImportPage'
 
 const remembered = {
   get: <T,>(key: string, fallback: T): T => {
@@ -29,15 +34,16 @@ export function App() {
 
   const project = projects?.find(p => p.id === projectId) ?? projects?.[0] ?? null
   const spec = modules?.find(m => m.id === moduleId) ?? modules?.[0] ?? null
+  const page = moduleId?.startsWith('@') ? moduleId : null      // служебные страницы: «Импорт», «Экспорт», «Проекты», «Настройки», «Паспорт»
   const updateProject = useCallback((next: Project) =>
     setProjects(list => list?.map(p => (p.id === next.id ? next : p)) ?? list), [])
 
   useEffect(() => { if (project) remembered.set('project', project.id) }, [project])
   useEffect(() => {
-    if (!spec) return
+    if (!spec || page) return
     remembered.set('module', spec.id)
     if (location.hash !== '#/' + spec.id) history.replaceState(null, '', '#/' + spec.id)
-  }, [spec])
+  }, [spec, page])
   useEffect(() => {
     const onHash = () => setModuleId(location.hash.slice(2))
     window.addEventListener('hashchange', onHash)
@@ -50,6 +56,7 @@ export function App() {
     return [...out.entries()]
   }, [modules])
 
+  const openProject = (id: string) => { loadProjects().then(() => setProjectId(id)) }
   const createDemo = async () => {
     const { id } = await api.createDemo()
     await loadProjects()
@@ -73,15 +80,16 @@ export function App() {
           </select>
         </label>
         <nav aria-label="Разделы">
-          {groups.map(([group, items]) => (
+          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page === '@import' ? 'page' : undefined}>Импорт данных</a></li></ul></section>
+          {groups.filter(([, items]) => items.some(m => inMenu(m.id, project))).map(([group, items]) => (
             <section key={group}>
               <h2>{group}</h2>
               <ul>
-                {items.map(m => {
+                {items.filter(m => inMenu(m.id, project)).map(m => {
                   const missing = project ? m.needs.filter(n => !project.tables[n]) : []
                   return (
                     <li key={m.id}>
-                      <a href={'#/' + m.id} aria-current={m.id === spec?.id ? 'page' : undefined}
+                      <a href={'#/' + m.id} aria-current={!page && m.id === spec?.id ? 'page' : undefined}
                          className={missing.length ? 'no-data' : undefined}
                          title={missing.length ? 'В проекте нет нужных данных' : m.description}>
                         {m.title}
@@ -92,12 +100,27 @@ export function App() {
               </ul>
             </section>
           ))}
+          {project && (
+            <section>
+              <h2>Документы и настройки</h2>
+              <ul>{PROJECT_PAGES.filter(p => inMenu(p.id, project)).map(p => (
+                <li key={p.id}><a href={'#/' + p.id} aria-current={page === p.id ? 'page' : undefined}>{p.title}</a></li>
+              ))}</ul>
+            </section>
+          )}
         </nav>
       </aside>
 
       <main className="workspace">
-        {projects && projects.length === 0 ? (
-          <Empty onDemo={createDemo} />
+        {page === '@import' ? (
+          <ImportPage project={project} onProject={updateProject}
+                      onCreated={async id => { await loadProjects(); setProjectId(id) }} />
+        ) : projects && projects.length === 0 ? (
+          <Empty onDemo={createDemo} onOpen={openProject} />
+        ) : page === '@passport' && project ? (
+          <PassportPage key={project.id} project={project} onProject={updateProject} />
+        ) : page && project && projects ? (
+          <ProjectPages page={page} project={project} projects={projects} onProject={updateProject} onOpen={openProject} />
         ) : spec && project ? (
           <ModuleView key={spec.id + project.id} spec={spec} project={project} onProject={updateProject} />
         ) : (
@@ -108,13 +131,14 @@ export function App() {
   )
 }
 
-function Empty({ onDemo }: { onDemo: () => void }) {
+function Empty({ onDemo, onOpen }: { onDemo: () => void; onOpen: (id: string) => void }) {
   return (
     <div className="empty">
       <h1>Проектов пока нет</h1>
-      <p>Свои данные пока загружаются в версии 5.8: проекты у обеих версий общие и появятся здесь сами.</p>
+      <p>Создайте проект и загрузите свои файлы в разделе <a href="#/@import">«Импорт данных»</a>. Проекты общие с версией 5.8.</p>
       <p>Чтобы посмотреть, как работает новый интерфейс, откройте демонстрационный объект с синтетическими данными.</p>
       <button type="button" className="primary" onClick={onDemo}>Открыть демонстрационный объект</button>
+      <RestoreBox onOpen={onOpen} />
     </div>
   )
 }
@@ -301,7 +325,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             </select>
           </label>
         )}
-        {result && <button type="button" className="quiet" onClick={saveView}>{spec.save_label}</button>}
+        {result && spec.save_label && <button type="button" className="quiet" onClick={saveView}>{spec.save_label}</button>}
         {result && result.tables.length > 0 && (
           <button type="button" className="quiet" onClick={() => api.exportTables(spec.id, project.id, params).catch(e => setToast({ text: (e as Error).message, undo: false }))}>
             Все таблицы XLSX
@@ -316,6 +340,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
       {result && (
         <div className={'results' + (status.kind === 'running' ? ' stale' : '')}>
           {result.notes.map((n, i) => <div key={i} className={'note ' + n.level}>{n.text}</div>)}
+          <CommandBar result={result} project={project.id} onDone={text => exclusionDone(text, false)} onError={text => setToast({ text, undo: false })} />
           {result.charts.length > 0 && (
             <>
               {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее из расчета. Расчетные кривые и серые исключенные точки не выбираются.</div>}

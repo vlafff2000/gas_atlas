@@ -91,7 +91,7 @@ export function TableView({ table, onDownload, onApply, onAssign }: Props) {
           <table>
             <thead>
               <tr>
-                {action && <th className="check">Исключить</th>}
+                {action && <th className="check">{action.column ?? 'Исключить'}</th>}
                 {table.columns.map((c, k) => (
                   <th key={c.key} className={c.kind} aria-sort={sort?.col === k ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}>
                     <button type="button" onClick={() => toggleSort(k)}>
@@ -110,7 +110,7 @@ export function TableView({ table, onDownload, onApply, onAssign }: Props) {
                 return (
                   <tr key={i} className={(on ? 'is-excluded' : '') + (changed ? ' is-changed' : '')}>
                     {action && id !== undefined && (
-                      <td className="check"><input type="checkbox" checked={on} onChange={() => flip(id)} aria-label="Исключить точку" /></td>
+                      <td className="check"><input type="checkbox" checked={on} onChange={() => flip(id)} aria-label={action.column ?? 'Исключить'} /></td>
                     )}
                     {table.columns.map((c, k) => assign?.editable.includes(c.key) ? (
                       <td key={c.key} className="edit">

@@ -1,0 +1,36 @@
+/* Страницы «Экспорт», «Проекты», «Настройки». Общие токены — в styles.css. */
+.form-block {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; display: grid; gap: 12px;
+}
+.form-block h2 { font-size: 16px; }
+.form-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.field.wide { min-width: min(420px, 100%); flex: 1 1 320px; }
+.field.wide input { width: 100%; font-weight: 400; }
+.field input[type='file'] { font-weight: 400; }
+.small-text { font-size: 13px; }
+.pad { padding: 0 14px 14px; }
+.pad-x { margin: 0 14px 12px; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px; }
+.json {
+  margin: 0; padding: 12px 14px; max-height: 360px; overflow: auto; font-size: 12px;
+  background: var(--bg); border-top: 1px solid var(--line); white-space: pre-wrap; word-break: break-word;
+}
+.restore { display: grid; gap: 10px; justify-items: start; }
+.restore-preview { display: grid; gap: 8px; width: 100%; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.file-list { margin: 0; padding-left: 18px; font-size: 14px; display: grid; gap: 2px; }
+.file-list a, a.link-button { color: var(--accent-strong); }
+tr.is-current td { font-weight: 700; }
+details.table-block > summary.block-head { cursor: pointer; list-style: none; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button {
+  background: none; border: 0; border-bottom: 3px solid transparent; padding: 7px 12px; cursor: pointer;
+  color: var(--muted); font-size: 14px;
+}
+.tabs button.on { color: var(--ink); }
+.tabs button.on::after { content: ' ✓'; color: var(--accent-strong); }
+.tabs button[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 700; }
+.inline-checks span:last-child { display: flex; gap: 12px; }
+.inline-checks label { display: flex; gap: 4px; align-items: center; font-weight: 700; }
+.param-bar.flat { border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.export-preview { display: block; max-width: 100%; margin-top: 10px; border: 1px solid var(--line); background: #fff; }

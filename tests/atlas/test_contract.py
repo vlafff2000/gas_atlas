@@ -37,8 +37,10 @@ def test_every_registered_spec_serializes():
     assert {'gdi'} <= {s['id'] for s in specs}
     json.dumps(specs, ensure_ascii=False)
     for s in specs:
-        kinds = s['needs'] + s['optional']       # «Группы», «Аналитика фонда» работают с любыми наборами
-        assert kinds and all(k in {d.value for d in DatasetKind} for k in kinds)
+        # «Группы», «Аналитика фонда» работают с любыми наборами; страницы группы «Проект» наборов не требуют
+        kinds = s['needs'] + s['optional']
+        assert kinds or s['group'] == 'Проект'
+        assert all(k in {d.value for d in DatasetKind} for k in kinds)
 
 
 def test_result_json_is_strict():

@@ -169,6 +169,7 @@ class TableAction:
     reason: str = 'Ручная проверка'
     checked_column: str = ''
     reason_editable: bool = True
+    column: str = 'Исключить'         # заголовок столбца флажков («Исключено» в журнале исключений)
     fields: tuple[str, ...] = ()
     editable: tuple[str, ...] = ()
     submit: Literal['changed', 'all'] = 'changed'
@@ -243,16 +244,32 @@ class Note:
 
 
 @dataclass
+class Command:
+    """Кнопка под результатом: POST на адрес API проекта, затем проект обновляется и модуль пересчитывается.
+
+    ``path`` — относительно ``/api/projects/{проект}/`` (например ``'exclusions/state'``), ``body`` — тело запроса.
+    """
+    label: str
+    path: str
+    body: dict[str, Any] = field(default_factory=dict)
+    confirm: str = ''                 # вопрос перед выполнением; пусто — без вопроса
+    done: str = ''                    # сообщение после успеха
+    primary: bool = False
+
+
+@dataclass
 class Result:
     tables: list[Table] = field(default_factory=list)
     charts: list[Chart] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
+    commands: list[Command] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return {
             'tables': [_table_json(t) for t in self.tables],
             'charts': [_chart_json(c) for c in self.charts],
             'notes': [asdict(n) for n in self.notes],
+            'commands': [asdict(c) for c in self.commands],
         }
 
 
@@ -268,6 +285,8 @@ class Data(Mapping):
         self.settings: dict[str, Any] = {}
         self.revision: int | None = None
         self.mapping: dict[str, dict[str, str]] = {}    # скважина -> {'group': ..., 'subgroup': ...}
+        # Сведения о проекте (atlas.projects.ProjectInfo): name, demo, tables, history(), catalog(). Задаёт ядро.
+        self.project: Any = None
         self.wells: list[str] = []                       # все скважины проекта (по всем наборам), по номеру
 
     def __getitem__(self, kind):

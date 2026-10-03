@@ -21,6 +21,8 @@ from app.core.config import DEFAULT_SETTINGS, STORAGE, natural_key, ordered
 from app.core.history import filter_details
 from app.core.performance import Project as FrameCache
 from app.core.storage import Store
+from app.ui import navigation
+from app.ui.selection import parse_wells
 
 from .contract import Data, MissingData, ParamError
 from .domain import DatasetKind
@@ -28,15 +30,58 @@ from .domain import DatasetKind
 _CACHE_PROJECTS = 3
 KNOWN = {k.value: k for k in DatasetKind}
 
-# Настройки, которые интерфейс 6 может менять напрямую, с проверкой значения.
+# Настройки, которые интерфейс 6 может менять напрямую, с проверкой значения (как поля «Настроек» 5.8).
+_month = lambda v: not isinstance(v, bool) and float(v) == int(v) and 1 <= int(v) <= 12   # noqa: E731
+_names = lambda v: isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, (str, int)) for x in v))  # noqa: E731
 EDITABLE_SETTINGS = {
     'r2_threshold': lambda v: 0 <= float(v) <= 1,
+    'season_start': _month,
+    'season_end': _month,
+    'manometer_wells': _names,
+    # Состав меню: имена страниц 5.8 (``app/ui/navigation.PAGES``); None — меню по умолчанию.
+    'visible_pages': lambda v: v is None or (isinstance(v, list) and all(navigation.ALIASES.get(x, x) in navigation.PAGES for x in v)),
     'working_horizons': lambda v: isinstance(v, list) and all(isinstance(h, str) for h in v),
+    'chart_style': lambda v: isinstance(v, dict) and all(k in ('points', 'legend', 'grid', 'autoscale') and isinstance(x, bool)
+                                                         for k, x in v.items()),
 }
+SETTING_LABELS = {'r2_threshold': 'Порог R²', 'season_start': 'Первый месяц сезона отбора (1–12)',
+                  'season_end': 'Последний месяц сезона отбора (1–12)', 'manometer_wells': 'Скважины с глубинными манометрами',
+                  'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков'}
+
+
+def _setting_value(name: str, value: Any) -> Any:
+    """Значение в том виде, в каком его пишет 5.8."""
+    if name == 'r2_threshold':
+        return float(value)
+    if name in ('season_start', 'season_end'):
+        return int(value)
+    if name == 'manometer_wells':      # как ``parse_wells`` 5.8: «№», запятые, пробелы, естественный порядок
+        return parse_wells(value if isinstance(value, str) else ', '.join(str(x) for x in value))
+    if name == 'visible_pages':
+        return list(navigation.DEFAULT) if value is None else [navigation.ALIASES.get(x, x) for x in value]
+    return value
 
 
 class Conflict(RuntimeError):
     """Проект изменён параллельно (например, в 5.8). Текст — для пользователя."""
+
+
+class ProjectInfo:
+    """Сведения о проекте для модулей «Обзор», «Исключенные точки», «История фильтра».
+    Журнал и каталог читаются по запросу: другим модулям они не нужны."""
+
+    def __init__(self, pid: str, manifest: Mapping[str, Any], store: Store, cache: FrameCache):
+        self.id, self.name, self.demo = pid, manifest.get('name', ''), bool(manifest.get('demo'))
+        self.tables = dict(manifest.get('tables', {}))
+        self._store, self._cache = store, cache
+
+    def history(self) -> pd.DataFrame:
+        """Журнал действий 5.8: «Дата», «Действие», «Подробности» (JSON), новые сверху, до 500 записей."""
+        return self._store.history(self.id)
+
+    def catalog(self) -> dict[str, Any]:
+        """Состав проекта как в 5.8 (``Project.catalog``): строки, скважины, даты по наборам."""
+        return self._cache.catalog()
 
 
 class Projects:
@@ -53,9 +98,10 @@ class Projects:
     @staticmethod
     def summary(m: Mapping[str, Any]) -> dict[str, Any]:
         settings = m.get('settings', {})
-        return {'id': m['id'], 'name': m['name'], 'demo': bool(m.get('demo')), 'updated': m['updated'],
+        return {'id': m['id'], 'name': m['name'], 'demo': bool(m.get('demo')), 'updated': m['updated'], 'version': m.get('version'),
                 'revision': m.get('revision', 0), 'tables': dict(m.get('tables', {})),
                 'settings': {k: settings.get(k) for k in EDITABLE_SETTINGS},
+                'menu': navigation.visible(settings),     # разделы 5.8, показанные в меню (как в боковой панели 5.8)
                 'excluded': len(settings.get('excluded_points', {}))}
 
     def create_demo(self) -> str:
@@ -111,6 +157,7 @@ class Projects:
         for well, value in m.get('groups', {}).items():
             mapping.setdefault(well, {}).update(value)
         data.mapping = mapping
+        data.project = ProjectInfo(pid, m, self.store, cache)
         data.wells = ordered(cache.catalog()['wells'])
         with self._lock:
             for stale in [k for k in self._views if k[0] == pid]:
@@ -128,6 +175,7 @@ class Projects:
         keep = (*needs, *optional)
         out = Data({k: data[k] for k in keep if k in data}, {k: data.raw[k] for k in keep if k in data.raw}, data.excluded)
         out.settings, out.revision, out.mapping, out.wells = data.settings, data.revision, data.mapping, data.wells
+        out.project = data.project
         return out
 
     def options(self, pid: str, dataset: DatasetKind, column: str) -> list[str]:
@@ -156,9 +204,19 @@ class Projects:
             except (TypeError, ValueError):
                 ok = False
             if not ok:
-                raise ParamError(f'Недопустимое значение настройки {name}')
-            cfg[name] = float(value) if name == 'r2_threshold' else value
-        action = 'Выбор рабочих горизонтов' if set(values) == {'working_horizons'} else 'Изменение правил'   # как в 5.8
+                raise ParamError(f'Недопустимое значение настройки «{SETTING_LABELS.get(name, name)}»')
+            cfg[name] = _setting_value(name, value)
+        # Действия журнала как в 5.8: «Состав меню» (с отметкой о показанном «Кроссплоте»; сброс — без неё),
+        # «Оформление графиков», иначе «Изменение правил».
+        action = 'Изменение правил'
+        if set(values) == {'visible_pages'}:
+            action = 'Состав меню'
+            if values['visible_pages'] is not None:
+                cfg['pressure_module_menu_seen'] = True
+        elif set(values) == {'working_horizons'}:
+            action = 'Выбор рабочих горизонтов'
+        elif set(values) == {'chart_style'}:
+            action = 'Оформление графиков'
         return self.summary(self._commit(pid, cfg, expected, action, {'changed': dict(values)}))
 
     def change_exclusions(self, pid: str, dataset: DatasetKind, add: Iterable[str] = (), remove: Iterable[str] = (),
