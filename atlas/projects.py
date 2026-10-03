@@ -110,9 +110,12 @@ class Projects:
             from app.core.demo_large import DEFAULTS, create_large_demo
             sizes = {k: int(v) for k, v in (rows or {}).items() if k in DEFAULTS and v is not None}
             return create_large_demo(self.store, **sizes)
+        from app.core import pressure_demo
         from app.core.demo import demo_frames
         pid = self.store.create('Демонстрационный объект', demo=True)
-        self.store.commit(pid, frames=demo_frames(), action='Демонстрационные данные')
+        frames = demo_frames()
+        frames['pressure_match'] = pressure_demo.frame()
+        self.store.commit(pid, frames=frames, action='Демонстрационные данные')
         return pid
 
     def manifest(self, pid: str) -> dict[str, Any]:
@@ -302,6 +305,16 @@ class Projects:
                 raise Conflict('Проект изменён в другом окне (например, в версии 5.8). Обновите данные и повторите.') from None
             raise
         return self.summary(m)
+
+    def assign_object_categories(self, pid: str, changes: Mapping[str, Any],
+                                 expected: int | None = None) -> dict[str, Any]:
+        """Категории объектов кроссплота давлений — в сохранённом виде 5.8, где их вводит раздел «Категории»."""
+        from .modules.pressure import CATEGORIES_JOURNAL, with_categories
+        raw = self.data(pid).raw.get(DatasetKind.PRESSURE_MATCH)
+        objects = [str(o) for o in raw.object.unique()] if raw is not None and not raw.empty else []
+        settings = with_categories(self.manifest(pid).get('settings', {}), objects, changes)
+        return self.summary(self._commit(pid, settings, expected, CATEGORIES_JOURNAL,
+                                         {'object_groups': settings['panels']['pressure_match']['object_groups']}))
 
     # --- сохранённые параметры и расчёты ---
     def saved_state(self, pid: str, module, panel_index: int = 0) -> dict[str, Any]:

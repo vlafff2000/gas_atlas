@@ -44,7 +44,9 @@ def metrics(frames):
 def make_demo():
     pid=store.create('Демонстрационный объект',demo=True)
     settings={**DEFAULT_SETTINGS,'working_horizons':['Окский']}
-    store.commit(pid,well_demo_frames(),settings=settings,action='Загрузка демонстрационных данных')
+    from app.core import pressure_demo
+    frames=well_demo_frames();frames['pressure_match']=pressure_demo.frame()
+    store.commit(pid,frames,settings=settings,action='Загрузка демонстрационных данных')
     st.session_state['next_project']=pid; st.rerun()
 
 projects=store.list()
@@ -182,8 +184,11 @@ if page=='Обзор':
 
 elif page=='Импорт данных':
     from app.ui.general_import import render as import_page
-    heading('Импорт данных','Простой режим: перетащите все файлы сразу. Подробный: настройка шапки и колонок каждого листа.')
-    import_page(store,pid,m,raw_frames,key,ROOT,show_frame)
+    heading('Импорт данных','Простой режим: перетащите все файлы сразу. Подробный: настройка шапки и колонок каждого листа. Данные давлений для кроссплота — отдельный подраздел.')
+    from app.ui.pressure_panel import IMPORT_SECTIONS,import_panel as pressure_import
+    section=st.radio('Раздел импорта',IMPORT_SECTIONS,horizontal=True,key=key('import_section'),label_visibility='collapsed')
+    if section==IMPORT_SECTIONS[0]:import_page(store,pid,m,raw_frames,key,ROOT,show_frame)
+    else:pressure_import(store,pid,m,raw_frames,key)
 
 elif page in ('Производительность скважин','Гистограммы по эксплуатации скважин'):
     from app.ui.production_view import render as production_view

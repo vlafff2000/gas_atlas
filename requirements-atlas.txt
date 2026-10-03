@@ -1,5 +1,8 @@
-# Gas Atlas 6: Python 3.10+. Расчётное ядро 5.8 + сервер + окно приложения.
+# Gas Atlas 6: расчётное ядро 5.8 + сервер + окно приложения. CPython 3.8 или новее, 64-bit.
 -r requirements-modern.txt
-starlette>=0.40
-uvicorn>=0.30
+starlette>=0.40; python_version >= "3.9"
+uvicorn>=0.30; python_version >= "3.9"
+# Python 3.8: последние выпуски с его поддержкой, проверены (tests/atlas, запуск сервера).
+starlette==0.44.0; python_version < "3.9"
+uvicorn==0.33.0; python_version < "3.9"
 pywebview>=5.0; sys_platform == "win32"
