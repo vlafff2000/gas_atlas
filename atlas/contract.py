@@ -226,6 +226,26 @@ class Series:
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
     markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
     axis: Literal['y', 'y2'] = 'y'   # 'y2' — правая ось Chart.y2
+    # Признаки серии для легенды по рядам: {'Скважина': '№ 101', 'Период': '2023/2024'}. Легенда графика
+    # показывает по строке на признак, щелчок по значению скрывает все серии с ним.
+    facets: dict[str, str] | None = None
+
+
+@dataclass
+class Event:
+    """Событие на оси времени: вертикальная отметка на графике (ГДИ, смена режима, ремонт)."""
+    x: Any                           # дата
+    label: str                       # 'Начало закачки 2024'
+    kind: Literal['gdi', 'regime', 'repair', 'other'] = 'other'
+    well: str = ''                   # скважина события; пусто — событие объекта
+
+
+@dataclass
+class Stat:
+    """Показатель строки итогов над графиками: «Скважин · 8»."""
+    label: str
+    value: str
+    hint: str = ''                   # пояснение во всплывающей подсказке
 
 
 @dataclass
@@ -237,6 +257,7 @@ class Chart:
     series: list[Series] = field(default_factory=list)
     crosshair: bool = False
     y2: Axis | None = None           # вторая шкала справа (две шкалы Y)
+    events: list[Event] = field(default_factory=list)   # отметки на оси времени (scale='time')
 
 
 @dataclass
@@ -265,6 +286,7 @@ class Result:
     charts: list[Chart] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
     commands: list[Command] = field(default_factory=list)
+    summary: list[Stat] = field(default_factory=list)     # строка итогов над графиками
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -272,6 +294,7 @@ class Result:
             'charts': [_chart_json(c) for c in self.charts],
             'notes': [asdict(n) for n in self.notes],
             'commands': [asdict(c) for c in self.commands],
+            'summary': [asdict(st) for st in self.summary],
         }
 
 
@@ -401,4 +424,6 @@ def _series_json(s: Series) -> dict[str, Any]:
 def _chart_json(c: Chart) -> dict[str, Any]:
     return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
             'y2': asdict(c.y2) if c.y2 else None,
-            'series': [_series_json(s) for s in c.series]}
+            'series': [_series_json(s) for s in c.series],
+            'events': [{'x': plain(pd.Timestamp(e.x)) if e.x is not None else None, 'label': e.label, 'kind': e.kind,
+                        'well': e.well} for e in c.events]}

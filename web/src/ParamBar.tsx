@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type ModuleSpec, type Param, type Params } from './api'
 import { MultiSelect } from './MultiSelect'
+import { paramsCollapsed, usePref } from './chartPrefs'
+import { formatDate } from './format'
 
 interface Props {
   spec: ModuleSpec
@@ -23,8 +25,40 @@ function autoPick(rule: string, options: string[]): string[] {
 const visible = (p: Param, values: Params) =>
   !p.show_if || Object.entries(p.show_if).every(([k, v]) => values[k] === v)
 
+/** Одна строка-сводка свёрнутой панели: «№ 31, 45, 540 · Отбор · 2023-2024 – 2025-2026 · Q / дата». */
+export function paramSummary(params: Param[], values: Params, options: Record<string, string[] | undefined>): string[] {
+  const out: string[] = []
+  for (const p of params) {
+    if (!visible(p, values)) continue
+    const v = values[p.name]
+    if (p.kind === 'multi') {
+      const list = (v as string[] | undefined) ?? []
+      const all = options[p.name] ?? p.options.map(o => String(o.value))
+      const name = p.label.toLowerCase()
+      if (!list.length) out.push(`${p.label}: ${p.empty}`)
+      else if (all.length > 1 && list.length === all.length) out.push(`${p.label}: все (${all.length})`)
+      else if (list.length <= 3) out.push(list.map(x => p.prefix + x).join(', '))
+      else out.push(`${name[0].toUpperCase() + name.slice(1)}: ${list.length}${all.length ? ' из ' + all.length : ''}`)
+    } else if (p.kind === 'choice') {
+      const o = p.options.find(o => o.value === v)
+      if (o) out.push(o.label)
+    } else if (p.kind === 'boolean') {
+      if (v) out.push(p.label)
+    } else if (p.kind === 'date') {
+      if (v) out.push(`${p.label} ${formatDate(String(v))}`)
+    } else if (p.kind === 'text') {
+      if (v) out.push(p.label)
+    } else if (v !== null && v !== undefined && v !== '') {
+      out.push(`${p.label} ${String(v).replace('.', ',')}${p.unit ? ' ' + p.unit : ''}`)
+    }
+  }
+  return out
+}
+
 export function ParamBar({ spec, project, panel, values, onChange }: Props) {
   const [options, setOptions] = useState<Record<string, string[]>>({})
+  const [dynamic, setDynamic] = useState<Record<string, string[] | undefined>>({})
+  const collapsed = usePref(paramsCollapsed)
   const latest = useRef(values)
   latest.current = values
 
@@ -53,26 +87,39 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
     if (last && last[0] === p.section) last[1].push(p); else sections.push([p.section, [p]])
   }
 
+  const summary = paramSummary(spec.params, values, { ...options, ...dynamic })
   return (
-    <div className="param-bar">
+    <div className={'param-bar' + (collapsed ? ' collapsed' : '')}>
+      <button type="button" className="param-summary" aria-expanded={!collapsed} onClick={() => paramsCollapsed.set(!collapsed)}
+        title={collapsed ? 'Показать параметры' : 'Свернуть параметры в одну строку'}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d={collapsed ? 'M6 3.5 10.5 8 6 12.5' : 'M3.5 6 8 10.5 12.5 6'} /></svg>
+        <span className="param-summary-label">Параметры</span>
+        {collapsed && <span className="param-summary-text">{summary.join(' · ')}</span>}
+        <span className="param-summary-action">{collapsed ? 'Изменить' : 'Свернуть'}</span>
+      </button>
+      {/* свёрнутые поля остаются на странице: списки сами подбирают варианты по умолчанию */}
+      <div className="param-sections" hidden={collapsed}>
       {sections.map(([title, params]) => (
         <fieldset key={title || '-'} className="param-section" aria-label={title || undefined}>
           <span className="param-title" aria-hidden="true">{title}</span>
           <div className="param-fields">
             {params.map(p => p.dynamic
               ? <DynamicMulti key={p.name} spec={spec} project={project} panel={panel} param={p}
-                              values={values} onChange={v => set(p.name, v)} />
+                              values={values} onChange={v => set(p.name, v)}
+                              onOptions={list => setDynamic(d => (d[p.name] === list ? d : { ...d, [p.name]: list }))} />
               : <Field key={p.name} param={p} value={values[p.name]} options={options[p.name]} onChange={v => set(p.name, v)} />)}
           </div>
         </fieldset>
       ))}
+      </div>
     </div>
   )
 }
 
 /** Список, варианты которого считает модуль и зависят от других параметров (группы → скважины, режим → периоды). */
-function DynamicMulti({ spec, project, param: p, values, onChange }:
-  { spec: ModuleSpec; project: string; panel: number; param: Param; values: Params; onChange: (v: string[]) => void }) {
+function DynamicMulti({ spec, project, param: p, values, onChange, onOptions }:
+  { spec: ModuleSpec; project: string; panel: number; param: Param; values: Params; onChange: (v: string[]) => void
+    onOptions: (list: string[] | undefined) => void }) {
   const [options, setOptions] = useState<string[] | undefined>()
   const touched = useRef(false)
   const value = (values[p.name] as string[] | undefined) ?? []
@@ -90,6 +137,7 @@ function DynamicMulti({ spec, project, param: p, values, onChange }:
 
   // Пришли новые варианты: отбросить недопустимое; если ничего не осталось — выбор по умолчанию.
   useEffect(() => {
+    onOptions(options)
     if (!options) return
     const kept = value.filter(v => options.includes(v))
     let next = kept

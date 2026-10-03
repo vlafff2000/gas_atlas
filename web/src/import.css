@@ -15,7 +15,7 @@
 .import textarea { width: 100%; display: block; margin: 6px 0; font-family: ui-monospace, monospace; }
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .segmented label { padding: 6px 12px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
-.segmented label:has(input:checked) { background: var(--accent-soft); color: #0d5a61; }
+.segmented label:has(input:checked) { background: var(--accent-soft); color: var(--info-ink); }
 .segmented input { accent-color: var(--accent-strong); }
 .drop {
   border: 2px dashed var(--line); border-radius: var(--radius); padding: 18px; display: flex; flex-wrap: wrap;
@@ -38,7 +38,7 @@ table.grid { border-collapse: collapse; width: 100%; font-size: 14px; }
 table.grid th, table.grid td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
 table.grid th { position: sticky; top: 0; background: var(--bg); font-weight: 700; z-index: 1; }
 table.grid td.ok { color: var(--accent-strong); }
-.bad, table.grid td.bad { color: #b42318; }
+.bad, table.grid td.bad { color: var(--bad); }
 .boxed { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; background: var(--surface); }
 .boxed h3 { font-size: 17px; }
 .sheet-editor { display: grid; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
