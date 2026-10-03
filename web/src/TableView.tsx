@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { Assignments, Cell, Table } from './api'
 import { formatCell } from './format'
+import { tableBars, usePref } from './chartPrefs'
 
 const PAGE = 500
 
@@ -41,6 +42,21 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad 
   const [failure, setFailure] = useState('')
   useEffect(() => { setChecked(new Set(initial)) }, [initial])
   useEffect(() => { setReason(action?.reason ?? '') }, [action?.reason])
+
+  // мини-полоски в числовых ячейках: доля от наибольшего по модулю значения столбца
+  const bars = usePref(tableBars)
+  const scale = useMemo(() => table.columns.map((c, k) => {
+    if (c.kind !== 'number' || c.key.startsWith('_')) return 0
+    let max = 0, distinct = new Set<number>()
+    for (const v of table.rows[k]) if (typeof v === 'number' && Number.isFinite(v)) { max = Math.max(max, Math.abs(v)); if (distinct.size < 3) distinct.add(v) }
+    return distinct.size > 2 ? max : 0
+  }), [table])
+  const hasBars = scale.some(m => m > 0)
+  const barStyle = (v: unknown, k: number) => {
+    if (!bars || !scale[k] || typeof v !== 'number' || !Number.isFinite(v)) return undefined
+    const share = Math.min(100, Math.abs(v) / scale[k] * 100)
+    return { '--bar-w': share.toFixed(1) + '%', '--bar-c': v < 0 ? 'var(--bar-negative)' : 'var(--bar)' } as CSSProperties
+  }
 
   const order = useMemo(() => {
     const idx = Array.from({ length: table.count }, (_, i) => i)
@@ -99,7 +115,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad 
     <>
       {table.count === 0 ? <p className="muted table-empty">Нет строк для выбранных условий.</p> : (
         <div className="table-scroll">
-          <table>
+          <table className={(action ? 'has-check' : '') + (table.columns.length > 2 ? ' frozen' : '')}>
             <thead>
               <tr>
                 {action && <th className="check">{action.column ?? 'Исключить'}</th>}
@@ -128,7 +144,11 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad 
                         <input value={current(i, c.key)} maxLength={200} aria-label={c.label}
                           onChange={e => edit(i, c.key, e.target.value)} />
                       </td>
-                    ) : <td key={c.key} className={c.kind}>{formatCell(table.rows[k][i], c)}</td>)}
+                    ) : (
+                      <td key={c.key} className={c.kind + (barStyle(table.rows[k][i], k) ? ' bar' : '')} style={barStyle(table.rows[k][i], k)}>
+                        {formatCell(table.rows[k][i], c)}
+                      </td>
+                    ))}
                   </tr>
                 )
               })}
@@ -177,6 +197,10 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad 
       <h3>{table.title}</h3>
       <span className="muted">{table.count} строк</span>
       <span className="head-actions">
+        {hasBars && (
+          <button type="button" className={'quiet small' + (bars ? ' on' : '')} aria-pressed={bars}
+            onClick={e => { e.preventDefault(); tableBars.set(!bars) }} title="Полоски в числовых ячейках: величина относительно столбца">Полоски</button>
+        )}
         <button type="button" className="quiet small" onClick={e => { e.preventDefault(); copy() }} title="Скопировать для вставки в Excel">Копировать</button>
         {(['xlsx', 'csv'] as const).map(f => (
           <button key={f} type="button" className="quiet small" title={f === 'csv' ? 'CSV с разделителем «;» для Excel' : undefined}

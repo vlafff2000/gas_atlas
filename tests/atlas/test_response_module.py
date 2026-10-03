@@ -140,7 +140,8 @@ def test_period_and_empty_selection(env):
     assert all(x.startswith('2024') for s in body['charts'][0]['series'] for x in s['x'])
     m = rows(table(body, 'measurements'))
     assert len(m) == 5 * 12 and set(m.columns) >= {'well', 'date', 'horizon', 'level', 'pressure'}
-    assert 'Горизонтов: 3 · скважин: 5 · действующих уровней: 60.' in [n['text'] for n in body['notes']]
+    stats = {st['label']: st['value'] for st in body['summary']}
+    assert (stats['Горизонтов'], stats['Скважин'], stats['Действующих уровней']) == ('3', '5', '60')
     body = run(client, pid, wells=WELLS, date_from='2030-01-01')
     assert body['charts'] == [] and body['notes'][0]['text'] == 'Нет замеров в выбранном диапазоне.'
     assert run(client, pid, wells=[])['notes'][0]['text'] == 'Выберите скважины.'

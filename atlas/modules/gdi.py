@@ -14,7 +14,7 @@ from app.core.config import COLORS, natural_key
 from app.modules import gdi as legacy
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
-                        Table, TableAction)
+                        Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
 
 GDI = DatasetKind.GDI
@@ -131,6 +131,13 @@ class GdiModule(Module):
             result.tables.append(Table('studies', 'Коэффициенты и качество', table, coefficient_columns(),
                                        note=QUALITY_NOTE))
             weak = int((table.r2.isna() | (table.r2 < params['threshold'])).sum())
+            excluded = int(original['_point_id'].isin(data.excluded).sum()) if '_point_id' in original else 0
+            result.summary = [
+                Stat('Скважин', str(chosen.well.nunique())), Stat('Исследований', str(len(table))),
+                Stat('Точек', str(len(chosen))),
+                Stat('Период', f'{chosen.date.min():%d.%m.%Y} – {chosen.date.max():%d.%m.%Y}'),
+                Stat(f'R² ниже {params["threshold"]:g}', str(weak), 'Или без подбора коэффициентов'),
+                Stat('Исключено точек', str(excluded), 'В выбранных исследованиях')]
             if weak:
                 result.notes.append(Note(f'Исследований с R² ниже {params["threshold"]:g} или без подбора: '
                                          f'{weak} из {len(table)}.', 'warning'))

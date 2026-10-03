@@ -18,10 +18,11 @@ from app.modules.charts import DASH, well_colors
 
 from ..thinning import screen_decimate
 
-from ..contract import Axis, Chart, Column, Data, Module, Note, Option, Result, Series, Table, TableAction
+from ..contract import Axis, Chart, Column, Data, Module, Note, Option, Result, Series, Stat, Table, TableAction
 from ..domain import DatasetKind
+from ._events import gdi_events, regime_events
 
-PRODUCTION = DatasetKind.PRODUCTION
+PRODUCTION, GDI = DatasetKind.PRODUCTION, DatasetKind.GDI
 KINDS = (Option('withdrawal', 'Отбор'), Option('injection', 'Закачка'))
 DIRECTIONS = (Option('number', 'По номеру'), Option('desc', 'Больший дебит слева'), Option('asc', 'Больший дебит справа'))
 POINT_BUDGET = 20000          # как в 5.8: бюджет точек на график, делится между кривыми
@@ -86,6 +87,7 @@ class Selection:
         self.periods = [p for p in params['periods'] if p in periods_of(self.df, self.kind)]
         self.groups = [g for g in params['groups'] if g in groups_of(self.df, self.mapping)]
         self.params = params
+        self.gdi = data[GDI] if GDI in data else None      # даты ГДИ — отметки на графике по дате
 
     def choices(self) -> list[str]:
         return [w for w in wells_of(self.df) if group_of(self.mapping, w) in self.groups]
@@ -115,6 +117,9 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
     colors, palette = legacy.period_colors(sel.df, sel.kind), well_colors(ws)
     groups = data.groupby(['well', 'period'], sort=False)
     limit = min(5000, max(4, POINT_BUDGET // max(1, groups.ngroups)))
+    # Несколько скважин: цвет — скважина, стиль линии — период (легенда двумя рядами «Скважина» и «Период»).
+    # Одна скважина — цвета периодов, как в 5.8; один период — цвета скважин.
+    by_well = len(ws) > 1
     for (well, period), g in groups:
         points = len(g)
         g = screen_decimate(g, 'q', limit)
@@ -126,9 +131,13 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
         chart.series.append(Series(
             str(period) if len(ws) == 1 else f'№ {well} · {period}',
             g.cumulative.to_numpy() if by_cumulative else g.date.to_numpy(), g.q.to_numpy(), 'line',
-            color=palette[well] if single else colors[period],
-            dash='solid' if single else DASH[ws.index(well) % len(DASH)], width=2.0,
-            labels=labels.tolist(), ids=ids.tolist(), dataset=PRODUCTION, total=points))
+            color=palette[well] if single or by_well else colors[period],
+            dash='solid' if single or not by_well else DASH[sel.periods.index(period) % len(DASH)], width=2.0,
+            labels=labels.tolist(), ids=ids.tolist(), dataset=PRODUCTION, total=points,
+            facets={'Скважина': f'№ {well}', 'Период': str(period)} if by_well and not single else None))
+    if not by_cumulative:
+        start, end = data.date.min(), data.date.max()
+        chart.events = regime_events(sel.df, start, end) + gdi_events(sel.gdi, ws, start, end)
     return chart
 
 
@@ -175,7 +184,8 @@ def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: st
         labels = ('Наблюдений: ' + g.observed.fillna(0).astype(int).astype(str) + ' / ' + g.expected.astype(int).astype(str)
                   + ' скважин · покрытие ' + g.coverage.fillna(0).map('{:.1f}'.format) + '%')
         chart.series.append(Series('Сумма · ' + period, g.date.to_numpy(), g.value.to_numpy(), 'line',
-                                   color=colors.get(period), width=3.0, labels=labels.tolist(), total=points))
+                                   color=colors.get(period), width=3.0, labels=labels.tolist(),
+                                   facets={'Кривая': 'Сумма', 'Период': str(period)}))
     if metric != 'active':
         d = select_wells(sel.df, [w for w in overlay if w in wells])
         d = d[d.kind.eq(sel.kind) & d.period.isin(sel.periods)]
@@ -188,14 +198,17 @@ def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: st
             points = len(g)
             g = screen_decimate(g, 'value')
             chart.series.append(Series(f'№ {well} · {period}', g.date.to_numpy(), g.value.to_numpy(), 'line',
-                                       color=palette[well], width=1.4, total=points))
+                                       color=palette[well], width=1.4,
+                                       facets={'Кривая': f'№ {well}', 'Период': str(period)}))
+    if not daily.empty:
+        chart.events = regime_events(sel.df, daily.date.min(), daily.date.max())
     return chart
 
 
 # ---------- таблицы ----------
 
-def averages_table(sel: Selection, ws: list[str]) -> Table:
-    a = legacy.averages(sel.df, sel.kind, sel.periods, ws)
+def averages_table(sel: Selection, ws: list[str], a: pd.DataFrame | None = None) -> Table:
+    a = legacy.averages(sel.df, sel.kind, sel.periods, ws) if a is None else a
     a = a.assign(missing=a.missing.map({True: 'да', False: ''}))
     return Table('averages', 'Расчетные значения', a, [
         Column('well', 'Скважина'), Column('period', 'Период'),
@@ -242,6 +255,34 @@ def point_table(sel: Selection, ws: list[str]) -> Table | None:
                                     checked_column='_excluded'))
 
 
+# ---------- строка итогов ----------
+
+def period_stat(periods: list[str]) -> Stat:
+    if not periods:
+        return Stat('Периоды', 'нет')
+    value = periods[0] if len(periods) == 1 else f'{periods[0]} – {periods[-1]}'
+    return Stat('Периоды' if len(periods) > 1 else 'Период', value,
+                ', '.join(periods) if len(periods) > 2 else '')
+
+
+def summary(sel: Selection, ws: list[str], averages: pd.DataFrame) -> list[Stat]:
+    """Скважины, периоды, средний расход по выбранным скважинам и периодам, исключённые точки выборки."""
+    values = pd.to_numeric(averages.value, errors='coerce') if 'value' in averages else pd.Series(dtype=float)
+    mean = values.mean()
+    part = select_wells(sel.raw, ws)
+    part = part[part.kind.eq(sel.kind) & part.period.isin(sel.periods)]
+    excluded = int(part['_point_id'].isin(sel.excluded).sum()) if sel.excluded and '_point_id' in part else 0
+    ordered_periods = [p for p in periods_of(sel.df, sel.kind) if p in sel.periods]
+    return [
+        Stat('Скважин', str(len(ws))),
+        Stat('Режим', kind_label(sel.kind)),
+        period_stat(ordered_periods),
+        Stat('Средний расход', '—' if pd.isna(mean) else f'{mean:.2f}'.replace('.', ',') + ' ' + Q_UNIT,
+             'Среднее средних по скважинам и периодам; дни с положительным расходом'),
+        Stat('Исключено точек', str(excluded), 'В выбранных скважинах и периодах'),
+    ]
+
+
 # ---------- общая часть модулей ----------
 
 class ProductionBase(Module):
@@ -260,7 +301,9 @@ class ProductionBase(Module):
 
     @staticmethod
     def common_tables(result: Result, sel: Selection, ws: list[str]) -> None:
-        result.tables.append(averages_table(sel, ws))
+        averages = legacy.averages(sel.df, sel.kind, sel.periods, ws)
+        result.summary = summary(sel, ws, averages)
+        result.tables.append(averages_table(sel, ws, averages))
         points = point_table(sel, ws)
         if points is not None:
             result.tables.append(points)

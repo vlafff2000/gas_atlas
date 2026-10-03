@@ -9,8 +9,9 @@ from typing import Any, Mapping
 import pandas as pd
 from app.modules import group_analysis
 
-from ..contract import Data, ModuleSpec, Note, Option, Param, Result
-from ._production import (DIRECTIONS, GROUP_NOTE, KINDS, CURVE_NOTE, PRODUCTION, ProductionBase, Selection, curve_chart,
+from ..contract import Data, ModuleSpec, Note, Option, Param, Result, Stat
+from ..domain import DatasetKind
+from ._production import (DIRECTIONS, GROUP_NOTE, KINDS, CURVE_NOTE, PRODUCTION, ProductionBase, Selection, curve_chart, kind_label, period_stat,
                           group_chart, group_table)
 
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
@@ -25,6 +26,7 @@ class ProductionModule(ProductionBase):
         group='Эксплуатация',
         description='Сравнение периодов и расходов выбранных скважин и групп.',
         needs=(PRODUCTION,),
+        optional=(DatasetKind.GDI,),       # даты ГДИ — отметки на графике по дате
         order=10,
         panels=2,
         params=(
@@ -76,6 +78,9 @@ class ProductionModule(ProductionBase):
             result.notes.append(Note('Выберите группы и периоды.'))
             return result
         result.notes.append(Note(GROUP_NOTE))
+        result.summary = [Stat('Групп', str(len(sel.groups))),
+                          Stat('Скважин в группах', str(len(sel.choices()))),
+                          Stat('Режим', kind_label(sel.kind)), period_stat(sel.periods)]
         metric, overlay = sel.params['metric'], sel.params['overlay']
         for group in sel.groups:
             daily, wells = group_analysis.daily(sel.df, sel.mapping, group, sel.kind, sel.periods)

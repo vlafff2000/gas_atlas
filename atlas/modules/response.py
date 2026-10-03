@@ -17,10 +17,11 @@ from app.core.config import ordered
 from app.modules.charts import well_colors, well_title
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
-                        Table, TableAction)
+                        Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
+from ._events import regime_events
 
-RESPONSE, OBJECT = DatasetKind.RESPONSE, DatasetKind.OBJECT_PRESSURE
+RESPONSE, OBJECT, PRODUCTION = DatasetKind.RESPONSE, DatasetKind.OBJECT_PRESSURE, DatasetKind.PRODUCTION
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
 POINT_TABLE_LIMIT = 20000
 
@@ -197,7 +198,7 @@ class ResponseModule(Module):
         group='Контроль горизонтов',
         description='Сравнение скважин внутри горизонта; уровень и приведенное давление на одной диаграмме или отдельно.',
         needs=(RESPONSE,),
-        optional=(OBJECT,),
+        optional=(OBJECT, PRODUCTION),      # эксплуатация — только отметки смены режима на графиках
         order=40,
         save_label='Сохранить параметры графиков',
         params=(
@@ -234,8 +235,14 @@ class ResponseModule(Module):
             result.notes.append(Note('Нет замеров в выбранном диапазоне.'))
         else:
             level = int(f.level.notna().sum()) if 'level' in f else 0
-            result.notes.append(Note(f'Горизонтов: {f.horizon.nunique()} · скважин: {f.well.nunique()} · '
-                                     f'действующих уровней: {level}.'))
+            pressure = int(f.pressure.notna().sum()) if 'pressure' in f else 0
+            excluded = sum(int((original['_point_id'] + ':' + m).isin(data.excluded).sum())
+                           for m in ('level', 'pressure') if m in original) if data.excluded and '_point_id' in original else 0
+            result.summary = [
+                Stat('Горизонтов', str(f.horizon.nunique())), Stat('Скважин', str(f.well.nunique())),
+                Stat('Период', f'{f.date.min():%d.%m.%Y} – {f.date.max():%d.%m.%Y}'),
+                Stat('Действующих уровней', str(level)), Stat('Замеров давления', str(pressure)),
+                Stat('Исключено точек', str(excluded), 'Уровень и давление одного замера считаются отдельно')]
             result.notes.append(Note(VIEW_NOTE))
             result.charts.extend(self.charts(data, sel, f, params['view'], params['split']))
             result.tables.append(measurements_table(f))
@@ -260,13 +267,17 @@ class ResponseModule(Module):
         sets = ({'Все выбранные': f} if split == 'all' else    # естественный порядок: 31, 45, 132
                 {label: f[f[column].astype(str).eq(label)] for label in ordered(f[column])})
         out = []
+        production = data[PRODUCTION] if PRODUCTION in data else None
+        events = regime_events(production, f.date.min(), f.date.max()) if not f.empty else []
         for label, part in sets.items():
             for metric in (['level', 'pressure'] if view == 'separate' else [view]):
                 if metric != 'combined' and (metric not in part or not part[metric].notna().any()):
                     continue
                 title = chart_title(ordered(part.well), label, split) + ' · ' + METRIC_WORDS[metric]
-                out.append(response_chart(part, metric, title, f'response-{split}-{label}-{metric}', palette,
-                                          object_pressure, manometer, split == 'well', pressure_horizons))
+                chart = response_chart(part, metric, title, f'response-{split}-{label}-{metric}', palette,
+                                       object_pressure, manometer, split == 'well', pressure_horizons)
+                chart.events = list(events)
+                out.append(chart)
         return out
 
     # --- сохранённый вид: формат 5.8 (settings.panels.response) ---
