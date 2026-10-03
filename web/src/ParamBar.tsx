@@ -119,6 +119,14 @@ function Field({ param: p, value, options, onChange }:
       </label>
     )
   }
+  if (p.kind === 'date') {
+    return (
+      <label className="field date" title={p.help}>
+        <span className="field-label">{p.label}</span>
+        <input type="date" value={(value as string | null) ?? ''} onChange={e => onChange(e.target.value || null)} />
+      </label>
+    )
+  }
   if (p.kind === 'choice') {
     const index = p.options.findIndex(o => o.value === value)
     return (

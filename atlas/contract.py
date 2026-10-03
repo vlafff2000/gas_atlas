@@ -16,7 +16,7 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date']
 
 
 class ParamError(ValueError):
@@ -59,7 +59,7 @@ class Param:
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
 
     def coerce(self, value: Any) -> Any:
-        if value is None:
+        if value is None or (self.kind == 'date' and value == ''):
             return self.default
         try:
             if self.kind == 'boolean':
@@ -83,6 +83,11 @@ class Param:
             raise
         except (TypeError, ValueError):
             raise ParamError(f'«{self.label}»: ожидается {"целое " if self.kind == "integer" else ""}число') from None
+        if self.kind == 'date':
+            try:
+                return pd.Timestamp(str(value)).strftime('%Y-%m-%d')
+            except (TypeError, ValueError):
+                raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД') from None
         if self.kind == 'choice':
             if self.options and value not in {o.value for o in self.options}:
                 raise ParamError(f'«{self.label}»: недопустимое значение {value!r}')
@@ -182,6 +187,8 @@ class Axis:
     from_zero: bool = False
     step: float | None = None         # шаг делений (dtick в 5.8)
     categories: list[str] | None = None   # для scale='category': порядок подписей
+    minimum: float | None = None      # заданные границы оси (None — автоматически)
+    maximum: float | None = None
 
 
 @dataclass
@@ -189,7 +196,7 @@ class Series:
     name: str
     x: Sequence[Any]
     y: Sequence[Any]
-    kind: Literal['points', 'line', 'bar'] = 'points'
+    kind: Literal['points', 'line', 'bar', 'box'] = 'points'   # box: y — [низ, Q1, медиана, Q3, верх] на категорию
     group: str = ''                  # общий цвет и общий пункт легенды
     dashed: bool = False
     dash: Literal['', 'solid', 'dash', 'dot', 'dashdot', 'longdash'] = ''   # пусто — по ``dashed``
