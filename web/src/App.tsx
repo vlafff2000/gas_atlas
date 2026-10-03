@@ -81,7 +81,7 @@ export function App() {
         </label>
         <nav aria-label="Разделы">
           <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page === '@import' ? 'page' : undefined}>Импорт данных</a></li></ul></section>
-          {groups.map(([group, items]) => (
+          {groups.filter(([, items]) => items.some(m => inMenu(m.id, project))).map(([group, items]) => (
             <section key={group}>
               <h2>{group}</h2>
               <ul>
