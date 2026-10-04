@@ -7,8 +7,8 @@ import type { Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
-import { hiddenEvents, setHoverMode, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
-import { nextSyncId, pinShared, publish, sharedPins, subscribe, synced, unpinShared } from './chartSync'
+import { hiddenEvents, setHoverMode, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
 
 echarts.use([BarChart, BoxplotChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
@@ -291,6 +291,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
   const state = useRef({
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
+    applyZoom: (() => {}) as () => void,
     excludeMode, onExclude, onOpenWell: onOpenWell as Props['onOpenWell'], tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1 }, blur: true, draw: (() => {}) as () => void,
@@ -310,6 +311,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     setBoxZoom(on)
     instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: on })
   }
+  const syncZoom = usePref(zoomSync)
   const resetZoom = () => instance.current?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
   state.current.excludeMode = excludeMode
   state.current.mode = mode
@@ -790,7 +792,32 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
         setPatch(next)
       }).catch(() => { /* остаётся прореженный график; пометка «показана часть точек» это говорит */ })
     }
-    ch.on('datazoom', () => { schedule(); window.clearTimeout(timer); timer = window.setTimeout(st.ensure, 250) })
+    // Общий масштаб по времени: своё окно — другим графикам, чужое — себе (повтор того же окна ничего не делает)
+    const sameWindow = (a: [number, number], from: number, to: number) => Math.abs(a[0] - from) <= (to - from) * 1e-3 && Math.abs(a[1] - to) <= (to - from) * 1e-3
+    const shareZoom = () => {
+      if (!zoomSync.get() || st.chart.x.scale !== 'time') return
+      const z = (ch.getOption() as { dataZoom?: { start?: number; end?: number }[] }).dataZoom?.[0]
+      const e = st.edges()
+      if (!z || !e) return
+      if ((z.start ?? 0) <= 0 && (z.end ?? 100) >= 100) publishZoom(st.id, null, null)
+      else publishZoom(st.id, e[0], e[1])
+    }
+    st.applyZoom = () => {
+      if (!zoomSync.get() || st.chart.x.scale !== 'time') return
+      const z = sharedZoom()
+      if (z?.source === st.id) return
+      if (!z) {
+        const o = (ch.getOption() as { dataZoom?: { start?: number; end?: number }[] }).dataZoom?.[0]
+        if (o && ((o.start ?? 0) > 0 || (o.end ?? 100) < 100)) ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+        return
+      }
+      const e = st.edges()
+      if (e && sameWindow(e, z.from, z.to)) return
+      ch.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: z.from, endValue: z.to })
+    }
+    const unzoom = subscribeZoom(() => st.applyZoom())
+    const unpref = zoomSync.subscribe(() => st.applyZoom())
+    ch.on('datazoom', () => { schedule(); shareZoom(); window.clearTimeout(timer); timer = window.setTimeout(st.ensure, 250) })
     // столбцы и ящики (ось категорий): щелчок по точке-выбросу тоже исключает её
     ch.on('click', (p: { seriesIndex?: number; data?: unknown }) => {
       if (st.tracks.length) return
@@ -807,7 +834,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     observer.observe(el)
     return () => {
       window.clearTimeout(timer); ++seq
-      observer.disconnect(); unsync(); publish(st.id, null, null)
+      observer.disconnect(); unsync(); unzoom(); unpref(); publish(st.id, null, null)
       st.pins.forEach(p => { p.el.remove(); if (p.own && p.shared) unpinShared(p.token) })
       window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin); host.removeEventListener('click', onOpen)
       host.removeEventListener('pointerdown', onGrab); host.removeEventListener('pointermove', onDrag)
@@ -837,6 +864,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     const view = st.patch && st.patch.base === given ? st.edges() : null      // масштаб сохраняется при подмене точек окна
     instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode, st.patch ? st.pin : null, given), { notMerge: true })
     if (view) instance.current?.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: view[0], endValue: view[1] })
+    st.applyZoom()
     st.selected = {}
     applyLegend()
     if (boxRef.current) instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: true })
@@ -894,6 +922,11 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
                 title="Увеличить область: выделите её мышью. Ещё: Ctrl + колесо — масштаб, перетаскивание — сдвиг">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" strokeDasharray="2.5 2" /><path d="M8 5.5v5M5.5 8h5" /></svg>
               </button>
+              {chart.x.scale === 'time' && <button type="button" className={'icon' + (syncZoom ? ' on' : '')} aria-pressed={syncZoom}
+                onClick={() => zoomSync.set(!syncZoom)}
+                title="Синхронизировать масштаб: окно по времени одинаково на всех графиках по времени, в том числе после перехода в другой раздел">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5l3-3" /><path d="M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1" /><path d="M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1" /></svg>
+              </button>}
               <button type="button" className="icon" onClick={resetZoom} title="Сбросить масштаб (или двойной щелчок по графику)">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7" /><path d="M3 2.5v3h3" /></svg>
               </button>
