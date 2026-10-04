@@ -9,6 +9,7 @@ import { formatDate } from './format'
 import { inMenu, PROJECT_PAGES } from './api_projects'
 import { ProjectPages, RestoreBox } from './ProjectPage'
 import { ImportPage } from './ImportPage'
+import { HelpPage } from './HelpPage'
 import { SectionSearch, type Section } from './SectionSearch'
 import { sidebarCollapsed, theme, usePref, type Theme } from './chartPrefs'
 
@@ -71,6 +72,7 @@ export function App() {
   }, [])
   const sections = useMemo<Section[]>(() => [
     { id: '@import', title: 'Импорт данных', group: 'Данные', hint: 'загрузка файлов' },
+    { id: '@help', title: 'Справка: форматы данных', group: 'Данные', hint: 'какие файлы и колонки принимает каждый модуль FAQ' },
     ...groups.flatMap(([group, items]) => items.filter(m => inMenu(m.id, project)).map(m => ({ id: m.id, title: m.title, group, hint: m.description }))),
     ...(project ? PROJECT_PAGES.filter(p => inMenu(p.id, project)).map(p => ({ id: p.id, title: p.title, group: 'Документы и настройки' })) : []),
   ], [groups, project])
@@ -107,7 +109,8 @@ export function App() {
           </select>
         </label>
         <nav aria-label="Разделы">
-          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page?.startsWith('@import') ? 'page' : undefined}>Импорт данных</a></li></ul></section>
+          <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page?.startsWith('@import') ? 'page' : undefined}>Импорт данных</a></li>
+            <li><a href="#/@help" aria-current={page?.startsWith('@help') ? 'page' : undefined}>Справка: форматы данных</a></li></ul></section>
           {groups.filter(([, items]) => items.some(m => inMenu(m.id, project))).map(([group, items]) => (
             <section key={group}>
               <h2>{group}</h2>
@@ -151,7 +154,9 @@ export function App() {
       <SectionSearch sections={sections} open={search} onClose={() => setSearch(false)} onGo={id => { location.hash = '#/' + id }} />
 
       <main className="workspace">
-        {page === '@import' || page === '@import/pressure' ? (
+        {page?.startsWith('@help') ? (
+          <HelpPage key={page} tab={page.slice(6)} />
+        ) : page === '@import' || page === '@import/pressure' ? (
           <ImportPage key={page} project={project} onProject={updateProject} pressure={page === '@import/pressure'}
                       onCreated={async id => { await loadProjects(); setProjectId(id) }} />
         ) : projects && projects.length === 0 ? (
