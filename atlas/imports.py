@@ -43,7 +43,7 @@ DUPLICATES = {'first': 'Первая запись (как в Python-скрипт
 EXAMPLES = ROOT / 'examples'
 ISSUE_COLUMNS = ['Файл', 'Лист', 'Строка', 'Уровень', 'Причина']
 EDITOR_REQUIRED = {'production': ['well', 'date', 'q'], 'gdi': ['well', 'date', 'q'], 'response': ['well', 'date', 'horizon'],
-                   'object_pressure': ['date', 'pressure'], 'groups': ['well', 'group'], 'subgroups': ['well', 'subgroup']}
+                   'object_pressure': ['date', 'pressure'], 'plan': ['group', 'date', 'plan_volume'], 'groups': ['well', 'group'], 'subgroups': ['well', 'subgroup']}
 
 
 def module_label(value) -> str:
@@ -181,7 +181,7 @@ class Imports:
             required = REQUIRED.get(effective, EDITOR_REQUIRED.get(effective, []))
             fields = ['date'] if wide else list(dict.fromkeys(list(layout.get('mapping', {})) + sorted(required)))
             out.update(module=chosen, suggested=suggested, effective=effective, wide=wide,
-                       wide_allowed=effective in ('production', None), fields=fields)
+                       wide_allowed=effective in ('production', 'plan', None), fields=fields)
         mapping = {f: c for f, c in layout.get('mapping', {}).items() if c in columns}
         out['mapping'] = {f: mapping[f] for f in out['fields'] if f in mapping}
         out['layout_mapping'] = mapping
@@ -342,7 +342,7 @@ class Imports:
                 if chosen != found and chosen != 'unknown':
                     try:
                         forced = rules.auto_spec(raw, chosen)
-                        fields = ', '.join(rules.FIELDS.get(k, k) for k in forced['mapping']) if not forced['wide'] else 'матрица: даты × скважины'
+                        fields = ', '.join(rules.FIELDS.get(k, k) for k in forced['mapping']) if not forced['wide'] else 'матрица: группы × месяцы' if forced['module'] == 'plan' else 'матрица: даты × скважины'
                         status = 'OK'
                     except ValueError as e:
                         fields, status = '', 'Не подходит: ' + str(e)
