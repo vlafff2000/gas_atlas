@@ -130,6 +130,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220):
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
             ax.set_title(re.sub('<[^>]+>','',fig.layout.title.text or ''),loc='left',fontsize=12,pad=14)
             ax.set_xlabel(fig.layout.xaxis.title.text or '');ax.set_ylabel(fig.layout.yaxis.title.text or '')
+            if fig.layout.xaxis.autorange=='reversed' and not date_axis:ax.invert_xaxis()
             if fig.layout.yaxis.autorange=='reversed':ax.invert_yaxis()
             if secondary is not None:
                 secondary.set_ylabel(fig.layout.yaxis2.title.text or '')
