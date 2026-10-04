@@ -29,6 +29,7 @@ ALIASES = {
     'method': ['метод', 'методисследования', 'method'],
     'study': ['исследование', 'номерисследования', 'study', 'studyid'],
     'a_db': ['a', 'а', 'a_db'], 'b_db': ['b', 'в', 'b_db'],
+    'plan_volume': ['план', 'плановыйобъем', 'объемпоплану', 'планмлнм3', 'планмлнм', 'planvolume', 'plan'],
 }
 ALIASES.update(WELL_ALIASES)
 ALIASES['date']+=['Дата конструкции','Дата замера забоя']
@@ -43,7 +44,7 @@ def column_map(labels):
     for field, aliases in ALIASES.items():
         aliases = [norm(x) for x in aliases]
         matches = [i for i, n in enumerate(normalized) if n in aliases]
-        if not matches and field in ('q', 'level', 'p_res', 'p_bh', 'pressure')+tuple(WELL_ALIASES):
+        if not matches and field in ('q', 'level', 'p_res', 'p_bh', 'pressure', 'plan_volume')+tuple(WELL_ALIASES):
             # Recognize unit-bearing labels, without confusing Рпл with Рпл привед.
             for i, value in enumerate(labels):
                 base = re.split(r'[,\[(]', str(value))[0]
@@ -55,6 +56,11 @@ def column_map(labels):
             raise ValueError(f'Несколько колонок для поля «{field}»: {[labels[i] for i in matches]}. Оставьте одну.')
         if matches:
             result[field] = matches[0]
+    if 'date' not in result:
+        # «Месяц» — дата только в плане; если есть обычная колонка даты, «Месяц» остаётся отдельным столбцом.
+        month = [i for i, n in enumerate(normalized) if n == 'месяц']
+        if len(month) == 1:
+            result['date'] = month[0]
     if 'q' in result and result.get('water_rate')==result['q']:
         # The legacy broad "Расход..." alias must not turn water into gas.
         result.pop('q')
@@ -119,6 +125,8 @@ def detect_layout(head,module='auto'):
             mapping={'well':0, 'subgroup' if module=='subgroups' else 'group':1}
             if module=='groups' and len(row)>2: mapping['subgroup']=2
             detected='groups';header=-1;break
+        if module in ('auto','plan') and 'well' not in mapping and {'group','date','plan_volume'}<=mapping.keys():
+            detected='plan';header=i;break
         if module in ('auto','object_pressure') and 'well' not in mapping and 'date' in mapping and ('p_res' in mapping or 'pressure' in mapping):
             mapping['pressure']=mapping.pop('p_res') if 'p_res' in mapping else mapping['pressure']
             detected='object_pressure';header=i;break
@@ -156,7 +164,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             layout=detect_layout(head,module);detected=layout['module'];mapping=layout['mapping'];wide=layout['wide'];header=layout['header']
         if detected is None:
             result.issue(filename,sheet,1,'Таблица не распознана. Нужны заголовки из шаблона.', 'предупреждение'); continue
-        required={**WELL_REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'groups':{'well'}}[detected]
+        required={**WELL_REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'groups':{'well'}}[detected]
         if not wide and not required<=mapping.keys():
             raise ValueError(f'{sheet}: не найдены поля {", ".join(sorted(required-mapping.keys()))}.')
         if detected=='gdi' and not ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys()):
@@ -183,7 +191,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             else:
                 df=pd.DataFrame({k:raw[i] for k,i in mapping.items()}); df['_row']=raw.index+row_offset
             reasons=pd.Series('',index=df.index)
-            if detected!='object_pressure':
+            if detected not in ('object_pressure','plan'):
                 df['well']=well_ids(df.well)
                 reasons.loc[df.well.eq('')]='Не указан номер скважины'
             if detected!='groups':
@@ -195,7 +203,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                     if col in df:
                         supplied=df[col].notna()&df[col].astype(str).str.strip().ne('')
                         reasons.loc[supplied&numeric(df[col]).isna()]='Некорректное давление в поле '+col
-            for col in ('q','p_res','p_bh','dp2','a_db','b_db','pressure','level'):
+            for col in ('q','p_res','p_bh','dp2','a_db','b_db','pressure','level','plan_volume'):
                 if col in df: df[col]=numeric(df[col],level=col=='level')
             if detected in WELL_REQUIRED:
                 df=normalize_well(df,detected,reasons,numeric)
@@ -246,6 +254,16 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 reasons.loc[df.pressure.lt(0)]='Давление не может быть отрицательным'
             elif detected=='object_pressure':
                 reasons.loc[df.pressure.isna() | df.pressure.lt(0)]='Некорректное или отрицательное давление объекта'
+            elif detected=='plan':
+                # План хранится в млн м³; единицу берём из заголовка колонки («млрд», «тыс.» — пересчёт).
+                label=str(head[header][mapping['plan_volume']]).lower().replace('³','3')
+                df['plan_volume']=df.plan_volume*(1000 if 'млрд' in label else 0.001 if 'тыс' in label else 1)
+                reasons.loc[df.plan_volume.isna()|~np.isfinite(df.plan_volume)|df.plan_volume.lt(0)]='План должен быть конечным неотрицательным числом'
+                df['group']=df.group.fillna('').astype(str).str.strip()
+                reasons.loc[df.group.eq('')]='Не указана группа'
+                named='injection' if re.search('закач|inject',sheet,re.I) else 'withdrawal' if re.search('отбор|withdraw',sheet,re.I) else production_kind
+                df['kind']=df.get('kind',pd.Series('',index=df.index)).fillna('').astype(str).apply(lambda x:'injection' if re.search('закач|inject',x,re.I) else 'withdrawal' if re.search('отбор|withdraw',x,re.I) else named)
+                df['date']=df.date.dt.to_period('M').dt.to_timestamp()
             for ix in df.index[reasons.ne('')]: result.issue(filename,sheet,df.loc[ix,'_row'],reasons.loc[ix])
             df=df[reasons.eq('')].copy()
             for col in ('group','subgroup','season','year','method','study'):
@@ -275,7 +293,7 @@ def merge_frames(old, new, module, policy='new'):
         base=pd.concat([old[~okeys.isin(nkeys)],new],ignore_index=True) if policy=='new' else pd.concat([old,new[~nkeys.isin(okeys)]],ignore_index=True)
     else: base=pd.concat([old,new] if policy=='new' else [new,old],ignore_index=True)
     keys={'production':['kind','well','date'],'response':['well','date','horizon'],
-          'pressure_match':['object','scenario','well','date'],'groups':['well'],'object_pressure':['date'],'gdi':['well','date','method','study','q','dp2'],
+          'pressure_match':['object','scenario','well','date'],'groups':['well'],'object_pressure':['date'],'plan':['kind','group','date'],'gdi':['well','date','method','study','q','dp2'],
           'operations':['well','date','kind'],'water':['well','date'],'bottom':['well','date'],
           'construction':['well','date','element','top_m','bottom_m','diameter_mm']}[module]
     if module=='gdi': keys += [c for c in ('p_res','p_bh','a_db','b_db') if c in base]

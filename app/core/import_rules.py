@@ -12,7 +12,7 @@ from app.core.well_import import REQUIRED
 
 FIELDS={'well':'Скважина','date':'Дата','q':'Расход газа','p_res':'Пластовое давление','p_bh':'Забойное давление','dp2':'ΔP²','level':'Уровень жидкости','pressure':'Приведенное давление','horizon':'Горизонт','group':'Группа','subgroup':'Подгруппа','value':'Давление','fond':'Тип / фонд'}
 FIELDS.update({f:aliases[0] for f,aliases in ALIASES.items() if f not in FIELDS})
-MODULE_CHOICES=['auto','production','gdi','response','object_pressure','operations','water','bottom','construction','groups','subgroups']
+MODULE_CHOICES=['auto','production','gdi','response','object_pressure','operations','water','bottom','construction','plan','groups','subgroups']
 
 TYPES={'auto':'Автоопределение','groups':'Группы (в том числе без заголовков)','subgroups':'Подгруппы (в том числе без заголовков)'}
 TEXT_TYPES=['xlsx','xls','xlsm','ods','csv','tsv','txt','dat']
@@ -30,7 +30,7 @@ def auto_spec(raw,module):
     """Same structure the detailed editor produces, built from the detected layout."""
     head=raw.values.tolist();layout=detect_layout(head,module)
     if layout['module'] is None:raise ValueError('Колонки не подходят для типа «'+type_label(module)+'»')
-    required={**REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'groups':{'well'}}.get(layout['module'],set())
+    required={**REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'groups':{'well'}}.get(layout['module'],set())
     missing=required-layout['mapping'].keys()
     if not layout['wide'] and missing:raise ValueError('Не найдены колонки: '+', '.join(FIELDS.get(f,f) for f in sorted(missing)))
     if layout['module']=='gdi' and not ('dp2' in layout['mapping'] or {'p_res','p_bh'}<=layout['mapping'].keys()):raise ValueError('Для ГДИ нужны Рпл и Рзаб либо ΔP²')
