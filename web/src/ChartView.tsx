@@ -255,7 +255,12 @@ function tipHtml(head: string, rows: TipRow[], extra: string[], foot = '') {
 
 const MAX_ROWS = 10
 
-interface Pin { x: number; y: number; axis: 0 | 1; html: string; el: HTMLDivElement }
+/** Закреплённая подсказка; off — сдвиг карточки от её точки в пикселях, если карточку перетащили. */
+interface Pin { x: number; y: number; axis: 0 | 1; html: string; el: HTMLDivElement; off: [number, number] | null }
+
+/** Ближайшая к точке (px, py) точка прямоугольника карточки — конец линии-выноски. */
+const nearestOnBox = (px: number, py: number, l: number, t: number, w: number, h: number): [number, number] =>
+  [Math.max(l, Math.min(l + w, px)), Math.max(t, Math.min(t + h, py))]
 interface Plotted { x: number; label: string; kind: ChartEvent['kind'] }
 
 /** Ключ общего перекрестия: все графики по времени — вместе, остальные — с той же подписью и единицей оси X. */
@@ -377,7 +382,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       const el = document.createElement('div')
       el.className = 'atlas-tip pinned'
       host.appendChild(el)
-      st.pins.push({ x, y, axis, html: copy.innerHTML, el })
+      st.pins.push({ x, y, axis, html: copy.innerHTML, el, off: null })
       while (st.pins.length > MAX_PINS) st.pins.shift()!.el.remove()
       renderPins()
     }
@@ -389,6 +394,40 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       renderPins(); schedule()
     }
     host.addEventListener('click', onUnpin)
+    // перетаскивание карточки за номер или заголовок: точка остаётся на месте, к ней ведёт линия-выноска
+    let drag: { pin: Pin; dx: number; dy: number; id: number } | null = null
+    const onGrab = (e: PointerEvent) => {
+      const t = e.target as HTMLElement
+      if (e.button !== 0 || t.closest('.pin-close') || !t.closest('.pin-badge, .tip-head')) return
+      const pin = st.pins.find(p => p.el.contains(t))
+      if (!pin) return
+      const b = pin.el.getBoundingClientRect()
+      drag = { pin, dx: e.clientX - b.left, dy: e.clientY - b.top, id: e.pointerId }
+      host.setPointerCapture(e.pointerId)
+      pin.el.classList.add('dragging')
+      e.preventDefault(); e.stopPropagation()
+    }
+    const onDrag = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.id) return
+      const { pin } = drag
+      const r = host.getBoundingClientRect()
+      const [px, py] = view.toPixel(pin.x, pin.y, pin.axis)
+      const bw = pin.el.offsetWidth, bh = pin.el.offsetHeight
+      const left = Math.max(4, Math.min(el.clientWidth - bw - 4, e.clientX - r.left - drag.dx))
+      const top = Math.max(4, Math.min(el.clientHeight - bh - 4, e.clientY - r.top - drag.dy))
+      pin.off = [left - px, top - py]
+      schedule()
+    }
+    const onDrop = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.id) return
+      drag.pin.el.classList.remove('dragging')
+      if (host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId)
+      drag = null
+    }
+    host.addEventListener('pointerdown', onGrab)
+    host.addEventListener('pointermove', onDrag)
+    host.addEventListener('pointerup', onDrop)
+    host.addEventListener('pointercancel', onDrop)
 
     /** События у курсора по X: строки для подсказки. */
     const nearEvents = (px: number) => {
@@ -451,16 +490,31 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
         if (!Number.isFinite(p.y)) { p.el.hidden = true; return }
         const [px, py] = view.toPixel(p.x, p.y, p.axis)
         if (!inside(px, py)) { p.el.hidden = true; return }
+        p.el.hidden = false
+        const bw = p.el.offsetWidth, bh = p.el.offsetHeight
+        let left: number, top: number
+        if (p.off) {
+          left = px + p.off[0]; top = py + p.off[1]
+        } else {
+          left = px + 14; top = py - 14 - bh
+          if (left + bw > w - 4) left = px - 14 - bw
+          if (top < 4) top = py + 14
+        }
+        left = Math.round(Math.max(4, Math.min(w - bw - 4, left)))
+        top = Math.round(Math.max(4, Math.min(hh - bh - 4, top)))
+        p.el.style.transform = `translate(${left}px, ${top}px)`
+        // перенесённая карточка: тонкая линия от отметки до ближайшего края карточки
+        if (p.off) {
+          const [ex, ey] = nearestOnBox(px, py, left, top, bw, bh)
+          if (Math.hypot(ex - px, ey - py) > 10) {
+            g.save(); g.strokeStyle = alpha(tk.ink, 0.55); g.lineWidth = 1
+            g.beginPath(); g.moveTo(px, py); g.lineTo(ex, ey); g.stroke(); g.restore()
+          }
+        }
         g.fillStyle = tk.ink; g.strokeStyle = tk.surface; g.lineWidth = 2
         g.beginPath(); g.arc(px, py, 8, 0, Math.PI * 2); g.fill(); g.stroke()
         g.fillStyle = tk.surface; g.font = `700 10px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'
         g.fillText(String(i + 1), px, py + 0.5)
-        p.el.hidden = false
-        const bw = p.el.offsetWidth, bh = p.el.offsetHeight
-        let left = px + 14, top = py - 14 - bh
-        if (left + bw > w - 4) left = px - 14 - bw
-        if (top < 4) top = py + 14
-        p.el.style.transform = `translate(${Math.round(Math.max(4, left))}px, ${Math.round(Math.min(hh - bh - 4, top))}px)`
       })
 
       const own = !!(m && !st.down && ready && inside(m[0], m[1]))
@@ -685,6 +739,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       window.clearTimeout(timer); ++seq
       observer.disconnect(); unsync(); publish(st.id, null, null)
       window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin)
+      host.removeEventListener('pointerdown', onGrab); host.removeEventListener('pointermove', onDrag)
+      host.removeEventListener('pointerup', onDrop); host.removeEventListener('pointercancel', onDrop)
       if (st.frame) cancelAnimationFrame(st.frame)
       ch.dispose(); instance.current = null
     }
