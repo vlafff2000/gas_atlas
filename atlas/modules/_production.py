@@ -20,6 +20,7 @@ from ..thinning import screen_decimate
 
 from ..contract import Axis, Chart, Column, Data, Module, Note, Option, Result, Series, Stat, Table, TableAction
 from ..domain import DatasetKind
+from ._group_charts import object_days
 from ._events import gdi_events, on_cumulative, regime_events
 
 PRODUCTION, GDI = DatasetKind.PRODUCTION, DatasetKind.GDI
@@ -172,9 +173,16 @@ GROUP_AXES = {'daily': ('Суммарный расход', 'тыс. м³/сут'
 
 
 def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: str, metric: str,
-                overlay: list[str]) -> Chart:
-    """Сумма по группе по периодам и наложение отдельных скважин, как ``group_analysis.figure``."""
-    chart = Chart(f'production-group-{group}', f'Группа {group}', Axis('Дата', scale='time'),
+                overlay: list[str], by_object: bool = False) -> Chart:
+    """Сумма по группе по периодам и наложение отдельных скважин, как ``group_analysis.figure``.
+
+    ``by_object`` — по X накопленный объём объекта за период (как «Q / накопленный объем объекта» у скважин);
+    только для суточного расхода: накопленный объём группы по накопленному объёму объекта не информативен.
+    """
+    by_object = by_object and metric == 'daily'
+    objects = {p: g.set_index('date').cum for p, g in object_days(sel).groupby('period', sort=False)} if by_object else {}
+    chart = Chart(f'production-group-{group}', f'Группа {group}',
+                  Axis('Накопленный объем объекта', 'млн м³', from_zero=True) if by_object else Axis('Дата', scale='time'),
                   Axis(*GROUP_AXES[metric], from_zero=True))
     colors, palette = legacy.period_colors(sel.df, sel.kind), well_colors(wells)
     for period, g in daily.groupby('period', sort=False) if not daily.empty else []:
@@ -182,10 +190,13 @@ def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: st
         g['value'] = (g.total / 1000 if metric == 'daily' else g.cumulative if metric == 'cumulative'
                       else g.active.where(g.observed.gt(0)))
         points = len(g)
+        if by_object:
+            g['x'] = g.date.map(objects.get(period, pd.Series(dtype=float)))
+            g = g[g.x.notna()]
         g = screen_decimate(g, 'value')
         labels = ('Наблюдений: ' + g.observed.fillna(0).astype(int).astype(str) + ' / ' + g.expected.astype(int).astype(str)
                   + ' скважин · покрытие ' + g.coverage.fillna(0).map('{:.1f}'.format) + '%')
-        chart.series.append(Series('Сумма · ' + period, g.date.to_numpy(), g.value.to_numpy(), 'line',
+        chart.series.append(Series('Сумма · ' + period, (g.x if by_object else g.date).to_numpy(), g.value.to_numpy(), 'line',
                                    color=colors.get(period), width=3.0, labels=labels.tolist(),
                                    facets={'Кривая': 'Сумма', 'Период': str(period)}))
     if metric != 'active':
@@ -197,12 +208,15 @@ def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: st
             values = g.q.where(~g.get('_excluded', pd.Series(False, index=g.index)).fillna(False))
             g['value'] = values / 1000 if metric == 'daily' else values.cumsum() / 1e6
             g['date'] = calendar
+            if by_object:
+                g['x'] = g.date.map(objects.get(period, pd.Series(dtype=float)))
+                g = g[g.x.notna()]
             points = len(g)
             g = screen_decimate(g, 'value')
-            chart.series.append(Series(f'№ {well} · {period}', g.date.to_numpy(), g.value.to_numpy(), 'line',
+            chart.series.append(Series(f'№ {well} · {period}', (g.x if by_object else g.date).to_numpy(), g.value.to_numpy(), 'line',
                                        color=palette[well], width=1.4,
                                        facets={'Кривая': f'№ {well}', 'Период': str(period)}))
-    if not daily.empty:
+    if not daily.empty and not by_object:
         chart.events = regime_events(sel.df, daily.date.min(), daily.date.max())
     return chart
 

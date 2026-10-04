@@ -11,6 +11,7 @@ from app.modules import group_analysis
 
 from ..contract import Data, ModuleSpec, Note, Option, Param, Result, Stat
 from ..domain import DatasetKind
+from ._group_charts import SHARE_METRICS, hybrid_chart, object_days, pareto_chart, share_chart, vs_object_chart, well_days
 from ._production import (DIRECTIONS, GROUP_NOTE, KINDS, CURVE_NOTE, PRODUCTION, ProductionBase, Selection, curve_chart, kind_label, period_stat,
                           group_chart, group_table)
 
@@ -48,7 +49,14 @@ class ProductionModule(ProductionBase):
                   section=SECTION_VIEW, show_if=INDIVIDUAL),
             Param('metric', 'Показатель группы', 'choice', default='daily', section=SECTION_VIEW, show_if=GROUPS,
                   options=(Option('daily', 'Суточный суммарный расход'), Option('cumulative', 'Накопленный объем'),
-                           Option('active', 'Работающие скважины'))),
+                           Option('active', 'Работающие скважины'),
+                           Option('shares', 'Доля скважин в накопленном объеме группы'),
+                           Option('hybrid', 'Месячные объемы по скважинам + суточный расход'),
+                           Option('pareto', 'Вклад скважин в объем (Парето)'),
+                           Option('vs_object', 'Группа и объект, доля группы'))),
+            Param('gx', 'Ось X', 'choice', default='date', section=SECTION_VIEW, show_if=GROUPS,
+                  options=(Option('date', 'Дата'), Option('object', 'Накопленный объем объекта')),
+                  help='Только для суточного суммарного расхода'),
         ),
     )
 
@@ -84,7 +92,17 @@ class ProductionModule(ProductionBase):
         metric, overlay = sel.params['metric'], sel.params['overlay']
         for group in sel.groups:
             daily, wells = group_analysis.daily(sel.df, sel.mapping, group, sel.kind, sel.periods)
-            result.charts.append(group_chart(sel, daily, wells, group, metric, overlay))
+            if metric in SHARE_METRICS:
+                if daily.empty:
+                    continue
+                d = well_days(sel, wells)
+                result.charts.append({'shares': lambda: share_chart(sel, d, group),
+                                      'hybrid': lambda: hybrid_chart(sel, d, daily, group),
+                                      'pareto': lambda: pareto_chart(sel, d, group),
+                                      'vs_object': lambda: vs_object_chart(sel, daily, object_days(sel), group)}[metric]())
+            else:
+                result.charts.append(group_chart(sel, daily, wells, group, metric, overlay,
+                                                 sel.params['gx'] == 'object'))
             if not daily.empty:
                 result.tables.append(group_table(group, daily))
         return result
