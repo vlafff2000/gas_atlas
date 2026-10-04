@@ -128,14 +128,14 @@ def passport_pdf(project,well,figures,tables,settings,comment='',progress=None):
                 try:
                     fig.text(.075,.955,'Паспорт скважины №'+str(well),fontsize=18,weight='bold',va='top')
                     fig.text(.075,.91,'\n'.join(lines[offset:offset+46]),fontsize=10,va='top',linespacing=1.55)
-                    pdf.savefig(fig,dpi=dpi)
+                    pdf.savefig(fig)
                 finally:plt.close(fig)
             for i,(name,chart) in enumerate(figures.items(),1):
                 png=figure_bytes(chart,'png',150,190);fig=plt.figure(figsize=(8.27,11.69))
                 try:
                     fig.text(.075,.955,name,fontsize=12,va='top')
                     ax=fig.add_axes([.04,.06,.92,.82]);ax.imshow(imread(io.BytesIO(png),format='png'));ax.axis('off')
-                    pdf.savefig(fig,dpi=dpi)
+                    pdf.savefig(fig)
                 finally:plt.close(fig)
                 if progress:progress(i/max(1,len(figures)))
     return buf.getvalue()
