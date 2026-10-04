@@ -39,6 +39,7 @@ STAT_ORDER = ('Сводная объектов', 'Общая статистик�
               'По группам')
 KEY_LABELS = {'object': 'Объект', 'scenario': 'Сценарий', 'well': 'Скважина', 'fond': 'Фонд', 'period': 'Период',
               'group': 'Группа'}
+MATCH = 'В пределах порога, %'
 SUMMARY = (('object', 'Объект'), ('scenario', 'Сценарий'), ('Точек', 'Точек'), ('Среднее отклонение', 'Средн. |ΔP|'),
            ('RMSE', 'RMSE'), ('Смещение модели', 'Смещение'), ('В пределах порога, %', 'В пороге, %'))
 
@@ -93,6 +94,8 @@ class PressureModule(Module):
             Param('threshold_groups', 'Группы с отдельным порогом', 'multi', default=[], dynamic=True, empty='ничего',
                   section=SECTION_CALC),
             Param('group_threshold', 'Порог этих групп', 'number', default=10.0, minimum=0, section=SECTION_CALC),
+            Param('match_good', 'Хорошее совпадение, % и выше', 'number', default=80.0, minimum=0, maximum=100,
+                  section=SECTION_CALC, help='Совпадение с этого значения подсвечивается зелёным, ниже — красным.'),
             Param('percentiles', 'Процентили', 'multi', default=['80', '85', '90'], section=SECTION_CALC,
                   options=tuple(Option(str(p), str(p)) for p in range(1, 100)),
                   help='Пусто — 80, 85, 90, как в 5.8.'),
@@ -134,15 +137,19 @@ class PressureModule(Module):
         if d.empty:
             result.notes.append(Note(EMPTY_NOTE, 'warning'))
         else:
-            result.tables.append(metrics_table(stats))
+            result.tables.append(metrics_table(stats, cfg['match_good']))
             view = params['view']
             for name in VIEWS[view][1]:
                 result.charts.extend(self.charts(name, d, cfg, params, result))
             if view == 'cross':
                 result.tables.append(summary_table(d, cfg))
             for title, frame in stat_tables(d, cfg):
-                result.tables.append(Table(f'stats-{STAT_ORDER.index(title)}', title, frame, stat_columns(frame),
+                result.tables.append(Table(f'stats-{STAT_ORDER.index(title)}', title, frame, stat_columns(frame, cfg['match_good']),
                                            collapsed=not (view == 'stats' and title == 'Сводная объектов')))
+            matrix = match_matrix(d, cfg)
+            if matrix is not None:
+                matrix.collapsed = view != 'stats'
+                result.tables.append(matrix)
             result.notes.append(Note(METHOD_NOTE))
         result.tables.append(category_table(raw, cfg, collapsed=params['color'] != 'object_group'))
         points = point_table(raw, cfg, data)
@@ -234,7 +241,7 @@ def config(params: Mapping[str, Any], raw: pd.DataFrame, settings: Mapping[str, 
         'unit': params['unit'], 'threshold_mode': params['threshold_mode'], 'threshold': float(params['threshold']),
         'inclusive': params['inclusive'], 'color': params['color'], 'bins': int(params['bins']),
         'bands': params['bands'], 'percentile_lines': params['percentile_lines'], 'outliers': params['outliers'],
-        'percentiles': percentiles, 'dim_outside': params['dim_outside'],
+        'percentiles': percentiles, 'match_good': float(params['match_good']), 'dim_outside': params['dim_outside'],
         'group_thresholds': {g: float(params['group_threshold']) for g in params['threshold_groups']},
         # Категории объектов хранятся в сохранённом виде 5.8 (раздел «Категории»); правятся таблицей «Категории объектов».
         'object_groups': dict(saved_panel(settings).get('object_groups') or {}),
@@ -312,12 +319,12 @@ def number(value: Any) -> float | None:
     return float(value) if value is not None and np.isfinite(value) else None
 
 
-def metrics_table(stats: Mapping[str, Any]) -> Table:
+def metrics_table(stats: Mapping[str, Any], good: float | None = None) -> Table:
     frame = pd.DataFrame([{'points': stats.get('Точек', 0), 'mean': stats.get('Среднее отклонение'),
                            'rmse': stats.get('RMSE'), 'within': stats.get('В пределах порога, %')}])
     return Table('metrics', 'Итоги выборки', frame, [
         Column('points', 'Сопоставленных точек', kind='number'), Column('mean', 'Средняя |ΔP|', decimals=2, kind='number'),
-        Column('rmse', 'RMSE', decimals=2, kind='number'), Column('within', 'В пределах порога', '%', 2, 'number')])
+        Column('rmse', 'RMSE', decimals=2, kind='number'), Column('within', 'В пределах порога', '%', 2, 'number', good)])
 
 
 def summary_table(d: pd.DataFrame, cfg: Mapping[str, Any]) -> Table:
@@ -329,7 +336,8 @@ def summary_table(d: pd.DataFrame, cfg: Mapping[str, Any]) -> Table:
         d.object.nunique(), d.well.nunique(), cfg['threshold'], '%' if cfg['threshold_mode'] == 'relative' else cfg['unit'])
     return Table('summary', 'Сводка по сценариям', frame,
                  [Column(k, label, decimals=2 if k not in ('object', 'scenario', 'Точек') else None,
-                         kind='text' if k in ('object', 'scenario') else 'number') for k, label in SUMMARY], note=note)
+                         kind='text' if k in ('object', 'scenario') else 'number',
+                         good=cfg['match_good'] if k == MATCH else None) for k, label in SUMMARY], note=note)
 
 
 def stat_tables(d: pd.DataFrame, cfg: Mapping[str, Any]) -> list[tuple[str, pd.DataFrame]]:
@@ -337,13 +345,32 @@ def stat_tables(d: pd.DataFrame, cfg: Mapping[str, Any]) -> list[tuple[str, pd.D
     return [(name, tables[name]) for name in STAT_ORDER]
 
 
-def stat_columns(frame: pd.DataFrame) -> list[Column]:
+MATRIX_TITLE = 'Совпадение по скважинам и сценариям'
+
+
+def match_matrix(d: pd.DataFrame, cfg: Mapping[str, Any]) -> Table | None:
+    """Сводная «скважина × сценарий, %»: доля пар в пороге (``within`` из ``legacy.filter_data``), как в эталоне."""
+    valid = d[d.valid_threshold]
+    if valid.empty:
+        return None
+    frame = valid.groupby(['object', 'well', 'scenario'], sort=False).within.mean().mul(100).unstack('scenario')
+    frame = frame[ordered(str(s) for s in frame.columns)].reset_index()
+    frame.columns = [str(c) for c in frame.columns]
+    columns = [Column('object', 'Объект'), Column('well', 'Скважина')] + [
+        Column(c, c, '%', 1, 'number', cfg['match_good']) for c in frame.columns[2:]]
+    return Table('stats-matrix', MATRIX_TITLE, frame, columns,
+                 note='Доля точек в пределах порога, % по скважине и сценарию; зелёное — не ниже {:g} %.'.format(cfg['match_good']))
+
+
+def stat_columns(frame: pd.DataFrame, good: float | None = None) -> list[Column]:
     columns = []
     for c in frame.columns:
         if c in KEY_LABELS:
             columns.append(Column(c, KEY_LABELS[c]))
         elif c in ('Точек', 'Точек для порога', 'Выбросов IQR'):
             columns.append(Column(c, c, kind='number'))
+        elif c == MATCH:
+            columns.append(Column(c, c, decimals=3, kind='number', good=good))
         else:
             columns.append(Column(c, c, decimals=3, kind='number'))
     return columns

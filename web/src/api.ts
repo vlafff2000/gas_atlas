@@ -48,7 +48,7 @@ export interface Project {
   excluded: number
 }
 
-export interface Column { key: string; label: string; unit: string; decimals: number | null; kind: 'text' | 'number' | 'date' }
+export interface Column { key: string; label: string; unit: string; decimals: number | null; kind: 'text' | 'number' | 'date'; good?: number | null }
 export type Cell = string | number | boolean | null
 export interface TableAction {
   kind: 'exclude' | 'assign'; dataset: string | null; id_column: string; label: string; reason: string
