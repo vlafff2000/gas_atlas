@@ -138,13 +138,21 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
         elif module=='response':
             d=frames[module];d=d[d.well.isin(ws)&d.horizon.isin(cfg.get('horizons',ordered(d.horizon)))];span=cfg.get('dates',[])
             if len(span)==2:d=d[d.date.between(pd.Timestamp(span[0]),pd.Timestamp(span[1]))]
-            split=cfg.get('split','horizon');sets={'Все выбранные':d} if split=='all' else {str(label):part for label,part in d.groupby('well' if split=='well' else 'horizon')};view=cfg.get('view','separate');metrics=['level','pressure'] if view=='separate' else [view]
-            for label,part in sets.items():
-                for metric in metrics:
-                    if metric!='combined' and (metric not in part or not part[metric].notna().any()):continue
-                    if metric=='combined' and not any(col in part and part[col].notna().any() for col in ('level','pressure')):continue
-                    name=label+' · '+{'level':'уровень','pressure':'давление','combined':'уровень и давление'}[metric]
-                    add(name,charts.response_chart,part,cfg.get('working',settings.get('working_horizons',[])),metric,title=charts.response_title(ordered(part.well),label,split),interactive=False,color_map=charts.well_colors(raw_frames[module].well),object_pressure=frames.get('object_pressure'),manometer_wells=settings.get('manometer_wells',[]),by_well=split=='well',pressure_horizons=ordered(raw_frames[module].loc[raw_frames[module].pressure.notna(),'horizon']) if 'pressure' in raw_frames[module] else [])
+            working=cfg.get('working',settings.get('working_horizons',[]));mode=cfg.get('mode','all')
+            # «control» — контрольные горизонты: все скважины горизонта на одном графике, только уровень;
+            # «working» — рабочие горизонты: график на каждую скважину, уровень и давление на двух шкалах.
+            sets_=[(d,cfg.get('split','horizon'),cfg.get('view','separate'),'')] if mode=='all' else []
+            if mode in ('control','both'):sets_.append((d[~d.horizon.isin(working)],'horizon','level','контроль · '))
+            if mode in ('working','both'):sets_.append((d[d.horizon.isin(working)],'well',cfg.get('working_view','combined'),'рабочий · '))
+            for dj,split,view,tag in sets_:
+                if dj.empty:continue
+                sets={'Все выбранные':dj} if split=='all' else {str(label):part for label,part in dj.groupby('well' if split=='well' else 'horizon')};metrics=['level','pressure'] if view=='separate' else [view]
+                for label,part in sets.items():
+                    for metric in metrics:
+                        if metric!='combined' and (metric not in part or not part[metric].notna().any()):continue
+                        if metric=='combined' and not any(col in part and part[col].notna().any() for col in ('level','pressure')):continue
+                        name=tag+label+' · '+{'level':'уровень','pressure':'давление','combined':'уровень и давление'}[metric]
+                        add(name,charts.response_chart,part,working,metric,title=charts.response_title(ordered(part.well),label,split),interactive=False,color_map=charts.well_colors(raw_frames[module].well),object_pressure=frames.get('object_pressure'),manometer_wells=settings.get('manometer_wells',[]),by_well=split=='well',pressure_horizons=ordered(raw_frames[module].loc[raw_frames[module].pressure.notna(),'horizon']) if 'pressure' in raw_frames[module] else [])
             tables['Реагирование']=response.statistics(d)
             if options.get('raw'):tables['Замеры']=exclusions.public_table(d)
         elif module=='object_pressure':add('Давление объекта',object_figure,frames[module]);tables['Давление_объекта']=exclusions.public_table(frames[module])

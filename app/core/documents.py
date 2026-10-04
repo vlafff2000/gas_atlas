@@ -39,9 +39,9 @@ def caption_for(figure,name,config,counters):
     return template.format_map(values)
 
 
-def report_docx(figures,project,caption_config=None,progress=None,errors=None,counters=None,target=None,per_page=None,image_mm=(84,180),labeler=None,render=None,title=True):
+def report_docx(figures,project,caption_config=None,progress=None,errors=None,counters=None,target=None,per_page=None,image_mm=(84,180),labeler=None,render=None,title=True,columns=2):
     """A real two-column Word table, with editable captions below each image.
-    ``per_page`` (even) — fixed number of charts on an A4 page, one table per page; ``image_mm`` — (width, max height) of a chart;
+    ``per_page`` (even) — fixed number of charts on an A4 page, one table per page; ``image_mm`` — (width, max height) of a chart; ``columns`` — 1 or 2;
     ``labeler(figure,name)`` / ``render(figure)`` replace the default caption and PNG rendering (appendix packs)."""
     if not figures:raise ValueError('Для отчета Word выберите хотя бы один график.')
     size='18' if per_page else '20'
@@ -65,16 +65,16 @@ def report_docx(figures,project,caption_config=None,progress=None,errors=None,co
             cx=int(image_mm[0]*36000);cy=int(cx*h/w);limit=int(image_mm[1]*36000)
             if cy>limit:cx=int(cx*limit/cy);cy=limit
             drawing=f'''<w:p><w:pPr>{'<w:spacing w:after="40"/>' if per_page else ''}<w:jc w:val="center"/><w:keepNext/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{i}" name="Chart {i}" descr="{escape(label, {'&quot;':'&quot;', chr(34):'&quot;'})}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="chart{i}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId{i}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'''
-            cells.append('<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/><w:vAlign w:val="top"/></w:tcPr>'+drawing+paragraph(label)+'</w:tc>')
+            cells.append('<w:tc><w:tcPr><w:tcW w:w="'+str(10200//columns)+'" w:type="dxa"/><w:vAlign w:val="top"/></w:tcPr>'+drawing+paragraph(label)+'</w:tc>')
             rels.append(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/chart{i}.png"/>')
-            if len(cells)==2:rows.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>'+''.join(cells)+'</w:tr>');cells=[]
+            if len(cells)==columns:rows.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>'+''.join(cells)+'</w:tr>');cells=[]
             if progress:progress(i/len(figures))
-        if cells:rows.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>'+cells[0]+'<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/></w:tcPr><w:p/></w:tc></w:tr>')
+        if cells:rows.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>'+cells[0]+('<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/></w:tcPr><w:p/></w:tc>' if columns==2 else '')+'</w:tr>')
         borders=''.join('<w:'+side+' w:val="single" w:sz="4" w:color="D9D9D9"/>' for side in ('top','left','bottom','right','insideH','insideV'))
         def make_table(chunk):
-            return '<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>'+borders+'</w:tblBorders><w:tblCellMar><w:top w:w="120" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="5100"/><w:gridCol w:w="5100"/></w:tblGrid>'+''.join(chunk)+'</w:tbl>'
+            return '<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>'+borders+'</w:tblBorders><w:tblCellMar><w:top w:w="120" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'+('<w:gridCol w:w="'+str(10200//columns)+'"/>')*columns+'</w:tblGrid>'+''.join(chunk)+'</w:tbl>'
         if per_page:      # по таблице на лист; разрыв страницы — в крошечном абзаце перед следующей таблицей
-            step=max(1,per_page//2);brk='<w:p><w:pPr><w:pageBreakBefore/><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t></w:t></w:r></w:p>'
+            step=max(1,per_page//columns);brk='<w:p><w:pPr><w:pageBreakBefore/><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t></w:t></w:r></w:p>'
             table=brk.join(make_table(rows[k:k+step]) for k in range(0,len(rows),step))
         else:table=make_table(rows)
         document='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document '+namespaces+'><w:body>'+(paragraph('Газовый атлас',True,'Title')+paragraph(project) if title else '')+table+'<w:p/><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>'
@@ -141,7 +141,7 @@ def passport_pdf(project,well,figures,tables,settings,comment='',progress=None):
     return buf.getvalue()
 
 
-def grid_pdf(entries,target,columns=2,rows=3,metadata=None,progress=None):
+def grid_pdf(entries,target,columns=2,rows=3,metadata=None,progress=None,dpi=200):
     """Charts on A4 pages, ``columns``×``rows`` per page, caption under every chart. ``entries`` — (png bytes, caption)."""
     import matplotlib
     matplotlib.use('Agg')
@@ -158,9 +158,9 @@ def grid_pdf(entries,target,columns=2,rows=3,metadata=None,progress=None):
                         r,c=divmod(k,columns);x=M+c*cw;top=H-M-r*ch
                         picture=imread(io.BytesIO(png),format='png');ph,pw=picture.shape[:2]
                         wide=cw-4;high=ch-caption-1;scale=min(wide/pw,high/ph);iw,ih=pw*scale,ph*scale      # мм
-                        ax=fig.add_axes([(x+(cw-iw)/2)/W,(top-1-ih)/H,iw/W,ih/H]);ax.imshow(picture);ax.axis('off')
+                        ax=fig.add_axes([(x+(cw-iw)/2)/W,(top-1-ih)/H,iw/W,ih/H]);ax.imshow(picture,interpolation='none');ax.axis('off')
                         fig.text((x+cw/2)/W,(top-ih-2)/H,'\n'.join(textwrap.wrap(text,50)),fontsize=8,ha='center',va='top',linespacing=1.25)
-                    pdf.savefig(fig)
+                    pdf.savefig(fig,dpi=dpi)
                 finally:plt.close(fig)
                 if progress:progress(min(1.,(start+per)/len(entries)))
     return target

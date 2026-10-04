@@ -222,3 +222,58 @@ def test_fund_pack_six_per_page(env):
     assert [n.split('_', 3)[-1] for n in only.json()['files']] == ['Приложение_закачка.pdf']
     bad = client.post(f'/api/projects/{pid}/export/pack', json={'form': {'pack_template': '{нет}'}})
     assert bad.status_code == 400
+
+
+def test_fund_pack_seasons_and_layout(env):
+    """Сезоны выбираются обязательно, листов 2/4/6 на выбор; картинки палитровые и легкие."""
+    client, pid, _, _ = env
+    url = f'/api/projects/{pid}/export/pack'
+    seasons = client.get(f'/api/projects/{pid}/export/form').json()['periods']['withdrawal']
+    assert client.post(url, json={'form': {'pack_kinds': ['withdrawal'], 'pack_periods_withdrawal': []}}).status_code == 400
+    assert client.post(url, json={'form': {'pack_per_page': 5}}).status_code == 400
+    sizes = {}
+    for per in (2, 4):
+        r = client.post(url, json={'form': {'pack_kinds': ['withdrawal'], 'pack_formats': ['docx', 'pdf'], 'pack_per_page': per,
+                                            'pack_periods_withdrawal': seasons[-1:]}})
+        assert r.status_code == 200, r.text
+        names = r.json()['files']
+        pdf = client.get(f'/api/projects/{pid}/exports/{names[1]}').content
+        charts = r.json()['completed']
+        assert b'/Count %d' % (-(-charts // per)) in pdf
+        docx = zipfile.ZipFile(io.BytesIO(client.get(f'/api/projects/{pid}/exports/{names[0]}').content))
+        media = [n for n in docx.namelist() if n.startswith('word/media/')]
+        assert len(media) == charts
+        assert docx.read(media[0])[25] == 3        # PNG: тип цвета 3 — палитра
+        assert len(docx.read(media[0])) < 60_000
+        sizes[per] = docx.read('word/document.xml').decode('utf-8').count('<w:tbl>')
+    assert sizes[2] >= sizes[4]
+
+
+def test_interactive_preview_chart_and_exclusion(env):
+    client, pid, _, _ = env
+    form = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31']}
+    plan = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()
+    chart = client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': plan['charts'][0]['name']}).json()
+    pickable = [s for s in chart['series'] if s['ids']]
+    assert pickable and pickable[0]['dataset'] == 'gdi'
+    point = pickable[0]['ids'][0]
+    assert client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'gdi', 'add': [point], 'remove': []}).json()['added'] == 1
+    again = client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': plan['charts'][0]['name']}).json()
+    assert point not in [i for s in again['series'] for i in (s['ids'] or [])]      # исключённая точка больше не выбирается
+    assert client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': 'нет'}).status_code == 404
+
+
+
+def test_response_control_and_working_horizons(env):
+    client, pid, projects, _ = env
+    data = projects.data(pid)
+    working = [h for h in data.settings.get('working_horizons', [])]
+    names = {}
+    for mode in ('control', 'working', 'both'):
+        form = {'modules': ['response'], 'response_mode': mode, 'response_working': working}
+        body = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()
+        names[mode] = [c['name'] for c in body['charts']]
+    assert names['both'] == names['control'] + names['working']
+    assert all(n.startswith('контроль · ') and n.endswith('уровень') for n in names['control'])
+    assert all(n.startswith('рабочий · ') for n in names['working'])
+    assert names['control'] or names['working']
