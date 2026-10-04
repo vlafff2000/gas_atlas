@@ -22,6 +22,7 @@ from app.core.history import filter_details
 from app.core.performance import Project as FrameCache
 from app.core.storage import Store
 from app.ui import navigation
+from app.modules import seasons
 from app.ui.selection import parse_wells
 
 from .contract import Data, MissingData, ParamError
@@ -41,6 +42,10 @@ EDITABLE_SETTINGS = {
     'auto_seasons': lambda v: isinstance(v, bool),
     'season_gap_days': lambda v: not isinstance(v, bool) and float(v) == int(v) and 1 <= int(v) <= 365,
     'season_rate_share': lambda v: not isinstance(v, bool) and 0 < float(v) <= 50,
+    'season_schedule': lambda v: v in (None, '') or (isinstance(v, str) and bool(sum(seasons.parse_schedule(v), []))),
+    'peak_windows': lambda v: v is None or (isinstance(v, list) and all(isinstance(x, list) and len(x) == 2 for x in v)),
+    'auto_peaks': lambda v: isinstance(v, bool),
+    'peak_factor': lambda v: not isinstance(v, bool) and 1 < float(v) <= 20,
     'manometer_wells': _names,
     # Состав меню: имена страниц 5.8 (``app/ui/navigation.PAGES``); None — меню по умолчанию.
     'visible_pages': lambda v: v is None or (isinstance(v, list) and all(navigation.ALIASES.get(x, x) in navigation.PAGES for x in v)),
@@ -50,8 +55,9 @@ EDITABLE_SETTINGS = {
 }
 SETTING_LABELS = {'r2_threshold': 'Порог R²', 'season_start': 'Первый месяц сезона отбора (1–12)',
                   'season_end': 'Последний месяц сезона отбора (1–12)', 'manometer_wells': 'Скважины с глубинными манометрами',
-                  'auto_seasons': 'Определять сезоны по накопленному расходу', 'season_gap_days': 'Минимальная длительность паузы или сезона, сут',
-                  'season_rate_share': 'Порог расхода, % от типичного',
+                  'auto_seasons': 'Определять сезоны по накопленному расходу', 'season_gap_days': 'Минимальная пауза (нейтральный период), сут',
+                  'season_rate_share': 'Порог расхода, % от типичного', 'season_schedule': 'Расписание периодов', 'peak_windows': 'Пиковые окна',
+                  'auto_peaks': 'Искать пиковые режимы по расходу', 'peak_factor': 'Пик: во сколько раз выше медианы сезона',
                   'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков'}
 
 
@@ -61,6 +67,10 @@ def _setting_value(name: str, value: Any) -> Any:
         return float(value)
     if name in ('season_start', 'season_end', 'season_gap_days'):
         return int(value)
+    if name == 'season_schedule':      # список [дата, вид]; пустой текст снимает расписание
+        return [list(x) for x in seasons.parse_schedule(value)[0]] or None if value else None
+    if name == 'peak_factor':
+        return float(value)
     if name == 'season_rate_share':
         return float(value)
     if name == 'manometer_wells':      # как ``parse_wells`` 5.8: «№», запятые, пробелы, естественный порядок
@@ -231,11 +241,15 @@ class Projects:
             check = EDITABLE_SETTINGS.get(name)
             try:
                 ok = check is not None and check(value)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as e:
                 ok = False
+                if name == 'season_schedule' and isinstance(e, ValueError) and e.args:
+                    raise ParamError(f'Расписание периодов: {e.args[0]}') from None
             if not ok:
                 raise ParamError(f'Недопустимое значение настройки «{SETTING_LABELS.get(name, name)}»')
             cfg[name] = _setting_value(name, value)
+            if name == 'season_schedule':      # пиковые окна пишутся из того же файла расписания
+                cfg['peak_windows'] = [list(x) for x in seasons.parse_schedule(value)[1]] or None if value else None
         # Действия журнала как в 5.8: «Состав меню» (с отметкой о показанном «Кроссплоте»; сброс — без неё),
         # «Оформление графиков», иначе «Изменение правил».
         action = 'Изменение правил'

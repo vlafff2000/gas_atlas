@@ -5,14 +5,23 @@ import { RestoreBox, Toast, useDetails, type PageProps } from './ProjectPage'
 
 const STYLE = [['points', 'Показывать точки'], ['legend', 'Легенда'], ['grid', 'Сетка']] as const
 
+const SCHEDULE_CODE: Record<string, string> = { injection: 'inj', withdrawal: 'prod', none: 'none' }
+const dmy = (d: string) => `${d.slice(8)}.${d.slice(5, 7)}.${d.slice(0, 4)}`
+const scheduleText = (value: unknown, peaks: unknown) =>
+  [...(Array.isArray(value) ? (value as [string, string][]).map(([d, k]) => `${dmy(d)} ${SCHEDULE_CODE[k] ?? k}`) : []),
+   ...(Array.isArray(peaks) ? (peaks as [string, string][]).map(([a, b]) => `${dmy(a)} ${dmy(b)} peak`) : [])].join('\n')
+
 export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const { details } = useDetails(project.id, project.revision)
   const s = project.settings
   const [start, setStart] = useState(String(s.season_start ?? 11))
   const [end, setEnd] = useState(String(s.season_end ?? 4))
   const [auto, setAuto] = useState(s.auto_seasons === true)
-  const [gap, setGap] = useState(String(s.season_gap_days ?? 14))
+  const [gap, setGap] = useState(String(s.season_gap_days ?? 3))
   const [share, setShare] = useState(String(s.season_rate_share ?? 10))
+  const [peaks, setPeaks] = useState(s.auto_peaks === true)
+  const [factor, setFactor] = useState(String(s.peak_factor ?? 2))
+  const [schedule, setSchedule] = useState(scheduleText(s.season_schedule, s.peak_windows))
   const [threshold, setThreshold] = useState(String(s.r2_threshold ?? 0.95))
   const [manometers, setManometers] = useState(((s.manometer_wells as string[] | null) ?? []).join(', '))
   const [pages, setPages] = useState<string[] | null>(null)
@@ -23,11 +32,13 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
 
   useEffect(() => {
     setStart(String(s.season_start ?? 11)); setEnd(String(s.season_end ?? 4)); setThreshold(String(s.r2_threshold ?? 0.95))
-    setAuto(s.auto_seasons === true); setGap(String(s.season_gap_days ?? 14)); setShare(String(s.season_rate_share ?? 10))
+    setSchedule(scheduleText(s.season_schedule, s.peak_windows))
+    setPeaks(s.auto_peaks === true); setFactor(String(s.peak_factor ?? 2))
+    setAuto(s.auto_seasons === true); setGap(String(s.season_gap_days ?? 3)); setShare(String(s.season_rate_share ?? 10))
     setManometers(((s.manometer_wells as string[] | null) ?? []).join(', '))
     const saved = (s.chart_style as Record<string, boolean> | null) ?? {}
     setStyle({ points: true, legend: true, grid: true, ...saved })
-  }, [s.season_start, s.season_end, s.r2_threshold, s.auto_seasons, s.season_gap_days, s.season_rate_share, s.manometer_wells, s.chart_style])
+  }, [s.season_start, s.season_end, s.r2_threshold, s.auto_seasons, s.season_gap_days, s.season_rate_share, s.season_schedule, s.peak_windows, s.auto_peaks, s.peak_factor, s.manometer_wells, s.chart_style])
   useEffect(() => { if (details) setPages(details.visible_pages) }, [details])
 
   const save = async (values: Record<string, unknown>, done: string) => {
@@ -37,7 +48,8 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const month = (v: string) => Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 12
   const r2 = Number(threshold)
   const gapDays = Number(gap), rate = Number(share)
-  const autoValid = Number.isInteger(gapDays) && gapDays >= 1 && gapDays <= 365 && rate > 0 && rate <= 50
+  const peakFactor = Number(factor)
+  const autoValid = Number.isInteger(gapDays) && gapDays >= 1 && gapDays <= 365 && rate > 0 && rate <= 50 && peakFactor > 1 && peakFactor <= 20
   const rulesValid = month(start) && month(end) && autoValid && threshold.trim() !== '' && r2 >= 0 && r2 <= 1
 
   return (
@@ -72,7 +84,7 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
         {auto && (
           <div className="form-row">
             <label className={'field number' + (Number.isInteger(gapDays) && gapDays >= 1 && gapDays <= 365 ? '' : ' invalid')}>
-              <span className="field-label">Минимальная длительность паузы или сезона, сут</span>
+              <span className="field-label">Минимальная пауза, сут (короче — не нейтральный период)</span>
               <input type="number" min={1} max={365} step={1} value={gap} onChange={e => setGap(e.target.value)} />
             </label>
             <label className={'field number' + (rate > 0 && rate <= 50 ? '' : ' invalid')}>
@@ -81,18 +93,48 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
             </label>
           </div>
         )}
+        <label className="check">
+          <input type="checkbox" checked={peaks} onChange={e => setPeaks(e.target.checked)} />
+          <span>Искать пиковые режимы по расходу (для нестабильных объектов): отметки «Пик» на графиках</span>
+        </label>
+        {peaks && (
+          <div className="form-row">
+            <label className={'field number' + (peakFactor > 1 && peakFactor <= 20 ? '' : ' invalid')}>
+              <span className="field-label">Пик: во сколько раз выше медианы сезона</span>
+              <input type="number" min={1.1} max={20} step={0.1} value={factor} onChange={e => setFactor(e.target.value)} />
+            </label>
+          </div>
+        )}
         <label className="field wide">
           <span className="field-label">Скважины с глубинными манометрами (через запятую)</span>
           <input value={manometers} onChange={e => setManometers(e.target.value)} />
         </label>
         <p className="muted small-text">Явный сезон в исходной таблице имеет приоритет над правилом месяцев и над автоопределением. Закачка группируется по году.
-          Автоопределение: сезон — отрезок, где накопленный объём растёт; горизонтальный участок дольше порога — нейтральный период («Вне сезона»).
+          Автоопределение: сезон — отрезок, где накопленный объём растёт; пауза от порога (по умолчанию 3 сут), после которой тот же вид не возобновился устойчиво, — «Нейтральный период Весна/Осень ГГГГ».
           Изменение порога применяется к следующему расчету ГДИ.</p>
         <div className="form-row">
           <button type="button" className="primary" disabled={!rulesValid}
             onClick={() => save({ season_start: Number(start), season_end: Number(end), r2_threshold: r2, manometer_wells: manometers,
-              auto_seasons: auto, ...(auto ? { season_gap_days: gapDays, season_rate_share: rate } : {}) },
+              auto_seasons: auto, auto_peaks: peaks, ...(peaks ? { peak_factor: peakFactor } : {}), ...(auto ? { season_gap_days: gapDays, season_rate_share: rate } : {}) },
               'Правила сохранены. Расчеты обновятся с учетом новых правил.')}>Сохранить правила</button>
+        </div>
+      </section>
+
+      <section className="form-block">
+        <h2>Расписание периодов</h2>
+        <p className="muted small-text">Точные даты начала периодов, по одной строке: «28.06.2021 inj» — закачка, «25.10.2021 none» — нейтральный период,
+          «01.11.2021 prod» — отбор, «10.01.2022 15.01.2022 peak» — пиковое окно внутри сезона (первый и последний день; периоды не разбивает). Период длится до дня перед следующей строкой, последний — до конца данных. Расписание главнее колонок
+          «Сезон»/«Год» и автоопределения; даты до первой строки считаются по обычному правилу.</p>
+        <label className="field wide">
+          <span className="field-label">Текстовый файл (.txt) или текст</span>
+          <input type="file" accept=".txt,.csv,text/plain"
+            onChange={async e => { const f = e.target.files?.[0]; if (f) setSchedule(await f.text()); e.target.value = '' }} />
+        </label>
+        <textarea className="wide" rows={8} value={schedule} placeholder={'28.06.2021 inj\n25.10.2021 none\n01.11.2021 prod'}
+          onChange={e => setSchedule(e.target.value)} />
+        <div className="form-row">
+          <button type="button" className="primary" onClick={() => save({ season_schedule: schedule }, schedule.trim() ? 'Расписание сохранено. Периоды пересчитаны.' : 'Расписание снято.')}>
+            {schedule.trim() ? 'Сохранить расписание' : 'Снять расписание'}</button>
         </div>
       </section>
 

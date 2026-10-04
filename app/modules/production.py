@@ -5,39 +5,45 @@ import pandas as pd
 from app.core.config import COLORS, ordered, natural_key
 
 def period_rule(settings):
-    """Правило сезонов из настроек проекта: (начало, конец) или с автоопределением (…, дней, доля %). Ключ кэша представлений."""
+    """Правило сезонов из настроек проекта; ключ кэша представлений.
+    (начало, конец) — как в 5.8; с автоопределением или расписанием — (начало, конец, пауза сут | None, порог % | None, расписание | None)."""
     rule=(settings.get('season_start',11),settings.get('season_end',4))
-    if settings.get('auto_seasons'):
+    auto,schedule=settings.get('auto_seasons'),settings.get('season_schedule')
+    if auto or schedule:
         from app.modules import seasons
-        rule+=(settings.get('season_gap_days',seasons.DEFAULT_GAP_DAYS),settings.get('season_rate_share',seasons.DEFAULT_SHARE))
+        gap=settings.get('season_gap_days',seasons.DEFAULT_GAP_DAYS) if auto else None
+        share=settings.get('season_rate_share',seasons.DEFAULT_SHARE) if auto else None
+        rule+=(gap,share,tuple(tuple(x) for x in schedule) if schedule else None)
     return rule
 
 def periods_for(df,settings):
-    """``periods`` по настройкам проекта; автоопределение сезонов включает ``auto_seasons`` (в 5.8 его нет)."""
-    rule=period_rule(settings)
-    return periods(df,*rule)
+    """``periods`` по настройкам проекта; автоопределение сезонов и расписание периодов включают ``auto_seasons`` и ``season_schedule`` (в 5.8 их нет)."""
+    return periods(df,*period_rule(settings))
 
-def periods(df,start=11,end=4,gap_days=None,share=None):
-    """Сезон каждой строки. С ``gap_days`` и ``share`` сезоны без явных «Сезон»/«Год» ищутся по накопленному расходу объекта."""
-    auto=gap_days is not None
-    if df.attrs.get('_atlas_period_rule')==((start,end,gap_days,share) if auto else (start,end)) and 'period' in df:return df
+def periods(df,start=11,end=4,gap_days=None,share=None,schedule=None):
+    """Сезон каждой строки. С ``gap_days``/``share`` сезоны без явных «Сезон»/«Год» ищутся по накопленному расходу объекта;
+    ``schedule`` (даты начала периодов) главнее всего остального."""
+    extended=gap_days is not None or schedule is not None
+    rule=(start,end,gap_days,share,schedule) if extended else (start,end)
+    if df.attrs.get('_atlas_period_rule')==rule and 'period' in df:return df
     if df.empty: return df.assign(period=pd.Series(dtype=str))
     d=df.copy()
     # The rule is row-wise over (date year, month, kind, season, year): evaluate it once per distinct
     # combination (hundreds) instead of string operations on every row (seconds on a million rows).
-    keys=pd.DataFrame({'date':d.date} if auto else {'y':d.date.dt.year,'m':d.date.dt.month},index=d.index)
+    keys=pd.DataFrame({'date':d.date} if extended else {'y':d.date.dt.year,'m':d.date.dt.month},index=d.index)
     for c in ('kind','season','year'):
         if c in d: keys[c]=d[c]
     codes=keys.groupby(list(keys.columns),sort=False,dropna=False).ngroup().to_numpy()
     _,first=np.unique(codes,return_index=True)
-    label=None
-    if auto:
+    auto=sched=None
+    if extended:
         from app.modules import seasons
-        label=seasons.labeler(d,gap_days,share)
-    d['period']=_period_values(d.iloc[first],start,end,label)[codes]
+        if gap_days is not None:auto=seasons.labeler(d,gap_days,share)
+        if schedule is not None:sched=seasons.schedule_labeler(schedule)
+    d['period']=_period_values(d.iloc[first],start,end,auto,sched)[codes]
     return d
 
-def _period_values(d,start,end,auto=None):
+def _period_values(d,start,end,auto=None,sched=None):
     """Season label per row (the 5.8 rule as written; ``periods`` applies it to distinct rows)."""
     year=d.date.dt.year; month=d.date.dt.month
     if start>end:
@@ -51,7 +57,11 @@ def _period_values(d,start,end,auto=None):
     if auto is not None:     # явные «Сезон»/«Год» главнее; остальное — по накопленному расходу
         found=auto(d.date,d.kind)
         derived,inj=found,supplied_year.where(supplied_year.str.fullmatch(r'\d{4}'),found)
-    return np.where(d.kind.eq('injection'),inj,season.where(season.ne(''),derived))
+    out=pd.Series(np.where(d.kind.eq('injection'),inj,season.where(season.ne(''),derived)),index=d.index)
+    if sched is not None:     # расписание дат из файла главнее колонок и автоопределения
+        given=sched(d.date,d.kind)
+        out=out.where(given.isna(),given)
+    return out.to_numpy()
 
 def period_colors(df,kind):
     from app.core.performance import index_for

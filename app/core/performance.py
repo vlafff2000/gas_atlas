@@ -98,6 +98,9 @@ def prepare_table(raw,module,settings,token):
         from app.modules.production import period_rule,periods_for
         d=periods_for(d,settings)
         d.attrs['_atlas_period_rule']=period_rule(settings)
+        if settings.get('peak_windows') or settings.get('auto_peaks'):
+            from app.modules.seasons import peaks_for
+            d.attrs['_atlas_peaks']=peaks_for(d,settings)
     d.attrs['_atlas_token']=token;d.attrs['_atlas_full_rows']=len(d)
     d.attrs['_atlas_index']=FrameIndex(d,module)
     return d
@@ -124,7 +127,7 @@ class Project:
                   'period_rule':period_rule(settings) if module=='production' else None}
         if module=='production':
             relevant.update(season_start=settings.get('season_start',11),season_end=settings.get('season_end',4))
-            relevant.update({k:settings[k] for k in ('auto_seasons','season_gap_days','season_rate_share') if k in settings})
+            relevant.update({k:settings[k] for k in ('auto_seasons','season_gap_days','season_rate_share','season_schedule','peak_windows','auto_peaks','peak_factor') if k in settings})
         key=(module,signature(relevant))
         with self.lock:
             if fast and key in self._views:
