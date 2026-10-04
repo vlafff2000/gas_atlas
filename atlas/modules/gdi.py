@@ -304,7 +304,6 @@ class GdiModule(Module):
                       crosshair=params['crosshair'])
         dates = sorted(points.date.unique(), reverse=True)
         palette = {d: COLORS[i % len(COLORS)] for i, d in enumerate(dates)}
-        many_methods, many_studies = studies.method.nunique() > 1, studies.study.nunique() > 1
         coefficients = {(r.date, r.method, r.study): r for r in studies.itertuples(index=False)}
 
         def xy(q, y):
@@ -313,7 +312,7 @@ class GdiModule(Module):
         for i, (key, g) in enumerate(points.groupby(legacy.KEYS, sort=False, dropna=False)):
             _, date, method, study = key
             row = coefficients[(date, method, study)]
-            label = study_label(date, method if many_methods else '', study if many_studies else '')
+            label = study_label(date)
             color = palette[date]
             chart.series.append(Series(label, *xy(g.q.to_numpy(float), g.dp2.to_numpy(float)), 'points', group=label,
                                        color=color, symbol=SYMBOLS[i % len(SYMBOLS)],
