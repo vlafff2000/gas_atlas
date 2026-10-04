@@ -65,6 +65,9 @@ export function ExportPage({ project, onProject }: PageProps) {
     setWord({ key, result: await exportApi.word(project.id, form) })
   })
 
+  const packNoSeasons = KINDS.some(([k]) => ((form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']).includes(k)
+    && Array.isArray(form[`pack_periods_${k}`]) && (form[`pack_periods_${k}`] as string[]).length === 0)
+
   const makePack = () => run('pack', async () => {
     setPack({ key, result: await exportApi.pack(project.id, form) })
   })
@@ -266,8 +269,8 @@ export function ExportPage({ project, onProject }: PageProps) {
       {choices.modules.some(m => m.id === 'production') && (
         <details className="block" open>
           <summary className="block-head"><h3>Пакет графиков по фонду (приложения к отчету)</h3></summary>
-          <p className="muted pad">Одним нажатием: график «Производительность» каждой скважины фонда за все периоды, по 6 на лист A4
-            (две колонки, три ряда), отдельный файл на отбор и на закачку. Поля подписи: {'{раздел}, {номер}, {скважина}, {режим}, {годы}'}.</p>
+          <p className="muted pad">Одним нажатием: график «Производительность» каждой скважины фонда по выбранным сезонам, по 2, 4 или 6 на лист A4,
+            отдельный файл на отбор и на закачку. Графики легкие: палитровый PNG 200 DPI, легенда в одну строку под осями. Поля подписи: {'{раздел}, {номер}, {скважина}, {режим}, {годы}'}.</p>
           <div className="param-bar flat">
             <Section title="Состав">
               {KINDS.map(([k, l]) => {
@@ -291,6 +294,14 @@ export function ExportPage({ project, onProject }: PageProps) {
                 )
               })}
             </Section>
+            <Section title="Сезоны и лист">
+              {KINDS.filter(([k]) => ((form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']).includes(k)).map(([k, l]) => (
+                <Multi key={k} {...F} field={`pack_periods_${k}`} label={`${l}: сезоны (обязательно)`} options={choices.periods?.[k] ?? []} />
+              ))}
+              <Select {...F} field="pack_per_page" label="Графиков на листе" def={6} options={[[2, '2'], [4, '4'], [6, '6']]} />
+              <Select {...F} field="pack_dpi" label="Качество графиков" def={200}
+                options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
+            </Section>
             <Section title="Подписи">
               <Text {...F} field="pack_section_withdrawal" label="Раздел: отбор" def="П4" />
               <Text {...F} field="pack_section_injection" label="Раздел: закачка" def="П5" />
@@ -299,7 +310,8 @@ export function ExportPage({ project, onProject }: PageProps) {
             </Section>
           </div>
           <div className="toolbar">
-            <button type="button" className="primary" disabled={busy !== null} onClick={makePack}>Создать пакет по всем скважинам</button>
+            <button type="button" className="primary" disabled={busy !== null || packNoSeasons} onClick={makePack}>Создать пакет по всем скважинам</button>
+            {packNoSeasons && <span className="muted">Выберите хотя бы один сезон.</span>}
           </div>
         </details>
       )}

@@ -63,14 +63,16 @@ def decode_arrays(value):
     return value
 
 
-def figure_bytes(fig,fmt='png',dpi=300,width_mm=220):
+def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False):
+    """``compact`` (листы приложений, ``height_mm`` задаёт высоту): график заполняет рисунок, легенда в одну-две строки под осями,
+    не больше 6 делений на оси — числа не налезают друг на друга."""
     import matplotlib
     matplotlib.use('Agg')
     from matplotlib import pyplot as plt
     from matplotlib.ticker import MultipleLocator, StrMethodFormatter
     from matplotlib.dates import AutoDateLocator, DateFormatter
     if fmt not in ('png','svg','pdf'):raise ValueError('Неподдерживаемый формат')
-    if dpi not in (150,300,600,1200):raise ValueError('DPI должен быть 150, 300, 600 или 1200')
+    if dpi not in (150,200,250,300,600,1200):raise ValueError('DPI должен быть 150, 200, 250, 300, 600 или 1200')
     if not 80<=width_mm<=300:raise ValueError('Ширина должна быть от 80 до 300 мм')
     traces=[t for t in fig.data if t.visible not in (False,'legendonly')]
     legend=[t for t in traces if t.showlegend is not False and t.name]
@@ -79,9 +81,10 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220):
     is_gdi=(fig.layout.meta or {}).get('module')=='gdi' or any(isinstance(t.meta,dict) and t.meta.get('module')=='gdi' for t in traces)
     ncols=(max(1,int(width_mm/70)) if is_gdi else 1 if width_mm<150 else (3 if longest<22 else 2))
     legend_rows=int(np.ceil(len(legend)/ncols))
-    height_mm=width_mm*.72+max(0,legend_rows-1)*5 if is_gdi else width_mm*.68+max(0,legend_rows-2)*(9 if longest>=40 else 5)
+    if compact:ncols=max(1,min(len(legend),4 if width_mm>=120 else 3));legend_rows=int(np.ceil(len(legend)/ncols))
+    height_mm=height_mm if height_mm else width_mm*.72+max(0,legend_rows-1)*5 if is_gdi else width_mm*.68+max(0,legend_rows-2)*(9 if longest>=40 else 5)
     if fmt=='png' and width_mm*height_mm*(dpi/25.4)**2>90_000_000:raise ValueError('Слишком большой PNG. Уменьшите ширину или DPI.')
-    with LOCK,plt.rc_context({'font.family':'DejaVu Sans','font.size':9,'svg.fonttype':'none','pdf.fonttype':42}):
+    with LOCK,plt.rc_context({'font.family':'DejaVu Sans','font.size':7 if compact else 9,'svg.fonttype':'none','pdf.fonttype':42}):
         f,ax=plt.subplots(figsize=(width_mm/25.4,height_mm/25.4),layout='constrained')
         try:
             secondary=ax.twinx() if any(t.yaxis=='y2' for t in traces) else None
@@ -128,7 +131,9 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220):
                         markerfacecolor=face,markeredgecolor=edge,markeredgewidth=t.marker.line.width or .7,
                         markersize=3,linewidth=1.2)
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
-            ax.set_title(re.sub('<[^>]+>','',fig.layout.title.text or ''),loc='left',fontsize=12,pad=14)
+            title=re.sub('<[^>]+>','',fig.layout.title.text or '')
+            if compact:ax.set_title(title,loc='center',fontsize=8.5,fontweight='bold',pad=5)
+            else:ax.set_title(title,loc='left',fontsize=12,pad=14)
             ax.set_xlabel(fig.layout.xaxis.title.text or '');ax.set_ylabel(fig.layout.yaxis.title.text or '')
             if fig.layout.xaxis.autorange=='reversed' and not date_axis:ax.invert_xaxis()
             if fig.layout.yaxis.autorange=='reversed':ax.invert_yaxis()
@@ -154,10 +159,16 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220):
                 handles,labels=ax.get_legend_handles_labels()
                 if secondary is not None:
                     h,l=secondary.get_legend_handles_labels();handles+=h;labels+=l
-                labels=['\n'.join(textwrap.wrap(str(v),width=46 if width_mm>=170 else 28)) for v in labels]
-                if handles:f.legend(handles,labels,loc='outside lower center',ncol=ncols,fontsize=7,frameon=False)
+                if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=46 if width_mm>=170 else 28)) for v in labels]
+                if handles:f.legend(handles,labels,loc='outside lower center',ncol=ncols,fontsize=6.5 if compact else 7,frameon=False,columnspacing=1.2,handlelength=1.6)
+            if compact:
+                from matplotlib.ticker import MaxNLocator
+                for axis in (ax.xaxis,ax.yaxis)+((secondary.yaxis,) if secondary is not None else ()):
+                    if axis is ax.xaxis and date_axis:continue
+                    axis.set_major_locator(MaxNLocator(nbins=6 if width_mm>=120 else 5,steps=[1,2,2.5,5,10]));axis.set_major_formatter(StrMethodFormatter('{x:.10g}'))
+                ax.grid(True,color='#c9ced6',linewidth=.5,linestyle='--');ax.tick_params(length=2.5,pad=2)
             if date_axis:
-                ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))
+                ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=5 if compact else 7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))
             buf=io.BytesIO();f.savefig(buf,format=fmt,dpi=dpi)
             return buf.getvalue()
         finally:plt.close(f)

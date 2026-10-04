@@ -53,6 +53,9 @@ PACK_KINDS = {'withdrawal': ('П4', 'отборе', 'Отбор'), 'injection': 
 PACK_TEMPLATE = 'Рисунок {раздел}.{номер} - Производительность скважины №{скважина} при {режим} газа за {годы} гг.'
 PACK_FIELDS = ('раздел', 'номер', 'скважина', 'режим', 'годы')
 PACK_PER_PAGE = 6
+# графиков на листе → (колонок, размер графика в мм): график занимает всю ячейку листа A4 под подписью
+PACK_LAYOUTS = {2: (1, (170, 108)), 4: (2, (84, 100)), 6: (2, (84, 68))}
+PACK_DPI = 200
 
 
 class Failure(Exception):
@@ -288,7 +291,22 @@ def pack_options(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
     for kind in PACK_KINDS:
         if kind not in kinds:
             base['production_periods_' + kind] = []
+        elif form.get('pack_periods_' + kind) is not None:
+            if not form['pack_periods_' + kind]:
+                raise Failure(400, 'Выберите сезоны, по которым строить кривые (%s)' % PACK_KINDS[kind][2].lower())
+            base['production_periods_' + kind] = list(form['pack_periods_' + kind])
     return base
+
+
+def optimized_png(png: bytes, colors: int = 48) -> bytes:
+    """Палитровый PNG без дизеринга: линии и текст на белом остаются чёткими, файл в 3–4 раза легче."""
+    import io
+
+    from PIL import Image
+    with Image.open(io.BytesIO(png)) as image:
+        out = io.BytesIO()
+        image.convert('RGB').quantize(colors=colors, method=Image.MEDIANCUT, dither=Image.NONE).save(out, 'PNG', optimize=True)
+        return out.getvalue()
 
 
 def pack_label(template: str, section: str, number: int, well: str, kind: str, years: str) -> str:
@@ -527,6 +545,16 @@ def routes(projects: Projects) -> list[Route]:
         template = str(form.get('pack_template') or PACK_TEMPLATE)[:500]
         _check_caption(template, PACK_FIELDS)
         formats = [f for f in form.get('pack_formats', ['docx', 'pdf']) if f in ('docx', 'pdf')]
+        try:
+            per_page = int(form.get('pack_per_page', PACK_PER_PAGE))
+            dpi = int(form.get('pack_dpi', PACK_DPI))
+        except (TypeError, ValueError):
+            raise Failure(400, 'Число графиков на листе и разрешение должны быть числами') from None
+        if per_page not in PACK_LAYOUTS:
+            raise Failure(400, 'Графиков на листе: 2, 4 или 6')
+        if dpi not in (150, 200, 250, 300):
+            raise Failure(400, 'Разрешение графиков пакета: 150, 200, 250 или 300 DPI')
+        columns, (image_w, image_h) = PACK_LAYOUTS[per_page]
         if not formats:
             raise Failure(400, 'Выберите Word или PDF')
         options, source, raw = options_from(pack_options(form, data), data)
@@ -548,7 +576,7 @@ def routes(projects: Projects) -> list[Route]:
             for job in jobs:
                 well = job.name.split(' · ', 1)[1]
                 try:
-                    entries.append((figure_bytes(job.render(), 'png', 300, 90),
+                    entries.append((optimized_png(figure_bytes(job.render(), 'png', dpi, image_w, image_h, compact=True)),
                                     pack_label(template, section, len(entries) + 1, well, kind, years)))
                 except Exception as e:
                     errors.append({'График': job.name, 'Формат': 'pack', 'Ошибка': str(e)})
@@ -559,7 +587,7 @@ def routes(projects: Projects) -> list[Route]:
             exports = projects.store.path(pid) / 'exports'
             exports.mkdir(exist_ok=True)
             with tempfile.TemporaryDirectory(prefix='pending_pack_', dir=str(exports)) as tmp:
-                info = {**meta, 'module': 'pack', 'kind': kind, 'charts': len(entries), 'per_page': PACK_PER_PAGE}
+                info = {**meta, 'module': 'pack', 'kind': kind, 'charts': len(entries), 'per_page': per_page}
                 if 'docx' in formats:
                     class Items:
                         def __len__(self):
@@ -568,11 +596,11 @@ def routes(projects: Projects) -> list[Route]:
                         def items(self):
                             return ((text, png) for png, text in entries)
                     target = Path(tmp) / (stem + '.docx')
-                    report_docx(Items(), name, per_page=PACK_PER_PAGE, image_mm=(84, 70), title=False,
+                    report_docx(Items(), name, per_page=per_page, image_mm=(image_w, image_h), title=False, columns=columns,
                                 labeler=lambda png, text: text, render=lambda png: png, target=target)
                     paths.append(projects.store.save_export_file(pid, stem + '.docx', target, info))
                 if 'pdf' in formats:
-                    target = grid_pdf(entries, Path(tmp) / (stem + '.pdf'), 2, PACK_PER_PAGE // 2,
+                    target = grid_pdf(entries, Path(tmp) / (stem + '.pdf'), columns, per_page // columns,
                                       {'Title': stem.replace('_', ' '), 'Author': 'Газовый атлас'})
                     paths.append(projects.store.save_export_file(pid, stem + '.pdf', target, info))
         if not paths:
