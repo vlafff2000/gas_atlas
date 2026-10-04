@@ -697,9 +697,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
     st.sync = syncKey(chart)
     st.tokens = chartTokens(el)
     st.tracks = buildTracks(chart.series, chart.x, !!chart.y2, s => hasMarkers(s, excludeMode, mode))
-    st.events = chart.x.scale === 'time'
-      ? (chart.events ?? []).map(e => ({ x: toNumber(e.x, 'time'), label: e.label, kind: e.kind })).filter(e => Number.isFinite(e.x)).sort((a, b) => a.x - b.x)
-      : []
+    st.events = (chart.events ?? []).map(e => ({ x: toNumber(e.x, chart.x.scale), label: e.label, kind: e.kind }))
+      .filter(e => Number.isFinite(e.x)).sort((a, b) => a.x - b.x)
     const span = (t: Track[], f: (t: Track) => Float64Array) => {
       let lo = Infinity, hi = -Infinity
       for (const tr of t) for (const v of f(tr)) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v }
@@ -784,7 +783,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
         <div ref={tip} className="atlas-tip floating" hidden />
       </div>
-      <ChartLegend model={legend} hidden={hidden} facetOff={facetOff} events={chart.x.scale === 'time' ? chart.events ?? [] : []}
+      <ChartLegend model={legend} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
         offEvents={offEvents} onHighlight={highlight}
         onToggle={(name, only) => setHidden(h => {
           if (only) {

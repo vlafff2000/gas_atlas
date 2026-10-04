@@ -20,7 +20,7 @@ from ..thinning import screen_decimate
 
 from ..contract import Axis, Chart, Column, Data, Module, Note, Option, Result, Series, Stat, Table, TableAction
 from ..domain import DatasetKind
-from ._events import gdi_events, regime_events
+from ._events import gdi_events, on_cumulative, regime_events
 
 PRODUCTION, GDI = DatasetKind.PRODUCTION, DatasetKind.GDI
 KINDS = (Option('withdrawal', 'Отбор'), Option('injection', 'Закачка'))
@@ -135,8 +135,10 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
             dash='solid' if single or not by_well else DASH[sel.periods.index(period) % len(DASH)], width=2.0,
             labels=labels.tolist(), ids=ids.tolist(), dataset=PRODUCTION, total=points,
             facets={'Скважина': f'№ {well}', 'Период': str(period)} if by_well and not single else None))
-    if not by_cumulative:
-        start, end = data.date.min(), data.date.max()
+    start, end = data.date.min(), data.date.max()
+    if by_cumulative:   # сезоны начинаются с нуля, отметки начала режима слились бы в одну точку: только ГДИ
+        chart.events = on_cumulative(gdi_events(sel.gdi, ws, start, end), data)
+    else:
         chart.events = regime_events(sel.df, start, end) + gdi_events(sel.gdi, ws, start, end)
     return chart
 
