@@ -157,3 +157,19 @@ def test_saved_exports_and_log(env, tmp_path):
     r = client.get('/api/log')
     assert r.status_code == 200 and 'ошибка 5.8' in r.text
     assert client.get(f'/api/projects/{pid}/details').json()['log'] is True
+
+
+def test_season_schedule_setting_roundtrip_and_errors(env):
+    client, pid, store = env
+    url = f'/api/projects/{pid}/settings'
+    r = client.patch(url, json={'values': {'season_schedule': '28.06.2021 inj\n25.10.2021 none\n01.11.2021 prod\n10.01.2022 12.01.2022 peak',
+                                           'auto_seasons': True}})
+    assert r.status_code == 200, r.text
+    assert store.manifest(pid)['settings']['season_schedule'] == [['2021-06-28', 'injection'], ['2021-10-25', 'none'],
+                                                                  ['2021-11-01', 'withdrawal']]
+    assert store.manifest(pid)['settings']['peak_windows'] == [['2022-01-10', '2022-01-12']]
+    bad = client.patch(url, json={'values': {'season_schedule': '28.06.2021 xx'}})
+    assert bad.status_code == 400 and 'Строка 1' in bad.text
+    assert client.patch(url, json={'values': {'season_schedule': ''}}).status_code == 200
+    assert store.manifest(pid)['settings']['season_schedule'] is None
+    assert store.manifest(pid)['settings']['peak_windows'] is None

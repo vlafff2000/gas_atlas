@@ -80,7 +80,7 @@ export interface Series {
 /** Точки серии в видимом окне оси X (ответ /window): `window` — сколько их в окне до прореживания. */
 export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'total'> & { window: number }
 export interface WindowReply { chart: string; revision: number; series: Record<string, WindowSeries> }
-export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'other'; well: string }
+export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'peak' | 'other'; well: string }
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; series: Series[]; crosshair: boolean
   events?: ChartEvent[]

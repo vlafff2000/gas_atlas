@@ -19,7 +19,7 @@ def _within(date: pd.Timestamp, start, end) -> bool:
 
 
 def regime_events(production: pd.DataFrame | None, start=None, end=None) -> list[Event]:
-    """Начало каждого периода отбора и закачки по объекту (первая дата периода в данных)."""
+    """Начало каждого периода отбора и закачки по объекту (первая дата периода в данных) и пиковые окна (если заданы)."""
     if production is None or production.empty or 'period' not in production:
         return []
     first = production.groupby(['kind', 'period'], sort=False, observed=True).date.min()
@@ -29,7 +29,10 @@ def regime_events(production: pd.DataFrame | None, start=None, end=None) -> list
             continue
         word = 'закачки' if kind == 'injection' else 'отбора'
         out.append(Event(date, f'Начало {word} · {period}', 'regime'))
-    return sorted(out, key=lambda e: e.x)
+    for first, last in production.attrs.get('_atlas_peaks', ()):
+        if _within(first, start, end):
+            out.append(Event(first, f'Пик · {first:%d.%m.%Y}–{last:%d.%m.%Y}' if last != first else f'Пик · {first:%d.%m.%Y}', 'peak'))
+    return sorted(out, key=lambda e: e.x)[:EVENT_LIMIT]
 
 
 def gdi_events(gdi: pd.DataFrame | None, wells: Iterable[str], start=None, end=None) -> list[Event]:
