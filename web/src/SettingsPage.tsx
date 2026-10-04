@@ -1,6 +1,7 @@
 // Раздел «Настройки» (5.8: страница «Настройки» в app/main.py и «Оформление графиков» боковой панели).
 import { useCallback, useEffect, useState } from 'react'
 import { projectsApi, saveLink } from './api_projects'
+import { theme, usePref, type Theme } from './chartPrefs'
 import { RestoreBox, Toast, useDetails, type PageProps } from './ProjectPage'
 
 const STYLE = [['points', 'Показывать точки'], ['legend', 'Легенда'], ['grid', 'Сетка']] as const
@@ -15,6 +16,7 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const [pages, setPages] = useState<string[] | null>(null)
   const [style, setStyle] = useState<Record<string, boolean>>({})
   const [originals, setOriginals] = useState(true)
+  const currentTheme = usePref(theme)
   const [toast, setToast] = useState<string | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
 
@@ -93,6 +95,16 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
             </div>
           </>
         ) : <p className="muted">Загрузка…</p>}
+      </section>
+
+      <section className="form-block">
+        <h2>Тема интерфейса</h2>
+        <div className="segmented" role="radiogroup" aria-label="Тема интерфейса">
+          {([['light', 'Светлая'], ['dark', 'Тёмная'], ['system', 'Авто']] as [Theme, string][]).map(([t, label]) => (
+            <button key={t} type="button" role="radio" aria-checked={currentTheme === t} onClick={() => theme.set(t)}>{label}</button>
+          ))}
+        </div>
+        <p className="muted small-text">«Авто» следует теме системы. Выбор запоминается в этом браузере.</p>
       </section>
 
       <section className="form-block">
