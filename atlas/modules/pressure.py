@@ -102,6 +102,11 @@ class PressureModule(Module):
                   options=tuple(Option(k, v[0]) for k, v in VIEWS.items())),
             Param('color', 'Цвет точек', 'choice', default='scenario', section=SECTION_VIEW,
                   options=tuple(Option(k, v) for k, v in COLORS.items())),
+            Param('scope_groups', 'Область графиков: группы', 'multi', default=[], dynamic=True, section=SECTION_VIEW,
+                  help='Только для графиков; таблицы и статистика остаются по всей выборке. Пусто — все.'),
+            Param('scope_wells', 'Область графиков: скважины', 'multi', default=[], dynamic=True,
+                  depends=('scope_groups',), prefix='№ ', section=SECTION_VIEW,
+                  help='Только для графиков; таблицы и статистика остаются по всей выборке. Пусто — все.'),
             Param('well_limit', 'Скважин на графике', 'choice', default='24', options=LIMITS, section=SECTION_VIEW,
                   help='Для графиков по скважинам: при большом числе скважин они нечитаемы и медленны.'),
             Param('bins', 'Интервалов гистограммы', 'integer', default=20, minimum=5, maximum=100, section=SECTION_VIEW),
@@ -117,10 +122,10 @@ class PressureModule(Module):
     # --- варианты зависимых списков ---
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         raw = data.raw[PM]
-        if name in ('groups', 'group_thresholds'):
+        if name in ('groups', 'group_thresholds', 'scope_groups'):
             return ordered(group_of(data.mapping, w) for w in raw.well.unique())
-        if name == 'wells':
-            groups = set(params.get('groups') or [])
+        if name in ('wells', 'scope_wells'):
+            groups = set(params.get('groups' if name == 'wells' else 'scope_groups') or [])
             return ordered(w for w in raw.well.unique() if not groups or group_of(data.mapping, w) in groups)
         return super().options(name, data, params)
 
@@ -138,8 +143,15 @@ class PressureModule(Module):
         else:
             result.tables.append(metrics_table(stats, cfg['match_good']))
             view = params['view']
+            scoped = scope(d, params)
+            if len(scoped) < len(d):
+                result.notes.append(Note('Графики: область — {:,} из {:,} точек; таблицы и статистика — по всей выборке.'
+                                         .format(len(scoped), len(d)).replace(',', ' ')))
             for name in VIEWS[view][1]:
-                result.charts.extend(self.charts(name, d, cfg, params, result))
+                if scoped.empty:
+                    result.notes.append(Note('В выбранной области графиков нет точек.', 'warning'))
+                    break
+                result.charts.extend(self.charts(name, scoped, cfg, params, result))
             if view == 'cross':
                 result.tables.append(summary_table(d, cfg))
             for title, frame in stat_tables(d, cfg):
@@ -218,6 +230,15 @@ class PressureModule(Module):
 
 
 # ---------- выбор данных: параметры 6 → cfg 5.8 ----------
+
+def scope(d: pd.DataFrame, params: Mapping[str, Any]) -> pd.DataFrame:
+    """Область графиков: выбранные группы и скважины; пусто — вся выборка."""
+    if params.get('scope_groups'):
+        d = d[d.group.isin(params['scope_groups'])]
+    if params.get('scope_wells'):
+        d = d[d.well.isin(params['scope_wells'])]
+    return d
+
 
 def group_of(mapping: Mapping[str, Mapping[str, str]], well: str) -> str:
     return mapping.get(well, {}).get('group', 'Без группы')

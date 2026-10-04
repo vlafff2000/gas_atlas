@@ -346,3 +346,24 @@ def test_group_thresholds_map_param(env):
     assert r.status_code == 400
     groups = client.post('/api/modules/pressure/options', json={'project': pid, 'param': 'group_thresholds', 'params': {}}).json()
     assert groups
+
+
+def test_chart_scope_changes_charts_only(env):
+    client, pid, projects = env
+    wells = client.post('/api/modules/pressure/options', json={'project': pid, 'param': 'scope_wells', 'params': {}}).json()
+    assert wells
+    full = run(client, pid)
+    one = run(client, pid, scope_wells=wells[:1])
+    d, _, cfg = legacy_view(projects, pid, {})
+    expected = d[d.well == wells[0]]
+    points = [s for s in one['charts'][0]['series'] if s['kind'] == 'points']
+    assert sum(len(s['x']) for s in points) == len(expected) and 'Скважина' in one['charts'][0]['title']
+    # таблицы и статистика — по всей выборке
+    assert frame_of(table(one, 'metrics')).points[0] == frame_of(table(full, 'metrics')).points[0] == len(d)
+    assert any('область' in n['text'] for n in one['notes'])
+    groups = client.post('/api/modules/pressure/options', json={'project': pid, 'param': 'scope_groups', 'params': {}}).json()
+    in_group = client.post('/api/modules/pressure/options',
+                           json={'project': pid, 'param': 'scope_wells', 'params': {'scope_groups': groups[:1]}}).json()
+    assert set(in_group) <= set(wells)
+    empty = run(client, pid, scope_wells=['нет такой'])
+    assert not empty['charts'] and any('нет точек' in n['text'] for n in empty['notes'])
