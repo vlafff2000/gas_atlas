@@ -1,6 +1,8 @@
 // Раздел «Экспорт» (5.8: app/ui/export_panel.py). Поля формы называются как виджеты 5.8 — шаблоны общие.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MultiSelect } from './MultiSelect'
+import { ChartView } from './ChartView'
+import { api, type Chart } from './api'
 import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
 
@@ -20,6 +22,9 @@ export function ExportPage({ project, onProject }: PageProps) {
   const [showPreview, setShowPreview] = useState(false)
   const [chart, setChart] = useState('')
   const [image, setImage] = useState<string | null>(null)
+  const [live, setLive] = useState(false)                    // предпросмотр: картинка файла или интерактивный график
+  const [liveChart, setLiveChart] = useState<Chart | null>(null)
+  const [excludeMode, setExcludeMode] = useState(false)
   const [archive, setArchive] = useState<{ key: string; result: ExportResult } | null>(null)
   const [word, setWord] = useState<{ key: string; result: ExportResult } | null>(null)
   const [pack, setPack] = useState<{ key: string; result: ExportResult } | null>(null)
@@ -74,7 +79,7 @@ export function ExportPage({ project, onProject }: PageProps) {
   // Картинка выбранного графика (макет файла, 150 DPI при выбранной ширине).
   const shownPlan = plan && planKey === key ? plan : null
   useEffect(() => {
-    if (!shownPlan || !showPreview || !shownPlan.charts.length) return
+    if (!shownPlan || !showPreview || live || !shownPlan.charts.length) return
     const name = shownPlan.charts.some(c => c.name === chart) ? chart : shownPlan.charts[0].name
     if (name !== chart) { setChart(name); return }
     let alive = true
@@ -84,8 +89,56 @@ export function ExportPage({ project, onProject }: PageProps) {
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
     return () => { alive = false; if (url) URL.revokeObjectURL(url) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart])
+  }, [shownPlan, showPreview, chart, live])
 
+  // Открытый предпросмотр обновляется сам, когда меняется проект (исключили точку).
+  useEffect(() => {
+    if (!showPreview || !ready || !plan || planKey === key) return
+    let alive = true
+    exportApi.plan(project.id, form).then(p => { if (alive) { setPlan(p); setPlanKey(key) } }).catch(() => undefined)
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.revision])
+
+  // Интерактивный вид того же графика; после исключения точки меняется ревизия проекта и график строится заново.
+  useEffect(() => {
+    if (!shownPlan || !showPreview || !live || !shownPlan.charts.length) return
+    const name = shownPlan.charts.some(c => c.name === chart) ? chart : shownPlan.charts[0].name
+    if (name !== chart) { setChart(name); return }
+    let alive = true
+    setLiveChart(null)
+    exportApi.chart(project.id, form, name).then(c => alive && setLiveChart(c))
+      .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownPlan, showPreview, chart, live])
+
+  const excludePoint = async (dataset: string, id: string) => {
+    try {
+      const r = await api.exclude(project.id, dataset, [id], [], 'Исключено кликом на графике (предпросмотр экспорта)')
+      if (r.added) { setToast(`Точка исключена. Всего исключено: ${r.excluded}. Выгрузка учтет это изменение.`); onProject(await api.project(project.id)) }
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  // «Экспортировать обе панели»: берутся сохранённые виды двух панелей раздела. Если их ещё нет,
+  // сохраняем то, что сейчас настроено в панелях раздела (последние параметры, их помнит окно).
+  const adoptPanels = async (module: string): Promise<boolean> => {
+    if (choices?.two_panels[module]) return true
+    const read = (panel: number) => {
+      try { const v = localStorage.getItem(`atlas:params:${project.id}:${module}` + (panel ? `:${panel}` : '')); return v === null ? null : JSON.parse(v) } catch { return null }
+    }
+    const [first, second] = [read(0), read(1)]
+    if (!second) {
+      setError('Вторая панель еще не настроена. Откройте раздел, включите «Две независимые панели», выберите параметры второй панели и вернитесь сюда.')
+      return false
+    }
+    try {
+      onProject(await api.saveState(project.id, module, first ?? {}, 0))
+      onProject(await api.saveState(project.id, module, second, 1))
+      setToast('Виды обеих панелей сохранены в проекте и будут выгружены.')
+      return true
+    } catch (e) { setError((e as Error).message); return false }
+  }
   const loadPreset = () => {
     const values = choices?.presets[presetChoice]
     if (!values) return
@@ -187,7 +240,7 @@ export function ExportPage({ project, onProject }: PageProps) {
       </div>
       <div className="param-bar">
         <ModuleTab key={current} module={current} label={choices.modules.find(m => m.id === current)!.label}
-          enabled={modules.includes(current)} {...F}
+          enabled={modules.includes(current)} adoptPanels={adoptPanels} {...F}
           onEnable={on => set('modules', choices.modules.map(m => m.id).filter(m => m === current ? on : modules.includes(m)))} />
       </div>
 
@@ -275,9 +328,34 @@ export function ExportPage({ project, onProject }: PageProps) {
                   {shownPlan.charts.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                 </select>
               </label>
-              <p className="muted small-text">Макет статического файла при выбранной ширине. Для предпросмотра используется 150 DPI.
-                Исключать точки кликом можно в разделе модуля — выгрузка обновится.</p>
-              {image ? <img className="export-preview" src={image} alt={chart} /> : <p className="pulse">Построение графика…</p>}
+              <div className="toolbar">
+                <label className="inline-field">Вид
+                  <select value={live ? 'live' : 'image'} onChange={e => { setLive(e.target.value === 'live'); setExcludeMode(false) }}>
+                    <option value="image">Картинка (макет файла)</option>
+                    <option value="live">Интерактивный график</option>
+                  </select>
+                </label>
+                {live && exclusions && (
+                  <label className="toggle"><input type="checkbox" checked={excludeMode} onChange={e => setExcludeMode(e.target.checked)} /><span>Исключать точки кликом</span></label>
+                )}
+              </div>
+              {live ? (
+                <>
+                  <p className="muted small-text">Интерактивный вид того же графика: масштаб, подсказки{exclusions ? ' и исключение точек кликом (исключения сохраняются в проекте и попадут в выгрузку)' : ''}.
+                    {!exclusions && ' Исключения проекта в этой выгрузке отключены, поэтому точки не выбираются.'}</p>
+                  {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее. Расчетные кривые и серые исключенные точки не выбираются.</div>}
+                  {liveChart
+                    ? <ChartView key={liveChart.id + chart} chart={liveChart} excludeMode={excludeMode && exclusions} onExclude={excludePoint}
+                        onDownload={async () => { throw new Error('Файлы выгрузки создаются кнопками «Сформировать архив» и «Создать отчет Word».') }} />
+                    : <p className="pulse">Построение графика…</p>}
+                </>
+              ) : (
+                <>
+                  <p className="muted small-text">Макет статического файла при выбранной ширине. Для предпросмотра используется 150 DPI.
+                    Чтобы исключать точки, переключите вид на «Интерактивный график».</p>
+                  {image ? <img className="export-preview" src={image} alt={chart} /> : <p className="pulse">Построение графика…</p>}
+                </>
+              )}
             </div>
           )}
         </section>
@@ -418,7 +496,9 @@ function Multi({ form, set, field, label, options, def, empty = 'ничего', 
   return <MultiSelect label={label} options={options} value={value} emptyMeaning={empty} prefix={prefix} onChange={v => set(field, v)} />
 }
 
-function ModuleTab({ module, label, enabled, onEnable, ...F }: FieldProps & { module: string; label: string; enabled: boolean; onEnable: (on: boolean) => void }) {
+function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: FieldProps & {
+  module: string; label: string; enabled: boolean; onEnable: (on: boolean) => void; adoptPanels: (module: string) => Promise<boolean>
+}) {
   const { form, choices } = F
   const head = (
     <Section title="Выгрузка">
@@ -468,7 +548,11 @@ function ModuleTab({ module, label, enabled, onEnable, ...F }: FieldProps & { mo
           <Select {...F} field={module + '_split'} label={label + ': построение'} def="well"
             options={module === 'production' ? [...SPLIT, ['group_total', 'Сумма по каждой группе + скважины']] : SPLIT} />
           <Select {...F} field={module + '_direction'} label={label + ': порядок'} def="number" options={DIRECTION} />
-          <Check {...F} field={module + '_panels'} label={'Экспортировать обе панели · ' + label} def={false} disabled={!choices.two_panels[module]} />
+          <label className="toggle" title="В разделе можно открыть две независимые панели с разными фильтрами. Включите, чтобы выгрузить графики обеих панелей, а не только выбранное здесь.">
+            <input type="checkbox" checked={form[module + '_panels'] === true}
+              onChange={async e => { const on = e.target.checked; F.set(module + '_panels', on && (await adoptPanels(module))) }} />
+            <span>Экспортировать обе панели · {label}</span>
+          </label>
           {split === 'group_total' && <>
             <Select {...F} field="production_metric" label="Суммарный показатель" def="daily"
               options={[['daily', 'Суточный расход'], ['cumulative', 'Накопленный объем'], ['active', 'Работающие скважины']]} />
