@@ -81,7 +81,9 @@ def read_tables(content,name):
 
 def detect_columns(table):
     columns=list(table.columns);match=lambda key:next((c for c in columns if re.search(ALIASES[key],str(c),re.I)),None)
-    well,date,value=match('well'),match('date'),match('value')
+    # «скв 74», «well 89» в заголовке — это сама скважина (широкая таблица), а не колонка «Скважина».
+    well=next((c for c in columns if re.search(ALIASES['well'],str(c),re.I) and not re.search(r'^(скв\w*\.?|well)[\s:№#_.-]*\d',str(c),re.I)),None)
+    date,value=match('date'),match('value')
     if date is None and columns:date=columns[0]
     if value is None and well is not None:
         value=next((c for i,c in enumerate(columns) if c not in (well,date) and numeric(table.iloc[:,i]).notna().any()),None)

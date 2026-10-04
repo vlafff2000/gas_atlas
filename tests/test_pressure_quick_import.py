@@ -1,3 +1,5 @@
+import pytest
+from app.core import pressure_import
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -91,3 +93,28 @@ def test_rows_without_well_are_dropped_and_do_not_break_filtering():
     data=pd.DataFrame({'object':'o','scenario':'s','well':['5',None],'date':pd.to_datetime(['2023-01-01']*2),'fact':[100.,100.],'model':[101.,101.],'fond':'Неизвестный','group':'Без группы','subgroup':''})
     d,_=pm.filter_data(data,{},{},{});assert d.well.tolist()==['5']
     import json;json.dumps({str(w):1 for w in data.well.unique()},sort_keys=True)
+
+
+def test_wide_headers_named_like_wells_are_not_a_well_column():
+    # эталон «dashboard 1.html»: id скважины из заголовков «WBP:74:», «'74'», «скв 89»
+    for header in ('скв 74\tскв 89', "'74'\t'89'", 'WBP:74:\tWBP:89:', 'Well 74\tWell 89'):
+        text = 'Дата\t' + header + '\n01.01.20\t119,9\t98\n01.02.20\t117,8\t96,5\n'
+        record = pressure_import.parse_file('f.txt', text.encode())['sheets']['f']
+        assert record['error'] is None and record['spec']['wide'], header
+        assert sorted(set(record['norm'].well)) == ['74', '89'], header
+        assert sorted(record['norm'].value) == [96.5, 98.0, 117.8, 119.9], header
+    long = pressure_import.parse_file('l.txt', 'Дата\tСкважина\tДавление\n01.01.2020\t74\t119,9\n'.encode())['sheets']['l']
+    assert not long['spec']['wide'] and list(long['norm'].well) == ['74']
+
+
+def test_pair_duplicate_rules_and_diagnostics():
+    from app.modules import pressure_match as pm
+    fact = pd.DataFrame({'well': ['1', '1', '2'], 'date': pd.to_datetime(['2020-01-01'] * 2 + ['2020-01-01']),
+                         'value': [10.0, 20.0, 5.0], '_row': [2, 3, 4]})
+    model = pd.DataFrame({'well': ['1', '2'], 'date': pd.to_datetime(['2020-01-01'] * 2), 'value': [11.0, 6.0], '_row': [2, 3]})
+    first, notes = pm.pair(fact, model, 'О', 'М')
+    assert first.fact.tolist() == [10.0, 5.0] and notes and notes[0]['Строк'] == 2   # по умолчанию — первая запись
+    assert pm.pair(fact, model, 'О', 'М', duplicate='last')[0].fact.tolist() == [20.0, 5.0]
+    assert pm.pair(fact, model, 'О', 'М', duplicate='mean')[0].fact.tolist() == [15.0, 5.0]
+    with pytest.raises(ValueError):
+        pm.pair(fact, model, 'О', 'М', duplicate='error')
