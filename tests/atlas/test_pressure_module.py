@@ -381,7 +381,7 @@ def test_time_fact_points_and_area_mean(env):
     assert sum(len(s['x']) for s in green) == int(ok.sum()) and sum(len(s['x']) for s in red) == int((~ok).sum())
     assert red and green and green[0]['color'] != red[0]['color']
     # среднее по области: факт — среднее по скважинам на дату, сценарии — средняя модель
-    mean = run(client, pid, time_mean=True, **params)['charts'][0]
+    mean = run(client, pid, time_mean=True, time_mean_lines=False, **params)['charts'][0]
     objects = d.object.nunique()
     fact_lines = [s for s in mean['series'] if s['name'].startswith('Факт, среднее')]
     assert len(fact_lines) == objects
@@ -394,6 +394,10 @@ def test_time_fact_points_and_area_mean(env):
     diamonds = [s for s in mean['series'] if s['kind'] == 'points']
     assert diamonds and all(s['symbol'] == 'diamond' for s in diamonds)
     assert not [s for s in mean['series'] if s['name'].startswith('Факт ·')]
+    # по умолчанию к средней кривой остаются тонкие линии скважин
+    both = run(client, pid, time_mean=True, **params)['charts'][0]
+    assert [s for s in both['series'] if s['name'].startswith('Факт ·')]
+    assert len([s for s in both['series'] if s['name'].startswith('Факт, среднее')]) == objects
 
 
 def test_focus_ring_on_dynamics(env):

@@ -118,3 +118,13 @@ def test_pair_duplicate_rules_and_diagnostics():
     assert pm.pair(fact, model, 'О', 'М', duplicate='mean')[0].fact.tolist() == [15.0, 5.0]
     with pytest.raises(ValueError):
         pm.pair(fact, model, 'О', 'М', duplicate='error')
+
+def test_space_separated_files_with_spelled_out_dates(tmp_path):
+    days=pd.date_range('2022-01-01',periods=6,freq='10D');files={}
+    for suffix,shift in [('факт',0),('модель_1',1)]:
+        lines=['Скважина Дата Давление']+['%s %s %s'%(w,d.strftime('%d %b %Y'),100+i+shift) for w in ('1','2') for i,d in enumerate(days)]
+        path=tmp_path/('Север_'+suffix+'.txt');path.write_text('\n'.join(lines),encoding='utf-8');files[str(path)]=(path.name,path.read_bytes())
+    cache=loaded(files);rows=q.build_rows(files,cache,{},'Проект')
+    data,notes,errors,warnings,summary=q.assemble(rows,cache,'first')
+    assert not errors and len(data)==2*6 and np.allclose(data.model-data.fact,1)
+    assert data.date.min()==pd.Timestamp('2022-01-01') and data.date.max()==pd.Timestamp('2022-02-20')

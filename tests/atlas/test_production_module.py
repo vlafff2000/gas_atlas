@@ -96,8 +96,9 @@ def test_curve_matches_58_figure(env, view, xmode):
     if xmode == 'date':      # смена режима и ГДИ — отметки на оси времени
         kinds = {e['kind'] for e in chart['events']}
         assert 'regime' in kinds and all(chart['x'] and e['x'] for e in chart['events'])
-    else:
-        assert chart['events'] == []
+    else:                    # на оси накопленного объёма — только ГДИ, число вместо даты
+        assert chart['events'] and all(e['kind'] == 'gdi' and isinstance(e['x'], float) for e in chart['events'])
+        assert all(0 <= e['x'] <= max(chart['series'][0]['x']) * 1.01 for e in chart['events'][:1])
     assert chart['y']['from_zero'] and (chart['x']['step'] is None or chart['x']['step'] > 0)
     assert chart['x']['scale'] == ('time' if xmode == 'date' else 'value')
 
@@ -283,3 +284,17 @@ def test_summary_strip_and_legend_facets(env):
     dates = [e['x'] for e in body['charts'][0]['events']]
     assert dates and all(e['kind'] in ('regime', 'gdi') for e in body['charts'][0]['events'])
     assert min(dates) >= body['charts'][0]['series'][0]['x'][0][:4]
+
+
+def test_gdi_events_on_cumulative_axis():
+    import numpy as np
+    import pandas as pd
+    from atlas.contract import Event, _chart_json, Chart, Axis
+    from atlas.modules._events import on_cumulative
+    dates = pd.date_range('2024-01-01', periods=10)
+    data = pd.DataFrame({'date': dates, 'period': 'A', 'well': '1', 'cumulative': np.arange(10) * 1.5})
+    ev = [Event(pd.Timestamp('2024-01-04'), 'ГДИ · № 1', 'gdi', '1'), Event(pd.Timestamp('2025-01-01'), 'вне', 'gdi', '1')]
+    out = on_cumulative(ev, data)
+    assert [(e.x, e.label) for e in out] == [(4.5, 'ГДИ · № 1')]       # вне показанного сезона — без отметки
+    chart = Chart('c', '', Axis('Накопленный'), Axis('Q'), events=out)
+    assert _chart_json(chart)['events'][0]['x'] == 4.5

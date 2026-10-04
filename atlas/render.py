@@ -63,7 +63,7 @@ def to_plotly(chart: Chart):
                                    'line': {'color': color, 'width': 1.8 if s.hollow else 0}}
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='lines+markers' if s.markers else 'lines',
                                      name=s.name, showlegend=s.legend, yaxis='y2' if s.axis == 'y2' else 'y',
-                                     connectgaps=False, line={'color': color, 'dash': dash, 'width': s.width or 2},
+                                     connectgaps=False, opacity=s.opacity, line={'color': color, 'dash': dash, 'width': s.width or 2},
                                      **extra))
         else:
             symbol = SYMBOLS[s.symbol] + ('-open' if s.hollow else '')

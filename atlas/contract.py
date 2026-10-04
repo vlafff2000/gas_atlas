@@ -275,7 +275,7 @@ class Chart:
     series: list[Series] = field(default_factory=list)
     crosshair: bool = False
     y2: Axis | None = None           # вторая шкала справа (две шкалы Y)
-    events: list[Event] = field(default_factory=list)   # отметки на оси времени (scale='time')
+    events: list[Event] = field(default_factory=list)   # отметки: дата на оси времени, число на числовой оси (накопленный объём)
 
 
 @dataclass
@@ -464,11 +464,20 @@ def _series_json(s: Series, keep: Any = None) -> dict[str, Any]:
     return out
 
 
+def _event_x(x: Any) -> Any:
+    """Положение события: дата для оси времени, число (накопленный объём) для числовой оси."""
+    if x is None:
+        return None
+    if isinstance(x, (int, float, np.number)):
+        return plain(float(x))
+    return plain(pd.Timestamp(x))
+
+
 def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
     from . import thinning
     kept = thinning.screen_indices(c) if thin else {}
     return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
             'y2': asdict(c.y2) if c.y2 else None,
             'series': [_series_json(s, kept.get(i)) for i, s in enumerate(c.series)],
-            'events': [{'x': plain(pd.Timestamp(e.x)) if e.x is not None else None, 'label': e.label, 'kind': e.kind,
+            'events': [{'x': _event_x(e.x), 'label': e.label, 'kind': e.kind,
                         'well': e.well} for e in c.events]}

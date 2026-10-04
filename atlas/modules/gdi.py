@@ -29,6 +29,10 @@ COMPARISON_NOTE = ('Сравнение по точкам выполняется 
                    'исследования. Порог изменения ΔP² — 10 %. Причины изменения по этим данным автоматически не устанавливаются.')
 OUTLIER_NOTE = ('Кривая по остальным точкам сравнивается с проверяемой точкой. Это рекомендация для проверки инженером; '
                 'исключение применяется только после вашего подтверждения.')
+PRODUCTIVITY_NOTE = ('Для каждого исследования берутся коэффициенты a и b (БД или расчет, как в таблице выше) и считается расход Q '
+                     'при одном опорном ΔP² — наибольшем, достигнутом во всех исследованиях скважины, поэтому без экстраполяции. '
+                     'Рост Q при том же ΔP² означает рост продуктивности. Метод, номер исследования и число точек не требуются: '
+                     'нужны только давления и расходы, достаточно двух разных расходов на исследование.')
 FILTER_NOTE = 'Отметьте «Исключить» и примените изменения. Исходные значения сохраняются; снятый флажок восстанавливает точку.'
 
 
@@ -42,6 +46,37 @@ def select(df: pd.DataFrame, wells: list[str], seasons: list[str], last_n: int) 
         chosen = d[['well', 'date']].drop_duplicates().sort_values('date').groupby('well').tail(last_n)
         d = d.merge(chosen, on=['well', 'date'], how='inner')
     return d
+
+
+def comparison_hints(chosen: pd.DataFrame, no_pairs: bool, no_triples: bool, last_n: int, by_seasons: bool) -> list[Note]:
+    """Почему таблицы сравнения пусты. Сравниваются только даты с одним и тем же методом и номером исследования."""
+    if not (no_pairs or no_triples):
+        return []
+    d = legacy.prepare(chosen)
+    longest = d.groupby(['well', 'method', 'study'], dropna=False).date.nunique()
+    dates = d.groupby('well').date.nunique()
+    notes = []
+    if no_pairs:
+        if dates.max() < 2:
+            hint = []
+            if last_n and last_n < 2:
+                hint.append('«Последние даты исследований» не меньше 2')
+            if by_seasons:
+                hint.append('снимите или расширьте выбор сезонов')
+            notes.append(Note('Сравнивать не с чем: по каждой скважине выбрана одна дата исследования. '
+                              + (f'Выберите {" и ".join(hint)}.' if hint else 'В данных нет более ранних исследований.'),
+                              'warning'))
+        else:
+            split = int(((dates >= 2) & (longest.groupby('well').max() < 2)).sum())
+            notes.append(Note('Сравнение с предыдущим исследованием пусто: даты скважины различаются методом или номером '
+                              f'исследования (скважин: {split}), а сравниваются только исследования с совпадающими методом и номером. '
+                              'Проверьте колонки «Метод» и «Исследование» в исходном файле.', 'warning'))
+    if no_triples and not no_pairs:
+        why = 'выбрано меньше трех дат' if last_n and last_n < 3 else 'нужно не менее трех дат с одним методом и номером исследования'
+        notes.append(Note(f'Динамика трех последних исследований пуста: {why}.'))
+    elif no_triples and dates.max() >= 3:
+        notes.append(Note('Динамика трех последних исследований пуста: нужно не менее трех дат с одним методом и номером исследования.'))
+    return notes
 
 
 def study_label(date, method: str = '', study: str = '') -> str:
@@ -141,7 +176,8 @@ class GdiModule(Module):
             if weak:
                 result.notes.append(Note(f'Исследований с R² ниже {params["threshold"]:g} или без подбора: '
                                          f'{weak} из {len(table)}.', 'warning'))
-            self.comparisons(result, chosen)
+            self.productivity(result, chosen, table)
+            self.comparisons(result, chosen, int(params['last_n']), bool(params['seasons']))
             if params['outliers']:
                 self.outliers(result, chosen, params['outlier_threshold'])
         if not original.empty:
@@ -149,7 +185,50 @@ class GdiModule(Module):
         return result
 
     @staticmethod
-    def comparisons(result: Result, chosen: pd.DataFrame) -> None:
+    def productivity(result: Result, chosen: pd.DataFrame, studies: pd.DataFrame) -> None:
+        """Динамика продуктивности по зависимостям ΔP² = aQ + bQ² всех выбранных исследований скважины.
+
+        Метод и номер исследования не нужны: исследования идут по датам. Без числа точек и общего диапазона —
+        сравнивается расход при одном опорном ΔP² (наибольшем, достигнутом во всех исследованиях скважины).
+        """
+        d = legacy.prepare(chosen)
+        valid = d[d.q.gt(0) & d.dp2.gt(0) & np.isfinite(d.q) & np.isfinite(d.dp2)]
+        top = valid.groupby(legacy.KEYS, dropna=False).dp2.max().rename('dp2_max').reset_index()
+        t = studies.merge(top, on=legacy.KEYS, how='left')
+        t['fit'] = t.a.notna() & t.b.notna()
+        rows = []
+        for well in sorted(t.well.unique(), key=well_key):
+            g = t[t.well.eq(well)].sort_values(['date', 'method', 'study'], kind='stable')
+            usable = g[g.fit & g.dp2_max.notna()]
+            ref = float(usable.dp2_max.min()) if len(usable) else None
+            first = previous = None
+            for r in g.itertuples(index=False):
+                q = legacy.free_flow(r.a, r.b, np.sqrt(ref)) if ref and r.fit else None
+                change_prev = (q / previous - 1) * 100 if q is not None and previous else None
+                change_first = (q / first - 1) * 100 if q is not None and first else None
+                if q is not None:
+                    previous = q
+                    first = q if first is None else first
+                rows.append({'well': well, 'date': r.date, 'method': r.method, 'study': r.study, 'ref': ref, 'q_ref': q,
+                             'to_previous': change_prev, 'to_first': change_first, 'source': r.source,
+                             'mode': 'нет коэффициентов' if not r.fit else ''})
+        table = pd.DataFrame(rows)
+        result.tables.append(Table('productivity', 'Динамика продуктивности по исследованиям', table, [
+            Column('well', 'Скважина'), Column('date', 'Дата', kind='date'),
+            Column('method', 'Метод'), Column('study', 'Исследование'),
+            Column('ref', 'Опорный ΔP²', UNITS['dp2'], 1, 'number'),
+            Column('q_ref', 'Q при опорном ΔP²', UNITS['q_gdi'], 1, 'number'),
+            Column('to_previous', 'К предыдущему', '%', 1, 'number'), Column('to_first', 'К первому', '%', 1, 'number'),
+            Column('source', 'Коэффициенты'), Column('mode', 'Замечание'),
+        ], note=PRODUCTIVITY_NOTE))
+        last = table.dropna(subset=['to_first']).groupby('well').tail(1)
+        if len(last):
+            summary = [Stat('Продуктивность выросла', str(int(last.to_first.gt(1).sum())), 'Скважин: последнее исследование выше первого более чем на 1 %'),
+                       Stat('Продуктивность снизилась', str(int(last.to_first.lt(-1).sum())), 'Скважин: последнее исследование ниже первого более чем на 1 %')]
+            result.summary += summary
+
+    @staticmethod
+    def comparisons(result: Result, chosen: pd.DataFrame, last_n: int = 0, by_seasons: bool = False) -> None:
         compare = legacy.comparisons(chosen)
         compare = natural_order(compare.rename(columns={'Скважина': 'well'}), by=('Метод', 'Исследование'))
         if compare.empty:
@@ -169,7 +248,12 @@ class GdiModule(Module):
         result.tables.append(Table('compare_three', 'Динамика трех последних исследований', three, [
             Column('well', 'Скважина'),
             *(Column(c, c, kind='date' if c in ('Раннее', 'Среднее', 'Последнее') else 'text') for c in names)],
-            collapsed=True))
+            collapsed=not three.empty))
+        if not compare.empty:
+            counts = compare['Результат'].value_counts()
+            result.summary += [Stat('Улучшение ΔP²', str(int(counts.get('Улучшение', 0))), 'Сравнение с предыдущим исследованием'),
+                               Stat('Ухудшение ΔP²', str(int(counts.get('Ухудшение', 0))), 'Рост ΔP² более чем на 10 %')]
+        result.notes += comparison_hints(chosen, compare.empty, three.empty, last_n, by_seasons)
 
     @staticmethod
     def outliers(result: Result, chosen: pd.DataFrame, threshold: float) -> None:

@@ -110,6 +110,8 @@ class PressureModule(Module):
                   help='Для нескольких скважин: среднее факта и сценариев по датам вместо линии на скважину.'),
             Param('focus', 'Выбранная точка', 'text', default='', section=SECTION_VIEW,
                   show_if={'view': '—'}),      # скрытый: «скважина|дата» из щелчка по точке кроссплота
+            Param('time_mean_lines', 'Оставить линии скважин', 'boolean', default=True, section=SECTION_VIEW,
+                  show_if={'view': 'dynamics'}, help='Со средней кривой: линии выбранных скважин остаются рядом с ней.'),
             Param('scope_groups', 'Область графиков: группы', 'multi', default=[], dynamic=True, section=SECTION_VIEW,
                   help='Только для графиков; таблицы и статистика остаются по всей выборке. Пусто — все.'),
             Param('scope_wells', 'Область графиков: скважины', 'multi', default=[], dynamic=True,
@@ -268,7 +270,7 @@ def config(params: Mapping[str, Any], raw: pd.DataFrame, settings: Mapping[str, 
         'unit': params['unit'], 'threshold_mode': params['threshold_mode'], 'threshold': float(params['threshold']),
         'inclusive': params['inclusive'], 'color': params['color'], 'bins': int(params['bins']),
         'bands': params['bands'], 'percentile_lines': params['percentile_lines'], 'outliers': params['outliers'],
-        'percentiles': percentiles, 'time_mean': params['time_mean'], 'focus': params['focus'], 'match_good': float(params['match_good']), 'dim_outside': params['dim_outside'],
+        'percentiles': percentiles, 'time_mean': params['time_mean'], 'time_mean_lines': params['time_mean_lines'], 'focus': params['focus'], 'match_good': float(params['match_good']), 'dim_outside': params['dim_outside'],
         'group_thresholds': {g: float(v) for g, v in params['group_thresholds'].items()},
         # Категории объектов хранятся в сохранённом виде 5.8 (раздел «Категории»); правятся таблицей «Категории объектов».
         'object_groups': dict(saved_panel(settings).get('object_groups') or {}),
@@ -560,7 +562,8 @@ def time_chart(d: pd.DataFrame, name: str, title: str, unit: str, cfg: Mapping[s
     def suffix(well, obj):
         return ('' if single else f' · №{well}') + (f' · {obj}' if many_objects else '')
 
-    if name == 'time' and cfg.get('time_mean') and not single:
+    mean = name == 'time' and cfg.get('time_mean') and not single
+    if mean and not cfg.get('time_mean_lines', True):
         mean_chart(chart, d, cfg, colors, many_objects)
         return chart
     if name == 'time':
@@ -568,18 +571,24 @@ def time_chart(d: pd.DataFrame, name: str, title: str, unit: str, cfg: Mapping[s
         for (obj, well), g in d.drop_duplicates(['object', 'well', 'date']).groupby(['object', 'well']):
             chart.series.append(Series('Факт' + suffix(well, obj), g.date, g.fact.to_numpy(float), 'line',
                                        color=FACT_COLOR, dash='solid', group='Факт' + suffix(well, obj),
+                                       width=1.2 if mean else 0.0, opacity=0.45 if mean else 1.0,
                                        labels=[f'Скв. {well}'] * len(g)))
         # Оценка замеров: совпал ли хоть один сценарий (``within`` из ``legacy.filter_data``).
+        # При средней кривой точки отдельных скважин убираются: остаются ромбы среднего.
         facts = d.groupby(['object', 'well', 'date'], sort=False).agg(fact=('fact', 'first'), ok=('within', 'any')).reset_index()
-        fact_points(chart, facts.date, facts.fact, facts.ok,
-                    [f'Скв. {w} · {t.strftime("%d.%m.%Y")} · Факт: {f:.3f} · {"в пороге" if k else "вне порога"}'
-                     for w, t, f, k in zip(facts.well, facts.date, facts.fact, facts.ok)])
+        if not mean:
+            fact_points(chart, facts.date, facts.fact, facts.ok,
+                        [f'Скв. {w} · {t.strftime("%d.%m.%Y")} · Факт: {f:.3f} · {"в пороге" if k else "вне порога"}'
+                         for w, t, f, k in zip(facts.well, facts.date, facts.fact, facts.ok)])
     focus_ring(chart, d, name, cfg)
     for (obj, scenario, well), g in d.groupby(['object', 'scenario', 'well'], sort=False):
         label = str(scenario) + suffix(well, obj)
         values = g.model if name == 'time' else g.signed_error
         chart.series.append(Series(label, g.date, values.to_numpy(float), 'line', color=colors[str(scenario)],
-                                   dash='solid', labels=[f'Скв. {well} · {scenario}'] * len(g)))
+                                   dash='solid', width=1.2 if mean else 0.0, opacity=0.45 if mean else 1.0,
+                                   labels=[f'Скв. {well} · {scenario}'] * len(g)))
+    if mean:
+        mean_chart(chart, d, cfg, colors, many_objects)
     return chart
 
 
@@ -605,14 +614,14 @@ def mean_chart(chart: Chart, d: pd.DataFrame, cfg: Mapping[str, Any], colors: Ma
         fact = g.drop_duplicates(['well', 'date']).groupby('date').fact.mean().sort_index()
         models = g.groupby(['scenario', 'date']).model.mean()
         chart.series.append(Series('Факт, среднее' + tail, fact.index, fact.to_numpy(float), 'line', color=FACT_COLOR,
-                                   dash='solid', group='Факт, среднее' + tail,
+                                   dash='solid', width=3, group='Факт, среднее' + tail,
                                    labels=[f'Среднее по {g.well.nunique()} скв.'] * len(fact)))
         ok = pd.Series(False, index=fact.index)
         for scenario in ordered(str(v) for v in g.scenario):
             m = models.xs(scenario, level='scenario').reindex(fact.index) if scenario in models.index.get_level_values(0) \
                 else pd.Series(np.nan, index=fact.index)
             chart.series.append(Series(scenario + ', среднее' + tail, m.dropna().index, m.dropna().to_numpy(float), 'line',
-                                       color=colors[scenario], dash='solid',
+                                       color=colors[scenario], dash='solid', width=3,
                                        labels=[f'Среднее по {g.well.nunique()} скв. · {scenario}'] * int(m.notna().sum())))
             ok |= within_threshold((m - fact).abs(), fact, cfg).fillna(False)
         fact_points(chart, fact.index, fact.to_numpy(float), ok.to_numpy(),

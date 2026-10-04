@@ -225,7 +225,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           sampling: rows.length > LARGE && !markers ? 'lttb' : undefined,
           showSymbol: markers, showAllSymbol: 'auto', symbol: markers ? SYMBOL[s.symbol] : 'none', symbolSize: rows.length > 150 ? 4 : s.markers ? 7 : 5,
           itemStyle: s.hollow ? { color: tk.surface, borderColor: c, borderWidth: 1.8 } : { color: c, borderColor: tk.surface, borderWidth: 1.5 },
-          lineStyle: { color: c, width, type: dashOf(s), cap: 'round', join: 'round' },
+          lineStyle: { color: c, width, type: dashOf(s), cap: 'round', join: 'round', ...(s.opacity < 1 ? { opacity: s.opacity } : {}) },
           emphasis: { ...emphasis, lineStyle: { width: width + 1 } } }
       }
       const big = rows.length > LARGE
@@ -820,9 +820,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     st.sync = syncKey(chart)
     st.tokens = chartTokens(el)
     st.tracks = buildTracks(chart.series, chart.x, !!chart.y2, s => hasMarkers(s, excludeMode, mode))
-    st.events = chart.x.scale === 'time'
-      ? (chart.events ?? []).map(e => ({ x: toNumber(e.x, 'time'), label: e.label, kind: e.kind })).filter(e => Number.isFinite(e.x)).sort((a, b) => a.x - b.x)
-      : []
+    st.events = (chart.events ?? []).map(e => ({ x: toNumber(e.x, chart.x.scale), label: e.label, kind: e.kind }))
+      .filter(e => Number.isFinite(e.x)).sort((a, b) => a.x - b.x)
     const span = (t: Track[], f: (t: Track) => Float64Array) => {
       let lo = Infinity, hi = -Infinity
       for (const tr of t) for (const v of f(tr)) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v }
@@ -911,7 +910,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
         <div ref={tip} className="atlas-tip floating" hidden />
       </div>
-      <ChartLegend model={legend} hidden={hidden} facetOff={facetOff} events={chart.x.scale === 'time' ? chart.events ?? [] : []}
+      <ChartLegend model={legend} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
         offEvents={offEvents} onHighlight={highlight}
         onToggle={(name, only) => setHidden(h => {
           if (only) {
