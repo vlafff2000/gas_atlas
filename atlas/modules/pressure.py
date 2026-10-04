@@ -72,6 +72,7 @@ class PressureModule(Module):
         description='Сопоставление факта и моделей по скважинам, датам, группам и объектам.',
         needs=(PM,),
         order=60,
+        panels=2,
         save_label='Сохранить',
         params=(
             Param('objects', 'Объекты', 'multi', default=[], source=Source(PM, 'object'), section=SECTION_DATA),
@@ -191,7 +192,8 @@ class PressureModule(Module):
 
     # --- сохранённый вид: формат 5.8 (settings.panels.pressure_match) ---
     def panel_key(self, panel: int = 0) -> str:
-        return 'pressure_match'
+        # Вторая панель есть только в 6: 5.8 её ключ не читает (категории объектов — в первой, общей с 5.8).
+        return 'pressure_match' if panel == 0 else f'pressure_match_{panel + 1}'
 
     def save_state(self, params: dict[str, Any], data: Data) -> dict[str, Any]:
         raw = data.raw[PM]

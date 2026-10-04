@@ -410,3 +410,15 @@ def test_focus_ring_on_dynamics(env):
     assert np.isclose(float(ring['y'][0]), float(row.fact))
     assert not [s for s in run(client, pid, view='dynamics', wells=[str(row.well)], focus='нет|01.01.2000')['charts'][0]['series']
                 if s['name'] == 'Выбранная точка']
+
+
+def test_second_panel_saves_separately(env):
+    client, pid, projects = env
+    assert pressure.PressureModule.spec.panels == 2
+    r1 = client.post(f'/api/projects/{pid}/state/pressure', json={'params': {'threshold': 5}, 'panel': 0})
+    r2 = client.post(f'/api/projects/{pid}/state/pressure', json={'params': {'threshold': 7, 'view': 'dynamics'}, 'panel': 1})
+    assert r1.status_code == 200 and r2.status_code == 200, (r1.text, r2.text)
+    panels = projects.manifest(pid)['settings']['panels']
+    assert panels['pressure_match']['threshold'] == 5 and panels['pressure_match_2']['threshold'] == 7
+    second = client.get(f'/api/projects/{pid}/state/pressure?panel=1').json()['panel']
+    assert second['threshold'] == 7
