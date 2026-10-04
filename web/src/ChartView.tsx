@@ -229,9 +229,11 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       const big = rows.length > LARGE
       return { ...common, type: 'scatter', z: s.hollow ? 4 : 3, symbol: SYMBOL[s.symbol], symbolSize: big ? 5 : s.hollow ? 10 : 9,
         large: big, largeThreshold: LARGE, progressive: 0,
-        itemStyle: s.hollow
-          ? { color: 'rgba(255,255,255,0)', borderColor: c, borderWidth: 1.8 }
-          : big ? { color: alpha(c, 0.55) } : { color: c, borderColor: tk.surface, borderWidth: 1.5 } }
+        itemStyle: {
+          ...(s.hollow
+            ? { color: 'rgba(255,255,255,0)', borderColor: c, borderWidth: 1.8 }
+            : big ? { color: alpha(c, 0.55) } : { color: c, borderColor: tk.surface, borderWidth: 1.5 }),
+          ...(s.opacity < 1 ? { opacity: s.opacity } : {}) } }
     }),
   }
 }

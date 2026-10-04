@@ -1,6 +1,7 @@
 """Content-aware, dependency-free ODS and text readers; XLSX remains streamed."""
 import csv
 import io
+import re
 import shlex
 import zipfile
 from pathlib import Path
@@ -32,6 +33,16 @@ def decode_text(content,encoding='auto'):
         except UnicodeError:pass
     raise ValueError('Не удалось прочитать текст. Выберите кодировку вручную.')
 
+_SPACED_DATE=re.compile(r'\b(\d{1,2}) ([A-Za-z]{3,9})\.? (\d{2,4})\b')
+
+def _whitespace_cells(line):
+    # дата «01 Jan 2020» сама содержит пробелы: склеиваем её в одну ячейку, остальное делим как раньше
+    found=[]
+    def keep(m):
+        found.append(m.group(0));return '\x00%d\x00'%(len(found)-1)
+    cells=shlex.split(_SPACED_DATE.sub(keep,line),comments=False)
+    return [re.sub('\x00(\\d+)\x00',lambda m:found[int(m.group(1))],c) for c in cells]
+
 def text_rows(text,delimiter='auto'):
     sample='\n'.join(text.splitlines()[:40])
     if delimiter=='auto':
@@ -46,7 +57,7 @@ def text_rows(text,delimiter='auto'):
                 except csv.Error:delimiter=','
     if delimiter=='whitespace':
         for line in text.splitlines():
-            yield shlex.split(line,comments=False) if line.strip() else []
+            yield _whitespace_cells(line) if line.strip() else []
     else:yield from csv.reader(io.StringIO(text),delimiter=delimiter)
 
 def _cell(cell):

@@ -24,6 +24,8 @@ SECTION_DATA, SECTION_CALC, SECTION_VIEW, SECTION_AXES = 'Выбор данны�
 SCREEN_POINTS = 30000          # как в 5.8: точек кроссплота на экране; статистика — по всем
 POINT_TABLE_LIMIT = 20000      # строк в таблице ручного фильтра
 OUTLIER_LIMIT = 300            # выбросов на ящик при больших группах, как в 5.8
+SHAPES = ('circle', 'square', 'triangle', 'diamond')
+OUTSIDE_OPACITY = 0.25
 FACT_COLOR, IDEAL_COLOR, BAND_COLOR, PERCENTILE_COLOR = '#64748B', '#64748B', '#D97706', '#8B5CF6'
 
 COLORS = {'scenario': 'Сценарии', 'group': 'Группы', 'well': 'Скважины', 'object': 'Объекты',
@@ -101,6 +103,8 @@ class PressureModule(Module):
             Param('well_limit', 'Скважин на графике', 'choice', default='24', options=LIMITS, section=SECTION_VIEW,
                   help='Для графиков по скважинам: при большом числе скважин они нечитаемы и медленны.'),
             Param('bins', 'Интервалов гистограммы', 'integer', default=20, minimum=5, maximum=100, section=SECTION_VIEW),
+            Param('dim_outside', 'Бледные точки вне порога', 'boolean', default=True, section=SECTION_VIEW,
+                  help='Точки в пределах порога яркие, вне порога — бледные.'),
             Param('bands', 'Линии порога на кроссплоте', 'boolean', default=True, section=SECTION_VIEW),
             Param('percentile_lines', 'Линии процентилей на кроссплоте', 'boolean', default=False, section=SECTION_VIEW),
             Param('outliers', 'Выбросы на ящиках с усами', 'boolean', default=True, section=SECTION_VIEW),
@@ -230,7 +234,7 @@ def config(params: Mapping[str, Any], raw: pd.DataFrame, settings: Mapping[str, 
         'unit': params['unit'], 'threshold_mode': params['threshold_mode'], 'threshold': float(params['threshold']),
         'inclusive': params['inclusive'], 'color': params['color'], 'bins': int(params['bins']),
         'bands': params['bands'], 'percentile_lines': params['percentile_lines'], 'outliers': params['outliers'],
-        'percentiles': percentiles,
+        'percentiles': percentiles, 'dim_outside': params['dim_outside'],
         'group_thresholds': {g: float(params['group_threshold']) for g in params['threshold_groups']},
         # Категории объектов хранятся в сохранённом виде 5.8 (раздел «Категории»); правятся таблицей «Категории объектов».
         'object_groups': dict(saved_panel(settings).get('object_groups') or {}),
@@ -423,23 +427,44 @@ def cross_chart(d: pd.DataFrame, cfg: Mapping[str, Any], title: str, unit: str) 
     relative = cfg.get('threshold_mode') == 'relative'
     chart = Chart('pressure-cross', title, Axis('Фактическое давление', unit), Axis('Модельное давление', unit))
     shown = d.sample(SCREEN_POINTS, random_state=0).sort_index() if len(d) > SCREEN_POINTS else d
-    for label, g in shown.groupby(column, sort=False):
-        tips = [f'Скв. {w} · {s} · {t.strftime("%d.%m.%Y")} · |ΔP|: {e:.3f} · Порог: {h:.3f}'
-                for w, s, t, e, h in zip(g.well, g.scenario, g.date, g.error, g.threshold)]
-        chart.series.append(Series(str(label), g.fact.to_numpy(float), g.model.to_numpy(float), 'points',
-                                   color=palette[str(label)], labels=tips,
-                                   ids=g['_point_id'].tolist() if '_point_id' in g else None, dataset=PM))
+    # Форма маркера — по сценарию, если цвет не по сценариям и сценариев не больше форм.
+    scenarios = ordered(str(v) for v in d.scenario)
+    shapes = column != 'scenario' and 1 < len(scenarios) <= len(SHAPES)
+    keys = [column, 'scenario'] if shapes else [column]
+    dim = cfg.get('dim_outside', True)
+    for key, g in shown.groupby(keys, sort=False):
+        key = key if isinstance(key, tuple) else (key,)
+        label = str(key[0])
+        name = f'{label} · {key[1]}' if shapes else label
+        symbol = SHAPES[scenarios.index(str(key[1]))] if shapes else 'circle'
+        for inside in ((True, False) if dim else (None,)):
+            part = g if inside is None else g[g.within.eq(inside)]
+            if part.empty:
+                continue
+            tips = [f'Скв. {w} · Группа: {gr} · {s} · {t.strftime("%d.%m.%Y")} · Факт: {f:.3f} · Модель: {m:.3f} · '
+                    f'|ΔP|: {e:.3f} · Порог: {h:.3f} · {"в пороге" if ok else "вне порога"}'
+                    for w, gr, s, t, f, m, e, h, ok in zip(part.well, part.group, part.scenario, part.date, part.fact,
+                                                          part.model, part.error, part.threshold, part.within)]
+            chart.series.append(Series(name if inside is not False else name + ' · вне порога',
+                                       part.fact.to_numpy(float), part.model.to_numpy(float), 'points', group=name,
+                                       color=palette[label], symbol=symbol, labels=tips,
+                                       legend=inside is not False, opacity=OUTSIDE_OPACITY if inside is False else 1.0,
+                                       ids=part['_point_id'].tolist() if '_point_id' in part else None, dataset=PM))
     lo = max(0.0, float(min(d.fact.min(), d.model.min())))
     hi = float(max(d.fact.max(), d.model.max()))
     x = np.array([lo, hi if hi > lo else lo + 1])
     chart.series.append(Series('Идеальное совпадение', x, x, 'line', color=IDEAL_COLOR, dash='solid'))
     if cfg.get('bands', True):
-        for threshold in sorted(set(d.threshold)):
-            label = '±{:g} {}'.format(threshold, '%' if relative else unit)
+        by_group = bool(cfg.get('group_thresholds'))
+        group_palette = well_colors(d.group) if by_group else {}
+        pairs = d[['group', 'threshold']].drop_duplicates().sort_values(['threshold', 'group']) if by_group \
+            else pd.DataFrame({'group': '', 'threshold': sorted(set(d.threshold))})
+        for gr, threshold in zip(pairs.group, pairs.threshold):
+            label = ('{} '.format(gr) if by_group else '') + '±{:g} {}'.format(threshold, '%' if relative else unit)
             for sign in (-1, 1):
                 y = x * (1 + sign * threshold / 100) if relative else x + sign * threshold
-                chart.series.append(Series(label, x, y, 'line', group=label,
-                                           color=BAND_COLOR, dash='dash', legend=sign == 1))
+                chart.series.append(Series(label, x, y, 'line', group=label, dash='dash', legend=sign == 1,
+                                           color=group_palette[gr] if by_group else BAND_COLOR))
     if cfg.get('percentile_lines', False):
         for p in cfg.get('percentiles', [80, 85, 90]):
             delta = float(np.percentile(d.error, p))

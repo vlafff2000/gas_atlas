@@ -107,22 +107,46 @@ def test_statistics_match_legacy(env, params):
 
 def test_cross_chart_matches_legacy_figure(env):
     client, pid, projects = env
-    params = {'color': 'well', 'percentile_lines': True, 'groups': [], 'threshold': 4}
+    params = {'color': 'well', 'percentile_lines': True, 'groups': [], 'threshold': 4, 'dim_outside': False}
     body = run(client, pid, **params)
     d, _, cfg = legacy_view(projects, pid, params)
     fig = legacy.figure.__wrapped__(d, 'cross', cfg) if hasattr(legacy.figure, '__wrapped__') else legacy.figure(d, 'cross', cfg)
     chart = body['charts'][0]
-    assert chart['id'] == 'pressure-cross' and len(chart['series']) == len(fig.data)
-    for old, new in zip(fig.data, chart['series']):
+    assert chart['id'] == 'pressure-cross'
+    # Форма маркера по сценарию делит серии цвета по сценариям: общие значения те же, что в 5.8.
+    points = [s for s in chart['series'] if s['kind'] == 'points']
+    assert sum(len(s['x']) for s in points) == sum(len(o.x) for o in fig.data if o.mode == 'markers') == len(d)
+    assert sorted(np.concatenate([s['x'] for s in points])) == sorted(np.concatenate([np.asarray(o.x, float) for o in fig.data if o.mode == 'markers']))
+    others = [s for s in chart['series'] if s['kind'] != 'points']
+    olds = [o for o in fig.data if o.mode != 'markers']
+    assert len(others) == len(olds)
+    for old, new in zip(olds, others):
         assert old.name.strip() == new['name'].strip()
         assert np.allclose(np.asarray(old.x, float), np.asarray(new['x'], float))
         assert np.allclose(np.asarray(old.y, float), np.asarray(new['y'], float))
-        if new['kind'] == 'points':
-            assert old.marker.color == new['color'] and len(new['ids']) == len(new['x'])
-            assert new['dataset'] == 'pressure_match'
+    for new in points:
+        assert len(new['ids']) == len(new['x']) and new['dataset'] == 'pressure_match' and new['opacity'] == 1.0
     assert chart['x']['minimum'] == chart['y']['minimum'] and chart['x']['maximum'] == chart['y']['maximum']
     summary = frame_of(table(body, 'summary'))
     assert summary['Точек'].sum() == len(d)
+
+
+def test_cross_points_split_by_threshold_and_scenario_shape(env):
+    client, pid, projects = env
+    params = {'color': 'well', 'groups': [], 'threshold': 4}
+    chart = run(client, pid, **params)['charts'][0]
+    d, _, cfg = legacy_view(projects, pid, params)
+    points = [s for s in chart['series'] if s['kind'] == 'points']
+    dim = [s for s in points if s['opacity'] < 1]
+    bright = [s for s in points if s['opacity'] == 1.0]
+    assert sum(len(s['x']) for s in bright) == int(d.within.sum())
+    assert sum(len(s['x']) for s in dim) == int((~d.within).sum())
+    assert all(not s['legend'] and s['group'] for s in dim)
+    if d.scenario.nunique() > 1:
+        assert len({s['symbol'] for s in points}) == min(d.scenario.nunique(), 4)
+    assert all('в пороге' in lab or 'вне порога' in lab for s in points for lab in s['labels'])
+    flat = run(client, pid, dim_outside=False, **params)['charts'][0]
+    assert all(s['opacity'] == 1.0 for s in flat['series'])
 
 
 @pytest.mark.parametrize('view', ['dynamics', 'distributions', 'objects'])
@@ -282,7 +306,7 @@ def test_object_categories_shared_with_58(env):
     assert d58.groupby('object').object_group.first().to_dict() == {objects[0]: 'Без категории', objects[1]: 'Месторождение'}
     assert d6.groupby('object').object_group.first().to_dict() == d58.groupby('object').object_group.first().to_dict()
     cross = run(client, pid, color='object_group')['charts'][0]
-    assert {'Месторождение', 'Без категории'} <= {s['name'] for s in cross['series']}
+    assert {'Месторождение', 'Без категории'} <= {s['name'].split(' · ')[0] for s in cross['series']}
     # «Сохранить» в 6 сохраняет категории в виде
     assert client.post(f'/api/projects/{pid}/state/pressure', json={'params': {}}).status_code == 200
     assert projects.manifest(pid)['settings']['panels']['pressure_match']['object_groups'] == saved['object_groups']
