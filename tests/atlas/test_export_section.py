@@ -224,6 +224,21 @@ def test_fund_pack_six_per_page(env):
     assert bad.status_code == 400
 
 
+def test_interactive_preview_chart_and_exclusion(env):
+    client, pid, _, _ = env
+    form = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31']}
+    plan = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()
+    chart = client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': plan['charts'][0]['name']}).json()
+    pickable = [s for s in chart['series'] if s['ids']]
+    assert pickable and pickable[0]['dataset'] == 'gdi'
+    point = pickable[0]['ids'][0]
+    assert client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'gdi', 'add': [point], 'remove': []}).json()['added'] == 1
+    again = client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': plan['charts'][0]['name']}).json()
+    assert point not in [i for s in again['series'] for i in (s['ids'] or [])]      # исключённая точка больше не выбирается
+    assert client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': 'нет'}).status_code == 404
+
+
+
 def test_response_control_and_working_horizons(env):
     client, pid, projects, _ = env
     data = projects.data(pid)
