@@ -241,6 +241,9 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             cfg['dates'] = [_date(v) for v in dates]
             cfg['view'] = form.get('response_view', 'separate')
             cfg['split'] = form.get('response_split', 'horizon')
+            if form.get('response_mode', 'all') != 'all':      # выгрузка контрольных и/или рабочих горизонтов (нового в 5.8 нет)
+                cfg['mode'] = form['response_mode']
+                cfg['working_view'] = form.get('response_working_view', 'combined')
         elif module == 'well_dashboard':
             kind = form.get('dashboard_kind', 'withdrawal')
             periods = dashboard_periods(source, settings, mapping)[kind]
@@ -503,6 +506,16 @@ def routes(projects: Projects) -> list[Route]:
         content = figure_bytes(job.render(), 'png', 150, width)     # макет файла при выбранной ширине, 150 DPI
         return Response(content, media_type='image/png')
 
+    def chart(request, body):
+        """Тот же график предпросмотра как интерактивный: щелчок по точке исключает её (как в 5.8)."""
+        from .contract import _chart_json
+        from .export_chart import to_chart
+        _, plan, _ = need_plan(request.path_params['pid'], form_of(body))
+        job = next((j for j in plan.jobs if j.name == body.get('chart')), None)
+        if job is None:
+            raise Failure(404, 'График не найден. Обновите предпросмотр.')
+        return _chart_json(to_chart(job.render(), 'export-' + str(job.module or 'chart')))
+
     def archive(request, body):
         pid, form = request.path_params['pid'], form_of(body)
         options, plan, data = need_plan(pid, form)
@@ -628,6 +641,7 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/form', E(form_choices)),
         Route(base + '/plan', E(plan_view), methods=['POST']),
         Route(base + '/preview', E(preview), methods=['POST']),
+        Route(base + '/chart', E(chart), methods=['POST']),
         Route(base + '/archive', E(archive), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
         Route(base + '/pack', E(pack), methods=['POST']),

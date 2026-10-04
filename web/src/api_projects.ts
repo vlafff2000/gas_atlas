@@ -1,5 +1,5 @@
 // Клиент API разделов «Проекты», «Настройки» и «Экспорт» (atlas/api_projects.py, atlas/api_export.py).
-import { ApiError, type Project } from './api'
+import { ApiError, type Chart, type Project } from './api'
 
 export type Form = Record<string, unknown>
 
@@ -96,6 +96,7 @@ export const exportApi = {
   plan: (pid: string, form: Form) => request<ExportPlan>(`${P(pid)}/export/plan`, json('POST', { form })),
   preview: async (pid: string, form: Form, chart: string) =>
     URL.createObjectURL(await (await send(`${P(pid)}/export/preview`, json('POST', { form, chart }))).blob()),
+  chart: (pid: string, form: Form, chart: string) => request<Chart>(`${P(pid)}/export/chart`, json('POST', { form, chart })),
   archive: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/archive`, json('POST', { form })),
   word: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/word`, json('POST', { form })),
   pack: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/pack`, json('POST', { form })),

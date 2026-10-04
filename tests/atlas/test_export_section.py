@@ -247,3 +247,33 @@ def test_fund_pack_seasons_and_layout(env):
         assert len(docx.read(media[0])) < 60_000
         sizes[per] = docx.read('word/document.xml').decode('utf-8').count('<w:tbl>')
     assert sizes[2] >= sizes[4]
+
+
+def test_interactive_preview_chart_and_exclusion(env):
+    client, pid, _, _ = env
+    form = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31']}
+    plan = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()
+    chart = client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': plan['charts'][0]['name']}).json()
+    pickable = [s for s in chart['series'] if s['ids']]
+    assert pickable and pickable[0]['dataset'] == 'gdi'
+    point = pickable[0]['ids'][0]
+    assert client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'gdi', 'add': [point], 'remove': []}).json()['added'] == 1
+    again = client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': plan['charts'][0]['name']}).json()
+    assert point not in [i for s in again['series'] for i in (s['ids'] or [])]      # исключённая точка больше не выбирается
+    assert client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': 'нет'}).status_code == 404
+
+
+
+def test_response_control_and_working_horizons(env):
+    client, pid, projects, _ = env
+    data = projects.data(pid)
+    working = [h for h in data.settings.get('working_horizons', [])]
+    names = {}
+    for mode in ('control', 'working', 'both'):
+        form = {'modules': ['response'], 'response_mode': mode, 'response_working': working}
+        body = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()
+        names[mode] = [c['name'] for c in body['charts']]
+    assert names['both'] == names['control'] + names['working']
+    assert all(n.startswith('контроль · ') and n.endswith('уровень') for n in names['control'])
+    assert all(n.startswith('рабочий · ') for n in names['working'])
+    assert names['control'] or names['working']
