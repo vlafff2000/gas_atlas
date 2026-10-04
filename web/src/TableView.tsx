@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import type { Assignments, Cell, Table } from './api'
+import type { Assignments, Cell, Column, Table } from './api'
 import { formatCell } from './format'
 import { tableBars, usePref } from './chartPrefs'
 
@@ -51,6 +51,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad 
     for (const v of table.rows[k]) if (typeof v === 'number' && Number.isFinite(v)) { max = Math.max(max, Math.abs(v)); if (distinct.size < 3) distinct.add(v) }
     return distinct.size > 2 ? max : 0
   }), [table])
+  const tone = (v: unknown, c: Column) => typeof v === 'number' && Number.isFinite(v) && c.good != null ? (v >= c.good ? ' tone-good' : ' tone-poor') : ''
   const hasBars = scale.some(m => m > 0)
   const barStyle = (v: unknown, k: number) => {
     if (!bars || !scale[k] || typeof v !== 'number' || !Number.isFinite(v)) return undefined
@@ -145,7 +146,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad 
                           onChange={e => edit(i, c.key, e.target.value)} />
                       </td>
                     ) : (
-                      <td key={c.key} className={c.kind + (barStyle(table.rows[k][i], k) ? ' bar' : '')} style={barStyle(table.rows[k][i], k)}>
+                      <td key={c.key} className={c.kind + (barStyle(table.rows[k][i], k) ? ' bar' : '') + tone(table.rows[k][i], c)} style={barStyle(table.rows[k][i], k)}>
                         {formatCell(table.rows[k][i], c)}
                       </td>
                     ))}

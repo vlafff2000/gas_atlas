@@ -36,6 +36,8 @@ interface Props {
   chart: Chart
   excludeMode: boolean
   onExclude: (dataset: string, id: string) => void
+  /** Кроссплот давлений: щелчок по кнопке в закреплённой подсказке открывает динамику скважины. */
+  onOpenWell?: (well: string, date: string) => void
   onDownload: (format: string, dpi: number) => Promise<void>
   /** Точки линий в окне оси X: при увеличении (и в режимах «Замеры» / «Исключать точки») прореженная линия заменяется точками окна. */
   fetchWindow?: (x0: number, x1: number, raw: boolean) => Promise<WindowReply>
@@ -223,7 +225,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           sampling: rows.length > LARGE && !markers ? 'lttb' : undefined,
           showSymbol: markers, showAllSymbol: 'auto', symbol: markers ? SYMBOL[s.symbol] : 'none', symbolSize: rows.length > 150 ? 4 : s.markers ? 7 : 5,
           itemStyle: s.hollow ? { color: tk.surface, borderColor: c, borderWidth: 1.8 } : { color: c, borderColor: tk.surface, borderWidth: 1.5 },
-          lineStyle: { color: c, width, type: dashOf(s), cap: 'round', join: 'round' },
+          lineStyle: { color: c, width, type: dashOf(s), cap: 'round', join: 'round', ...(s.opacity < 1 ? { opacity: s.opacity } : {}) },
           emphasis: { ...emphasis, lineStyle: { width: width + 1 } } }
       }
       const big = rows.length > LARGE
@@ -270,7 +272,7 @@ interface Plotted { x: number; label: string; kind: ChartEvent['kind'] }
 const syncKey = (chart: Chart) =>
   chart.x.scale === 'category' ? null : chart.x.scale === 'time' ? 'time' : `${chart.x.scale}|${chart.x.label}|${chart.x.unit}`
 
-export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fetchWindow }: Props) {
+export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, onDownload, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -285,7 +287,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
   const state = useRef({
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
-    excludeMode, onExclude, tracks: [] as Track[], selected: {} as Record<string, boolean>,
+    excludeMode, onExclude, onOpenWell: onOpenWell as Props['onOpenWell'], tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
@@ -308,6 +310,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
   state.current.excludeMode = excludeMode
   state.current.mode = mode
   state.current.onExclude = onExclude
+  state.current.onOpenWell = onOpenWell
   state.current.base = given
   state.current.fetchWindow = fetchWindow
   state.current.hiddenEvents = new Set(offEvents)
@@ -382,6 +385,13 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       const copy = document.createElement('div')
       copy.innerHTML = card.innerHTML
       copy.querySelectorAll('.tip-foot').forEach(n => n.remove())
+      // кроссплот давлений: из подсказки точки («Скв. 74 · … · 01.02.2021 · …») — к динамике этой скважины
+      const pt = st.current?.point
+      const where = /^Скв\. (\S+) .*?(\d{2}\.\d{2}\.\d{4})/.exec(pt?.track.series.labels?.[pt.track.src[pt.k]] ?? '')
+      if (st.onOpenWell && st.chart.id === 'pressure-cross' && where) {
+        (copy.lastElementChild ?? copy).insertAdjacentHTML('beforeend',
+          `<button type="button" class="tip-go" data-open-well="${escapeHtml(where[1])}|${where[2]}">Динамика скважины</button>`)
+      }
       const el = document.createElement('div')
       el.className = 'atlas-tip pinned'
       host.appendChild(el)
@@ -400,6 +410,13 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       renderPins(); schedule()
     }
     host.addEventListener('click', onUnpin)
+    const onOpen = (e: MouseEvent) => {
+      const b = (e.target as HTMLElement).closest('[data-open-well]')
+      if (!b) return
+      const [well, date] = (b.getAttribute('data-open-well') ?? '').split('|')
+      st.onOpenWell?.(well, date)
+    }
+    host.addEventListener('click', onOpen)
     // перетаскивание карточки за номер или заголовок: точка остаётся на месте, к ней ведёт линия-выноска
     let drag: { pin: Pin; dx: number; dy: number; id: number } | null = null
     const onGrab = (e: PointerEvent) => {
@@ -788,7 +805,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       window.clearTimeout(timer); ++seq
       observer.disconnect(); unsync(); publish(st.id, null, null)
       st.pins.forEach(p => { p.el.remove(); if (p.own && p.shared) unpinShared(p.token) })
-      window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin)
+      window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin); host.removeEventListener('click', onOpen)
       host.removeEventListener('pointerdown', onGrab); host.removeEventListener('pointermove', onDrag)
       host.removeEventListener('pointerup', onDrop); host.removeEventListener('pointercancel', onDrop)
       if (st.frame) cancelAnimationFrame(st.frame)
