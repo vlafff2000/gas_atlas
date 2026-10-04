@@ -594,6 +594,11 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
           set={(_, v) => F.set('response_dates', [v, dates[1]])} />
         <DateField {...{ ...F, form: { d1: dates[1] } }} field="d1" label="по" def={dates[1]}
           set={(_, v) => F.set('response_dates', [dates[0], v])} />
+        <Select {...F} field="response_mode" label="Реагирование: выгрузка" def="all"
+          options={[['all', 'По настройкам ниже'], ['both', 'Контрольные и рабочие горизонты'], ['control', 'Контрольные: все скважины на одном графике, только уровень'], ['working', 'Рабочие: по скважине, уровень и давление']]} />
+        {((form.response_mode as string | undefined) ?? 'all') !== 'all' &&
+          <Select {...F} field="response_working_view" label="Рабочие горизонты: вид" def="combined"
+            options={[['combined', 'Уровень + давление (две шкалы Y)'], ['separate', 'Уровень и давление отдельно']]} />}
         <Select {...F} field="response_view" label="Реагирование: вид графиков" def="separate"
           options={[['separate', 'Уровень и давление отдельно'], ['combined', 'Уровень + давление'], ['level', 'Только уровень'], ['pressure', 'Только давление']]} />
         <Select {...F} field="response_split" label="Реагирование: построение" def="horizon"

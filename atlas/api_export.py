@@ -238,6 +238,9 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             cfg['dates'] = [_date(v) for v in dates]
             cfg['view'] = form.get('response_view', 'separate')
             cfg['split'] = form.get('response_split', 'horizon')
+            if form.get('response_mode', 'all') != 'all':      # выгрузка контрольных и/или рабочих горизонтов (нового в 5.8 нет)
+                cfg['mode'] = form['response_mode']
+                cfg['working_view'] = form.get('response_working_view', 'combined')
         elif module == 'well_dashboard':
             kind = form.get('dashboard_kind', 'withdrawal')
             periods = dashboard_periods(source, settings, mapping)[kind]
