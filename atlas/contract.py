@@ -16,7 +16,7 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text', 'map']
 
 
 class ParamError(ValueError):
@@ -104,6 +104,21 @@ class Param:
                 if bad:
                     raise ParamError(f'«{self.label}»: недопустимые значения {", ".join(bad[:5])}')
             return values
+        if self.kind == 'map':     # ключ → число; пустые значения отбрасываются
+            if not isinstance(value, Mapping):
+                raise ParamError(f'«{self.label}»: ожидается словарь')
+            out = {}
+            for key, item in value.items():
+                if item is None or item == '':
+                    continue
+                try:
+                    number = float(item)
+                except (TypeError, ValueError):
+                    raise ParamError(f'«{self.label}»: «{key}» — ожидается число') from None
+                if not math.isfinite(number) or (self.minimum is not None and number < self.minimum):
+                    raise ParamError(f'«{self.label}»: «{key}» — число не меньше {self.minimum or 0:g}')
+                out[str(key)] = number
+            return out
         raise ParamError(f'Неизвестный тип параметра {self.kind}')
 
 
@@ -147,6 +162,7 @@ class Column:
     unit: str = ''
     decimals: int | None = None      # None — показывать как есть
     kind: Literal['text', 'number', 'date'] = 'text'
+    good: float | None = None        # порог «хорошо»: значение ≥ порога — зелёным, ниже — красным
 
 
 @dataclass(frozen=True)
