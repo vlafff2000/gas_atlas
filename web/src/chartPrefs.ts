@@ -61,3 +61,8 @@ export const tableBars = pref<boolean>('atlas.table.bars', true)
 
 /** Общий масштаб по времени: прокрутка бегунка на одном графике двигает все графики по времени. */
 export const zoomSync = pref<boolean>('atlas.chart.zoomSync', true)
+
+/** Ручные границы шкал Y по графикам (ключ — заголовок и подписи осей): помнятся между запусками. */
+export const savedRanges = pref<Record<string, { y: [number, number] | null; y2: [number, number] | null }>>('atlas.chart.ranges', {})
+/** Границы Y, разосланные всем графикам раздела с той же подписью и единицей оси (не хранится). */
+export const sharedRange = pref<{ key: string; range: [number, number]; n: number } | null>('', null)

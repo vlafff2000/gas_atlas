@@ -99,3 +99,21 @@
 }
 .chart-thin.part { color: var(--chart-ink, inherit); }
 .chart-thin.part::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #eda100; vertical-align: 1px; }
+
+/* ручная правка осей */
+.axes-chip {
+  position: absolute; top: 4px; right: 8px; z-index: 2; font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer;
+  color: var(--accent-strong); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px;
+}
+.axis-editor {
+  position: absolute; z-index: 5; width: 220px; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-size: 12px;
+}
+.axis-editor label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+.axis-editor input { font: inherit; padding: 4px 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+.axis-editor input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.axis-error { color: #c0392b; }
+.axis-buttons { display: flex; gap: 6px; margin-top: 2px; }
+.axis-buttons button { font: inherit; padding: 3px 8px; cursor: pointer; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 4px; }
+.axis-buttons button.primary { color: #fff; background: var(--accent); border-color: var(--accent); }
