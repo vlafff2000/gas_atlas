@@ -17,7 +17,15 @@ function Block({ b }: { b: HelpBlock }) {
           </table>
         </div>
       )}
-      {b.code && <pre>{b.code}</pre>}
+      {b.example && (
+        <div className="help-table example">
+          <table>
+            <thead><tr>{b.example.head.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+            <tbody>{b.example.rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}</tbody>
+          </table>
+          {b.example.note && <p className="help-note">{b.example.note}</p>}
+        </div>
+      )}
       {b.warn && <div className="note warning">{b.warn}</div>}
     </section>
   )

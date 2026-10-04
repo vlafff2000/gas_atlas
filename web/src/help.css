@@ -15,3 +15,6 @@
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
   overflow-x: auto; font-size: 13px; margin: 6px 0;
 }
+.help-table.example th { background: var(--accent-soft, var(--surface)); }
+.help-table.example td:first-child, .help-table.example th:first-child { white-space: nowrap; }
+.help-note { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
