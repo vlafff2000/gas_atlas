@@ -25,7 +25,10 @@ def _axis(layout_axis) -> Axis:
     scale = {'date': 'time', 'log': 'log', 'category': 'category'}.get(kind, 'value')
     rng = layout_axis.range
     value = scale in ('value', 'log') and rng is not None and len(rng) == 2
-    return Axis(label=_text(layout_axis.title), scale=scale, inverse=layout_axis.autorange == 'reversed',
+    flipped = bool(value and scale == 'value' and rng[0] > rng[1])     # выровненная ось с обратным направлением: range = [верх, низ]
+    if flipped:
+        rng = [rng[1], rng[0]]
+    return Axis(label=_text(layout_axis.title), scale=scale, inverse=flipped or layout_axis.autorange == 'reversed',
                 from_zero=layout_axis.rangemode == 'tozero', step=layout_axis.dtick if scale == 'value' and isinstance(layout_axis.dtick, (int, float)) else None,
                 categories=list(layout_axis.categoryarray) if scale == 'category' and layout_axis.categoryarray is not None else None,
                 minimum=float(rng[0]) if value and scale == 'value' else None, maximum=float(rng[1]) if value and scale == 'value' else None)

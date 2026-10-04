@@ -154,6 +154,12 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 axis.grid(layout.showgrid is not False,color='#e4e9ef',linewidth=.7)
             if fig.layout.xaxis.range is not None:ax.set_xlim(*fig.layout.xaxis.range)
             if fig.layout.yaxis.range is not None:ax.set_ylim(*fig.layout.yaxis.range)
+            # две оси Y выровнены в Plotly-описании: одинаковое число делений строго друг напротив друга
+            for target,layout in ((ax,fig.layout.yaxis),(secondary,fig.layout.yaxis2 if secondary is not None else None)):
+                if target is not None and layout.range is not None and layout.dtick and layout.tick0 is not None:
+                    a,b=layout.range;target.set_ylim(a,b)
+                    from matplotlib.ticker import FixedLocator
+                    target.yaxis.set_major_locator(FixedLocator([layout.tick0+i*layout.dtick for i in range(int(round(abs(b-a)/layout.dtick))+1)]))
             ax.set_axisbelow(True);ax.spines[['top','right']].set_visible(False)
             if legend:
                 handles,labels=ax.get_legend_handles_labels()
