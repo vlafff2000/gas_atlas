@@ -203,7 +203,7 @@ def test_groups_filter_and_threshold_override(env):
     wells = client.post('/api/modules/pressure/options',
                         json={'project': pid, 'param': 'wells', 'params': {'groups': groups[:1]}}).json()
     assert wells
-    params = {'threshold_groups': groups[:1], 'group_threshold': 1.5, 'threshold': 7}
+    params = {'group_thresholds': {groups[0]: 1.5}, 'threshold': 7}
     body = run(client, pid, view='stats', **params)
     d, _, cfg = legacy_view(projects, pid, params)
     assert cfg['group_thresholds'] == {groups[0]: 1.5}
@@ -243,21 +243,21 @@ def test_click_exclusion_and_manual_filter(env):
 
 def test_saved_view_is_58_format(env):
     client, pid, projects = env
-    params = {'scenarios': ['Модель 1'], 'threshold': 5, 'threshold_groups': ['Без группы'], 'group_threshold': 2,
+    params = {'scenarios': ['Модель 1'], 'threshold': 5, 'group_thresholds': {'Без группы': 2, 'Другая': 3.5},
               'percentiles': ['75', '90'], 'axis_y': True, 'y_min': 10, 'y_max': 200, 'y_step': 25,
               'date_from': '2021-02-01', 'color': 'object'}
     r = client.post(f'/api/projects/{pid}/state/pressure', json={'params': params})
     assert r.status_code == 200, r.text
     saved = projects.manifest(pid)['settings']['panels']['pressure_match']
     assert saved['scenarios'] == ['Модель 1'] and saved['objects'] == sorted(saved['objects'])
-    assert saved['group_thresholds'] == {'Без группы': 2.0} and saved['percentiles'] == [75.0, 90.0]
+    assert saved['group_thresholds'] == {'Без группы': 2.0, 'Другая': 3.5} and saved['percentiles'] == [75.0, 90.0]
     assert saved['axes'] == {'y_range': [10.0, 200.0], 'y_dtick': 25.0} and saved['dates'][0] == '2021-02-01'
     # Сохранённое 6 открывается в 5.8: её options() принимает те же ключи (FIELDS панели 5.8)
     for field in ('objects', 'scenarios', 'groups', 'wells', 'fonds', 'recent', 'exclude_zeros', 'unit',
                   'threshold_mode', 'threshold', 'inclusive', 'color', 'bins', 'bands', 'percentile_lines', 'outliers'):
         assert field in saved
     loaded = client.get(f'/api/projects/{pid}/state/pressure').json()['panel']
-    assert loaded['scenarios'] == ['Модель 1'] and loaded['threshold_groups'] == ['Без группы']
+    assert loaded['scenarios'] == ['Модель 1'] and loaded['group_thresholds'] == {'Без группы': 2.0, 'Другая': 3.5}
     assert loaded['axis_y'] is True and loaded['y_max'] == 200 and loaded['percentiles'] == ['75', '90']
     assert run(client, pid, **{k: v for k, v in loaded.items()})['charts']
 
@@ -332,3 +332,17 @@ def test_match_matrix_and_tone_match_legacy(env):
     assert table(body, 'metrics')['columns'][3]['good'] == 90
     assert next(c for c in table(body, 'stats-3')['columns'] if c['key'] == 'В пределах порога, %')['good'] == 90
     assert table(run(client, pid), 'stats-matrix')['collapsed']
+
+
+def test_group_thresholds_map_param(env):
+    client, pid, projects = env
+    spec = pressure.PressureModule.spec
+    p = next(p for p in spec.params if p.name == 'group_thresholds')
+    assert p.coerce({'А': '2,5'.replace(',', '.'), 'Б': '', 'В': None, 'Г': 4}) == {'А': 2.5, 'Г': 4.0}
+    for bad in ({'А': 'x'}, {'А': -1}, [1]):
+        with pytest.raises(Exception):
+            p.coerce(bad)
+    r = client.post('/api/modules/pressure/run', json={'project': pid, 'params': {'group_thresholds': {'А': -1}}})
+    assert r.status_code == 400
+    groups = client.post('/api/modules/pressure/options', json={'project': pid, 'param': 'group_thresholds', 'params': {}}).json()
+    assert groups
