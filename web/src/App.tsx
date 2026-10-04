@@ -412,6 +412,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               <div className="chart-grid">
                 {shown.map(c => (
                   <ChartView key={c.id} chart={c} excludeMode={excludeMode} onExclude={excludePoint}
+                    onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({
+                      ...params, view: 'dynamics', wells: [well], groups: [], scope_groups: [], scope_wells: [], focus: `${well}|${date}` }) : undefined}
                     fetchWindow={(x0, x1, raw) => api.window(spec.id, project.id, params, c.id, x0, x1, raw, result.revision)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
                 ))}

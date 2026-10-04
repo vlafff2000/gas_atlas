@@ -48,6 +48,9 @@ export function paramSummary(params: Param[], values: Params, options: Record<st
       if (v) out.push(`${p.label} ${formatDate(String(v))}`)
     } else if (p.kind === 'text') {
       if (v) out.push(p.label)
+    } else if (p.kind === 'map') {
+      const n = Object.keys((v as Record<string, number> | undefined) ?? {}).length
+      if (n) out.push(`${p.label}: ${n}`)
     } else if (v !== null && v !== undefined && v !== '') {
       out.push(`${p.label} ${String(v).replace('.', ',')}${p.unit ? ' ' + p.unit : ''}`)
     }
@@ -103,7 +106,9 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
         <fieldset key={title || '-'} className="param-section" aria-label={title || undefined}>
           <span className="param-title" aria-hidden="true">{title}</span>
           <div className="param-fields">
-            {params.map(p => p.dynamic
+            {params.map(p => p.kind === 'map'
+              ? <DynamicMap key={p.name} spec={spec} project={project} param={p} values={values} onChange={v => set(p.name, v)} />
+              : p.dynamic
               ? <DynamicMulti key={p.name} spec={spec} project={project} panel={panel} param={p}
                               values={values} onChange={v => set(p.name, v)}
                               onOptions={list => setDynamic(d => (d[p.name] === list ? d : { ...d, [p.name]: list }))} />
@@ -150,6 +155,53 @@ function DynamicMulti({ spec, project, param: p, values, onChange, onOptions }:
 
   return <MultiSelect label={p.label} options={options ?? []} value={value} loading={options === undefined}
     emptyMeaning={p.empty} prefix={p.prefix} onChange={v => { touched.current = true; onChange(v) }} />
+}
+
+/** Число на каждый вариант, который считает модуль (порог у каждой группы); пусто — общее значение. */
+function DynamicMap({ spec, project, param: p, values, onChange }:
+  { spec: ModuleSpec; project: string; param: Param; values: Params; onChange: (v: Record<string, number>) => void }) {
+  const [keys, setKeys] = useState<string[]>([])
+  const value = (values[p.name] as Record<string, number> | undefined) ?? {}
+  const deps = JSON.stringify(p.depends.map(d => values[d]))
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const current = Object.fromEntries(p.depends.map(d => [d, values[d]]))
+    api.paramOptions(spec.id, project, p.name, current, ctrl.signal)
+      .then(setKeys)
+      .catch(e => { if ((e as Error).name !== 'AbortError') setKeys([]) })
+    return () => ctrl.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spec.id, project, p.name, deps])
+  if (keys.length === 0) return null
+  const change = (key: string, text: string) => {
+    const next = { ...value }
+    const n = Number(text.replace(',', '.'))
+    if (text.trim() === '' || !Number.isFinite(n) || n < (p.minimum ?? 0)) delete next[key]; else next[key] = n
+    onChange(next)
+  }
+  return (
+    <div className="field map" title={p.help}>
+      <span className="field-label">{p.label}</span>
+      <div className="map-rows">
+        {keys.map(k => <MapRow key={k} label={k} value={value[k]} placeholder="общий" onCommit={t => change(k, t)} />)}
+      </div>
+    </div>
+  )
+}
+
+function MapRow({ label, value, placeholder, onCommit }:
+  { label: string; value: number | undefined; placeholder: string; onCommit: (text: string) => void }) {
+  const shown = value === undefined ? '' : String(value).replace('.', ',')
+  const [text, setText] = useState(shown)
+  useEffect(() => { setText(shown) }, [shown])
+  return (
+    <label className="map-row">
+      <span>{label}</span>
+      <input value={text} placeholder={placeholder} inputMode="decimal" aria-label={label}
+        onChange={e => setText(e.target.value)} onBlur={() => { if (text !== shown) onCommit(text) }}
+        onKeyDown={e => { if (e.key === 'Enter' && text !== shown) onCommit(text) }} />
+    </label>
+  )
 }
 
 function Field({ param: p, value, options, onChange }:

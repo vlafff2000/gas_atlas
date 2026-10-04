@@ -161,8 +161,9 @@ def test_other_views_match_legacy(env, view):
         assert chart['title'] == fig.layout.title.text
         if name in ('time', 'error_time', 'cdf'):
             old = [t for t in fig.data]
-            assert [t.name for t in old] == [s['name'] for s in chart['series']]
-            for t, s in zip(old, chart['series']):
+            lines = [s for s in chart['series'] if s['kind'] == 'line']    # точки оценки факта — новые, в 5.8 их нет
+            assert [t.name for t in old] == [s['name'] for s in lines]
+            for t, s in zip(old, lines):
                 assert np.allclose(np.asarray(t.y, float), np.asarray(s['y'], float))
         elif name in ('hist', 'percentiles'):
             assert [t.name for t in fig.data] == [s['name'] for s in chart['series']]
@@ -203,7 +204,7 @@ def test_groups_filter_and_threshold_override(env):
     wells = client.post('/api/modules/pressure/options',
                         json={'project': pid, 'param': 'wells', 'params': {'groups': groups[:1]}}).json()
     assert wells
-    params = {'threshold_groups': groups[:1], 'group_threshold': 1.5, 'threshold': 7}
+    params = {'group_thresholds': {groups[0]: 1.5}, 'threshold': 7}
     body = run(client, pid, view='stats', **params)
     d, _, cfg = legacy_view(projects, pid, params)
     assert cfg['group_thresholds'] == {groups[0]: 1.5}
@@ -243,21 +244,21 @@ def test_click_exclusion_and_manual_filter(env):
 
 def test_saved_view_is_58_format(env):
     client, pid, projects = env
-    params = {'scenarios': ['Модель 1'], 'threshold': 5, 'threshold_groups': ['Без группы'], 'group_threshold': 2,
+    params = {'scenarios': ['Модель 1'], 'threshold': 5, 'group_thresholds': {'Без группы': 2, 'Другая': 3.5},
               'percentiles': ['75', '90'], 'axis_y': True, 'y_min': 10, 'y_max': 200, 'y_step': 25,
               'date_from': '2021-02-01', 'color': 'object'}
     r = client.post(f'/api/projects/{pid}/state/pressure', json={'params': params})
     assert r.status_code == 200, r.text
     saved = projects.manifest(pid)['settings']['panels']['pressure_match']
     assert saved['scenarios'] == ['Модель 1'] and saved['objects'] == sorted(saved['objects'])
-    assert saved['group_thresholds'] == {'Без группы': 2.0} and saved['percentiles'] == [75.0, 90.0]
+    assert saved['group_thresholds'] == {'Без группы': 2.0, 'Другая': 3.5} and saved['percentiles'] == [75.0, 90.0]
     assert saved['axes'] == {'y_range': [10.0, 200.0], 'y_dtick': 25.0} and saved['dates'][0] == '2021-02-01'
     # Сохранённое 6 открывается в 5.8: её options() принимает те же ключи (FIELDS панели 5.8)
     for field in ('objects', 'scenarios', 'groups', 'wells', 'fonds', 'recent', 'exclude_zeros', 'unit',
                   'threshold_mode', 'threshold', 'inclusive', 'color', 'bins', 'bands', 'percentile_lines', 'outliers'):
         assert field in saved
     loaded = client.get(f'/api/projects/{pid}/state/pressure').json()['panel']
-    assert loaded['scenarios'] == ['Модель 1'] and loaded['threshold_groups'] == ['Без группы']
+    assert loaded['scenarios'] == ['Модель 1'] and loaded['group_thresholds'] == {'Без группы': 2.0, 'Другая': 3.5}
     assert loaded['axis_y'] is True and loaded['y_max'] == 200 and loaded['percentiles'] == ['75', '90']
     assert run(client, pid, **{k: v for k, v in loaded.items()})['charts']
 
@@ -314,3 +315,114 @@ def test_object_categories_shared_with_58(env):
     for changes in ({'Нет такого': {'category': 'x'}}, {}):
         r = client.post(f'/api/projects/{pid}/object-categories', json={'changes': changes})
         assert r.status_code == 400
+
+
+def test_match_matrix_and_tone_match_legacy(env):
+    client, pid, projects = env
+    body = run(client, pid, match_good=90, view='stats')
+    d, _, cfg = legacy_view(projects, pid, {})
+    matrix = table(body, 'stats-matrix')
+    assert not matrix['collapsed'] and all(c['good'] == 90 for c in matrix['columns'][2:])
+    frame = frame_of(matrix)
+    scenarios = list(frame.columns[2:])
+    assert sorted(scenarios) == sorted(d.scenario.astype(str).unique())
+    for (obj, well, scenario), g in d.groupby(['object', 'well', 'scenario']):
+        expected = legacy.statistics(g, cfg['percentiles'])['В пределах порога, %']
+        row = frame[(frame.object == obj) & (frame.well == well)]
+        assert np.isclose(float(row[str(scenario)].iloc[0]), expected)
+    assert table(body, 'metrics')['columns'][3]['good'] == 90
+    assert next(c for c in table(body, 'stats-3')['columns'] if c['key'] == 'В пределах порога, %')['good'] == 90
+    assert table(run(client, pid), 'stats-matrix')['collapsed']
+
+
+def test_group_thresholds_map_param(env):
+    client, pid, projects = env
+    spec = pressure.PressureModule.spec
+    p = next(p for p in spec.params if p.name == 'group_thresholds')
+    assert p.coerce({'А': '2,5'.replace(',', '.'), 'Б': '', 'В': None, 'Г': 4}) == {'А': 2.5, 'Г': 4.0}
+    for bad in ({'А': 'x'}, {'А': -1}, [1]):
+        with pytest.raises(Exception):
+            p.coerce(bad)
+    r = client.post('/api/modules/pressure/run', json={'project': pid, 'params': {'group_thresholds': {'А': -1}}})
+    assert r.status_code == 400
+    groups = client.post('/api/modules/pressure/options', json={'project': pid, 'param': 'group_thresholds', 'params': {}}).json()
+    assert groups
+
+
+def test_chart_scope_changes_charts_only(env):
+    client, pid, projects = env
+    wells = client.post('/api/modules/pressure/options', json={'project': pid, 'param': 'scope_wells', 'params': {}}).json()
+    assert wells
+    full = run(client, pid)
+    one = run(client, pid, scope_wells=wells[:1])
+    d, _, cfg = legacy_view(projects, pid, {})
+    expected = d[d.well == wells[0]]
+    points = [s for s in one['charts'][0]['series'] if s['kind'] == 'points']
+    assert sum(len(s['x']) for s in points) == len(expected) and 'Скважина' in one['charts'][0]['title']
+    # таблицы и статистика — по всей выборке
+    assert frame_of(table(one, 'metrics')).points[0] == frame_of(table(full, 'metrics')).points[0] == len(d)
+    assert any('область' in n['text'] for n in one['notes'])
+    groups = client.post('/api/modules/pressure/options', json={'project': pid, 'param': 'scope_groups', 'params': {}}).json()
+    in_group = client.post('/api/modules/pressure/options',
+                           json={'project': pid, 'param': 'scope_wells', 'params': {'scope_groups': groups[:1]}}).json()
+    assert set(in_group) <= set(wells)
+    empty = run(client, pid, scope_wells=['нет такой'])
+    assert not empty['charts'] and any('нет точек' in n['text'] for n in empty['notes'])
+
+
+def test_time_fact_points_and_area_mean(env):
+    client, pid, projects = env
+    params = {'view': 'dynamics', 'well_limit': 'all', 'threshold': 3}
+    d, _, cfg = legacy_view(projects, pid, params)
+    chart = run(client, pid, **params)['charts'][0]
+    ok = d.groupby(['object', 'well', 'date']).within.any()
+    green = [s for s in chart['series'] if s['name'] == 'Факт в пороге']
+    red = [s for s in chart['series'] if s['name'] == 'Факт вне порога']
+    assert sum(len(s['x']) for s in green) == int(ok.sum()) and sum(len(s['x']) for s in red) == int((~ok).sum())
+    assert red and green and green[0]['color'] != red[0]['color']
+    # среднее по области: факт — среднее по скважинам на дату, сценарии — средняя модель
+    mean = run(client, pid, time_mean=True, time_mean_lines=False, **params)['charts'][0]
+    objects = d.object.nunique()
+    fact_lines = [s for s in mean['series'] if s['name'].startswith('Факт, среднее')]
+    assert len(fact_lines) == objects
+    for obj, line in zip(d.object.unique(), fact_lines):
+        g = d[d.object == obj]
+        expected = g.drop_duplicates(['well', 'date']).groupby('date').fact.mean().sort_index()
+        assert np.allclose(np.asarray(line['y'], float), expected.to_numpy(float))
+        model = next(s for s in mean['series'] if s['name'].startswith(str(g.scenario.iloc[0]) + ', среднее'))
+        assert model['y']
+    diamonds = [s for s in mean['series'] if s['kind'] == 'points']
+    assert diamonds and all(s['symbol'] == 'diamond' for s in diamonds)
+    assert not [s for s in mean['series'] if s['name'].startswith('Факт ·')]
+    # по умолчанию к средней кривой остаются тонкие линии скважин
+    both = run(client, pid, time_mean=True, **params)['charts'][0]
+    assert [s for s in both['series'] if s['name'].startswith('Факт ·')]
+    assert len([s for s in both['series'] if s['name'].startswith('Факт, среднее')]) == objects
+
+
+def test_focus_ring_on_dynamics(env):
+    client, pid, projects = env
+    d, _, cfg = legacy_view(projects, pid, {})
+    row = d.iloc[10]
+    focus = f'{row.well}|{row.date.strftime("%d.%m.%Y")}'
+    body = run(client, pid, view='dynamics', wells=[str(row.well)], well_limit='all', focus=focus)
+    for chart in body['charts']:
+        ring = [s for s in chart['series'] if s['name'] == 'Выбранная точка']
+        assert len(ring) == 1 and ring[0]['hollow'] and len(ring[0]['x']) == 1
+    time = body['charts'][0]['series']
+    ring = next(s for s in time if s['name'] == 'Выбранная точка')
+    assert np.isclose(float(ring['y'][0]), float(row.fact))
+    assert not [s for s in run(client, pid, view='dynamics', wells=[str(row.well)], focus='нет|01.01.2000')['charts'][0]['series']
+                if s['name'] == 'Выбранная точка']
+
+
+def test_second_panel_saves_separately(env):
+    client, pid, projects = env
+    assert pressure.PressureModule.spec.panels == 2
+    r1 = client.post(f'/api/projects/{pid}/state/pressure', json={'params': {'threshold': 5}, 'panel': 0})
+    r2 = client.post(f'/api/projects/{pid}/state/pressure', json={'params': {'threshold': 7, 'view': 'dynamics'}, 'panel': 1})
+    assert r1.status_code == 200 and r2.status_code == 200, (r1.text, r2.text)
+    panels = projects.manifest(pid)['settings']['panels']
+    assert panels['pressure_match']['threshold'] == 5 and panels['pressure_match_2']['threshold'] == 7
+    second = client.get(f'/api/projects/{pid}/state/pressure?panel=1').json()['panel']
+    assert second['threshold'] == 7
