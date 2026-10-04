@@ -12,8 +12,8 @@ from app.modules import group_analysis
 from ..contract import Data, ModuleSpec, Note, Option, Param, Result, Stat
 from ..domain import DatasetKind
 from ._group_charts import SHARE_METRICS, hybrid_chart, object_days, pareto_chart, share_chart, vs_object_chart, well_days
-from ._production import (DIRECTIONS, GROUP_NOTE, KINDS, CURVE_NOTE, PRODUCTION, ProductionBase, Selection, curve_chart, kind_label, period_stat,
-                          group_chart, group_table)
+from ._production import (DIRECTIONS, OVERLAY_METRICS, GROUP_NOTE, KINDS, CURVE_NOTE, PRODUCTION, ProductionBase, Selection, curve_chart, kind_label, period_stat,
+                          group_chart, group_table, groups_overlay_chart, object_lookup)
 
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
 INDIVIDUAL, GROUPS = {'mode': 'individual'}, {'mode': 'groups'}
@@ -53,10 +53,17 @@ class ProductionModule(ProductionBase):
                            Option('shares', 'Доля скважин в накопленном объеме группы'),
                            Option('hybrid', 'Месячные объемы по скважинам + суточный расход'),
                            Option('pareto', 'Вклад скважин в объем (Парето)'),
-                           Option('vs_object', 'Группа и объект, доля группы'))),
+                           Option('vs_object', 'Группа и объект, доля группы'),
+                           Option('share', 'Доля группы в объекте'))),
             Param('gx', 'Ось X', 'choice', default='date', section=SECTION_VIEW, show_if=GROUPS,
-                  options=(Option('date', 'Дата'), Option('object', 'Накопленный объем объекта')),
-                  help='Только для суточного суммарного расхода'),
+                  options=(Option('date', 'Дата'), Option('object', 'Накопленный объем объекта'),
+                           Option('group', 'Накопленный объем группы')),
+                  help='Для суточного расхода, накопленного объема, работающих скважин и доли в объекте; '
+                       'накопленный объем по объему группы не строится (берется объем объекта)'),
+            Param('layout', 'Группы на графиках', 'choice', default='separate', section=SECTION_VIEW, show_if=GROUPS,
+                  options=(Option('separate', 'Каждая группа на своем графике'),
+                           Option('overlay', 'Все группы на одном графике')),
+                  help='На одном графике цвет — группа, штрих — период'),
         ),
     )
 
@@ -89,9 +96,24 @@ class ProductionModule(ProductionBase):
         result.summary = [Stat('Групп', str(len(sel.groups))),
                           Stat('Скважин в группах', str(len(sel.choices()))),
                           Stat('Режим', kind_label(sel.kind)), period_stat(sel.periods)]
-        metric, overlay = sel.params['metric'], sel.params['overlay']
+        metric, overlay, xmode = sel.params['metric'], sel.params['overlay'], sel.params['gx']
+        if metric in SHARE_METRICS and xmode != 'date':
+            result.notes.append(Note('Выбранный вид строится только по дате: ось X «накопленный объем» к нему не применяется.'))
+        if metric == 'cumulative' and xmode == 'group':
+            result.notes.append(Note('Накопленный объем группы по накопленному объему группы — диагональ: по оси X взят '
+                                     'накопленный объем объекта.'))
+        if sel.params['layout'] == 'overlay' and metric not in OVERLAY_METRICS:
+            result.notes.append(Note('Этот вид строится отдельно для каждой группы; на одном графике доступны суточный '
+                                     'расход, накопленный объем, работающие скважины и доля группы в объекте.'))
+        dailies = {}
+        objects = object_lookup(sel, xmode, metric)
         for group in sel.groups:
             daily, wells = group_analysis.daily(sel.df, sel.mapping, group, sel.kind, sel.periods)
+            if sel.params['layout'] == 'overlay' and metric in OVERLAY_METRICS:
+                dailies[group] = daily
+                if not daily.empty:
+                    result.tables.append(group_table(group, daily))
+                continue
             if metric in SHARE_METRICS:
                 if daily.empty:
                     continue
@@ -101,10 +123,13 @@ class ProductionModule(ProductionBase):
                                       'pareto': lambda: pareto_chart(sel, d, group),
                                       'vs_object': lambda: vs_object_chart(sel, daily, object_days(sel), group)}[metric]())
             else:
-                result.charts.append(group_chart(sel, daily, wells, group, metric, overlay,
-                                                 sel.params['gx'] == 'object'))
+                result.charts.append(group_chart(sel, daily, wells, group, metric, overlay, xmode, objects))
             if not daily.empty:
                 result.tables.append(group_table(group, daily))
+        if dailies:
+            if overlay:
+                result.notes.append(Note('Наложение отдельных скважин на одном графике групп не показывается.'))
+            result.charts.append(groups_overlay_chart(sel, dailies, metric, xmode))
         return result
 
     # --- сохранённый вид: формат 5.8 (settings.panels.prod_0 / prod_1) ---

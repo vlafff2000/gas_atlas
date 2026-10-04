@@ -316,3 +316,42 @@ def test_group_share_charts(env):
     assert chart['x']['scale'] == 'value'
     xs = [v for v in chart['series'][0]['x'] if v is not None]
     assert xs == sorted(xs)
+
+
+def test_group_x_axis_works_for_every_line_metric(env):
+    """Ось X «накопленный объем» не игнорируется: меняются ось и значения X у суточного, накопленного, работающих, доли."""
+    client, pid, projects = env
+    p = pick(client, pid, projects)
+    p['groups'] = p['groups'][:1]
+    for metric in ('daily', 'cumulative', 'active', 'share'):
+        by_date = run(client, pid, mode='groups', metric=metric, gx='date', **p)['charts'][0]
+        by_object = run(client, pid, mode='groups', metric=metric, gx='object', **p)['charts'][0]
+        assert by_date['x']['scale'] == 'time' and by_object['x']['scale'] == 'value', metric
+        xs = [v for v in by_object['series'][0]['x'] if v is not None]
+        assert xs == sorted(xs), metric
+    own = run(client, pid, mode='groups', metric='daily', gx='group', **p)['charts'][0]
+    assert own['x']['label'] == 'Накопленный объем группы'
+    assert run(client, pid, mode='groups', metric='cumulative', gx='group', **p)['charts'][0]['x']['label'] == \
+        'Накопленный объем объекта'
+
+
+def test_groups_overlay_on_one_plane(env):
+    """Режим «Все группы на одном графике»: один график, цвет — группа, значения те же, что на отдельных графиках."""
+    client, pid, projects = env
+    p = pick(client, pid, projects)
+    assert len(p['groups']) >= 2
+    for metric in ('daily', 'cumulative', 'active', 'share'):
+        for gx in ('date', 'object'):
+            one = run(client, pid, mode='groups', metric=metric, gx=gx, layout='overlay', **p)
+            apart = run(client, pid, mode='groups', metric=metric, gx=gx, layout='separate', **p)
+            assert len(one['charts']) == 1 and len(apart['charts']) == len(p['groups'])
+            names = {s['facets']['Группа'] for s in one['charts'][0]['series']}
+            assert names == set(p['groups'])
+            expected = sum(len(c['series']) for c in apart['charts'])
+            assert len(one['charts'][0]['series']) == expected, (metric, gx)
+            first = next(s for s in one['charts'][0]['series'] if s['facets']['Группа'] == p['groups'][0])
+            ref = apart['charts'][0]['series'][0]
+            assert first['y'] == ref['y'] and first['x'] == ref['x']
+    # виды без наложения строятся по группам, с пояснением
+    body = run(client, pid, mode='groups', metric='pareto', layout='overlay', **p)
+    assert len(body['charts']) == len(p['groups'])

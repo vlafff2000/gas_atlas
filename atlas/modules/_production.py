@@ -169,55 +169,118 @@ def histogram_charts(sel: Selection, ws: list[str], axis: str, size: int, prefix
 
 
 GROUP_AXES = {'daily': ('Суммарный расход', 'тыс. м³/сут'), 'cumulative': ('Накопленный объем', 'млн м³'),
-              'active': ('Работающих скважин с наблюдениями', '')}
+              'active': ('Работающих скважин с наблюдениями', ''), 'share': ('Доля группы в объекте', '%')}
+
+OVERLAY_METRICS = ('daily', 'cumulative', 'active', 'share')     # метрики, у которых группы можно наложить друг на друга
+
+
+def group_xmode(metric: str, xmode: str) -> str:
+    """Накопленный объём группы по её же накопленному объёму — диагональ без смысла: берём объём объекта."""
+    return 'object' if metric == 'cumulative' and xmode == 'group' else xmode
+
+
+def _x_axis(xmode: str) -> Axis:
+    if xmode == 'object':
+        return Axis('Накопленный объем объекта', 'млн м³', from_zero=True)
+    if xmode == 'group':
+        return Axis('Накопленный объем группы', 'млн м³', from_zero=True)
+    return Axis('Дата', scale='time')
+
+
+def object_lookup(sel: Selection, xmode: str, metric: str) -> dict:
+    """По периодам: накопленный объём объекта (``cum``) и его суточная сумма (``total``); строится, только если нужна."""
+    if group_xmode(metric, xmode) != 'object' and metric != 'share':
+        return {}
+    days = object_days(sel)
+    return {'cum': {p: g.set_index('date').cum for p, g in days.groupby('period', sort=False)},
+            'total': {p: g.set_index('date').total for p, g in days.groupby('period', sort=False)}}
+
+
+def group_curves(sel: Selection, daily: pd.DataFrame, metric: str, xmode: str, objects: dict) -> list[tuple[str, pd.DataFrame]]:
+    """Суммарная кривая группы по периодам: колонки ``x`` (дата или накопленный объём), ``value``, ``label`` (подсказка)."""
+    xmode = group_xmode(metric, xmode)
+    out = []
+    for period, g in daily.groupby('period', sort=False) if not daily.empty else []:
+        g = g.copy()
+        if metric == 'share':
+            obj = g.date.map(objects['total'].get(period, pd.Series(dtype=float))) / 1000
+            g['value'] = g.total / 1000 / obj.replace(0, np.nan) * 100
+        else:
+            g['value'] = (g.total / 1000 if metric == 'daily' else g.cumulative if metric == 'cumulative'
+                          else g.active.where(g.observed.gt(0)))
+        if xmode == 'object':
+            g['x'] = g.date.map(objects['cum'].get(period, pd.Series(dtype=float)))
+            g = g[g.x.notna()]
+        elif xmode == 'group':
+            g['x'] = g.cumulative.ffill().fillna(0)
+        else:
+            g['x'] = g.date
+        g = screen_decimate(g, 'value')
+        g['label'] = ('Наблюдений: ' + g.observed.fillna(0).astype(int).astype(str) + ' / ' + g.expected.astype(int).astype(str)
+                      + ' скважин · покрытие ' + g.coverage.fillna(0).map('{:.1f}'.format) + '%')
+        out.append((period, g))
+    return out
 
 
 def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: str, metric: str,
-                overlay: list[str], by_object: bool = False) -> Chart:
+                overlay: list[str], xmode: str = 'date', objects: dict | None = None) -> Chart:
     """Сумма по группе по периодам и наложение отдельных скважин, как ``group_analysis.figure``.
 
-    ``by_object`` — по X накопленный объём объекта за период (как «Q / накопленный объем объекта» у скважин);
-    только для суточного расхода: накопленный объём группы по накопленному объёму объекта не информативен.
+    ``xmode``: ``date`` — по дате, ``object`` — по накопленному объёму объекта за период (как «Q / накопленный объем
+    объекта» у скважин), ``group`` — по накопленному объёму самой группы.
     """
-    by_object = by_object and metric == 'daily'
-    objects = {p: g.set_index('date').cum for p, g in object_days(sel).groupby('period', sort=False)} if by_object else {}
-    chart = Chart(f'production-group-{group}', f'Группа {group}',
-                  Axis('Накопленный объем объекта', 'млн м³', from_zero=True) if by_object else Axis('Дата', scale='time'),
-                  Axis(*GROUP_AXES[metric], from_zero=True))
+    xmode = group_xmode(metric, xmode)
+    objects = object_lookup(sel, xmode, metric) if objects is None else objects
+    chart = Chart(f'production-group-{group}', f'Группа {group}', _x_axis(xmode), Axis(*GROUP_AXES[metric], from_zero=True))
     colors, palette = legacy.period_colors(sel.df, sel.kind), well_colors(wells)
-    for period, g in daily.groupby('period', sort=False) if not daily.empty else []:
-        g = g.copy()
-        g['value'] = (g.total / 1000 if metric == 'daily' else g.cumulative if metric == 'cumulative'
-                      else g.active.where(g.observed.gt(0)))
-        points = len(g)
-        if by_object:
-            g['x'] = g.date.map(objects.get(period, pd.Series(dtype=float)))
-            g = g[g.x.notna()]
-        g = screen_decimate(g, 'value')
-        labels = ('Наблюдений: ' + g.observed.fillna(0).astype(int).astype(str) + ' / ' + g.expected.astype(int).astype(str)
-                  + ' скважин · покрытие ' + g.coverage.fillna(0).map('{:.1f}'.format) + '%')
-        chart.series.append(Series('Сумма · ' + period, (g.x if by_object else g.date).to_numpy(), g.value.to_numpy(), 'line',
-                                   color=colors.get(period), width=3.0, labels=labels.tolist(),
+    for period, g in group_curves(sel, daily, metric, xmode, objects):
+        chart.series.append(Series('Сумма · ' + period, g.x.to_numpy(), g.value.to_numpy(), 'line',
+                                   color=colors.get(period), width=3.0, labels=g.label.tolist(),
                                    facets={'Кривая': 'Сумма', 'Период': str(period)}))
-    if metric != 'active':
+    if metric in ('daily', 'cumulative'):
         d = select_wells(sel.df, [w for w in overlay if w in wells])
         d = d[d.kind.eq(sel.kind) & d.period.isin(sel.periods)]
+        group_cum = {p: g.set_index('date').cumulative.ffill() for p, g in daily.groupby('period', sort=False)} if xmode == 'group' else {}
         for (well, period), g in d.groupby(['well', 'period'], sort=False):
             calendar = pd.date_range(g.date.min(), g.date.max())
             g = g.set_index('date').reindex(calendar)
             values = g.q.where(~g.get('_excluded', pd.Series(False, index=g.index)).fillna(False))
             g['value'] = values / 1000 if metric == 'daily' else values.cumsum() / 1e6
             g['date'] = calendar
-            if by_object:
-                g['x'] = g.date.map(objects.get(period, pd.Series(dtype=float)))
-                g = g[g.x.notna()]
-            points = len(g)
-            g = screen_decimate(g, 'value')
-            chart.series.append(Series(f'№ {well} · {period}', (g.x if by_object else g.date).to_numpy(), g.value.to_numpy(), 'line',
+            if xmode == 'object':
+                g['x'] = g.date.map(objects['cum'].get(period, pd.Series(dtype=float)))
+            elif xmode == 'group':
+                g['x'] = g.date.map(group_cum.get(period, pd.Series(dtype=float)))
+            else:
+                g['x'] = g.date
+            g = screen_decimate(g[g.x.notna()], 'value')
+            chart.series.append(Series(f'№ {well} · {period}', g.x.to_numpy(), g.value.to_numpy(), 'line',
                                        color=palette[well], width=1.4,
                                        facets={'Кривая': f'№ {well}', 'Период': str(period)}))
-    if not daily.empty and not by_object:
+    if not daily.empty and xmode == 'date':
         chart.events = regime_events(sel.df, daily.date.min(), daily.date.max())
+    return chart
+
+
+def groups_overlay_chart(sel: Selection, dailies: dict[str, pd.DataFrame], metric: str, xmode: str) -> Chart:
+    """Кривые выбранных групп на одной координатной плоскости: цвет — группа, штрих — период, легенда по группам."""
+    xmode = group_xmode(metric, xmode)
+    objects = object_lookup(sel, xmode, metric)
+    title = {'daily': 'суммарный расход', 'cumulative': 'накопленный объем', 'active': 'работающие скважины',
+             'share': 'доля в объекте'}[metric]
+    chart = Chart('production-groups-overlay', f'Группы на одном графике: {title}', _x_axis(xmode),
+                  Axis(*GROUP_AXES[metric], from_zero=True))
+    palette = well_colors(list(dailies))
+    single = len(sel.periods) == 1
+    for group, daily in dailies.items():
+        for period, g in group_curves(sel, daily, metric, xmode, objects):
+            chart.series.append(Series(
+                group if single else f'{group} · {period}', g.x.to_numpy(), g.value.to_numpy(), 'line',
+                color=palette[group], dash='solid' if single else DASH[sel.periods.index(period) % len(DASH)], width=2.4,
+                labels=g.label.tolist(), facets={'Группа': group} if single else {'Группа': group, 'Период': str(period)}))
+    bounds = [(d.date.min(), d.date.max()) for d in dailies.values() if not d.empty]
+    if bounds and xmode == 'date':
+        chart.events = regime_events(sel.df, min(b[0] for b in bounds), max(b[1] for b in bounds))
     return chart
 
 
