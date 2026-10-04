@@ -7,6 +7,7 @@ import type { Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
+import { axisAt, formatBound, parseBound, shiftRange, wheelFactor, zoomRange, type AxisName, type Range } from './chartAxes'
 import { hiddenEvents, setHoverMode, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
@@ -46,6 +47,7 @@ interface Props {
 /** Подгруженное окно: серии с точками в границах [from, to] поверх прореженного графика `base`. */
 interface Patch { base: Chart; from: number; to: number; raw: boolean; series: WindowReply['series'] }
 /** Оси после подгрузки окна остаются прежними: X — на весь график (сброс масштаба возвращает всё), Y — как её видел пользователь. */
+type Manual = { y: Range | null; y2: Range | null }      // границы шкал Y, заданные вручную
 type AxisPin = { x: [number, number] | null; y: [number, number] | null; y2: [number, number] | null }
 
 const key = (s: Series) => s.group || s.name
@@ -94,7 +96,7 @@ export const hasNavigator = (chart: Chart) => timeSpan(chart) > NAVIGATOR_SPAN
 /** Холст рисуется минимум в двойном разрешении: на обычных мониторах (масштаб 100%) линии и подписи иначе выходят «мыльными». */
 function pixelRatio() { return Math.max(2, window.devicePixelRatio || 1) }
 
-function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode, pin: AxisPin | null, base: Chart): echarts.EChartsCoreOption {
+function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode, pin: AxisPin | null, base: Chart, manual: Manual): echarts.EChartsCoreOption {
   const color = colorOf(chart)
   const tips = new Map<string, string[]>()
   for (const s of chart.series) {
@@ -107,7 +109,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const navigator = hasNavigator(base)      // по полному графику: подгрузка окна не должна убирать навигатор
 
   const axis = (a: Axis, position: 'x' | 'y' | 'y2') => {
-    const plain = axisBase(a, position), fixed = pin?.[position]
+    const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position]
     return fixed ? { ...plain, min: fixed[0], max: fixed[1] } : plain
   }
   const axisBase = (a: Axis, position: 'x' | 'y' | 'y2') => {
@@ -289,6 +291,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
   }, [given, patch])
   const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
   const state = useRef({
+    ranges: { y: null, y2: null } as Manual, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
     applyZoom: (() => {}) as () => void,
@@ -312,7 +315,35 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: on })
   }
   const syncZoom = usePref(zoomSync)
-  const resetZoom = () => instance.current?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+  const [ranges, setRangesState] = useState<Manual>({ y: null, y2: null })      // ручные границы Y: переживают обновление данных
+  const [editor, setEditor] = useState<{ axis: AxisName; lo: string; hi: string; at: [number, number]; error: string } | null>(null)
+  state.current.ranges = ranges
+  state.current.setRanges = setRangesState
+  const resetZoom = () => {
+    setEditor(null)
+    state.current.setRanges({ y: null, y2: null })
+    instance.current?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+  }
+  const manual = !!(ranges.y || ranges.y2)
+  const commitEditor = (autoAxis: boolean) => {
+    if (!editor) return
+    const a = editor.axis, ax = a === 'x' ? chart.x : a === 'y2' && chart.y2 ? chart.y2 : chart.y
+    if (autoAxis) {
+      if (a === 'x') instance.current?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+      else state.current.setRanges({ ...state.current.ranges, [a]: null })
+      setEditor(null)
+      return
+    }
+    const time = ax.scale === 'time'
+    let lo = parseBound(editor.lo, time), hi = parseBound(editor.hi, time)
+    if (lo === null || hi === null) { setEditor({ ...editor, error: time ? 'Дата вида 2024-05-17 или 17.05.2024' : 'Введите числа' }); return }
+    if (lo > hi) [lo, hi] = [hi, lo]
+    if (!(hi > lo)) { setEditor({ ...editor, error: 'Минимум должен быть меньше максимума' }); return }
+    if (ax.scale === 'log' && lo <= 0) { setEditor({ ...editor, error: 'На логарифмической шкале значения больше нуля' }); return }
+    if (a === 'x') instance.current?.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: lo, endValue: hi })
+    else state.current.setRanges({ ...state.current.ranges, [a]: [lo, hi] })
+    setEditor(null)
+  }
   state.current.excludeMode = excludeMode
   state.current.mode = mode
   state.current.onExclude = onExclude
@@ -735,7 +766,116 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
       }
       schedule()
     })
-    zr.on('dblclick', () => ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 }))
+    // ---- ручная правка осей: двойной щелчок — окно с границами, колесо над осью — масштаб только её, перетаскивание — сдвиг ----
+    const zone = (px: number, py: number): AxisName | null => {
+      const r = gridRect()
+      return r ? axisAt(px, py, r, el.clientWidth, !!st.chart.y2, st.chart.x.scale !== 'category') : null
+    }
+    const axisOf = (a: AxisName) => (a === 'x' ? st.chart.x : a === 'y2' && st.chart.y2 ? st.chart.y2 : st.chart.y)
+    const rangeOf = (a: AxisName): Range | null => {
+      if (a === 'x') return st.edges()
+      return st.ranges[a] ?? axisExtent(a === 'y2' ? 1 : 0)
+    }
+    const apply = (a: AxisName, next: Range) => {
+      if (a === 'x') ch.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: next[0], endValue: next[1] })
+      else st.setRanges({ ...st.ranges, [a]: next })
+    }
+    zr.on('dblclick', (e: { offsetX: number; offsetY: number }) => {
+      if (zone(e.offsetX, e.offsetY)) return
+      st.setRanges({ y: null, y2: null })
+      ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+    })
+    st.openEditor = (a: AxisName) => {
+      const r = rangeOf(a), ax = axisOf(a)
+      if (!r) return
+      const time = ax.scale === 'time', span = r[1] - r[0]
+      const rect = gridRect()
+      const at: [number, number] = a === 'x' ? [Math.max(4, (rect?.x ?? 0) + (rect?.width ?? 0) / 2 - 110), (rect?.y ?? 0) + (rect?.height ?? 0) - 120]
+        : a === 'y' ? [(rect?.x ?? 0) + 8, (rect?.y ?? 0) + 8] : [Math.max(4, (rect?.x ?? 0) + (rect?.width ?? 0) - 228), (rect?.y ?? 0) + 8]
+      setEditor({ axis: a, lo: formatBound(r[0], time, span), hi: formatBound(r[1], time, span), at, error: '' })
+    }
+    const onAxisDblclick = (e: MouseEvent) => {
+      const box = host.getBoundingClientRect()
+      const a = zone(e.clientX - box.left, e.clientY - box.top)
+      if (a) { e.preventDefault(); st.openEditor(a) }
+    }
+    const onAxisWheel = (e: WheelEvent) => {
+      const box = host.getBoundingClientRect()
+      const px = e.clientX - box.left, py = e.clientY - box.top
+      const a = zone(px, py)
+      if (!a) return
+      e.preventDefault(); e.stopPropagation()
+      const r = rangeOf(a), ax = axisOf(a)
+      if (!r) return
+      const [vx, vy] = ch.convertFromPixel({ xAxisIndex: 0, yAxisIndex: a === 'y2' ? 1 : 0 }, [px, py]) as [number, number]
+      const next = zoomRange(r, a === 'x' ? vx : vy, wheelFactor(e.deltaY), ax.scale === 'log')
+      if (next) apply(a, next)
+    }
+    let pan: { axis: AxisName; start: Range; from: number; id: number; moved: boolean } | null = null
+    const onAxisDown = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      const box = host.getBoundingClientRect()
+      const px = e.clientX - box.left, py = e.clientY - box.top
+      const a = zone(px, py)
+      const r = a && rangeOf(a)
+      if (!a || !r) return
+      pan = { axis: a, start: r, from: a === 'x' ? px : py, id: e.pointerId, moved: false }
+    }
+    const onAxisMove = (e: PointerEvent) => {
+      const box = host.getBoundingClientRect()
+      const px = e.clientX - box.left, py = e.clientY - box.top
+      if (!pan) {
+        const a = e.buttons ? null : zone(px, py)
+        host.style.cursor = a === 'x' ? 'ew-resize' : a ? 'ns-resize' : ''
+        return
+      }
+      if (e.pointerId !== pan.id) return
+      const r = gridRect(), ax = axisOf(pan.axis)
+      if (!r) return
+      const d = (pan.axis === 'x' ? px : py) - pan.from
+      if (!pan.moved && Math.abs(d) < 4) return
+      if (!pan.moved) host.setPointerCapture(e.pointerId)
+      pan.moved = true
+      // подписи тянем за мышью: вправо — окно X уходит влево, вниз — окно Y уходит вверх по значениям
+      const frac = (pan.axis === 'x' ? -d / r.width : d / r.height) * (ax.inverse ? -1 : 1)
+      const next = shiftRange(pan.start, frac, ax.scale === 'log')
+      if (next) apply(pan.axis, next)
+    }
+    const onAxisUp = (e: PointerEvent) => {
+      if (!pan || e.pointerId !== pan.id) return
+      if (pan.moved && host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId)
+      pan = null
+    }
+    host.addEventListener('wheel', onAxisWheel, { passive: false, capture: true })
+    host.addEventListener('dblclick', onAxisDblclick)
+    host.addEventListener('pointerdown', onAxisDown)
+    host.addEventListener('pointermove', onAxisMove)
+    host.addEventListener('pointerup', onAxisUp)
+    host.addEventListener('pointercancel', onAxisUp)
+    // Y по точкам в видимом окне X (с запасом 5%)
+    st.fitY = () => {
+      const win = st.edges()
+      const next: Manual = { y: null, y2: null }
+      for (const name of ['y', 'y2'] as const) {
+        const ax = axisOf(name), log = ax.scale === 'log', axis = name === 'y2' ? 1 : 0
+        if (name === 'y2' && !st.chart.y2) continue
+        let lo = Infinity, hi = -Infinity
+        for (const t of st.tracks) {
+          if (t.axis !== axis || st.selected[key(t.series)] === false) continue
+          for (let i = 0; i < t.ys.length; i++) {
+            const v = t.ys[i]
+            if (!(v === v) || (log && v <= 0) || (win && (t.xs[i] < win[0] || t.xs[i] > win[1]))) continue
+            if (v < lo) lo = v
+            if (v > hi) hi = v
+          }
+        }
+        if (!(hi >= lo)) continue
+        const f = (v: number) => (log ? Math.log10(v) : v), g = (v: number) => (log ? Math.pow(10, v) : v)
+        const pad = (f(hi) - f(lo)) * 0.05 || Math.abs(f(hi)) * 0.05 || 1
+        next[name] = [g(f(lo) - pad), g(f(hi) + pad)]
+      }
+      st.setRanges(next)
+    }
     // Окно оси X → точки окна: при увеличении, а также в режимах «Замеры» и «Исключать точки» (там нужны все замеры)
     let timer = 0, seq = 0
     const edges = (): [number, number] | null => {
@@ -839,6 +979,9 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
       window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin); host.removeEventListener('click', onOpen)
       host.removeEventListener('pointerdown', onGrab); host.removeEventListener('pointermove', onDrag)
       host.removeEventListener('pointerup', onDrop); host.removeEventListener('pointercancel', onDrop)
+      host.removeEventListener('wheel', onAxisWheel, { capture: true }); host.removeEventListener('dblclick', onAxisDblclick)
+      host.removeEventListener('pointerdown', onAxisDown); host.removeEventListener('pointermove', onAxisMove)
+      host.removeEventListener('pointerup', onAxisUp); host.removeEventListener('pointercancel', onAxisUp)
       if (st.frame) cancelAnimationFrame(st.frame)
       ch.dispose(); instance.current = null
     }
@@ -861,8 +1004,9 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     st.spans = { x: span(st.tracks, t => t.xs), y: span(st.tracks.filter(t => !t.axis), t => t.ys), y2: span(st.tracks.filter(t => t.axis), t => t.ys) }
     st.blur = chart.series.reduce((n, s) => n + s.x.length, 0) <= BLUR_LIMIT
     st.focused = -1
-    const view = st.patch && st.patch.base === given ? st.edges() : null      // масштаб сохраняется при подмене точек окна
-    instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode, st.patch ? st.pin : null, given), { notMerge: true })
+    const view = (st.patch && st.patch.base === given) || st.lastChart === chart ? st.edges() : null      // масштаб сохраняется при подмене точек окна и смене границ осей
+    st.lastChart = chart
+    instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode, st.patch ? st.pin : null, given, st.ranges), { notMerge: true })
     if (view) instance.current?.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: view[0], endValue: view[1] })
     st.applyZoom()
     st.selected = {}
@@ -873,7 +1017,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     const later = window.setTimeout(st.ensure, 0)
     return () => window.clearTimeout(later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart, excludeMode, mode, theme])
+  }, [chart, excludeMode, mode, theme, ranges])
 
   // новый расчёт (другие параметры, исключение точки) — подгруженное окно относится к прежнему графику
   useEffect(() => { state.current.patch = null; state.current.pin = null; setPatch(null) }, [given])
@@ -927,7 +1071,11 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
                 title="Синхронизировать масштаб: окно по времени одинаково на всех графиках по времени, в том числе после перехода в другой раздел">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5l3-3" /><path d="M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1" /><path d="M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1" /></svg>
               </button>}
-              <button type="button" className="icon" onClick={resetZoom} title="Сбросить масштаб (или двойной щелчок по графику)">
+              <button type="button" className="icon" onClick={() => state.current.fitY()}
+                title="Подогнать шкалу Y под точки в видимом окне по X">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h10M3 13.5h10" /><path d="M8 4.5v7M6 6.5l2-2 2 2M6 9.5l2 2 2-2" /></svg>
+              </button>
+              <button type="button" className="icon" onClick={resetZoom} title="Сбросить масштаб и границы осей (или двойной щелчок по графику). Двойной щелчок по оси — ввести границы, колесо над осью — масштаб оси, перетаскивание оси — сдвиг">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7" /><path d="M3 2.5v3h3" /></svg>
               </button>
             </span>
@@ -946,6 +1094,21 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
         <div ref={box} className="chart-canvas" role="img" aria-label={chart.title} />
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
         <div ref={tip} className="atlas-tip floating" hidden />
+        {manual && <button type="button" className="axes-chip" onClick={() => state.current.setRanges({ y: null, y2: null })}
+          title="Вернуть автоматические границы осей Y">Оси Y вручную ✕</button>}
+        {editor && <form className="axis-editor" style={{ left: editor.at[0], top: editor.at[1] }}
+          onSubmit={e => { e.preventDefault(); commitEditor(false) }}
+          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setEditor(null) } }}>
+          <b>{editor.axis === 'x' ? 'Ось X' : editor.axis === 'y2' ? 'Ось Y справа' : 'Ось Y'}</b>
+          <label>Минимум<input autoFocus value={editor.lo} onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, lo: e.target.value, error: '' })} /></label>
+          <label>Максимум<input value={editor.hi} onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, hi: e.target.value, error: '' })} /></label>
+          {editor.error && <span className="axis-error">{editor.error}</span>}
+          <span className="axis-buttons">
+            <button type="submit" className="primary">Применить</button>
+            <button type="button" onClick={() => commitEditor(true)}>Авто</button>
+            <button type="button" onClick={() => setEditor(null)}>Закрыть</button>
+          </span>
+        </form>}
       </div>
       <ChartLegend model={legend} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
         offEvents={offEvents} onHighlight={highlight}
