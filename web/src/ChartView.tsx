@@ -215,7 +215,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         : xs.map((x, j) => [x, s.y[j]])
       const rows = s.kind === 'points' ? data.filter(([x, y]) => x !== null && y !== null) : data
       const common = { name: key(s), data: rows, color: c, yAxisIndex: s.axis === 'y2' && chart.y2 ? 1 : 0,
-        silent: custom, emphasis, blur: blurred }
+        silent: custom, emphasis, blur: blurred, ...(s.stack ? { stack: s.stack } : {}) }
       if (s.kind === 'bar') {
         return { ...common, type: 'bar', barMaxWidth: 24, barGap: '12%', itemStyle: { color: c, borderRadius: [4, 4, 0, 0] },
           emphasis: { focus: 'none', itemStyle: { color: c } } }
@@ -229,6 +229,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           showSymbol: markers, showAllSymbol: 'auto', symbol: markers ? SYMBOL[s.symbol] : 'none', symbolSize: rows.length > 150 ? 4 : s.markers ? 7 : 5,
           itemStyle: s.hollow ? { color: tk.surface, borderColor: c, borderWidth: 1.8 } : { color: c, borderColor: tk.surface, borderWidth: 1.5 },
           lineStyle: { color: c, width, type: dashOf(s), cap: 'round', join: 'round', ...(s.opacity < 1 ? { opacity: s.opacity } : {}) },
+          ...(s.stack ? { areaStyle: { color: c, opacity: 0.6 } } : {}),
           emphasis: { ...emphasis, lineStyle: { width: width + 1 } } }
       }
       const big = rows.length > LARGE

@@ -298,3 +298,21 @@ def test_gdi_events_on_cumulative_axis():
     assert [(e.x, e.label) for e in out] == [(4.5, 'ГДИ · № 1')]       # вне показанного сезона — без отметки
     chart = Chart('c', '', Axis('Накопленный'), Axis('Q'), events=out)
     assert _chart_json(chart)['events'][0]['x'] == 4.5
+
+
+def test_group_share_charts(env):
+    """Новые виды группы: доли дают 100 %, Парето заканчивается на 100 %, ось объекта числовая и растёт."""
+    client, pid, projects = env
+    p = pick(client, pid, projects)
+    p['groups'] = p['groups'][:1]
+    for metric in ('shares', 'hybrid', 'pareto', 'vs_object'):
+        assert run(client, pid, mode='groups', metric=metric, **p)['charts'], metric
+    shares = run(client, pid, mode='groups', metric='shares', **p)['charts'][0]['series']
+    last = [s['y'][-1] for s in shares if s['y'] and s['y'][-1] is not None]
+    assert abs(sum(last) - 100 * len(p["periods"])) < 1e-3   # стопка на каждый период
+    pareto = run(client, pid, mode='groups', metric='pareto', **p)['charts'][0]['series'][1]
+    assert abs(pareto['y'][-1] - 100) < 1e-9
+    chart = run(client, pid, mode='groups', metric='daily', gx='object', **p)['charts'][0]
+    assert chart['x']['scale'] == 'value'
+    xs = [v for v in chart['series'][0]['x'] if v is not None]
+    assert xs == sorted(xs)
