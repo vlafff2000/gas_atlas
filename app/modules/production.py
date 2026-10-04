@@ -4,21 +4,40 @@ import numpy as np
 import pandas as pd
 from app.core.config import COLORS, ordered, natural_key
 
-def periods(df,start=11,end=4):
-    if df.attrs.get('_atlas_period_rule')==(start,end) and 'period' in df:return df
+def period_rule(settings):
+    """Правило сезонов из настроек проекта: (начало, конец) или с автоопределением (…, дней, доля %). Ключ кэша представлений."""
+    rule=(settings.get('season_start',11),settings.get('season_end',4))
+    if settings.get('auto_seasons'):
+        from app.modules import seasons
+        rule+=(settings.get('season_gap_days',seasons.DEFAULT_GAP_DAYS),settings.get('season_rate_share',seasons.DEFAULT_SHARE))
+    return rule
+
+def periods_for(df,settings):
+    """``periods`` по настройкам проекта; автоопределение сезонов включает ``auto_seasons`` (в 5.8 его нет)."""
+    rule=period_rule(settings)
+    return periods(df,*rule)
+
+def periods(df,start=11,end=4,gap_days=None,share=None):
+    """Сезон каждой строки. С ``gap_days`` и ``share`` сезоны без явных «Сезон»/«Год» ищутся по накопленному расходу объекта."""
+    auto=gap_days is not None
+    if df.attrs.get('_atlas_period_rule')==((start,end,gap_days,share) if auto else (start,end)) and 'period' in df:return df
     if df.empty: return df.assign(period=pd.Series(dtype=str))
     d=df.copy()
     # The rule is row-wise over (date year, month, kind, season, year): evaluate it once per distinct
     # combination (hundreds) instead of string operations on every row (seconds on a million rows).
-    keys=pd.DataFrame({'y':d.date.dt.year,'m':d.date.dt.month},index=d.index)
+    keys=pd.DataFrame({'date':d.date} if auto else {'y':d.date.dt.year,'m':d.date.dt.month},index=d.index)
     for c in ('kind','season','year'):
         if c in d: keys[c]=d[c]
     codes=keys.groupby(list(keys.columns),sort=False,dropna=False).ngroup().to_numpy()
     _,first=np.unique(codes,return_index=True)
-    d['period']=_period_values(d.iloc[first],start,end)[codes]
+    label=None
+    if auto:
+        from app.modules import seasons
+        label=seasons.labeler(d,gap_days,share)
+    d['period']=_period_values(d.iloc[first],start,end,label)[codes]
     return d
 
-def _period_values(d,start,end):
+def _period_values(d,start,end,auto=None):
     """Season label per row (the 5.8 rule as written; ``periods`` applies it to distinct rows)."""
     year=d.date.dt.year; month=d.date.dt.month
     if start>end:
@@ -29,6 +48,9 @@ def _period_values(d,start,end):
     season=d.get('season',pd.Series('',index=d.index)).fillna('').astype(str).str.replace(r'[–—]','-',regex=True).str.replace(r'\s','',regex=True)
     supplied_year=d.get('year',pd.Series('',index=d.index)).fillna('').astype(str).str.replace(r'\.0$','',regex=True)
     inj=supplied_year.where(supplied_year.str.fullmatch(r'\d{4}'),year.astype(str))
+    if auto is not None:     # явные «Сезон»/«Год» главнее; остальное — по накопленному расходу
+        found=auto(d.date,d.kind)
+        derived,inj=found,supplied_year.where(supplied_year.str.fullmatch(r'\d{4}'),found)
     return np.where(d.kind.eq('injection'),inj,season.where(season.ne(''),derived))
 
 def period_colors(df,kind):

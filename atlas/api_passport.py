@@ -79,7 +79,7 @@ class Passport:
         if 'production' not in self.frames:
             return {}
         from app.modules import production
-        d = production.periods(self.frames['production'], self.settings['season_start'], self.settings['season_end'])
+        d = production.periods_for(self.frames['production'], self.settings)
         return {kind: [str(p) for p in ordered(d.loc[d.kind.eq(kind), 'period'])] for kind, _ in KINDS}
 
     def well(self, value: Any) -> str:

@@ -95,9 +95,9 @@ def prepare_table(raw,module,settings,token):
     # Never attach mutable metadata to the raw snapshot shared with other sessions.
     d=d.copy(deep=False)
     if module=='production':
-        from app.modules.production import periods
-        d=periods(d,settings.get('season_start',11),settings.get('season_end',4))
-        d.attrs['_atlas_period_rule']=(settings.get('season_start',11),settings.get('season_end',4))
+        from app.modules.production import period_rule,periods_for
+        d=periods_for(d,settings)
+        d.attrs['_atlas_period_rule']=period_rule(settings)
     d.attrs['_atlas_token']=token;d.attrs['_atlas_full_rows']=len(d)
     d.attrs['_atlas_index']=FrameIndex(d,module)
     return d
@@ -119,9 +119,12 @@ class Project:
             return self._raw[module]
 
     def prepared(self,module,settings,fast=True):
+        from app.modules.production import period_rule
         relevant={'excluded_points':{k:v for k,v in settings.get('excluded_points',{}).items() if v.get('module')==module},
-                  'period_rule':(settings.get('season_start',11),settings.get('season_end',4)) if module=='production' else None}
-        if module=='production':relevant.update(season_start=settings.get('season_start',11),season_end=settings.get('season_end',4))
+                  'period_rule':period_rule(settings) if module=='production' else None}
+        if module=='production':
+            relevant.update(season_start=settings.get('season_start',11),season_end=settings.get('season_end',4))
+            relevant.update({k:settings[k] for k in ('auto_seasons','season_gap_days','season_rate_share') if k in settings})
         key=(module,signature(relevant))
         with self.lock:
             if fast and key in self._views:

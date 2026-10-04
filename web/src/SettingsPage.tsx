@@ -10,6 +10,9 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const s = project.settings
   const [start, setStart] = useState(String(s.season_start ?? 11))
   const [end, setEnd] = useState(String(s.season_end ?? 4))
+  const [auto, setAuto] = useState(s.auto_seasons === true)
+  const [gap, setGap] = useState(String(s.season_gap_days ?? 14))
+  const [share, setShare] = useState(String(s.season_rate_share ?? 10))
   const [threshold, setThreshold] = useState(String(s.r2_threshold ?? 0.95))
   const [manometers, setManometers] = useState(((s.manometer_wells as string[] | null) ?? []).join(', '))
   const [pages, setPages] = useState<string[] | null>(null)
@@ -20,10 +23,11 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
 
   useEffect(() => {
     setStart(String(s.season_start ?? 11)); setEnd(String(s.season_end ?? 4)); setThreshold(String(s.r2_threshold ?? 0.95))
+    setAuto(s.auto_seasons === true); setGap(String(s.season_gap_days ?? 14)); setShare(String(s.season_rate_share ?? 10))
     setManometers(((s.manometer_wells as string[] | null) ?? []).join(', '))
     const saved = (s.chart_style as Record<string, boolean> | null) ?? {}
     setStyle({ points: true, legend: true, grid: true, ...saved })
-  }, [s.season_start, s.season_end, s.r2_threshold, s.manometer_wells, s.chart_style])
+  }, [s.season_start, s.season_end, s.r2_threshold, s.auto_seasons, s.season_gap_days, s.season_rate_share, s.manometer_wells, s.chart_style])
   useEffect(() => { if (details) setPages(details.visible_pages) }, [details])
 
   const save = async (values: Record<string, unknown>, done: string) => {
@@ -32,7 +36,9 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   }
   const month = (v: string) => Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 12
   const r2 = Number(threshold)
-  const rulesValid = month(start) && month(end) && threshold.trim() !== '' && r2 >= 0 && r2 <= 1
+  const gapDays = Number(gap), rate = Number(share)
+  const autoValid = Number.isInteger(gapDays) && gapDays >= 1 && gapDays <= 365 && rate > 0 && rate <= 50
+  const rulesValid = month(start) && month(end) && autoValid && threshold.trim() !== '' && r2 >= 0 && r2 <= 1
 
   return (
     <>
@@ -59,15 +65,33 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
             <input type="number" min={0} max={1} step={0.01} value={threshold} onChange={e => setThreshold(e.target.value)} />
           </label>
         </div>
+        <label className="check">
+          <input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} />
+          <span>Определять сезоны по накопленному расходу объекта (если в таблице нет «Сезона» или «Года»)</span>
+        </label>
+        {auto && (
+          <div className="form-row">
+            <label className={'field number' + (Number.isInteger(gapDays) && gapDays >= 1 && gapDays <= 365 ? '' : ' invalid')}>
+              <span className="field-label">Минимальная длительность паузы или сезона, сут</span>
+              <input type="number" min={1} max={365} step={1} value={gap} onChange={e => setGap(e.target.value)} />
+            </label>
+            <label className={'field number' + (rate > 0 && rate <= 50 ? '' : ' invalid')}>
+              <span className="field-label">Порог расхода, % от типичного</span>
+              <input type="number" min={1} max={50} step={1} value={share} onChange={e => setShare(e.target.value)} />
+            </label>
+          </div>
+        )}
         <label className="field wide">
           <span className="field-label">Скважины с глубинными манометрами (через запятую)</span>
           <input value={manometers} onChange={e => setManometers(e.target.value)} />
         </label>
-        <p className="muted small-text">Явный сезон в исходной таблице имеет приоритет над правилом месяцев. Закачка группируется по году.
+        <p className="muted small-text">Явный сезон в исходной таблице имеет приоритет над правилом месяцев и над автоопределением. Закачка группируется по году.
+          Автоопределение: сезон — отрезок, где накопленный объём растёт; горизонтальный участок дольше порога — нейтральный период («Вне сезона»).
           Изменение порога применяется к следующему расчету ГДИ.</p>
         <div className="form-row">
           <button type="button" className="primary" disabled={!rulesValid}
-            onClick={() => save({ season_start: Number(start), season_end: Number(end), r2_threshold: r2, manometer_wells: manometers },
+            onClick={() => save({ season_start: Number(start), season_end: Number(end), r2_threshold: r2, manometer_wells: manometers,
+              auto_seasons: auto, ...(auto ? { season_gap_days: gapDays, season_rate_share: rate } : {}) },
               'Правила сохранены. Расчеты обновятся с учетом новых правил.')}>Сохранить правила</button>
         </div>
       </section>

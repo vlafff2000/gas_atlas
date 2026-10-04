@@ -38,6 +38,9 @@ EDITABLE_SETTINGS = {
     'r2_threshold': lambda v: 0 <= float(v) <= 1,
     'season_start': _month,
     'season_end': _month,
+    'auto_seasons': lambda v: isinstance(v, bool),
+    'season_gap_days': lambda v: not isinstance(v, bool) and float(v) == int(v) and 1 <= int(v) <= 365,
+    'season_rate_share': lambda v: not isinstance(v, bool) and 0 < float(v) <= 50,
     'manometer_wells': _names,
     # Состав меню: имена страниц 5.8 (``app/ui/navigation.PAGES``); None — меню по умолчанию.
     'visible_pages': lambda v: v is None or (isinstance(v, list) and all(navigation.ALIASES.get(x, x) in navigation.PAGES for x in v)),
@@ -47,6 +50,8 @@ EDITABLE_SETTINGS = {
 }
 SETTING_LABELS = {'r2_threshold': 'Порог R²', 'season_start': 'Первый месяц сезона отбора (1–12)',
                   'season_end': 'Последний месяц сезона отбора (1–12)', 'manometer_wells': 'Скважины с глубинными манометрами',
+                  'auto_seasons': 'Определять сезоны по накопленному расходу', 'season_gap_days': 'Минимальная длительность паузы или сезона, сут',
+                  'season_rate_share': 'Порог расхода, % от типичного',
                   'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков'}
 
 
@@ -54,8 +59,10 @@ def _setting_value(name: str, value: Any) -> Any:
     """Значение в том виде, в каком его пишет 5.8."""
     if name == 'r2_threshold':
         return float(value)
-    if name in ('season_start', 'season_end'):
+    if name in ('season_start', 'season_end', 'season_gap_days'):
         return int(value)
+    if name == 'season_rate_share':
+        return float(value)
     if name == 'manometer_wells':      # как ``parse_wells`` 5.8: «№», запятые, пробелы, естественный порядок
         return parse_wells(value if isinstance(value, str) else ', '.join(str(x) for x in value))
     if name == 'visible_pages':
