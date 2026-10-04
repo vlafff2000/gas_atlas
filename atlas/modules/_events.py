@@ -52,3 +52,26 @@ def gdi_events(gdi: pd.DataFrame | None, wells: Iterable[str], start=None, end=N
         method = '' if pd.isna(method) or not str(method).strip() else f' ({method})'
         out.append(Event(row.date, f'ГДИ{method} · № {row.well}', 'gdi', str(row.well)))
     return out
+
+
+def on_cumulative(events: list[Event], data: pd.DataFrame) -> list[Event]:
+    """Переводит события-даты в накопленный объём объекта на эту дату (ось X графика «Q / накопленный объем»).
+
+    Накопленный объём считается по сезонам (``data.period``), поэтому событие ставится на кривую сезона, в чьи даты оно
+    попало; вне показанных сезонов отметки нет. Накопленный объём по объекту, не по скважине, — как сама ось.
+    """
+    if not events or data.empty:
+        return []
+    seasons = []
+    for _, g in data.drop_duplicates(['period', 'date']).groupby('period', sort=False):
+        g = g.sort_values('date')
+        seasons.append((g.date.iloc[0], g.date.iloc[-1], g.date.to_numpy(), g.cumulative.to_numpy()))
+    out = []
+    for e in events:
+        date = pd.Timestamp(e.x)
+        for first, last, dates, cumulative in seasons:
+            if first <= date <= last:
+                i = int(dates.searchsorted(date.to_datetime64()))
+                out.append(Event(float(cumulative[min(i, len(cumulative) - 1)]), e.label, e.kind, e.well))
+                break
+    return sorted(out, key=lambda e: e.x)
