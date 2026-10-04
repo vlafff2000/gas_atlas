@@ -22,6 +22,7 @@ export function ExportPage({ project, onProject }: PageProps) {
   const [image, setImage] = useState<string | null>(null)
   const [archive, setArchive] = useState<{ key: string; result: ExportResult } | null>(null)
   const [word, setWord] = useState<{ key: string; result: ExportResult } | null>(null)
+  const [pack, setPack] = useState<{ key: string; result: ExportResult } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -57,6 +58,10 @@ export function ExportPage({ project, onProject }: PageProps) {
   const makeWord = () => run('word', async () => {
     await prepare()
     setWord({ key, result: await exportApi.word(project.id, form) })
+  })
+
+  const makePack = () => run('pack', async () => {
+    setPack({ key, result: await exportApi.pack(project.id, form) })
   })
 
   // Автоматическое обновление предпросмотра (как флажок 5.8).
@@ -101,7 +106,7 @@ export function ExportPage({ project, onProject }: PageProps) {
     setToast('Параметры просмотра перенесены.')
   })
 
-  const ready_files = [...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : [])]
+  const ready_files = [...(pack?.key === key ? pack.result.files : []), ...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : [])]
   const bundle = () => run('bundle', async () => {
     const { file } = await exportApi.bundle(project.id, ready_files)
     saveLink(projectsApi.exportUrl(project.id, file))
@@ -205,10 +210,51 @@ export function ExportPage({ project, onProject }: PageProps) {
         </div>
       </details>
 
+      {choices.modules.some(m => m.id === 'production') && (
+        <details className="block" open>
+          <summary className="block-head"><h3>Пакет графиков по фонду (приложения к отчету)</h3></summary>
+          <p className="muted pad">Одним нажатием: график «Производительность» каждой скважины фонда за все периоды, по 6 на лист A4
+            (две колонки, три ряда), отдельный файл на отбор и на закачку. Поля подписи: {'{раздел}, {номер}, {скважина}, {режим}, {годы}'}.</p>
+          <div className="param-bar flat">
+            <Section title="Состав">
+              {KINDS.map(([k, l]) => {
+                const chosen = (form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']
+                return (
+                  <label key={k} className="toggle">
+                    <input type="checkbox" checked={chosen.includes(k)}
+                      onChange={e => set('pack_kinds', e.target.checked ? [...chosen, k] : chosen.filter(x => x !== k))} />
+                    <span>{l}</span>
+                  </label>
+                )
+              })}
+              {([['docx', 'Word'], ['pdf', 'PDF']] as const).map(([k, l]) => {
+                const chosen = (form.pack_formats as string[] | undefined) ?? ['docx', 'pdf']
+                return (
+                  <label key={k} className="toggle">
+                    <input type="checkbox" checked={chosen.includes(k)}
+                      onChange={e => set('pack_formats', e.target.checked ? [...chosen, k] : chosen.filter(x => x !== k))} />
+                    <span>{l}</span>
+                  </label>
+                )
+              })}
+            </Section>
+            <Section title="Подписи">
+              <Text {...F} field="pack_section_withdrawal" label="Раздел: отбор" def="П4" />
+              <Text {...F} field="pack_section_injection" label="Раздел: закачка" def="П5" />
+              <Text {...F} field="pack_template" label="Шаблон подписи" wide
+                def="Рисунок {раздел}.{номер} - Производительность скважины №{скважина} при {режим} газа за {годы} гг." />
+            </Section>
+          </div>
+          <div className="toolbar">
+            <button type="button" className="primary" disabled={busy !== null} onClick={makePack}>Создать пакет по всем скважинам</button>
+          </div>
+        </details>
+      )}
+
       <div className="toolbar">
         <Check {...F} field="auto" label="Автоматически обновлять предпросмотр" def={false} />
         <span className="spacer" />
-        {busy && <span className="pulse">{{ preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
+        {busy && <span className="pulse">{{ preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', pack: 'Построение графиков всех скважин, это может занять несколько минут…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
         <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={preview}>Предпросмотр</button>
         <button type="button" className="primary" disabled={!ready || busy !== null} onClick={makeArchive}>Сформировать архив</button>
         <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={makeWord}>Создать отчет Word</button>
@@ -237,6 +283,7 @@ export function ExportPage({ project, onProject }: PageProps) {
         </section>
       )}
 
+      {pack?.key === key && <Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack />}
       {word?.key === key && <Outcome title="Отчет Word" result={word.result} pid={project.id} word />}
       {archive?.key === key && <Outcome title="Архив результатов" result={archive.result} pid={project.id} />}
       {ready_files.length > 0 && (
@@ -261,13 +308,16 @@ function Title() {
   )
 }
 
-function Outcome({ title, result, pid, word }: { title: string; result: ExportResult; pid: string; word?: boolean }) {
+function Outcome({ title, result, pid, word, pack }: { title: string; result: ExportResult; pid: string; word?: boolean; pack?: boolean }) {
   const partial = result.errors.length > 0
   return (
     <section className="table-block">
       <div className="block-head"><h3>{title}</h3></div>
       <div className={'note ' + (partial ? 'warning' : 'info') + ' pad-x'}>
-        {word
+        {pack
+          ? partial ? `Пакет создан частично: графиков ${result.completed}/${result.planned}; ошибок ${result.errors.length}.`
+            : `Пакет готов: графиков ${result.completed}; файлов ${result.files.length}`
+          : word
           ? partial ? `Word создан частично. Ошибок: ${result.errors.length}. Причины включены в документ соответствующего модуля.`
             : `Word: сохранено графиков ${result.completed}; документов ${result.files.length}`
           : partial ? `Экспорт завершен частично: графиков ${result.completed}/${result.planned}; ошибок ${result.errors.length}. Готовые файлы сохранены. Журнал export_errors.csv включен в архив соответствующего модуля.`

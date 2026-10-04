@@ -12,6 +12,7 @@ import copy
 import datetime as dt
 import json
 import logging
+import tempfile
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -27,7 +28,7 @@ from starlette.routing import Route
 from app.core import reporting
 from app.core.bulk_export import bundle_exports, export_plan, export_word, migrate_preset
 from app.core.config import MODULES, VERSION as VERSION_58, ordered
-from app.core.documents import DEFAULT_CAPTIONS
+from app.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
 from app.core.export import figure_bytes
 
 from . import VERSION
@@ -44,7 +45,14 @@ GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
 PRESET_FIELDS = ('modules', 'formats', 'dpi', 'width', 'exclusions', 'raw', 'auto')
-PRESET_PREFIXES = ('production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_')
+PRESET_PREFIXES = ('production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_')
+
+
+# Пакет графиков по фонду («Приложение»): режим → (раздел, слово в подписи).
+PACK_KINDS = {'withdrawal': ('П4', 'отборе', 'Отбор'), 'injection': ('П5', 'закачке', 'Закачка')}
+PACK_TEMPLATE = 'Рисунок {раздел}.{номер} - Производительность скважины №{скважина} при {режим} газа за {годы} гг.'
+PACK_FIELDS = ('раздел', 'номер', 'скважина', 'режим', 'годы')
+PACK_PER_PAGE = 6
 
 
 class Failure(Exception):
@@ -266,6 +274,34 @@ def pressure_cfg(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
     return cfg
 
 
+def pack_options(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
+    """Форма «Пакет по фонду»: все скважины фонда, все периоды, график «Производительность» по каждой скважине."""
+    kinds = [k for k in form.get('pack_kinds', list(PACK_KINDS)) if k in PACK_KINDS]
+    if not kinds:
+        raise Failure(400, 'Выберите отбор или закачку')
+    base = {'modules': ['production'], 'production_view': 'curve', 'production_split': 'well',
+            'exclusions': form.get('exclusions', True)}
+    base.update({k: v for k, v in form.items() if k.startswith('style_')})
+    for kind in PACK_KINDS:
+        if kind not in kinds:
+            base['production_periods_' + kind] = []
+    return base
+
+
+def pack_label(template: str, section: str, number: int, well: str, kind: str, years: str) -> str:
+    return template.format_map({'раздел': section, 'номер': number, 'скважина': well, 'режим': PACK_KINDS[kind][1], 'годы': years})
+
+
+def years_of(d: pd.DataFrame, kind: str, periods) -> str:
+    """«2020–2025»: годы первой и последней даты режима в выбранных периодах."""
+    part = d[d.kind.eq(kind) & d.period.isin(periods)]
+    dates = pd.to_datetime(part.date).dropna()
+    if dates.empty:
+        return ''
+    a, b = int(dates.min().year), int(dates.max().year)
+    return str(a) if a == b else f'{a}–{b}'
+
+
 def captions_from(form: Mapping[str, Any], modules) -> dict[str, dict]:
     out = {}
     for m in modules:
@@ -469,6 +505,69 @@ def routes(projects: Projects) -> list[Route]:
         result = export_word(plan, projects.store, pid, projects.manifest(pid)['name'], captions, {**meta, 'captions': captions})
         return result_json(result)
 
+    def pack(request, body):
+        """Один щелчок: Word и PDF «6 графиков на листе A4» отдельно для отбора и закачки по всем скважинам фонда."""
+        from app.core.export import figure_bytes
+        from app.modules import production
+        pid, form = request.path_params['pid'], form_of(body)
+        data = projects.data(pid)
+        template = str(form.get('pack_template') or PACK_TEMPLATE)[:500]
+        _check_caption(template, PACK_FIELDS)
+        formats = [f for f in form.get('pack_formats', ['docx', 'pdf']) if f in ('docx', 'pdf')]
+        if not formats:
+            raise Failure(400, 'Выберите Word или PDF')
+        options, source, raw = options_from(pack_options(form, data), data)
+        if not options['wells']:
+            raise Failure(400, 'В проекте нет скважин с эксплуатацией для пакета графиков.')
+        plan = reporting.plan(source, data.mapping, data.settings, options, raw)
+        d = production.periods(source['production'], data.settings['season_start'], data.settings['season_end'])
+        meta = metadata(pid, data, options, {})
+        name = projects.manifest(pid)['name']
+        paths, errors, planned, done = [], [], 0, 0
+        for kind, (section_default, _, label) in PACK_KINDS.items():
+            jobs = [j for j in plan.jobs if j.name.startswith(label + ' · ')]
+            if not jobs:
+                continue
+            planned += len(jobs)
+            section = str(form.get('pack_section_' + kind) or section_default)
+            years = years_of(d, kind, options['production']['periods'][kind])
+            entries = []
+            for job in jobs:
+                well = job.name.split(' · ', 1)[1]
+                try:
+                    entries.append((figure_bytes(job.render(), 'png', 300, 90),
+                                    pack_label(template, section, len(entries) + 1, well, kind, years)))
+                except Exception as e:
+                    errors.append({'График': job.name, 'Формат': 'pack', 'Ошибка': str(e)})
+            done += len(entries)
+            if not entries:
+                continue
+            stem = 'Приложение_' + {'withdrawal': 'отбор', 'injection': 'закачка'}[kind]
+            exports = projects.store.path(pid) / 'exports'
+            exports.mkdir(exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix='pending_pack_', dir=str(exports)) as tmp:
+                info = {**meta, 'module': 'pack', 'kind': kind, 'charts': len(entries), 'per_page': PACK_PER_PAGE}
+                if 'docx' in formats:
+                    class Items:
+                        def __len__(self):
+                            return len(entries)
+
+                        def items(self):
+                            return ((text, png) for png, text in entries)
+                    target = Path(tmp) / (stem + '.docx')
+                    report_docx(Items(), name, per_page=PACK_PER_PAGE, image_mm=(84, 70), title=False,
+                                labeler=lambda png, text: text, render=lambda png: png, target=target)
+                    paths.append(projects.store.save_export_file(pid, stem + '.docx', target, info))
+                if 'pdf' in formats:
+                    target = grid_pdf(entries, Path(tmp) / (stem + '.pdf'), 2, PACK_PER_PAGE // 2,
+                                      {'Title': stem.replace('_', ' '), 'Author': 'Газовый атлас'})
+                    paths.append(projects.store.save_export_file(pid, stem + '.pdf', target, info))
+        if not paths:
+            raise Failure(400, 'Нет графиков для пакета: в выбранном режиме нет данных.')
+        projects.store.event(pid, 'Экспорт', {**meta, 'module': 'pack'})
+        return {'files': [p.name for p in map(_path, paths)], 'planned': planned, 'completed': done,
+                'chart_files': len(paths), 'errors': errors}
+
     def bundle(request, body):
         pid = request.path_params['pid']
         names = body.get('files') or []
@@ -503,6 +602,7 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/preview', E(preview), methods=['POST']),
         Route(base + '/archive', E(archive), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
+        Route(base + '/pack', E(pack), methods=['POST']),
         Route(base + '/bundle', E(bundle), methods=['POST']),
         Route(base + '/presets', E(save_preset), methods=['POST']),
         Route(base + '/sync', E(sync)),
@@ -513,10 +613,9 @@ def _path(p) -> Path:
     return Path(p)
 
 
-def _check_caption(template: str):
+def _check_caption(template: str, allowed=('раздел', 'номер', 'скважина', 'горизонт', 'период', 'модуль')):
     """Неизвестное поле подписи — понятная ошибка до формирования (тот же разбор, что ``caption_for``)."""
     import string
-    allowed = ('раздел', 'номер', 'скважина', 'горизонт', 'период', 'модуль')
     try:
         fields = [f for _, f, s, c in string.Formatter().parse(template) if f is not None and (f not in allowed or s or c)]
     except ValueError:

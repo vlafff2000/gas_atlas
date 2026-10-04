@@ -197,3 +197,28 @@ def test_every_module_plans_and_renders(tmp_path):
     assert {'well_dashboard', 'pressure_match', 'gdi'} <= set(by_module)
     for job in by_module.values():
         job.render()
+
+
+def test_fund_pack_six_per_page(env):
+    """Пакет по фонду: Word и PDF отдельно для отбора и закачки, подписи по шаблону, 6 графиков на лист A4."""
+    client, pid, projects, _ = env
+    r = client.post(f'/api/projects/{pid}/export/pack', json={'form': {}})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    names = out['files']
+    assert [n.split('_', 3)[-1] for n in names] == [
+        'Приложение_отбор.docx', 'Приложение_отбор.pdf', 'Приложение_закачка.docx', 'Приложение_закачка.pdf']
+    assert out['errors'] == [] and out['completed'] == out['planned'] > 0
+    docx = zipfile.ZipFile(io.BytesIO(client.get(f'/api/projects/{pid}/exports/{names[0]}').content))
+    xml = docx.read('word/document.xml').decode('utf-8')
+    assert 'Производительность скважины №' in xml and 'при отборе газа за ' in xml and 'Рисунок П4.1 ' in xml
+    charts = len([n for n in docx.namelist() if n.startswith('word/media/')])
+    assert xml.count('<w:tbl>') == -(-charts // 6) and xml.count('pageBreakBefore') == xml.count('<w:tbl>') - 1
+    pdf = client.get(f'/api/projects/{pid}/exports/{names[1]}').content
+    assert pdf[:4] == b'%PDF'
+    assert b'/Count %d' % (-(-charts // 6)) in pdf
+    only = client.post(f'/api/projects/{pid}/export/pack', json={'form': {'pack_kinds': ['injection'], 'pack_formats': ['pdf'],
+                                                                      'pack_template': '{скважина}: {режим} {годы}'}})
+    assert [n.split('_', 3)[-1] for n in only.json()['files']] == ['Приложение_закачка.pdf']
+    bad = client.post(f'/api/projects/{pid}/export/pack', json={'form': {'pack_template': '{нет}'}})
+    assert bad.status_code == 400

@@ -39,12 +39,15 @@ def caption_for(figure,name,config,counters):
     return template.format_map(values)
 
 
-def report_docx(figures,project,caption_config=None,progress=None,errors=None,counters=None,target=None):
-    """A real two-column Word table, with editable captions below each image."""
+def report_docx(figures,project,caption_config=None,progress=None,errors=None,counters=None,target=None,per_page=None,image_mm=(84,180),labeler=None,render=None,title=True):
+    """A real two-column Word table, with editable captions below each image.
+    ``per_page`` (even) — fixed number of charts on an A4 page, one table per page; ``image_mm`` — (width, max height) of a chart;
+    ``labeler(figure,name)`` / ``render(figure)`` replace the default caption and PNG rendering (appendix packs)."""
     if not figures:raise ValueError('Для отчета Word выберите хотя бы один график.')
+    size='18' if per_page else '20'
     def paragraph(text,bold=False,style=''):
         props='<w:pPr><w:spacing w:after="100" w:line="240" w:lineRule="auto"/>'+('<w:pStyle w:val="'+style+'"/>' if style else '')+'</w:pPr>'
-        return '<w:p>'+props+'<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="'+('32' if style=='Title' else '20')+'"/>'+('<w:b/>' if bold else '')+'</w:rPr><w:t xml:space="preserve">'+escape(str(text))+'</w:t></w:r></w:p>'
+        return '<w:p>'+props+'<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="'+('32' if style=='Title' else size)+'"/>'+('<w:b/>' if bold else '')+'</w:rPr><w:t xml:space="preserve">'+escape(str(text))+'</w:t></w:r></w:p>'
     namespaces='xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"'
     rows=[];cells=[];rels=[];counters={} if counters is None else counters
     buf=io.BytesIO() if target is None else None
@@ -52,24 +55,29 @@ def report_docx(figures,project,caption_config=None,progress=None,errors=None,co
     try:
         for i,(name,fig) in enumerate(figures.items(),1):
             try:
-                content=figure_bytes(fig,'png',300,90)
+                content=render(fig) if render else figure_bytes(fig,'png',300,90)
                 with Image.open(io.BytesIO(content)) as image:w,h=image.size
-                label=caption_for(fig,name,caption_config or {},counters)
+                label=labeler(fig,name) if labeler else caption_for(fig,name,caption_config or {},counters)
             except Exception as error:
                 if errors is None:raise
                 errors.append({'График':name,'Формат':'docx','Ошибка':str(error)});continue
             z.writestr('word/media/chart'+str(i)+'.png',content)
-            cx=int(84*36000);cy=int(cx*h/w)
-            if cy>180*36000:cx=int(cx*(180*36000)/cy);cy=180*36000
-            drawing=f'''<w:p><w:pPr><w:jc w:val="center"/><w:keepNext/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{i}" name="Chart {i}" descr="{escape(label, {'&quot;':'&quot;', chr(34):'&quot;'})}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="chart{i}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId{i}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'''
+            cx=int(image_mm[0]*36000);cy=int(cx*h/w);limit=int(image_mm[1]*36000)
+            if cy>limit:cx=int(cx*limit/cy);cy=limit
+            drawing=f'''<w:p><w:pPr>{'<w:spacing w:after="40"/>' if per_page else ''}<w:jc w:val="center"/><w:keepNext/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{i}" name="Chart {i}" descr="{escape(label, {'&quot;':'&quot;', chr(34):'&quot;'})}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="chart{i}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId{i}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'''
             cells.append('<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/><w:vAlign w:val="top"/></w:tcPr>'+drawing+paragraph(label)+'</w:tc>')
             rels.append(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/chart{i}.png"/>')
             if len(cells)==2:rows.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>'+''.join(cells)+'</w:tr>');cells=[]
             if progress:progress(i/len(figures))
         if cells:rows.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>'+cells[0]+'<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/></w:tcPr><w:p/></w:tc></w:tr>')
         borders=''.join('<w:'+side+' w:val="single" w:sz="4" w:color="D9D9D9"/>' for side in ('top','left','bottom','right','insideH','insideV'))
-        table='<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>'+borders+'</w:tblBorders><w:tblCellMar><w:top w:w="120" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="5100"/><w:gridCol w:w="5100"/></w:tblGrid>'+''.join(rows)+'</w:tbl>'
-        document='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document '+namespaces+'><w:body>'+paragraph('Газовый атлас',True,'Title')+paragraph(project)+table+'<w:p/><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>'
+        def make_table(chunk):
+            return '<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>'+borders+'</w:tblBorders><w:tblCellMar><w:top w:w="120" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="5100"/><w:gridCol w:w="5100"/></w:tblGrid>'+''.join(chunk)+'</w:tbl>'
+        if per_page:      # по таблице на лист; разрыв страницы — в крошечном абзаце перед следующей таблицей
+            step=max(1,per_page//2);brk='<w:p><w:pPr><w:pageBreakBefore/><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t></w:t></w:r></w:p>'
+            table=brk.join(make_table(rows[k:k+step]) for k in range(0,len(rows),step))
+        else:table=make_table(rows)
+        document='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document '+namespaces+'><w:body>'+(paragraph('Газовый атлас',True,'Title')+paragraph(project) if title else '')+table+'<w:p/><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>'
         if errors:
             document=document.replace('<w:p/><w:sectPr>',paragraph('Ошибки формирования: '+str(len(errors)))+''.join(paragraph(str(e)) for e in errors)+'<w:p/><w:sectPr>')
         try:
@@ -131,3 +139,28 @@ def passport_pdf(project,well,figures,tables,settings,comment='',progress=None):
                 finally:plt.close(fig)
                 if progress:progress(i/max(1,len(figures)))
     return buf.getvalue()
+
+
+def grid_pdf(entries,target,columns=2,rows=3,metadata=None,progress=None):
+    """Charts on A4 pages, ``columns``×``rows`` per page, caption under every chart. ``entries`` — (png bytes, caption)."""
+    import matplotlib
+    matplotlib.use('Agg')
+    from matplotlib import pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+    from matplotlib.image import imread
+    W,H,M=210.,297.,12.;cw=(W-2*M)/columns;ch=(H-2*M)/rows;caption=11.;per=columns*rows
+    with LOCK,plt.rc_context({'font.family':'DejaVu Sans','pdf.fonttype':42}):
+        with PdfPages(target,metadata=metadata or {}) as pdf:
+            for start in range(0,len(entries),per):
+                fig=plt.figure(figsize=(W/25.4,H/25.4))
+                try:
+                    for k,(png,text) in enumerate(entries[start:start+per]):
+                        r,c=divmod(k,columns);x=M+c*cw;top=H-M-r*ch
+                        picture=imread(io.BytesIO(png),format='png');ph,pw=picture.shape[:2]
+                        wide=cw-4;high=ch-caption-1;scale=min(wide/pw,high/ph);iw,ih=pw*scale,ph*scale      # мм
+                        ax=fig.add_axes([(x+(cw-iw)/2)/W,(top-1-ih)/H,iw/W,ih/H]);ax.imshow(picture);ax.axis('off')
+                        fig.text((x+cw/2)/W,(top-ih-2)/H,'\n'.join(textwrap.wrap(text,50)),fontsize=8,ha='center',va='top',linespacing=1.25)
+                    pdf.savefig(fig)
+                finally:plt.close(fig)
+                if progress:progress(min(1.,(start+per)/len(entries)))
+    return target
