@@ -91,9 +91,8 @@ class PressureModule(Module):
             Param('threshold', 'Значение порога', 'number', default=10.0, minimum=0, section=SECTION_CALC),
             Param('inclusive', 'Включать границу порога (≤)', 'boolean', default=False, section=SECTION_CALC,
                   help='В исходной HTML-странице используется строгое «<».'),
-            Param('threshold_groups', 'Группы с отдельным порогом', 'multi', default=[], dynamic=True, empty='ничего',
-                  section=SECTION_CALC),
-            Param('group_threshold', 'Порог этих групп', 'number', default=10.0, minimum=0, section=SECTION_CALC),
+            Param('group_thresholds', 'Пороги групп', 'map', default={}, dynamic=True, minimum=0, section=SECTION_CALC,
+                  help='Пусто — общий порог. Свой порог у каждой группы, как в 5.8.'),
             Param('match_good', 'Хорошее совпадение, % и выше', 'number', default=80.0, minimum=0, maximum=100,
                   section=SECTION_CALC, help='Совпадение с этого значения подсвечивается зелёным, ниже — красным.'),
             Param('percentiles', 'Процентили', 'multi', default=['80', '85', '90'], section=SECTION_CALC,
@@ -118,7 +117,7 @@ class PressureModule(Module):
     # --- варианты зависимых списков ---
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         raw = data.raw[PM]
-        if name in ('groups', 'threshold_groups'):
+        if name in ('groups', 'group_thresholds'):
             return ordered(group_of(data.mapping, w) for w in raw.well.unique())
         if name == 'wells':
             groups = set(params.get('groups') or [])
@@ -208,9 +207,7 @@ class PressureModule(Module):
             out['percentiles'] = [str(int(p)) for p in state['percentiles'] if float(p) == int(p) and str(int(p)) in allowed]
         thresholds = state.get('group_thresholds') or {}
         if thresholds:
-            first = next(iter(thresholds.values()))
-            out['threshold_groups'] = [g for g, v in thresholds.items() if v == first]
-            out['group_threshold'] = float(first)
+            out['group_thresholds'] = {str(g): float(v) for g, v in thresholds.items()}
         axes = state.get('axes') or {}
         for axis in ('x', 'y'):
             span = axes.get(f'{axis}_range')
@@ -242,7 +239,7 @@ def config(params: Mapping[str, Any], raw: pd.DataFrame, settings: Mapping[str, 
         'inclusive': params['inclusive'], 'color': params['color'], 'bins': int(params['bins']),
         'bands': params['bands'], 'percentile_lines': params['percentile_lines'], 'outliers': params['outliers'],
         'percentiles': percentiles, 'match_good': float(params['match_good']), 'dim_outside': params['dim_outside'],
-        'group_thresholds': {g: float(params['group_threshold']) for g in params['threshold_groups']},
+        'group_thresholds': {g: float(v) for g, v in params['group_thresholds'].items()},
         # Категории объектов хранятся в сохранённом виде 5.8 (раздел «Категории»); правятся таблицей «Категории объектов».
         'object_groups': dict(saved_panel(settings).get('object_groups') or {}),
         'axes': {},
