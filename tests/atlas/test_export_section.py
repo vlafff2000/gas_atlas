@@ -222,3 +222,28 @@ def test_fund_pack_six_per_page(env):
     assert [n.split('_', 3)[-1] for n in only.json()['files']] == ['Приложение_закачка.pdf']
     bad = client.post(f'/api/projects/{pid}/export/pack', json={'form': {'pack_template': '{нет}'}})
     assert bad.status_code == 400
+
+
+def test_fund_pack_seasons_and_layout(env):
+    """Сезоны выбираются обязательно, листов 2/4/6 на выбор; картинки палитровые и легкие."""
+    client, pid, _, _ = env
+    url = f'/api/projects/{pid}/export/pack'
+    seasons = client.get(f'/api/projects/{pid}/export/form').json()['periods']['withdrawal']
+    assert client.post(url, json={'form': {'pack_kinds': ['withdrawal'], 'pack_periods_withdrawal': []}}).status_code == 400
+    assert client.post(url, json={'form': {'pack_per_page': 5}}).status_code == 400
+    sizes = {}
+    for per in (2, 4):
+        r = client.post(url, json={'form': {'pack_kinds': ['withdrawal'], 'pack_formats': ['docx', 'pdf'], 'pack_per_page': per,
+                                            'pack_periods_withdrawal': seasons[-1:]}})
+        assert r.status_code == 200, r.text
+        names = r.json()['files']
+        pdf = client.get(f'/api/projects/{pid}/exports/{names[1]}').content
+        charts = r.json()['completed']
+        assert b'/Count %d' % (-(-charts // per)) in pdf
+        docx = zipfile.ZipFile(io.BytesIO(client.get(f'/api/projects/{pid}/exports/{names[0]}').content))
+        media = [n for n in docx.namelist() if n.startswith('word/media/')]
+        assert len(media) == charts
+        assert docx.read(media[0])[25] == 3        # PNG: тип цвета 3 — палитра
+        assert len(docx.read(media[0])) < 60_000
+        sizes[per] = docx.read('word/document.xml').decode('utf-8').count('<w:tbl>')
+    assert sizes[2] >= sizes[4]
