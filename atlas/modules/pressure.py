@@ -24,6 +24,7 @@ SECTION_DATA, SECTION_CALC, SECTION_VIEW, SECTION_AXES = 'Выбор данны�
 SCREEN_POINTS = 30000          # как в 5.8: точек кроссплота на экране; статистика — по всем
 POINT_TABLE_LIMIT = 20000      # строк в таблице ручного фильтра
 OUTLIER_LIMIT = 300            # выбросов на ящик при больших группах, как в 5.8
+MATCH_COLOR, MISS_COLOR = '#16A34A', '#DC2626'
 SHAPES = ('circle', 'square', 'triangle', 'diamond')
 OUTSIDE_OPACITY = 0.25
 FACT_COLOR, IDEAL_COLOR, BAND_COLOR, PERCENTILE_COLOR = '#64748B', '#64748B', '#D97706', '#8B5CF6'
@@ -102,6 +103,9 @@ class PressureModule(Module):
                   options=tuple(Option(k, v[0]) for k, v in VIEWS.items())),
             Param('color', 'Цвет точек', 'choice', default='scenario', section=SECTION_VIEW,
                   options=tuple(Option(k, v) for k, v in COLORS.items())),
+            Param('time_mean', 'Среднее по области (динамика)', 'boolean', default=False, section=SECTION_VIEW,
+                  show_if={'view': 'dynamics'},
+                  help='Для нескольких скважин: среднее факта и сценариев по датам вместо линии на скважину.'),
             Param('scope_groups', 'Область графиков: группы', 'multi', default=[], dynamic=True, section=SECTION_VIEW,
                   help='Только для графиков; таблицы и статистика остаются по всей выборке. Пусто — все.'),
             Param('scope_wells', 'Область графиков: скважины', 'multi', default=[], dynamic=True,
@@ -259,7 +263,7 @@ def config(params: Mapping[str, Any], raw: pd.DataFrame, settings: Mapping[str, 
         'unit': params['unit'], 'threshold_mode': params['threshold_mode'], 'threshold': float(params['threshold']),
         'inclusive': params['inclusive'], 'color': params['color'], 'bins': int(params['bins']),
         'bands': params['bands'], 'percentile_lines': params['percentile_lines'], 'outliers': params['outliers'],
-        'percentiles': percentiles, 'match_good': float(params['match_good']), 'dim_outside': params['dim_outside'],
+        'percentiles': percentiles, 'time_mean': params['time_mean'], 'match_good': float(params['match_good']), 'dim_outside': params['dim_outside'],
         'group_thresholds': {g: float(v) for g, v in params['group_thresholds'].items()},
         # Категории объектов хранятся в сохранённом виде 5.8 (раздел «Категории»); правятся таблицей «Категории объектов».
         'object_groups': dict(saved_panel(settings).get('object_groups') or {}),
@@ -454,7 +458,7 @@ def _build(name: str, d: pd.DataFrame, cfg: Mapping[str, Any]) -> Chart:
     if name == 'cross':
         return cross_chart(d, cfg, title, unit)
     if name in ('time', 'error_time'):
-        return time_chart(d, name, title, unit)
+        return time_chart(d, name, title, unit, cfg)
     if name == 'overall_box':
         return overall_box_chart(d, cfg, title, unit)
     if name in ('box', 'fond_box', 'object_box'):
@@ -523,7 +527,25 @@ def cross_chart(d: pd.DataFrame, cfg: Mapping[str, Any], title: str, unit: str) 
     return chart
 
 
-def time_chart(d: pd.DataFrame, name: str, title: str, unit: str) -> Chart:
+def within_threshold(error: pd.Series, reference: pd.Series, cfg: Mapping[str, Any]) -> pd.Series:
+    """Порог совпадения по настройкам ``cfg`` для готовых отклонений (для средних; пары считает ``legacy.filter_data``)."""
+    threshold = float(cfg.get('threshold', 10))
+    measure = error / reference.abs().where(reference.ne(0)) * 100 if cfg.get('threshold_mode') == 'relative' else error
+    return measure.le(threshold) if cfg.get('inclusive', False) else measure.lt(threshold)
+
+
+def fact_points(chart: Chart, x, y, ok, labels, symbol: str = 'circle') -> None:
+    """Точки факта: зелёные — совпал хотя бы один сценарий, красные — нет (как в эталоне)."""
+    ok = np.asarray(ok, bool)
+    for inside, name, color in ((True, 'Факт в пороге', MATCH_COLOR), (False, 'Факт вне порога', MISS_COLOR)):
+        mask = ok == inside
+        if mask.any():
+            chart.series.append(Series(name, np.asarray(x)[mask], np.asarray(y, float)[mask], 'points', color=color,
+                                       symbol=symbol, labels=[t for t, m in zip(labels, mask) if m]))
+
+
+def time_chart(d: pd.DataFrame, name: str, title: str, unit: str, cfg: Mapping[str, Any] | None = None) -> Chart:
+    cfg = cfg or {}
     single = d.well.nunique() == 1
     many_objects = d.object.nunique() > 1
     colors = well_colors(ordered(str(v) for v in d.scenario))
@@ -533,18 +555,49 @@ def time_chart(d: pd.DataFrame, name: str, title: str, unit: str) -> Chart:
     def suffix(well, obj):
         return ('' if single else f' · №{well}') + (f' · {obj}' if many_objects else '')
 
+    if name == 'time' and cfg.get('time_mean') and not single:
+        mean_chart(chart, d, cfg, colors, many_objects)
+        return chart
     if name == 'time':
         # Одна линия факта на объект и скважину: сценарии не размножают замеры.
         for (obj, well), g in d.drop_duplicates(['object', 'well', 'date']).groupby(['object', 'well']):
             chart.series.append(Series('Факт' + suffix(well, obj), g.date, g.fact.to_numpy(float), 'line',
                                        color=FACT_COLOR, dash='solid', group='Факт' + suffix(well, obj),
                                        labels=[f'Скв. {well}'] * len(g)))
+        # Оценка замеров: совпал ли хоть один сценарий (``within`` из ``legacy.filter_data``).
+        facts = d.groupby(['object', 'well', 'date'], sort=False).agg(fact=('fact', 'first'), ok=('within', 'any')).reset_index()
+        fact_points(chart, facts.date, facts.fact, facts.ok,
+                    [f'Скв. {w} · {t.strftime("%d.%m.%Y")} · Факт: {f:.3f} · {"в пороге" if k else "вне порога"}'
+                     for w, t, f, k in zip(facts.well, facts.date, facts.fact, facts.ok)])
     for (obj, scenario, well), g in d.groupby(['object', 'scenario', 'well'], sort=False):
         label = str(scenario) + suffix(well, obj)
         values = g.model if name == 'time' else g.signed_error
         chart.series.append(Series(label, g.date, values.to_numpy(float), 'line', color=colors[str(scenario)],
                                    dash='solid', labels=[f'Скв. {well} · {scenario}'] * len(g)))
     return chart
+
+
+def mean_chart(chart: Chart, d: pd.DataFrame, cfg: Mapping[str, Any], colors: Mapping[str, str], many_objects: bool) -> None:
+    """Среднее по области: факт и сценарии по датам (по объектам, если их несколько). Порог — общий из ``cfg``:
+    у групп разные пороги, а среднее по ним одно (≈ в parity)."""
+    for obj, g in d.groupby('object', sort=False):
+        tail = f' · {obj}' if many_objects else ''
+        fact = g.drop_duplicates(['well', 'date']).groupby('date').fact.mean().sort_index()
+        models = g.groupby(['scenario', 'date']).model.mean()
+        chart.series.append(Series('Факт, среднее' + tail, fact.index, fact.to_numpy(float), 'line', color=FACT_COLOR,
+                                   dash='solid', group='Факт, среднее' + tail,
+                                   labels=[f'Среднее по {g.well.nunique()} скв.'] * len(fact)))
+        ok = pd.Series(False, index=fact.index)
+        for scenario in ordered(str(v) for v in g.scenario):
+            m = models.xs(scenario, level='scenario').reindex(fact.index) if scenario in models.index.get_level_values(0) \
+                else pd.Series(np.nan, index=fact.index)
+            chart.series.append(Series(scenario + ', среднее' + tail, m.dropna().index, m.dropna().to_numpy(float), 'line',
+                                       color=colors[scenario], dash='solid',
+                                       labels=[f'Среднее по {g.well.nunique()} скв. · {scenario}'] * int(m.notna().sum())))
+            ok |= within_threshold((m - fact).abs(), fact, cfg).fillna(False)
+        fact_points(chart, fact.index, fact.to_numpy(float), ok.to_numpy(),
+                    [f'{t.strftime("%d.%m.%Y")} · Среднее факта: {f:.3f} · {"в пороге" if k else "вне порога"}'
+                     for t, f, k in zip(fact.index, fact, ok)], 'diamond')
 
 
 def box_stats(values: np.ndarray) -> tuple[list[float] | None, np.ndarray]:

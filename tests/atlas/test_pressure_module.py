@@ -161,8 +161,9 @@ def test_other_views_match_legacy(env, view):
         assert chart['title'] == fig.layout.title.text
         if name in ('time', 'error_time', 'cdf'):
             old = [t for t in fig.data]
-            assert [t.name for t in old] == [s['name'] for s in chart['series']]
-            for t, s in zip(old, chart['series']):
+            lines = [s for s in chart['series'] if s['kind'] == 'line']    # точки оценки факта — новые, в 5.8 их нет
+            assert [t.name for t in old] == [s['name'] for s in lines]
+            for t, s in zip(old, lines):
                 assert np.allclose(np.asarray(t.y, float), np.asarray(s['y'], float))
         elif name in ('hist', 'percentiles'):
             assert [t.name for t in fig.data] == [s['name'] for s in chart['series']]
@@ -367,3 +368,29 @@ def test_chart_scope_changes_charts_only(env):
     assert set(in_group) <= set(wells)
     empty = run(client, pid, scope_wells=['нет такой'])
     assert not empty['charts'] and any('нет точек' in n['text'] for n in empty['notes'])
+
+
+def test_time_fact_points_and_area_mean(env):
+    client, pid, projects = env
+    params = {'view': 'dynamics', 'well_limit': 'all', 'threshold': 3}
+    d, _, cfg = legacy_view(projects, pid, params)
+    chart = run(client, pid, **params)['charts'][0]
+    ok = d.groupby(['object', 'well', 'date']).within.any()
+    green = [s for s in chart['series'] if s['name'] == 'Факт в пороге']
+    red = [s for s in chart['series'] if s['name'] == 'Факт вне порога']
+    assert sum(len(s['x']) for s in green) == int(ok.sum()) and sum(len(s['x']) for s in red) == int((~ok).sum())
+    assert red and green and green[0]['color'] != red[0]['color']
+    # среднее по области: факт — среднее по скважинам на дату, сценарии — средняя модель
+    mean = run(client, pid, time_mean=True, **params)['charts'][0]
+    objects = d.object.nunique()
+    fact_lines = [s for s in mean['series'] if s['name'].startswith('Факт, среднее')]
+    assert len(fact_lines) == objects
+    for obj, line in zip(d.object.unique(), fact_lines):
+        g = d[d.object == obj]
+        expected = g.drop_duplicates(['well', 'date']).groupby('date').fact.mean().sort_index()
+        assert np.allclose(np.asarray(line['y'], float), expected.to_numpy(float))
+        model = next(s for s in mean['series'] if s['name'].startswith(str(g.scenario.iloc[0]) + ', среднее'))
+        assert model['y']
+    diamonds = [s for s in mean['series'] if s['kind'] == 'points']
+    assert diamonds and all(s['symbol'] == 'diamond' for s in diamonds)
+    assert not [s for s in mean['series'] if s['name'].startswith('Факт ·')]
