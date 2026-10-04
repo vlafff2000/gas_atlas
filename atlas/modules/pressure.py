@@ -24,6 +24,7 @@ SECTION_DATA, SECTION_CALC, SECTION_VIEW, SECTION_AXES = 'Выбор данны�
 SCREEN_POINTS = 30000          # как в 5.8: точек кроссплота на экране; статистика — по всем
 POINT_TABLE_LIMIT = 20000      # строк в таблице ручного фильтра
 OUTLIER_LIMIT = 300            # выбросов на ящик при больших группах, как в 5.8
+FOCUS_COLOR = '#EAB308'
 MATCH_COLOR, MISS_COLOR = '#16A34A', '#DC2626'
 SHAPES = ('circle', 'square', 'triangle', 'diamond')
 OUTSIDE_OPACITY = 0.25
@@ -106,6 +107,8 @@ class PressureModule(Module):
             Param('time_mean', 'Среднее по области (динамика)', 'boolean', default=False, section=SECTION_VIEW,
                   show_if={'view': 'dynamics'},
                   help='Для нескольких скважин: среднее факта и сценариев по датам вместо линии на скважину.'),
+            Param('focus', 'Выбранная точка', 'text', default='', section=SECTION_VIEW,
+                  show_if={'view': '—'}),      # скрытый: «скважина|дата» из щелчка по точке кроссплота
             Param('scope_groups', 'Область графиков: группы', 'multi', default=[], dynamic=True, section=SECTION_VIEW,
                   help='Только для графиков; таблицы и статистика остаются по всей выборке. Пусто — все.'),
             Param('scope_wells', 'Область графиков: скважины', 'multi', default=[], dynamic=True,
@@ -263,7 +266,7 @@ def config(params: Mapping[str, Any], raw: pd.DataFrame, settings: Mapping[str, 
         'unit': params['unit'], 'threshold_mode': params['threshold_mode'], 'threshold': float(params['threshold']),
         'inclusive': params['inclusive'], 'color': params['color'], 'bins': int(params['bins']),
         'bands': params['bands'], 'percentile_lines': params['percentile_lines'], 'outliers': params['outliers'],
-        'percentiles': percentiles, 'time_mean': params['time_mean'], 'match_good': float(params['match_good']), 'dim_outside': params['dim_outside'],
+        'percentiles': percentiles, 'time_mean': params['time_mean'], 'focus': params['focus'], 'match_good': float(params['match_good']), 'dim_outside': params['dim_outside'],
         'group_thresholds': {g: float(v) for g, v in params['group_thresholds'].items()},
         # Категории объектов хранятся в сохранённом виде 5.8 (раздел «Категории»); правятся таблицей «Категории объектов».
         'object_groups': dict(saved_panel(settings).get('object_groups') or {}),
@@ -569,12 +572,27 @@ def time_chart(d: pd.DataFrame, name: str, title: str, unit: str, cfg: Mapping[s
         fact_points(chart, facts.date, facts.fact, facts.ok,
                     [f'Скв. {w} · {t.strftime("%d.%m.%Y")} · Факт: {f:.3f} · {"в пороге" if k else "вне порога"}'
                      for w, t, f, k in zip(facts.well, facts.date, facts.fact, facts.ok)])
+    focus_ring(chart, d, name, cfg)
     for (obj, scenario, well), g in d.groupby(['object', 'scenario', 'well'], sort=False):
         label = str(scenario) + suffix(well, obj)
         values = g.model if name == 'time' else g.signed_error
         chart.series.append(Series(label, g.date, values.to_numpy(float), 'line', color=colors[str(scenario)],
                                    dash='solid', labels=[f'Скв. {well} · {scenario}'] * len(g)))
     return chart
+
+
+def focus_ring(chart: Chart, d: pd.DataFrame, name: str, cfg: Mapping[str, Any]) -> None:
+    """Жёлтое кольцо на точке, по которой щёлкнули на кроссплоте (``focus`` = «скважина|дд.мм.гггг»)."""
+    well, _, text = str(cfg.get('focus') or '').partition('|')
+    date = pd.to_datetime(text, format='%d.%m.%Y', errors='coerce')
+    if not well or pd.isna(date):
+        return
+    g = d[(d.well.astype(str) == well) & (d.date == date)]
+    if g.empty:
+        return
+    value = g.fact.iloc[0] if name == 'time' else g.signed_error.iloc[0]
+    chart.series.append(Series('Выбранная точка', [date], [float(value)], 'points', color=FOCUS_COLOR, hollow=True,
+                               labels=[f'Скв. {well} · {date.strftime("%d.%m.%Y")}']))
 
 
 def mean_chart(chart: Chart, d: pd.DataFrame, cfg: Mapping[str, Any], colors: Mapping[str, str], many_objects: bool) -> None:
