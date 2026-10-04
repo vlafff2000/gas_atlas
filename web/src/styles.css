@@ -337,6 +337,7 @@ td.edit input { width: 100%; min-width: 12ch; border: 1px solid var(--line); bor
 .side-search kbd, .palette kbd {
   font-family: inherit; font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 4px; border: 1px solid currentColor; opacity: .75;
 }
+.sidebar > * { flex-shrink: 0; }
 .theme-switch { margin-top: auto; align-self: stretch; display: flex; background: var(--side-raised); border-color: #34474f; }
 .theme-switch button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 4px 4px; font-size: 12px; }
 .theme-switch button .side-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
