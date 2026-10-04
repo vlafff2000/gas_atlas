@@ -33,7 +33,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Build interface
         working-directory: web
-        run: npm ci && npm run build
+        run: npm ci && npm test && npm run build
       - name: Built interface is committed
         run: git status --porcelain atlas/web/dist && test -z "$(git status --porcelain atlas/web/dist)"
   package:
