@@ -160,3 +160,14 @@ def test_empty_comparison_explains_why(frame):
     assert 'методом или номером' in texts(run(split, last_n=3))
     full = run(frame, last_n=3)
     assert 'методом или номером' not in texts(full) and any(s.label == 'Ухудшение ΔP²' for s in full.summary)
+
+
+def test_productivity_dynamics_without_methods(frame):
+    bare = frame.drop(columns=['method', 'study', 'season'], errors='ignore')
+    result = run(bare, last_n=0)
+    t = table(result, 'productivity').frame
+    assert len(t) and t.groupby('well').ref.nunique().max() == 1
+    one = t[t.well.eq('31')].sort_values('date')
+    assert one.q_ref.notna().all() and np.isnan(one.to_previous.iloc[0]) and np.isnan(one.to_first.iloc[0])
+    expected = (one.q_ref.iloc[-1] / one.q_ref.iloc[0] - 1) * 100
+    assert one.to_first.iloc[-1] == pytest.approx(expected)
