@@ -229,3 +229,21 @@ def test_date_and_text_params():
     with pytest.raises(ParamError):
         p.coerce('не дата')
     assert Param('t', 'Текст', 'text', default='').coerce(12) == '12'
+
+
+def test_bulk_assignment_by_numbers(env):
+    client, pid, projects = env
+    wells = rows(table(run(client, pid, 'groups'), 'assignments')).well.tolist()
+    pick = wells[:2]
+    body = run(client, pid, 'groups', bulk_wells=f'{pick[0]}; {pick[1]},  9999\n', bulk_group='Север')
+    t = table(body, 'bulk')
+    assert rows(t).well.tolist() == pick and set(rows(t).group) == {'Север'}
+    assert t['action']['submit'] == 'all' and t['action']['fields'] == ['group']
+    note = next(n['text'] for n in body['notes'] if 'Массовое' in n['text'])
+    assert 'найдено 2' in note and 'не найдено 1' in note and '9999' in note
+    # кнопка пишет назначения в формат 5.8, подгруппы не трогает
+    r = client.post(f'/api/projects/{pid}/groups', json={'changes': {w: {'group': 'Север'} for w in pick}})
+    assert r.status_code == 200, r.text
+    saved = projects.manifest(pid)['groups']
+    assert all(saved[w]['group'] == 'Север' for w in pick)
+    assert 'bulk' not in {t['id'] for t in run(client, pid, 'groups')['tables']}
