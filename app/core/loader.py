@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import csv
+import datetime
 import io
 import re
 import zipfile
@@ -66,6 +67,42 @@ def column_map(labels):
         result.pop('q')
     return result
 
+MONTHS={'январь':1,'января':1,'янв':1,'февраль':2,'февраля':2,'фев':2,'март':3,'марта':3,'мар':3,'апрель':4,'апреля':4,'апр':4,
+        'май':5,'мая':5,'июнь':6,'июня':6,'июн':6,'июль':7,'июля':7,'июл':7,'август':8,'августа':8,'авг':8,
+        'сентябрь':9,'сентября':9,'сен':9,'сент':9,'октябрь':10,'октября':10,'окт':10,'ноябрь':11,'ноября':11,'ноя':11,'нояб':11,
+        'декабрь':12,'декабря':12,'дек':12}
+
+def month_cell(v):
+    """Ячейка заголовка плана-матрицы → (месяц, год | None) или None: дата, «05.2025», «2025-05», «Май», «Май 2025»."""
+    if isinstance(v,(pd.Timestamp,datetime.date)):return (v.month,v.year) if pd.notna(v) else None
+    if v is None or isinstance(v,(int,float)):return None
+    t=str(v).strip().lower().replace('ё','е')
+    m=re.fullmatch(r'(\d{1,2})[./](\d{4})',t)
+    if m and 1<=int(m.group(1))<=12:return int(m.group(1)),int(m.group(2))
+    m=re.fullmatch(r'(\d{4})-(\d{1,2})(?:-\d{1,2})?(?:\s+00:00:00)?',t)
+    if m and 1<=int(m.group(2))<=12:return int(m.group(2)),int(m.group(1))
+    m=re.fullmatch(r'([а-я]+)\.?\s*(\d{4})?\s*(?:г\.?|года)?',t)
+    if m and m.group(1) in MONTHS:return MONTHS[m.group(1)],(int(m.group(2)) if m.group(2) else None)
+    return None
+
+def is_number(v):
+    try:float(str(v).replace(',','.').replace('\xa0','').replace(' ',''));return v is not None and str(v).strip()!=''
+    except ValueError:return False
+
+def plan_matrix_months(labels,cols,title):
+    """Месяц (первое число) для каждой колонки-месяца: {колонка: дата}. Год без указания берётся из заголовка таблицы,
+    при переходе декабрь → январь год растёт."""
+    found=[(j,month_cell(labels[j])) for j in cols]
+    found=[(j,c) for j,c in found if c]
+    year=next((int(y) for y in re.findall(r'(?<!\d)(20\d{2})(?!\d)',title)),None)
+    out={};previous=0
+    for j,(month,own) in found:
+        if own is not None:year=own
+        elif year is None:raise ValueError('В названиях месяцев нет года: добавьте его («Май 2025») или укажите в заголовке таблицы либо названии листа.')
+        elif previous and month<previous:year+=1
+        previous=month;out[j]=pd.Timestamp(year=year,month=month,day=1)
+    return out
+
 def numeric(s, level=False):
     s = s.astype('string').str.strip().str.replace(r'[\s\u00a0\u202f]', '', regex=True).str.replace(',', '.', regex=False)
     if level:
@@ -125,6 +162,9 @@ def detect_layout(head,module='auto'):
             mapping={'well':0, 'subgroup' if module=='subgroups' else 'group':1}
             if module=='groups' and len(row)>2: mapping['subgroup']=2
             detected='groups';header=-1;break
+        if module in ('auto','plan') and sum(month_cell(v) is not None for v in row[1:])>=2 \
+                and any(str(r[0] or '').strip() and any(is_number(v) for v in r[1:]) for r in head[i+1:i+4]):
+            detected='plan';wide=True;mapping={'date':0};header=i;break       # матрица: группы в строках, месяцы в столбцах
         if module in ('auto','plan') and 'well' not in mapping and {'group','date','plan_volume'}<=mapping.keys():
             detected='plan';header=i;break
         if module in ('auto','object_pressure') and 'well' not in mapping and 'date' in mapping and ('p_res' in mapping or 'pressure' in mapping):
@@ -178,7 +218,21 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             raw=pd.DataFrame(rows); nonempty=raw.notna().any(axis=1)&raw.fillna('').astype(str).apply(lambda c:c.str.strip()).ne('').any(axis=1)
             raw=raw[nonempty]
             if raw.empty: row_offset+=len(rows); continue
-            if wide:
+            if wide and detected=='plan':
+                datecol=spec.get('datecol',0) if spec else 0
+                cols=spec.get('wellcols',[j for j in range(width) if j!=datecol]) if spec else [j for j in range(width) if j!=datecol]
+                title=' '.join(str(c) for r in head[:max(0,header)] for c in r if c is not None)+' '+sheet+' '+filename
+                months=plan_matrix_months(head[header],cols,title)
+                if not months:raise ValueError(f'{sheet}: в строке заголовков нет месяцев.')
+                raw=raw[[datecol]+list(months)].copy();raw.columns=['group']+list(months.values());raw['_row']=raw.index+row_offset
+                raw['group']=raw.group.fillna('').astype(str).str.strip()
+                raw=raw[raw.group.ne('')&~raw.group.str.fullmatch(r'(?i)всего|итого|суммарно|сумма')]
+                df=raw.melt(id_vars=['group','_row'],var_name='date',value_name='plan_volume')
+                df=df[df.plan_volume.notna()&df.plan_volume.astype(str).str.strip().ne('')].reset_index(drop=True);df['date']=pd.to_datetime(df.date)
+                low=title.lower()
+                if re.search('закач|inject',low) and not re.search('отбор|withdraw',low):df['kind']='injection'
+                elif re.search('отбор|withdraw',low) and not re.search('закач|inject',low):df['kind']='withdrawal'
+            elif wide:
                 if spec and 'date' not in mapping:raise ValueError('Выберите колонку даты для матрицы.')
                 datecol=spec.get('datecol',0) if spec else 0
                 wellcols=spec.get('wellcols',[j for j in range(width) if j!=datecol]) if spec else list(range(1,width))
@@ -256,7 +310,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 reasons.loc[df.pressure.isna() | df.pressure.lt(0)]='Некорректное или отрицательное давление объекта'
             elif detected=='plan':
                 # План хранится в млн м³; единицу берём из заголовка колонки («млрд», «тыс.» — пересчёт).
-                label=str(head[header][mapping['plan_volume']]).lower().replace('³','3')
+                label=(' '.join(str(c) for r in head[:max(0,header)] for c in r if c is not None) if wide else str(head[header][mapping['plan_volume']])).lower().replace('³','3')
                 df['plan_volume']=df.plan_volume*(1000 if 'млрд' in label else 0.001 if 'тыс' in label else 1)
                 reasons.loc[df.plan_volume.isna()|~np.isfinite(df.plan_volume)|df.plan_volume.lt(0)]='План должен быть конечным неотрицательным числом'
                 df['group']=df.group.fillna('').astype(str).str.strip()

@@ -46,7 +46,7 @@ def describe(raw,module):
         layout=detect_layout(raw.values.tolist(),module)
     except Exception:return None,''
     if layout['module'] is None:return None,''
-    fields=', '.join(FIELDS.get(f,f) for f in layout['mapping']) if not layout['wide'] else 'матрица: даты × скважины'
+    fields=', '.join(FIELDS.get(f,f) for f in layout['mapping']) if not layout['wide'] else 'матрица: группы × месяцы' if layout['module']=='plan' else 'матрица: даты × скважины'
     return layout['module'],fields
 
 def to_kgf(frames,factor=PSI_TO_KGF):

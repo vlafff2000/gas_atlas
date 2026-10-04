@@ -58,3 +58,33 @@ def test_compare_matches_manual_sums(env):
     assert [c['id'].split('-')[2] for c in body['charts']] == ['groups', 'months']
     bars = body['charts'][0]['series']
     assert [s['name'] for s in bars] == ['План', 'Факт'] and list(bars[0]['y']) == [100.0, 50.0]
+
+
+def matrix_book(path, title):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Закачка'
+    rows = [[title], ['Номер ГСП', 'Май', 'Июнь', 'Июль', 'ВСЕГО', '%'], [None, 27, 30, 31, 88, None],
+            ['ГСП 1', 150, 220, 220, 590, 14], ['ГСП 2', 140, 220, None, 360, 14], ['ВСЕГО', 290, 440, 220, 950, 100]]
+    for r in rows:
+        ws.append(r)
+    wb.save(path)
+
+
+def test_matrix_plan_groups_by_months(tmp_path):
+    path = tmp_path / 'plan.xlsx'
+    matrix_book(path, 'Таблица 2.4 – Распределение объемов закачки газа по месяцам и ГСП в сезоне 2025 г.')
+    res = load_file(str(path))
+    plan = res.frames['plan'].sort_values(['group', 'date']).reset_index(drop=True)
+    assert list(plan.group) == ['ГСП 1'] * 3 + ['ГСП 2'] * 2
+    assert list(plan.date.dt.strftime('%Y-%m')) == ['2025-05', '2025-06', '2025-07', '2025-05', '2025-06']
+    assert list(plan.plan_volume) == [150, 220, 220, 140, 220] and set(plan.kind) == {'injection'}
+    assert res.rejected == 0
+
+
+def test_matrix_plan_without_year_is_explained(tmp_path):
+    path = tmp_path / 'plan.xlsx'
+    matrix_book(path, 'Технологическая карта')
+    with pytest.raises(ValueError, match='нет года'):
+        load_file(str(path))
