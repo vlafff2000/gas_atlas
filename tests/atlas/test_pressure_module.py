@@ -394,3 +394,19 @@ def test_time_fact_points_and_area_mean(env):
     diamonds = [s for s in mean['series'] if s['kind'] == 'points']
     assert diamonds and all(s['symbol'] == 'diamond' for s in diamonds)
     assert not [s for s in mean['series'] if s['name'].startswith('Факт ·')]
+
+
+def test_focus_ring_on_dynamics(env):
+    client, pid, projects = env
+    d, _, cfg = legacy_view(projects, pid, {})
+    row = d.iloc[10]
+    focus = f'{row.well}|{row.date.strftime("%d.%m.%Y")}'
+    body = run(client, pid, view='dynamics', wells=[str(row.well)], well_limit='all', focus=focus)
+    for chart in body['charts']:
+        ring = [s for s in chart['series'] if s['name'] == 'Выбранная точка']
+        assert len(ring) == 1 and ring[0]['hollow'] and len(ring[0]['x']) == 1
+    time = body['charts'][0]['series']
+    ring = next(s for s in time if s['name'] == 'Выбранная точка')
+    assert np.isclose(float(ring['y'][0]), float(row.fact))
+    assert not [s for s in run(client, pid, view='dynamics', wells=[str(row.well)], focus='нет|01.01.2000')['charts'][0]['series']
+                if s['name'] == 'Выбранная точка']

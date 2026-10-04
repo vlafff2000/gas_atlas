@@ -393,6 +393,7 @@ table.frozen.has-check thead th:nth-child(2) { z-index: 3; background: var(--hea
 table.frozen.has-check tbody td:first-child, table.frozen.has-check thead th:first-child { box-shadow: none; width: var(--check-w, 84px); min-width: var(--check-w, 84px); }
 table.frozen tbody tr:hover td:first-child, table.frozen.has-check tbody tr:hover td:nth-child(2) { background: var(--row-hover); }
 table.frozen tbody tr.is-changed td:first-child, table.frozen.has-check tbody tr.is-changed td:nth-child(2) { background: var(--changed); }
+.tip-go { margin-top: 6px; font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line-strong); background: transparent; color: var(--accent, inherit); cursor: pointer; }
 .field.map .map-rows { display: flex; flex-wrap: wrap; gap: 6px 12px; }
 .map-row { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .map-row input { width: 64px; }
