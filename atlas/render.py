@@ -69,6 +69,7 @@ def to_plotly(chart: Chart):
             symbol = SYMBOLS[s.symbol] + ('-open' if s.hollow else '')
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='markers', name=s.name, showlegend=s.legend,
                                      marker={'color': color, 'symbol': symbol, 'size': 9,
+                                             'opacity': s.opacity,
                                              'line': {'color': color, 'width': 2 if s.hollow else 0}}))
     module = chart.id.split('-', 1)[0]
     fig.update_layout(title={'text': chart.title}, meta={'module': module}, barmode='group')

@@ -221,6 +221,7 @@ class Series:
     color: str = ''                  # пусто — цвет по группе из палитры
     symbol: Literal['circle', 'square', 'diamond', 'triangle'] = 'circle'
     hollow: bool = False
+    opacity: float = 1.0             # прозрачность маркеров и линии (бледные точки вне порога)
     labels: Sequence[str] | None = None  # строка подсказки на каждую точку (поверх X и Y)
     ids: Sequence[str] | None = None  # идентификаторы точек: по ним щелчок исключает точку
     dataset: DatasetKind | None = None   # набор, к которому относятся ids

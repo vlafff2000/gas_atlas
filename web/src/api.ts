@@ -71,7 +71,7 @@ export interface Axis {
 export interface Series {
   name: string; kind: 'points' | 'line' | 'bar' | 'box'; group: string; dashed: boolean; dash: string; width: number
   legend: boolean; tooltip: string
-  color: string; symbol: 'circle' | 'square' | 'diamond' | 'triangle'; hollow: boolean
+  color: string; symbol: 'circle' | 'square' | 'diamond' | 'triangle'; hollow: boolean; opacity: number
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null
   markers: boolean; axis: 'y' | 'y2'
   total: number      // точек в серии на самом деле; если больше x.length — линия прорежена (М4: пики и провалы сохранены)
