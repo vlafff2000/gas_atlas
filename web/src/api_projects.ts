@@ -98,6 +98,7 @@ export const exportApi = {
     URL.createObjectURL(await (await send(`${P(pid)}/export/preview`, json('POST', { form, chart }))).blob()),
   archive: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/archive`, json('POST', { form })),
   word: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/word`, json('POST', { form })),
+  pack: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/pack`, json('POST', { form })),
   bundle: (pid: string, files: string[]) => request<{ file: string }>(`${P(pid)}/export/bundle`, json('POST', { files })),
   savePreset: (pid: string, name: string, form: Form) => request<Project>(`${P(pid)}/export/presets`, json('POST', { name, form })),
   sync: (pid: string) => request<Form>(`${P(pid)}/export/sync`),
