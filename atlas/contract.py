@@ -147,6 +147,7 @@ class Column:
     unit: str = ''
     decimals: int | None = None      # None — показывать как есть
     kind: Literal['text', 'number', 'date'] = 'text'
+    good: float | None = None        # порог «хорошо»: значение ≥ порога — зелёным, ниже — красным
 
 
 @dataclass(frozen=True)

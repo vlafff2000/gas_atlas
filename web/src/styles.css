@@ -27,6 +27,7 @@
   --danger-soft: #fff4ec;
   --danger-line: #f0b48f;
   --bad: #b42318;
+  --good: #15803d;
   --bar: rgba(20, 155, 165, .16);
   --bar-negative: rgba(194, 65, 12, .16);
   --shadow: rgba(27, 42, 49, .14);
@@ -67,6 +68,7 @@
   --danger-soft: #3a2218;
   --danger-line: #8a4524;
   --bad: #ff8a7a;
+  --good: #4ade80;
   --bar: rgba(43, 179, 189, .24);
   --bar-negative: rgba(240, 124, 74, .24);
   --shadow: rgba(0, 0, 0, .45);
@@ -391,5 +393,7 @@ table.frozen.has-check thead th:nth-child(2) { z-index: 3; background: var(--hea
 table.frozen.has-check tbody td:first-child, table.frozen.has-check thead th:first-child { box-shadow: none; width: var(--check-w, 84px); min-width: var(--check-w, 84px); }
 table.frozen tbody tr:hover td:first-child, table.frozen.has-check tbody tr:hover td:nth-child(2) { background: var(--row-hover); }
 table.frozen tbody tr.is-changed td:first-child, table.frozen.has-check tbody tr.is-changed td:nth-child(2) { background: var(--changed); }
+td.tone-good { color: var(--good); font-weight: 600; }
+td.tone-poor { color: var(--bad); font-weight: 600; }
 td.bar { background-image: linear-gradient(to left, var(--bar-c) var(--bar-w), transparent var(--bar-w)); background-repeat: no-repeat; background-size: calc(100% - 8px) 60%; background-position: right 4px center; }
 button.quiet.on { color: var(--accent-strong); border-color: var(--accent); background: var(--accent-soft); }

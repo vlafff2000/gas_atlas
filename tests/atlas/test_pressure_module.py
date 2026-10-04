@@ -314,3 +314,21 @@ def test_object_categories_shared_with_58(env):
     for changes in ({'Нет такого': {'category': 'x'}}, {}):
         r = client.post(f'/api/projects/{pid}/object-categories', json={'changes': changes})
         assert r.status_code == 400
+
+
+def test_match_matrix_and_tone_match_legacy(env):
+    client, pid, projects = env
+    body = run(client, pid, match_good=90, view='stats')
+    d, _, cfg = legacy_view(projects, pid, {})
+    matrix = table(body, 'stats-matrix')
+    assert not matrix['collapsed'] and all(c['good'] == 90 for c in matrix['columns'][2:])
+    frame = frame_of(matrix)
+    scenarios = list(frame.columns[2:])
+    assert sorted(scenarios) == sorted(d.scenario.astype(str).unique())
+    for (obj, well, scenario), g in d.groupby(['object', 'well', 'scenario']):
+        expected = legacy.statistics(g, cfg['percentiles'])['В пределах порога, %']
+        row = frame[(frame.object == obj) & (frame.well == well)]
+        assert np.isclose(float(row[str(scenario)].iloc[0]), expected)
+    assert table(body, 'metrics')['columns'][3]['good'] == 90
+    assert next(c for c in table(body, 'stats-3')['columns'] if c['key'] == 'В пределах порога, %')['good'] == 90
+    assert table(run(client, pid), 'stats-matrix')['collapsed']
