@@ -25,3 +25,29 @@ export function subscribe(f: () => void) {
   listeners.add(f)
   return () => { listeners.delete(f) }
 }
+
+// Закреплённые подсказки: закрепив точку на одном графике, она появляется на всех графиках с той же осью X.
+// Запись — это положение по X и номер (token); каждый график держит свою карточку и сверяет её с общим списком.
+export interface SharedPin { token: number; source: number; key: string; x: number }
+
+let shared: SharedPin[] = []
+
+export const sharedPins = (key: string | null) => (key === null ? [] : shared.filter(p => p.key === key))
+
+export function pinShared(source: number, key: string, x: number, max: number): number {
+  const token = ++counter
+  shared = [...shared, { token, source, key, x }]
+  const same = shared.filter(p => p.key === key)
+  if (same.length > max) {
+    const drop = new Set(same.slice(0, same.length - max).map(p => p.token))
+    shared = shared.filter(p => !drop.has(p.token))
+  }
+  listeners.forEach(f => f())
+  return token
+}
+
+export function unpinShared(token: number) {
+  if (!shared.some(p => p.token === token)) return
+  shared = shared.filter(p => p.token !== token)
+  listeners.forEach(f => f())
+}

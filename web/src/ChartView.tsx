@@ -8,7 +8,7 @@ import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { hiddenEvents, setHoverMode, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
-import { nextSyncId, publish, subscribe, synced } from './chartSync'
+import { nextSyncId, pinShared, publish, sharedPins, subscribe, synced, unpinShared } from './chartSync'
 import './chart.css'
 
 echarts.use([BarChart, BoxplotChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
@@ -256,7 +256,8 @@ function tipHtml(head: string, rows: TipRow[], extra: string[], foot = '') {
 const MAX_ROWS = 10
 
 /** Закреплённая подсказка; off — сдвиг карточки от её точки в пикселях, если карточку перетащили. */
-interface Pin { x: number; y: number; axis: 0 | 1; html: string; el: HTMLDivElement; off: [number, number] | null }
+interface Pin { x: number; y: number; axis: 0 | 1; html: string; el: HTMLDivElement; off: [number, number] | null
+  token: number; shared: boolean; own: boolean }   // token — запись в общем списке; own — закреплена на этом графике, а не пришла с другого
 
 /** Ближайшая к точке (px, py) точка прямоугольника карточки — конец линии-выноски. */
 const nearestOnBox = (px: number, py: number, l: number, t: number, w: number, h: number): [number, number] =>
@@ -286,7 +287,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
-    renderPins: (() => {}) as () => void,
+    renderPins: (() => {}) as () => void, reconcile: (() => {}) as () => void,
   })
   const mode = useHoverMode()
   const theme = useAppliedTheme()
@@ -382,15 +383,18 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       const el = document.createElement('div')
       el.className = 'atlas-tip pinned'
       host.appendChild(el)
-      st.pins.push({ x, y, axis, html: copy.innerHTML, el, off: null })
-      while (st.pins.length > MAX_PINS) st.pins.shift()!.el.remove()
+      const token = st.sync ? pinShared(st.id, st.sync, x, MAX_PINS) : nextSyncId()
+      st.pins.push({ x, y, axis, html: copy.innerHTML, el, off: null, token, shared: !!st.sync, own: true })
+      while (st.pins.length > MAX_PINS) { const old = st.pins.shift()!; old.el.remove(); if (old.shared) unpinShared(old.token) }
       renderPins()
     }
     const onUnpin = (e: MouseEvent) => {
       const b = (e.target as HTMLElement).closest('[data-unpin]')
       if (!b) return
       const i = Number(b.getAttribute('data-unpin'))
-      st.pins.splice(i, 1)[0]?.el.remove()
+      const gone = st.pins.splice(i, 1)[0]
+      gone?.el.remove()
+      if (gone?.shared) unpinShared(gone.token)
       renderPins(); schedule()
     }
     host.addEventListener('click', onUnpin)
@@ -441,6 +445,38 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       }
       if (more) out.push(`<span class="tip-sub">и ещё событий: ${more}</span>`)
       return out
+    }
+
+    /** Подсказка по кривым в положении h; py — вертикаль, к которой ближе всего выбираются строки. */
+    const valuesTip = (h: Hover, py: number, events: string[], foot: string) => {
+      const chart = st.chart, colors = colorOf(chart)
+      const xTitle = axisTitle(chart.x.label, chart.x.unit)
+        const curves = h.values
+        const focus = h.focus
+        const others = curves.filter(v => v !== focus)
+          .sort((a, b) => Math.abs(a.py - py) - Math.abs(b.py - py)).slice(0, focus ? MAX_ROWS - 1 : MAX_ROWS)
+          .sort((a, b) => a.py - b.py)
+        const row = (v: typeof curves[number], strong = false): TipRow => ({
+          name: v.track.series.name, color: colors(v.track.series), dash: dashOf(v.track.series) !== 'solid', strong,
+          value: `<b>${escapeHtml(fmtY(v.track.axis)(v.y))}</b>${unit(v.track.axis) ? ' <small>' + escapeHtml(unit(v.track.axis)) + '</small>' : ''}`,
+        })
+        const extra: string[] = []
+        if (focus) {
+          const s = focus.track.series, j = focus.track.src[focus.k]
+          const near = focus.track.xs[focus.k]
+          const exact = st.mode === 'facts' || near === focus.x
+          if (!exact) extra.push('<span class="tip-sub">≈ между замерами (интерполяция)</span>')
+          if (s.labels?.[j] || s.ids) {
+            if (!exact) extra.push(`<span class="tip-sub">Ближайший замер · ${escapeHtml(fmtX()(near))}</span>`)
+            if (s.labels?.[j]) extra.push(...s.labels[j].split(' · ').map(escapeHtml))
+          }
+          extra.push(...tipsOf(chart, s).map(escapeHtml))
+        }
+        extra.push(...events)
+        const hidden = curves.length - others.length - (focus ? 1 : 0)
+        const rows = [...(focus ? [row(focus, true)] : []), ...others.map(v => row(v))]
+        return tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(h.focus?.x ?? h.x))}</b>`, rows,
+          extra, hidden > 0 ? `ещё ${hidden} — ближе к курсору, чтобы увидеть` : foot)
     }
 
     const draw = () => {
@@ -599,32 +635,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
             { name: yTitle, color: 'transparent', dash: false, value: `<b>${escapeHtml(fmtY(p.track.axis)(p.y))}</b> ${escapeHtml(unit(p.track.axis))}` }],
           [...(label ? label.split(' · ').map(escapeHtml) : []), ...(tipsOf(chart, s)).map(escapeHtml), ...events], foot)
       } else if (h.values.length) {
-        const curves = h.values
-        const focus = h.focus
-        const others = curves.filter(v => v !== focus)
-          .sort((a, b) => Math.abs(a.py - m![1]) - Math.abs(b.py - m![1])).slice(0, focus ? MAX_ROWS - 1 : MAX_ROWS)
-          .sort((a, b) => a.py - b.py)
-        const row = (v: typeof curves[number], strong = false): TipRow => ({
-          name: v.track.series.name, color: colors(v.track.series), dash: dashOf(v.track.series) !== 'solid', strong,
-          value: `<b>${escapeHtml(fmtY(v.track.axis)(v.y))}</b>${unit(v.track.axis) ? ' <small>' + escapeHtml(unit(v.track.axis)) + '</small>' : ''}`,
-        })
-        const extra: string[] = []
-        if (focus) {
-          const s = focus.track.series, j = focus.track.src[focus.k]
-          const near = focus.track.xs[focus.k]
-          const exact = st.mode === 'facts' || near === focus.x
-          if (!exact) extra.push('<span class="tip-sub">≈ между замерами (интерполяция)</span>')
-          if (s.labels?.[j] || s.ids) {
-            if (!exact) extra.push(`<span class="tip-sub">Ближайший замер · ${escapeHtml(fmtX()(near))}</span>`)
-            if (s.labels?.[j]) extra.push(...s.labels[j].split(' · ').map(escapeHtml))
-          }
-          extra.push(...tipsOf(chart, s).map(escapeHtml))
-        }
-        extra.push(...events)
-        const hidden = curves.length - others.length - (focus ? 1 : 0)
-        const rows = [...(focus ? [row(focus, true)] : []), ...others.map(v => row(v))]
-        html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(h.focus?.x ?? h.x))}</b>`, rows,
-          extra, hidden > 0 ? `ещё ${hidden} — ближе к курсору, чтобы увидеть` : foot)
+        html = valuesTip(h, m![1], events, foot)
       } else if (events.length) {
         html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(h.x))}</b>`, [], events)
       }
@@ -639,9 +650,45 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       top = Math.max(4, Math.min(hh - bh - 4, top))
       card.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
     }
+    /** Карточка, закреплённая на другом графике с той же осью X: значения наших кривых в этой точке. */
+    const addRemote = (x: number, token: number) => {
+      const rect = gridRect()
+      if (!rect || !st.tracks.length) return
+      calibrate(rect)
+      const py = rect.y + rect.height / 2
+      const h = hover(st.tracks, view, st.map.x(x), py, st.chart.x.scale, a => (a && st.chart.y2 ? st.chart.y2 : st.chart.y).scale, st.mode)
+      const v = h.focus ?? h.values[0]
+      if (!v) return
+      const el = document.createElement('div')
+      el.className = 'atlas-tip pinned'
+      host.appendChild(el)
+      st.pins.push({ x, y: v.y, axis: v.track.axis, html: valuesTip(h, py, [], ''), el, off: null, token, shared: true, own: false })
+    }
+    /** Сверка с общим списком: чужие закрепления появляются, снятые — исчезают. */
+    st.reconcile = () => {
+      if (!st.sync) return
+      const list = sharedPins(st.sync)
+      const live = new Set(list.map(e => e.token))
+      let changed = false
+      st.pins = st.pins.filter(p => {
+        if (!p.shared || live.has(p.token)) return true
+        p.el.remove(); changed = true; return false
+      })
+      for (const e of list) {
+        if (e.source === st.id || st.pins.some(p => p.token === e.token)) continue
+        const n = st.pins.length
+        addRemote(e.x, e.token)
+        if (st.pins.length > n) changed = true
+      }
+      if (changed) {
+        const order = new Map(list.map((e, i) => [e.token, i]))
+        st.pins.sort((a, b) => (order.get(a.token) ?? 0) - (order.get(b.token) ?? 0))
+        renderPins()
+      }
+    }
     st.draw = draw
     const schedule = () => { if (!st.frame) st.frame = requestAnimationFrame(draw) }
-    const unsync = subscribe(() => { if (!st.mouse) schedule() })
+    const unsync = subscribe(() => { st.reconcile(); if (!st.mouse) schedule() })
 
     const zr = ch.getZr()
     zr.on('mousemove', (e: { offsetX: number; offsetY: number }) => { st.mouse = [e.offsetX, e.offsetY]; schedule() })
@@ -730,7 +777,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
     })
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || !st.pins.length) return
-      st.pins.forEach(p => p.el.remove()); st.pins = []; schedule()
+      st.pins.forEach(p => { p.el.remove(); if (p.shared) unpinShared(p.token) }); st.pins = []; schedule()
     }
     window.addEventListener('keydown', onKey)
     const observer = new ResizeObserver(() => { ch.resize(); schedule() })
@@ -738,6 +785,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
     return () => {
       window.clearTimeout(timer); ++seq
       observer.disconnect(); unsync(); publish(st.id, null, null)
+      st.pins.forEach(p => { p.el.remove(); if (p.own && p.shared) unpinShared(p.token) })
       window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin)
       host.removeEventListener('pointerdown', onGrab); host.removeEventListener('pointermove', onDrag)
       host.removeEventListener('pointerup', onDrop); host.removeEventListener('pointercancel', onDrop)
@@ -770,6 +818,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
     st.selected = {}
     applyLegend()
     if (boxRef.current) instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: true })
+    st.reconcile()
     st.draw()
     const later = window.setTimeout(st.ensure, 0)
     return () => window.clearTimeout(later)
@@ -780,9 +829,12 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
   useEffect(() => { state.current.patch = null; state.current.pin = null; setPatch(null) }, [given])
 
   // новый расчёт — прежние закреплённые подсказки относятся к другим данным
+  const lastGiven = useRef(given)
   useEffect(() => {
+    if (lastGiven.current === given) return        // первое построение: закрепления с других графиков остаются
+    lastGiven.current = given
     const st = state.current
-    st.pins.forEach(p => p.el.remove()); st.pins = []
+    st.pins.forEach(p => { p.el.remove(); if (p.shared) unpinShared(p.token) }); st.pins = []
   }, [given])
   // разница с первой подсказкой — в единицах новой темы и вида не меняется, но номера и отметки перерисовать
   useEffect(() => { state.current.draw() }, [offEvents])
