@@ -222,3 +222,18 @@ def test_fund_pack_six_per_page(env):
     assert [n.split('_', 3)[-1] for n in only.json()['files']] == ['Приложение_закачка.pdf']
     bad = client.post(f'/api/projects/{pid}/export/pack', json={'form': {'pack_template': '{нет}'}})
     assert bad.status_code == 400
+
+
+def test_response_control_and_working_horizons(env):
+    client, pid, projects, _ = env
+    data = projects.data(pid)
+    working = [h for h in data.settings.get('working_horizons', [])]
+    names = {}
+    for mode in ('control', 'working', 'both'):
+        form = {'modules': ['response'], 'response_mode': mode, 'response_working': working}
+        body = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()
+        names[mode] = [c['name'] for c in body['charts']]
+    assert names['both'] == names['control'] + names['working']
+    assert all(n.startswith('контроль · ') and n.endswith('уровень') for n in names['control'])
+    assert all(n.startswith('рабочий · ') for n in names['working'])
+    assert names['control'] or names['working']
