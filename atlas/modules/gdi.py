@@ -44,6 +44,37 @@ def select(df: pd.DataFrame, wells: list[str], seasons: list[str], last_n: int) 
     return d
 
 
+def comparison_hints(chosen: pd.DataFrame, no_pairs: bool, no_triples: bool, last_n: int, by_seasons: bool) -> list[Note]:
+    """Почему таблицы сравнения пусты. Сравниваются только даты с одним и тем же методом и номером исследования."""
+    if not (no_pairs or no_triples):
+        return []
+    d = legacy.prepare(chosen)
+    longest = d.groupby(['well', 'method', 'study'], dropna=False).date.nunique()
+    dates = d.groupby('well').date.nunique()
+    notes = []
+    if no_pairs:
+        if dates.max() < 2:
+            hint = []
+            if last_n and last_n < 2:
+                hint.append('«Последние даты исследований» не меньше 2')
+            if by_seasons:
+                hint.append('снимите или расширьте выбор сезонов')
+            notes.append(Note('Сравнивать не с чем: по каждой скважине выбрана одна дата исследования. '
+                              + (f'Выберите {" и ".join(hint)}.' if hint else 'В данных нет более ранних исследований.'),
+                              'warning'))
+        else:
+            split = int(((dates >= 2) & (longest.groupby('well').max() < 2)).sum())
+            notes.append(Note('Сравнение с предыдущим исследованием пусто: даты скважины различаются методом или номером '
+                              f'исследования (скважин: {split}), а сравниваются только исследования с совпадающими методом и номером. '
+                              'Проверьте колонки «Метод» и «Исследование» в исходном файле.', 'warning'))
+    if no_triples and not no_pairs:
+        why = 'выбрано меньше трех дат' if last_n and last_n < 3 else 'нужно не менее трех дат с одним методом и номером исследования'
+        notes.append(Note(f'Динамика трех последних исследований пуста: {why}.'))
+    elif no_triples and dates.max() >= 3:
+        notes.append(Note('Динамика трех последних исследований пуста: нужно не менее трех дат с одним методом и номером исследования.'))
+    return notes
+
+
 def study_label(date, method: str = '', study: str = '') -> str:
     label = pd.Timestamp(date).strftime('%d.%m.%Y')
     for part in (method, study):
@@ -141,7 +172,7 @@ class GdiModule(Module):
             if weak:
                 result.notes.append(Note(f'Исследований с R² ниже {params["threshold"]:g} или без подбора: '
                                          f'{weak} из {len(table)}.', 'warning'))
-            self.comparisons(result, chosen)
+            self.comparisons(result, chosen, int(params['last_n']), bool(params['seasons']))
             if params['outliers']:
                 self.outliers(result, chosen, params['outlier_threshold'])
         if not original.empty:
@@ -149,7 +180,7 @@ class GdiModule(Module):
         return result
 
     @staticmethod
-    def comparisons(result: Result, chosen: pd.DataFrame) -> None:
+    def comparisons(result: Result, chosen: pd.DataFrame, last_n: int = 0, by_seasons: bool = False) -> None:
         compare = legacy.comparisons(chosen)
         compare = natural_order(compare.rename(columns={'Скважина': 'well'}), by=('Метод', 'Исследование'))
         if compare.empty:
@@ -169,7 +200,12 @@ class GdiModule(Module):
         result.tables.append(Table('compare_three', 'Динамика трех последних исследований', three, [
             Column('well', 'Скважина'),
             *(Column(c, c, kind='date' if c in ('Раннее', 'Среднее', 'Последнее') else 'text') for c in names)],
-            collapsed=True))
+            collapsed=not three.empty))
+        if not compare.empty:
+            counts = compare['Результат'].value_counts()
+            result.summary += [Stat('Улучшение ΔP²', str(int(counts.get('Улучшение', 0))), 'Сравнение с предыдущим исследованием'),
+                               Stat('Ухудшение ΔP²', str(int(counts.get('Ухудшение', 0))), 'Рост ΔP² более чем на 10 %')]
+        result.notes += comparison_hints(chosen, compare.empty, three.empty, last_n, by_seasons)
 
     @staticmethod
     def outliers(result: Result, chosen: pd.DataFrame, threshold: float) -> None:

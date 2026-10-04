@@ -150,3 +150,13 @@ def test_state_roundtrip_in_58_format(frame):
     assert {**module.spec.coerce(module.load_state(state)), 'threshold': params['threshold']} == params
     everything = module.save_state(module.spec.coerce({}), Data({GDI: frame}))
     assert everything['wells'] == ['31', '45', '70', '73', '89', '132', '540', '541']
+
+
+def test_empty_comparison_explains_why(frame):
+    texts = lambda r: ' '.join(n.text for n in r.notes)
+    assert 'одна дата' in texts(run(frame, last_n=1))
+    split = frame.copy()
+    split['study'] = split.groupby('well').date.rank(method='dense').astype(int).astype(str)
+    assert 'методом или номером' in texts(run(split, last_n=3))
+    full = run(frame, last_n=3)
+    assert 'методом или номером' not in texts(full) and any(s.label == 'Ухудшение ΔP²' for s in full.summary)
