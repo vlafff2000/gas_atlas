@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, ApiError, LARGE_DEMO_HINT, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
+import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
@@ -7,8 +7,9 @@ import { PassportPage } from './PassportPage'
 import { TableView } from './TableView'
 import { formatDate } from './format'
 import { inMenu, PROJECT_PAGES } from './api_projects'
-import { ProjectPages, RestoreBox } from './ProjectPage'
+import { ProjectPages } from './ProjectPage'
 import { ImportPage } from './ImportPage'
+import { EmptyProjectSteps, hasData, NewProjectSteps } from './FirstSteps'
 import { HelpPage } from './HelpPage'
 import { SectionSearch, type Section } from './SectionSearch'
 import { sidebarCollapsed, theme, usePref, type Theme } from './chartPrefs'
@@ -160,36 +161,19 @@ export function App() {
           <ImportPage key={page} project={project} onProject={updateProject} pressure={page === '@import/pressure'}
                       onCreated={async id => { await loadProjects(); setProjectId(id) }} />
         ) : projects && projects.length === 0 ? (
-          <Empty onDemo={createDemo} onOpen={openProject} />
+          <NewProjectSteps onDemo={createDemo} onOpen={openProject} />
         ) : page === '@passport' && project ? (
           <PassportPage key={project.id} project={project} onProject={updateProject} />
         ) : page && project && projects ? (
           <ProjectPages page={page} project={project} projects={projects} onProject={updateProject} onOpen={openProject} />
+        ) : spec && project && spec.id === 'overview' && !hasData(project) && !project.demo ? (
+          <EmptyProjectSteps project={project} />
         ) : spec && project ? (
           <ModuleView key={spec.id + project.id} spec={spec} project={project} onProject={updateProject} />
         ) : (
           <p className="muted loading-line">Загрузка…</p>
         )}
       </main>
-    </div>
-  )
-}
-
-function Empty({ onDemo, onOpen }: { onDemo: (large?: boolean) => Promise<void>; onOpen: (id: string) => void }) {
-  const [busy, setBusy] = useState(false)
-  const large = () => { setBusy(true); onDemo(true).finally(() => setBusy(false)) }
-  return (
-    <div className="empty">
-      <h1>Проектов пока нет</h1>
-      <p>Создайте проект и загрузите свои файлы в разделе <a href="#/@import">«Импорт данных»</a>. Проекты общие с версией 5.8.</p>
-      <p>Чтобы посмотреть, как работает новый интерфейс, откройте демонстрационный объект с синтетическими данными.</p>
-      <div className="toolbar">
-        <button type="button" className="primary" disabled={busy} onClick={() => onDemo()}>Открыть демонстрационный объект</button>
-        <button type="button" className="quiet" disabled={busy} onClick={large} title={LARGE_DEMO_HINT}>
-          {busy ? 'Создание большого демо…' : 'Большой демо-объект (2 млн строк)'}
-        </button>
-      </div>
-      <RestoreBox onOpen={onOpen} />
     </div>
   )
 }
@@ -415,6 +399,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
                     onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({
                       ...params, view: 'dynamics', wells: [well], groups: [], scope_groups: [], scope_wells: [], focus: `${well}|${date}` }) : undefined}
                     fetchWindow={(x0, x1, raw) => api.window(spec.id, project.id, params, c.id, x0, x1, raw, result.revision)}
+                    onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
                 ))}
               </div>

@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -15,6 +16,12 @@ import zipfile
 import pandas as pd
 import portalocker
 from .config import DEFAULT_SETTINGS, STORAGE, VERSION
+
+def _keep_snapshots():
+    try: return max(2,int(os.environ.get('GAS_ATLAS_SNAPSHOTS','10')))
+    except ValueError: return 10
+NO_DATA='none'   # «копия» до первого импорта: проект без данных
+KEEP_SNAPSHOTS=_keep_snapshots()   # копий данных на проект: для отката импорта (было 2)
 
 def atomic_json(path, value):
     path=Path(path); tmp=path.with_suffix('.tmp-'+uuid.uuid4().hex)
@@ -90,6 +97,7 @@ class Store:
             m=self.manifest(pid)
             if expected is not None and m['revision']!=expected:
                 raise ValueError('Проект изменен в другой вкладке. Обновите страницу и повторите действие.')
+            before=m['snapshot']
             if frames is not None:
                 snap=uuid.uuid4().hex; dest=self.path(pid)/'snapshots'/snap; dest.mkdir()
                 try:
@@ -106,15 +114,40 @@ class Store:
             m['version']=VERSION
             m['revision']+=1; m['updated']=dt.datetime.now(dt.timezone.utc).isoformat()
             atomic_json(self.path(pid)/'manifest.json',m)
-            self.event(pid,action,{**(details or {}),'revision':m['revision'],'rows':m['tables']})
-            # Keep current and previous data snapshot for recovery; never touch originals.
+            # Новая копия данных — запись о том, какая была до неё: по ней откатывают импорт (``rollback``).
+            kept={'snapshot':m['snapshot'],'previous_snapshot':before} if frames is not None else {}
+            self.event(pid,action,{**(details or {}),**kept,'revision':m['revision'],'rows':m['tables']})
+            # Keep the last KEEP_SNAPSHOTS data snapshots for recovery; never touch originals or the current one.
             snapshots=sorted((self.path(pid)/'snapshots').iterdir(),key=lambda p:p.stat().st_mtime,reverse=True)
-            for stale in snapshots[2:]:
+            for stale in snapshots[KEEP_SNAPSHOTS:]:
+                if stale.name==m['snapshot']: continue
                 try: shutil.rmtree(stale)
                 except PermissionError:
                     # Windows can keep a reader's file open briefly. Retry next commit.
                     continue
             return m
+
+    def versions(self,pid):
+        """Копии данных, которые ещё можно вернуть: снимок, когда создан, действие, строк; новые сверху."""
+        m=self.manifest(pid); root=self.path(pid)/'snapshots'; out=[]
+        for _,row in self.history(pid).iterrows():
+            try: d=json.loads(row['Подробности'])
+            except ValueError: continue
+            snap=d.get('snapshot') if isinstance(d,dict) else None
+            if snap and (root/snap).is_dir():
+                out.append({'snapshot':snap,'date':row['Дата'],'action':row['Действие'],'revision':d.get('revision'),
+                            'rows':d.get('rows') or {},'current':snap==m['snapshot'],
+                            'before':(d['previous_snapshot'] if (root/d['previous_snapshot']).is_dir() else None) if d.get('previous_snapshot') else NO_DATA})
+        return out
+
+    def rollback(self,pid,snapshot,expected=None):
+        """Вернуть данные копии ``snapshot``: новой ревизией (история не стирается), настройки и группы не трогаются."""
+        if snapshot==NO_DATA: return self.commit(pid,{},expected=expected,action='Откат данных',details={'restored_snapshot':NO_DATA})
+        if not re.fullmatch(r'[0-9a-f]{32}',str(snapshot)): raise ValueError('Неверная копия данных')
+        src=self.path(pid)/'snapshots'/snapshot
+        if not src.is_dir(): raise ValueError('Эта копия данных уже удалена: хранятся последние %d.'%KEEP_SNAPSHOTS)
+        frames={f.stem:pd.read_parquet(f) for f in sorted(src.glob('*.parquet'))}
+        return self.commit(pid,frames,expected=expected,action='Откат данных',details={'restored_snapshot':snapshot})
 
     def keep_original(self,pid,path):
         path=Path(path); sha=hashlib.sha256()

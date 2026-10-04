@@ -22,6 +22,10 @@ export interface RestorePreview {
   columns?: string[]
   rows?: string[][]
 }
+export interface DataVersion {
+  snapshot: string; date: string; action: string; revision: number | null; rows: Record<string, number>
+  current: boolean; before: string | null
+}
 export interface Caption { section: string; start: number; template: string }
 export interface ExportChoices {
   modules: { id: string; label: string }[]
@@ -83,6 +87,9 @@ export const projectsApi = {
   copy: (pid: string) => request<Project>(`${P(pid)}/copy`, json('POST', {})),
   settings: (pid: string, values: Record<string, unknown>) =>
     request<Project>(`${P(pid)}/settings`, json('PATCH', { values })),
+  versions: (pid: string) => request<{ versions: DataVersion[]; keep: number }>(`${P(pid)}/versions`),
+  rollback: (pid: string, snapshot: string, revision: number) =>
+    request<Project>(`${P(pid)}/rollback`, json('POST', { snapshot, revision })),
   backupUrl: (pid: string, originals: boolean) => `${P(pid)}/backup?originals=${originals ? 1 : 0}`,
   restorePreview: (file: File) =>
     request<RestorePreview>(`/api/projects/restore/preview?name=${encodeURIComponent(file.name)}`, upload(file)),

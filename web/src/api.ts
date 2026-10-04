@@ -9,6 +9,8 @@ export interface Param {
   kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map'
   default: unknown
   help: string
+  formula: string
+  example: string
   options: Option[]
   source: { dataset: DatasetKind; column: string } | null
   minimum: number | null
@@ -130,6 +132,11 @@ async function download(path: string, body: unknown) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+/** PNG графика для буфера обмена: тот же рисунок, что и «Скачать» (цвета, легенда, подписи), без сохранения файла. */
+async function chartPng(path: string, body: unknown): Promise<Blob> {
+  return (await send(path, json('POST', body))).blob()
+}
+
 export const LARGE_DEMO_HINT = 'Синтетика для проверки скорости: отбор и закачка 1 000 000 строк, ГДИ 300 000, '
   + 'реагирование 200 000, кроссплот 500 000 пар. Создание занимает 10–20 секунд.'
 
@@ -163,6 +170,8 @@ export const api = {
     request<Table>(`/api/modules/${module}/table`, json('POST', { project, params, id })),
   exportChart: (module: string, project: string, params: Params, chart: string, format: string, dpi: number) =>
     download(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format, dpi }),
+  chartPng: (module: string, project: string, params: Params, chart: string) =>
+    chartPng(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format: 'png', dpi: 300 }),
   exportTables: (module: string, project: string, params: Params, table?: string, format: 'xlsx' | 'csv' = 'xlsx') =>
     download(`/api/modules/${module}/export`, { project, params, target: 'tables', id: table, format }),
 }

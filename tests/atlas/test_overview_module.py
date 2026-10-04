@@ -10,7 +10,7 @@ from app.core.demo import well_demo_frames
 from app.core.performance import Project as FrameCache
 from app.core.storage import Store
 from atlas.api import create_app
-from atlas.modules.overview import summary
+from atlas.modules.overview import describe, local_time, summary
 from atlas.projects import Projects
 
 
@@ -64,7 +64,7 @@ def test_history_rows_and_gdi_calcs(env):
     history = store.history(pid)
     shown = rows(table(body, 'history'))
     assert [r['action'] for r in shown] == history['Действие'].tolist()
-    assert [r['date'] for r in shown] == history['Дата'].tolist()
+    assert [r['date'] for r in shown] == [local_time(d) for d in history['Дата']]
     assert any('Сохраненных расчетов ГДИ: 1' in n['text'] for n in body['notes'])
     spec = next(s for s in client.get('/api/modules').json() if s['id'] == 'overview')
     assert spec['needs'] == [] and spec['save_label'] == ''
@@ -88,3 +88,15 @@ def test_empty_project_is_a_note(tmp_path):
     assert table(body, 'composition') is None
     assert any('Данных пока нет' in n['text'] for n in body['notes'])
     assert all(c['count'] in (0, 1) for c in body['tables'] if c['id'] == 'metrics')
+
+
+def test_history_details_are_human_readable():
+    text = describe('Импорт данных', json.dumps({'revision': 3, 'rows': {'production': 7908, 'gdi': 120}, 'snapshot': 'x' * 32}))
+    assert text == 'в проекте: Производительность скважин 7\u00a0908, ГДИ 120'
+    assert describe('Переименование', json.dumps({'before': 'А', 'after': 'Б'})) == 'было: А; стало: Б'
+    assert describe('Создание', json.dumps({'name': 'Объект'})) == 'название: Объект'
+    assert describe('Результат импорта', json.dumps({'removed_duplicates': 2, 'rejected': 0})) == 'удалено повторов: 2'
+    out = describe('Ручной фильтр точек', json.dumps({'added_ids': ['a'], 'removed_ids': [], 'after_exclusions': {'a': {}}}))
+    assert out.startswith('исключено точек 1, возвращено 0, всего исключено 1')
+    assert '{' not in out and describe('x', '{}') == '' and describe('x', 'не json') == 'не json'
+    assert local_time('2026-10-03T22:28:00+00:00')[10] == 'T' and local_time('мусор') == 'мусор'

@@ -1,7 +1,7 @@
 // Раздел «Проекты» (5.8: app/ui/extras.py) и общий вход для страниц «Экспорт», «Проекты», «Настройки».
 import { useCallback, useEffect, useState } from 'react'
 import { api, LARGE_DEMO_HINT, type Project } from './api'
-import { bytes, projectsApi, saveLink, type ProjectDetails, type RestorePreview } from './api_projects'
+import { bytes, projectsApi, saveLink, type DataVersion, type ProjectDetails, type RestorePreview } from './api_projects'
 import { ExportPage } from './ExportPage'
 import { SettingsPage } from './SettingsPage'
 import { formatDate } from './format'
@@ -42,6 +42,43 @@ export function Toast({ text, onClose }: { text: string | null; onClose: () => v
       <span>{text}</span>
       <button type="button" aria-label="Закрыть" onClick={onClose}>×</button>
     </div>
+  )
+}
+
+/** Копии данных: перед каждым импортом проект запоминает прежние данные, любую можно вернуть (новой ревизией). */
+function VersionsBlock({ project, onProject, onToast }: { project: Project; onProject: (p: Project) => void; onToast: (t: string) => void }) {
+  const [list, setList] = useState<{ versions: DataVersion[]; keep: number } | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  useEffect(() => { projectsApi.versions(project.id).then(setList).catch(() => setList(null)) }, [project.id, project.revision])
+  if (!list || list.versions.length === 0) return null
+  const back = async (v: DataVersion) => {
+    if (!window.confirm(`Вернуть данные проекта к состоянию после «${v.action}» от ${formatDate(v.date)}? Текущие данные останутся в списке копий.`)) return
+    setBusy(v.snapshot)
+    try {
+      onProject(await projectsApi.rollback(project.id, v.snapshot, project.revision))
+      onToast('Данные проекта возвращены.')
+    } catch (e) { onToast((e as Error).message) } finally { setBusy(null) }
+  }
+  return (
+    <section className="table-block">
+      <div className="block-head"><h3>Копии данных</h3><span className="muted">хранятся последние {list.keep}</span></div>
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>Когда</th><th>Действие</th><th className="number">Строк</th><th /></tr></thead>
+          <tbody>
+            {list.versions.map(v => (
+              <tr key={v.snapshot} className={v.current ? 'is-current' : undefined}>
+                <td>{formatDate(v.date)}</td>
+                <td>{v.action}</td>
+                <td className="number">{Object.values(v.rows).reduce((a, b) => a + b, 0).toLocaleString('ru-RU')}</td>
+                <td>{v.current ? <span className="muted">текущие</span>
+                  : <button type="button" className="quiet small" disabled={busy !== null} onClick={() => back(v)}>Вернуть эти данные</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -123,6 +160,8 @@ function ProjectsPage({ project, projects, onProject, onOpen }: PageProps) {
           </button>
         </div>
       </section>
+
+      <VersionsBlock project={project} onProject={onProject} onToast={setToast} />
 
       <section className="form-block">
         <h2>Новый проект</h2>

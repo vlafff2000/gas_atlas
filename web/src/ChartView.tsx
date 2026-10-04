@@ -40,6 +40,8 @@ interface Props {
   /** Кроссплот давлений: щелчок по кнопке в закреплённой подсказке открывает динамику скважины. */
   onOpenWell?: (well: string, date: string) => void
   onDownload: (format: string, dpi: number) => Promise<void>
+  /** PNG графика для буфера обмена (как при выгрузке): кнопка «Копировать» для вставки в презентацию или письмо. */
+  onCopy?: () => Promise<Blob>
   /** Точки линий в окне оси X: при увеличении (и в режимах «Замеры» / «Исключать точки») прореженная линия заменяется точками окна. */
   fetchWindow?: (x0: number, x1: number, raw: boolean) => Promise<WindowReply>
 }
@@ -324,7 +326,7 @@ interface Plotted { x: number; label: string; kind: ChartEvent['kind'] }
 const syncKey = (chart: Chart) =>
   chart.x.scale === 'category' ? null : chart.x.scale === 'time' ? 'time' : `${chart.x.scale}|${chart.x.label}|${chart.x.unit}`
 
-export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, onDownload, fetchWindow }: Props) {
+export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, onDownload, onCopy, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -1156,6 +1158,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
                 title="Только фактические замеры, точки видны на линиях">Замеры</button>
             </span>
           </>}
+          {onCopy && <CopyButton onCopy={onCopy} />}
           <DownloadMenu onDownload={onDownload} />
         </span>
       </figcaption>
@@ -1378,6 +1381,36 @@ function pill(g: CanvasRenderingContext2D, text: string, x: number, y: number, s
   g.beginPath(); g.roundRect(left, top, w, h, 4); g.fill()
   g.fillStyle = tk.surface; g.textBaseline = 'middle'; g.textAlign = 'center'
   g.fillText(text, left + w / 2, top + h / 2 + 0.5)
+}
+
+/** «Копировать»: картинка графика в буфер обмена. Если окно не даёт доступа к буферу — сообщение и совет скачать PNG. */
+function CopyButton({ onCopy }: { onCopy: () => Promise<Blob> }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle')
+  const [why, setWhy] = useState('')
+  const go = async () => {
+    setState('busy'); setWhy('')
+    try {
+      const write = navigator.clipboard?.write
+      if (!write || typeof ClipboardItem === 'undefined') throw new Error('Буфер обмена недоступен в этом окне. Скачайте PNG.')
+      // Promise внутри ClipboardItem: щелчок пользователя «живёт», пока рисуется картинка.
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': onCopy() })])
+      setState('done')
+      setTimeout(() => setState('idle'), 2500)
+    } catch (e) {
+      setWhy((e as Error).name === 'NotAllowedError' ? 'Окно не разрешило запись в буфер обмена. Скачайте PNG.' : (e as Error).message)
+      setState('failed')
+      setTimeout(() => setState('idle'), 6000)
+    }
+  }
+  return (
+    <span className="copy-chart">
+      <button type="button" className="quiet small" disabled={state === 'busy'} onClick={go}
+        title="Скопировать график как картинку: вставьте её в презентацию или письмо (Ctrl+V)">
+        {state === 'busy' ? 'Копирую…' : state === 'done' ? 'Скопировано ✓' : 'Копировать'}
+      </button>
+      {state === 'failed' && <span className="field-error" role="alert">{why}</span>}
+    </span>
+  )
 }
 
 function DownloadMenu({ onDownload }: { onDownload: (format: string, dpi: number) => Promise<void> }) {

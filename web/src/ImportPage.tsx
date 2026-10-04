@@ -5,6 +5,7 @@ import {
   importApi, type Applied, type Book, type CheckFile, type FileInfo, type FileOptions, type ImportOptions, type Pending,
   type PressureChoice, type PressureDemo, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
 } from './api_import'
+import { projectsApi } from './api_projects'
 import { SheetEditor } from './SheetEditor'
 import { TableView } from './TableView'
 import './import.css'
@@ -16,6 +17,49 @@ const DELIMITERS = [['auto', 'Автоопределение'], ['\t', 'Табу
   ['|', 'Вертикальная черта'], ['whitespace', 'Пробелы']]
 const AUTO: FileOptions = { encoding: 'auto', delimiter: 'auto' }
 const sep = '\u0000'
+
+interface Message { text: string; ok: boolean; undo?: string }
+
+/** Итог загрузки; после сохранения — кнопка «Откатить этот импорт» (данные возвращаются из копии, сделанной перед ним). */
+function ImportNote({ message, project, onProject, onMessage }:
+  { message: Message | null; project: Project; onProject: (p: Project) => void; onMessage: (m: Message | null) => void }) {
+  const [busy, setBusy] = useState(false)
+  if (!message) return null
+  const undo = async () => {
+    if (!message.undo) return
+    setBusy(true)
+    try {
+      onProject(await projectsApi.rollback(project.id, message.undo, project.revision))
+      onMessage({ text: 'Импорт отменён: данные проекта возвращены к состоянию до загрузки.', ok: true })
+    } catch (e) { onMessage({ text: (e as Error).message, ok: false }) }
+    setBusy(false)
+  }
+  return (
+    <div className={'note ' + (message.ok ? 'info' : 'warning')} role="status">
+      {message.text}
+      {message.undo && <> <button type="button" className="quiet small" disabled={busy} onClick={undo}>Откатить этот импорт</button></>}
+    </div>
+  )
+}
+
+const DATASETS: Record<string, string> = { production: 'Эксплуатация', gdi: 'ГДИ', response: 'Реагирование' }
+
+/** Проверка загруженных значений до сохранения: что выглядит сомнительно. Ничего не исключается само. */
+function QualityReport({ quality, onDownload }: { quality: Pending['quality']; onDownload: (format: 'xlsx' | 'csv') => Promise<void> }) {
+  if (!quality || (quality.errors + quality.attention === 0)) {
+    return <div className="note info">Проверка данных: сомнительных значений не найдено.</div>
+  }
+  return (
+    <>
+      <div className={'note ' + (quality.errors ? 'warning' : 'info')}>
+        Проверка данных: ошибок {quality.errors}, требуют внимания {quality.attention}.
+        {' '}{quality.by_check.slice(0, 6).map(c => `${DATASETS[c.dataset] ?? c.dataset} — ${c.check.toLowerCase()}: ${c.count}`).join('; ')}.
+        {' '}Загрузку это не останавливает: после сохранения находки можно разобрать и исключить в разделе «Проверка данных».
+      </div>
+      {quality.table && <TableView table={{ ...quality.table, collapsed: true }} onDownload={onDownload} />}
+    </>
+  )
+}
 
 interface Props {
   project: Project | null
@@ -197,7 +241,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const [policy, setPolicy] = useState('new')
   const [accept, setAccept] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null)
+  const [message, setMessage] = useState<Message | null>(null)
   const files = uploads.files
   const opts = (token: string) => fileOpts[token] ?? AUTO
 
@@ -261,7 +305,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
       const r: Applied = await importApi.apply(project.id, pending.id, policy, accept)
       onProject(r.project)
       setPending(null); uploads.clear(); setChoices({}); setDetailed({}); setFileOpts({}); setFine('')
-      setMessage({ text: r.message, ok: true })
+      setMessage({ text: r.message, ok: true, undo: r.undo?.snapshot })
     } catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
     setBusy(false)
   }
@@ -392,7 +436,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
         <button type="button" className="primary" disabled={blocked || busy} onClick={check}>Проверить файлы</button>
         {busy && <span className="pulse">Обработка…</span>}
       </div>
-      {message && <div className={'note ' + (message.ok ? 'info' : 'warning')} role="status">{message.text}</div>}
+      <ImportNote message={message} project={project} onProject={onProject} onMessage={setMessage} />
 
       {pending && (
         <div className="check-result">
@@ -406,6 +450,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
               <TableView table={pending.issues} onDownload={format => importApi.table(project.id, pending.id, 'issues', format)} />
             </>
           )}
+          <QualityReport quality={pending.quality} onDownload={format => importApi.table(project.id, pending.id, 'quality', format)} />
           {pending.previews.map(t => (
             <TableView key={t.id} table={{ ...t, collapsed: true }} onDownload={format => importApi.table(project.id, pending.id, t.id, format)} />
           ))}
@@ -505,7 +550,7 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
   const [onlyIssues, setOnlyIssues] = useState(false)
   const [fine, setFine] = useState('')
   const [mode, setMode] = useState('add')
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null)
+  const [message, setMessage] = useState<Message | null>(null)
   const opts = (token: string) => fileOpts[token] ?? AUTO
 
   useEffect(() => {
@@ -533,7 +578,7 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
       const r = await importApi.pressureApply(project.id, result.ready.id, mode)
       onProject(r.project)
       uploads.clear(); setChoices({}); setOverrides({}); setFileOpts({}); setFine(''); setResult(null)
-      setMessage({ text: r.message, ok: true })
+      setMessage({ text: r.message, ok: true, undo: r.undo?.snapshot })
     } catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
   }
 
@@ -551,7 +596,7 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
       {!files.length && <div className="note info">Выберите файлы. Программа сама определит факт, модели, фонды, шапку и структуру. Если данные уже есть в проекте, новые объекты добавятся к ним.</div>}
       <PressureDemos project={project} onProject={onProject} onMessage={setMessage}
                      onTry={list => { uploads.clear(); uploads.add(list) }} />
-      {message && <div className={'note ' + (message.ok ? 'info' : 'warning')} role="status">{message.text}</div>}
+      <ImportNote message={message} project={project} onProject={onProject} onMessage={setMessage} />
       {result && (
         <>
           {result.bad.map(b => <div key={b} className="note warning">Файл не прочитан — {b}</div>)}

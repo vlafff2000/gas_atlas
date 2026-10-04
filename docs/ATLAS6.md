@@ -50,6 +50,8 @@ API:
 | `POST /api/modules/{id}/export` `{project, params, target, id, format, dpi}` | график (SVG/PDF/PNG) или таблицы (XLSX, одна таблица — CSV) |
 | `GET /api/projects/{id}` | сводка проекта: ревизия, наборы данных, общие настройки, число исключений |
 | `PATCH /api/projects/{id}/settings` `{values}` | общие настройки: `r2_threshold`, `season_start/end`, `auto_seasons` + `season_gap_days` + `season_rate_share` (автоопределение сезонов по накопленному расходу, `app/modules/seasons.py`; по умолчанию выключено), `manometer_wells`, `visible_pages`, `chart_style`, `working_horizons`; проекты, копии, резервные копии, выгрузки — `atlas/api_projects.py`, экспорт — `atlas/api_export.py` |
+| `GET /api/projects/{id}/versions` | копии данных проекта: перед каждым импортом сохраняется прежнее состояние, хранятся последние 10 (`GAS_ATLAS_SNAPSHOTS`) |
+| `POST /api/projects/{id}/rollback` `{snapshot, revision}` | вернуть данные копии новой ревизией (история и настройки остаются); `snapshot: "none"` — проект без данных. Ответ импорта содержит `undo.snapshot` — копию до него («Откатить этот импорт») |
 | `POST /api/projects/{id}/exclusions` `{dataset, add, remove, reason}` | исключить / вернуть точки (журнал как в 5.8) |
 | `POST /api/projects/{id}/exclusions/undo` | отменить последнее исключение |
 | `POST /api/projects/{id}/exclusions/state` `{at, side, revision}` | «История фильтра»: восстановить состояние до / после изменения (`atlas/api_exclusions.py`) |
@@ -150,6 +152,18 @@ npm run build                   # пересобрать atlas/web/dist пере
 ```
 
 CI проверяет, что `atlas/web/dist` соответствует исходникам.
+
+## Разделы, которых нет в 5.8
+
+- **Проверка данных** (`modules/quality.py`, поиск — `atlas/quality.py`): Рзаб не ниже Рпл, ΔP² не сходится с давлениями, скачки дебита,
+  нули посреди отбора, повторы дат, пропуски, давление в других единицах. Ничего не исключается само: находки отмечаются флажками
+  и исключаются тем же журналом, что и точки на графиках. Тот же отчёт показывается при проверке файлов перед сохранением импорта.
+- **Динамика коэффициентов ГДИ** (`modules/gdi_trend.py`): a, b и расход при общем ΔP² по датам; рейтинг скважин по изменению
+  отдачи между первым и последним надёжным исследованием. Математика — `gdi_history` из 5.8 (`tests/atlas/test_gdi_trend.py`).
+- **Копии данных** — на странице «Проекты»; **мастер первого запуска** — `web/src/FirstSteps.tsx`.
+- Кнопка **«?»** у параметра: `Param(formula=..., example=...)`. **«Копировать»** у графика кладёт в буфер тот же PNG, что и «Скачать».
+- **Скорость**: `python tools/check_perf.py` сравнивает время каждого раздела на большом демо с бюджетом `tools/perf_budget.json`
+  (в CI — задача `perf`); после намеренного изменения — `--update`.
 
 ## Что дальше (по ADR)
 
