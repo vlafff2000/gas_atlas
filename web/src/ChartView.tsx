@@ -89,6 +89,9 @@ function timeSpan(chart: Chart) {
 }
 export const hasNavigator = (chart: Chart) => timeSpan(chart) > NAVIGATOR_SPAN
 
+/** Холст рисуется минимум в двойном разрешении: на обычных мониторах (масштаб 100%) линии и подписи иначе выходят «мыльными». */
+function pixelRatio() { return Math.max(2, window.devicePixelRatio || 1) }
+
 function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode, pin: AxisPin | null, base: Chart): echarts.EChartsCoreOption {
   const color = colorOf(chart)
   const tips = new Map<string, string[]>()
@@ -314,7 +317,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
 
   useEffect(() => {
     const el = box.current!
-    const ch = echarts.init(el, undefined, { renderer: 'canvas' })
+    const ch = echarts.init(el, undefined, { renderer: 'canvas', devicePixelRatio: pixelRatio() })
     instance.current = ch
     ;(el as unknown as { __echart?: echarts.ECharts }).__echart = ch     // для отладки и проверок в браузере
     const st = state.current
@@ -485,7 +488,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onDownload, fe
       st.frame = 0
       const tk = st.tokens!, chart = st.chart
       const m = st.mouse, rect = gridRect()
-      const dpr = window.devicePixelRatio || 1
+      const dpr = pixelRatio()
       const w = el.clientWidth, hh = el.clientHeight
       if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(hh * dpr)) {
         canvas.width = Math.round(w * dpr); canvas.height = Math.round(hh * dpr)
