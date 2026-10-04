@@ -8,7 +8,7 @@ import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { axisAt, formatBound, parseBound, shiftRange, wheelFactor, zoomRange, type AxisName, type Range } from './chartAxes'
-import { hiddenEvents, setHoverMode, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { hiddenEvents, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
 
@@ -315,10 +315,30 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: on })
   }
   const syncZoom = usePref(zoomSync)
-  const [ranges, setRangesState] = useState<Manual>({ y: null, y2: null })      // ручные границы Y: переживают обновление данных
+  const rangeKey = `${given.title}|${given.y.label}|${given.y2?.label ?? ''}`
+  const yKey = `${given.y.label}|${given.y.unit}`
+  const [ranges, setRangesState] = useState<Manual>(() => savedRanges.get()[rangeKey] ?? { y: null, y2: null })      // ручные границы Y: переживают обновление данных и перезапуск
   const [editor, setEditor] = useState<{ axis: AxisName; lo: string; hi: string; at: [number, number]; error: string } | null>(null)
   state.current.ranges = ranges
-  state.current.setRanges = setRangesState
+  state.current.setRanges = (r: Manual) => {
+    setRangesState(r)
+    const all = { ...savedRanges.get() }
+    if (r.y || r.y2) { delete all[rangeKey]; all[rangeKey] = r } else delete all[rangeKey]
+    const keys = Object.keys(all)
+    for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete all[k]
+    savedRanges.set(all)
+  }
+  const firstKey = useRef(rangeKey)
+  useEffect(() => {
+    if (firstKey.current === rangeKey) return
+    firstKey.current = rangeKey
+    setRangesState(savedRanges.get()[rangeKey] ?? { y: null, y2: null })
+  }, [rangeKey])
+  // «Те же границы на всех графиках раздела»: приём границ с графика, у которого такая же ось Y
+  useEffect(() => sharedRange.subscribe(() => {
+    const v = sharedRange.get(), cur = state.current.ranges.y
+    if (v && v.key === yKey && !(cur && cur[0] === v.range[0] && cur[1] === v.range[1])) state.current.setRanges({ ...state.current.ranges, y: v.range })
+  }), [yKey])
   const resetZoom = () => {
     setEditor(null)
     state.current.setRanges({ y: null, y2: null })
@@ -1075,6 +1095,10 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
                 title="Подогнать шкалу Y под точки в видимом окне по X">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h10M3 13.5h10" /><path d="M8 4.5v7M6 6.5l2-2 2 2M6 9.5l2 2 2-2" /></svg>
               </button>
+              {ranges.y && <button type="button" className="icon" onClick={() => sharedRange.set({ key: yKey, range: ranges.y!, n: Date.now() })}
+                title="Те же границы оси Y — на все графики раздела с такой же осью">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></svg>
+              </button>}
               <button type="button" className="icon" onClick={resetZoom} title="Сбросить масштаб и границы осей (или двойной щелчок по графику). Двойной щелчок по оси — ввести границы, колесо над осью — масштаб оси, перетаскивание оси — сдвиг">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7" /><path d="M3 2.5v3h3" /></svg>
               </button>
