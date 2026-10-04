@@ -58,3 +58,6 @@ export const useAppliedTheme = () => usePref(applied)
 export const sidebarCollapsed = pref<boolean>('atlas.sidebar.collapsed', false)
 export const paramsCollapsed = pref<boolean>('atlas.params.collapsed', false)
 export const tableBars = pref<boolean>('atlas.table.bars', true)
+
+/** Общий масштаб по времени: прокрутка бегунка на одном графике двигает все графики по времени. */
+export const zoomSync = pref<boolean>('atlas.chart.zoomSync', true)

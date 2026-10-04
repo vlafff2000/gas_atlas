@@ -51,3 +51,25 @@ export function unpinShared(token: number) {
   shared = shared.filter(p => p.token !== token)
   listeners.forEach(f => f())
 }
+
+// Общий масштаб по времени: окно оси X (миллисекунды) одного графика повторяют остальные графики по времени.
+// null — масштаб сброшен (весь период). Окно живёт в модуле и переживает смену раздела.
+export interface ZoomWindow { source: number; from: number; to: number }
+
+let zoom: ZoomWindow | null = null
+const zoomListeners = new Set<() => void>()
+
+export const sharedZoom = () => zoom
+
+export function publishZoom(source: number, from: number | null, to: number | null) {
+  const next = from === null || to === null || !(to > from) ? null : { source, from, to }
+  if (!next && !zoom) return
+  if (next && zoom && Math.abs(zoom.from - next.from) <= (next.to - next.from) * 1e-3 && Math.abs(zoom.to - next.to) <= (next.to - next.from) * 1e-3) return
+  zoom = next
+  zoomListeners.forEach(f => f())
+}
+
+export function subscribeZoom(f: () => void) {
+  zoomListeners.add(f)
+  return () => { zoomListeners.delete(f) }
+}
