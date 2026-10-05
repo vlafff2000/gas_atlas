@@ -42,6 +42,7 @@ export function ExportPage({ project, onProject }: PageProps) {
   const [archive, setArchive] = useState<{ key: string; result: ExportResult } | null>(null)
   const [word, setWord] = useState<{ key: string; result: ExportResult } | null>(null)
   const [pack, setPack] = useState<{ key: string; result: ExportResult } | null>(null)
+  const [ggh, setGgh] = useState<{ key: string; result: ExportResult } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -87,6 +88,10 @@ export function ExportPage({ project, onProject }: PageProps) {
 
   const makePack = () => run('pack', async () => {
     setPack({ key, result: await exportApi.pack(project.id, form) })
+  })
+
+  const makeGgh = () => run('ggh', async () => {
+    setGgh({ key, result: await exportApi.ggh(project.id, form) })
   })
 
   // Автоматическое обновление предпросмотра (как флажок 5.8).
@@ -177,7 +182,7 @@ export function ExportPage({ project, onProject }: PageProps) {
     setToast('Параметры просмотра перенесены.')
   })
 
-  const ready_files = [...(pack?.key === key ? pack.result.files : []), ...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : [])]
+  const ready_files = [...(ggh?.key === key ? ggh.result.files : []), ...(pack?.key === key ? pack.result.files : []), ...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : [])]
   const bundle = () => run('bundle', async () => {
     const { file } = await exportApi.bundle(project.id, ready_files)
     saveLink(projectsApi.exportUrl(project.id, file))
@@ -335,10 +340,36 @@ export function ExportPage({ project, onProject }: PageProps) {
         </details>
       )}
 
+      {choices.ggh && (
+        <details className="block" open>
+          <summary className="block-head"><h3>Графики ГГХ для отчета (Word)</h3></summary>
+          <p className="muted pad">Страница на скважину: график (слева содержание, %, справа газонасыщенность, см³/л), под ним таблица значений по датам отбора
+            и подпись «Рисунок В.N – Результаты ГГХИ по скважине № … горизонта». А4 альбомная, Times New Roman, как в образце отчета.
+            Горизонт берется из данных скважины; скважины с одним замером пропускаются.</p>
+          <div className="param-bar flat">
+            <Section title="Скважины">
+              <Multi {...F} field="ggh_horizons" label="Горизонты" options={[...new Set(Object.values(choices.ggh.horizon_of).filter(Boolean))].sort()} empty="все" />
+              <Multi {...F} field="ggh_wells" label="Скважины"
+                options={choices.ggh.wells.filter(w => !((form.ggh_horizons as string[] | undefined) ?? []).length || ((form.ggh_horizons as string[]) ?? []).includes(choices.ggh!.horizon_of[w]))}
+                empty="все" />
+            </Section>
+            <Section title="Подписи и качество">
+              <Text {...F} field="ggh_section" label="Раздел (буква приложения)" def="В" />
+              <Num {...F} field="ggh_start" label="Первый номер рисунка" def={1} min={1} max={100000} />
+              <Select {...F} field="ggh_dpi" label="Качество графиков" def={200}
+                options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
+            </Section>
+          </div>
+          <div className="toolbar">
+            <button type="button" className="primary" disabled={busy !== null} onClick={makeGgh}>Создать Word с графиками ГГХ</button>
+          </div>
+        </details>
+      )}
+
       <div className="toolbar">
         <Check {...F} field="auto" label="Автоматически обновлять предпросмотр" def={false} />
         <span className="spacer" />
-        {busy && <span className="pulse">{{ preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', pack: 'Построение графиков всех скважин, это может занять несколько минут…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
+        {busy && <span className="pulse">{{ preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', pack: 'Построение графиков всех скважин, это может занять несколько минут…', ggh: 'Построение графиков и страниц ГГХ…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
         <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={preview}>Предпросмотр</button>
         <button type="button" className="primary" disabled={!ready || busy !== null} onClick={makeArchive}>Сформировать архив</button>
         <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={makeWord}>Создать отчет Word</button>
@@ -401,6 +432,7 @@ export function ExportPage({ project, onProject }: PageProps) {
         </section>
       )}
 
+      {ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
       {pack?.key === key && <Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack />}
       {word?.key === key && <Outcome title="Отчет Word" result={word.result} pid={project.id} word />}
       {archive?.key === key && <Outcome title="Архив результатов" result={archive.result} pid={project.id} />}
@@ -462,13 +494,15 @@ function Title() {
   )
 }
 
-function Outcome({ title, result, pid, word, pack }: { title: string; result: ExportResult; pid: string; word?: boolean; pack?: boolean }) {
+function Outcome({ title, result, pid, word, pack, ggh }: { title: string; result: ExportResult; pid: string; word?: boolean; pack?: boolean; ggh?: boolean }) {
   const partial = result.errors.length > 0
   return (
     <section className="table-block">
       <div className="block-head"><h3>{title}</h3></div>
       <div className={'note ' + (partial ? 'warning' : 'info') + ' pad-x'}>
-        {pack
+        {ggh
+          ? partial ? `Word создан: страниц ${result.completed} из ${result.planned}; пропущено ${result.errors.length}.` : `Word готов: страниц (скважин) ${result.completed}`
+          : pack
           ? partial ? `Пакет создан частично: графиков ${result.completed}/${result.planned}; ошибок ${result.errors.length}.`
             : `Пакет готов: графиков ${result.completed}; файлов ${result.files.length}`
           : word

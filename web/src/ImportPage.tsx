@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Project } from './api'
 import {
   importApi, type Applied, type Book, type CheckFile, type FileInfo, type FileOptions, type ImportOptions, type IssueSource, type Pending,
-  type PressureChoice, type PressureDemo, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
+  type GghInspect, type PressureChoice, type PressureDemo, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
 } from './api_import'
 import { projectsApi } from './api_projects'
 import { RowFixer } from './RowFixer'
@@ -72,7 +72,7 @@ interface Props {
 
 export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
   const [options, setOptions] = useState<ImportOptions | null>(null)
-  const [tab, setTab] = useState<'tables' | 'pressure'>(pressure ? 'pressure' : 'tables')
+  const [tab, setTab] = useState<'tables' | 'pressure' | 'ggh'>(pressure ? 'pressure' : 'tables')
   const [failure, setFailure] = useState('')
   useEffect(() => { importApi.options().then(setOptions).catch(e => setFailure((e as Error).message)) }, [])
 
@@ -82,7 +82,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
         <div>
           <h1>Импорт данных</h1>
           <p className="lede">Простой режим: перетащите все файлы сразу. Подробный: настройка шапки и колонок каждого листа.
-            Данные давлений для кроссплота — отдельный подраздел, там же демонстрационные варианты.
+            Данные давлений для кроссплота и газогидрохимия (ГГХ) — отдельные подразделы.
             Какие колонки и форматы нужны — в <a href={tab === 'pressure' ? '#/@help/pressure' : '#/@help'}>справке по форматам данных</a>.</p>
         </div>
       </header>
@@ -93,11 +93,14 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
           <div className="tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === 'tables'} onClick={() => setTab('tables')}>Таблицы исследований и эксплуатации</button>
             <button type="button" role="tab" aria-selected={tab === 'pressure'} onClick={() => setTab('pressure')}>Данные давлений (кроссплот)</button>
+            <button type="button" role="tab" aria-selected={tab === 'ggh'} onClick={() => setTab('ggh')}>ГГХ (газогидрохимия)</button>
           </div>
           {project.demo && <div className="note warning">Это демонстрационный проект. Для рабочих файлов создайте отдельный проект.</div>}
           {tab === 'tables'
             ? <TablesImport key={project.id} project={project} options={options} onProject={onProject} />
-            : <PressureImport key={project.id} project={project} options={options} onProject={onProject} />}
+            : tab === 'ggh'
+              ? <GghImport key={project.id} project={project} onProject={onProject} />
+              : <PressureImport key={project.id} project={project} options={options} onProject={onProject} />}
         </>
       )}
     </>
@@ -750,5 +753,76 @@ function PressureDemos({ project, onProject, onMessage, onTry }: {
         <p className="muted small">Загрузить вариант сразу в проект можно только в демонстрационном проекте: рабочие проекты не заполняются выдуманными замерами.</p>
       )}
     </details>
+  )
+}
+
+// ---------------------------------------------------------------- ГГХ
+/** Лист «Общий» книги отчёта по ГГХ: по строке на отбор пробы (скважина, дата, горизонт, газонасыщенность, состав газа). */
+function GghImport({ project, onProject }: { project: Project; onProject: (p: Project) => void }) {
+  const uploads = useUploads()
+  const file = uploads.files[0]
+  const [sheet, setSheet] = useState('')
+  const [result, setResult] = useState<GghInspect | null>(null)
+  const [running, setRunning] = useState(false)
+  const [mode, setMode] = useState('merge')
+  const [message, setMessage] = useState<Message | null>(null)
+
+  useEffect(() => {
+    if (!file) { setResult(null); return }
+    const ctrl = new AbortController()
+    setRunning(true)
+    importApi.ggh(project.id, { token: file.token, ...(sheet ? { sheet } : {}) }, ctrl.signal)
+      .then(r => { setResult(r); setRunning(false) })
+      .catch(e => { if ((e as Error).name !== 'AbortError') { setMessage({ text: (e as Error).message, ok: false }); setRunning(false) } })
+    return () => ctrl.abort()
+  }, [file, sheet, project.id])
+
+  const save = async () => {
+    if (!result?.ready) return
+    try {
+      const r = await importApi.gghApply(project.id, result.ready.id, mode)
+      onProject(r.project)
+      uploads.clear(); setSheet(''); setResult(null)
+      setMessage({ text: r.message, ok: true, undo: r.undo?.snapshot })
+    } catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
+  }
+
+  return (
+    <section className="panel import">
+      <FilePicker uploads={uploads}
+                  help="Перетащите книгу Excel с данными ГГХ: нужен лист с колонками «№№ скв.», «Дата отбора», «Водоносный горизонт», «Газонасыщенность», «Сумма УВ», «Не», «Н2», «N2», «O2», «СО2» (лист «Общий» отчёта)." />
+      {uploads.files.length > 1 && <div className="note info">Обрабатывается первый файл ({file.name}); остальные уберите или загрузите после сохранения.</div>}
+      {!file && <div className="note info">Выберите файл. Лист с данными найдётся сам; числа с запятой читаются, строки без номера скважины или даты отклоняются и перечисляются ниже. После загрузки данные видны в разделе «ГГХ», а графики для отчёта — в разделе «Экспорт».</div>}
+      <ImportNote message={message} project={project} onProject={onProject} onMessage={setMessage} />
+      {running && <span className="pulse">Проверка листа…</span>}
+      {result && (
+        <>
+          {result.sheets.length > 1 && (
+            <label className="field">Лист
+              <select value={result.sheet ?? ''} onChange={e => setSheet(e.target.value)}>
+                {result.sheets.map(s => <option key={s}>{s}</option>)}
+              </select>
+            </label>
+          )}
+          {result.error && <div className="note warning">{result.error}</div>}
+          {result.ready && (
+            <div className="check-result">
+              <div className="note info">{result.ready.text}</div>
+              <TableView table={{ ...result.ready.summary, collapsed: true }} onDownload={f => importApi.table(project.id, result.ready!.id, 'summary', f)} />
+              {result.ready.issues && <TableView table={result.ready.issues} onDownload={f => importApi.table(project.id, result.ready!.id, 'issues', f)} />}
+              {result.ready.existing && (
+                <fieldset className="choices">
+                  <legend>Что делать с уже загруженными данными ГГХ</legend>
+                  {result.ready.modes.map(m => <label key={m.value}><input type="radio" checked={mode === m.value} onChange={() => setMode(m.value)} />{m.label}</label>)}
+                  <p className="muted small">В проекте: {result.ready.existing.rows} замеров, скважин {result.ready.existing.wells}.
+                    Совпадают по номеру: {result.ready.existing.replaced.length}.</p>
+                </fieldset>
+              )}
+              <button type="button" className="primary" disabled={running} onClick={save}>Сохранить в проект</button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
   )
 }

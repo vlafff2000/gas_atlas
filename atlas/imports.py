@@ -21,6 +21,7 @@ from typing import Any
 
 import pandas as pd
 
+from app.core import ggh_import as ggh
 from app.core import import_rules as rules
 from app.core import pressure_import as pq
 from app.core import profiles, tabular
@@ -41,12 +42,19 @@ POLICIES = {'new': 'Добавить, совпадения заменить но
             'replace': 'Заменить целиком только импортируемые модули'}
 PRESSURE_MODES = {'add': 'Добавить / обновить объекты', 'scenarios': 'Добавить сценарии к объектам (прежние сохраняются)',
                   'replace': 'Заменить все данные давлений'}
+GGH_MODES = {'merge': 'Добавить; при совпадении «скважина + дата» взять новую запись',
+             'replace': 'Заменить все данные ГГХ проекта'}
 DUPLICATES = {'first': 'Первая запись (как в Python-скрипте)', 'last': 'Последняя запись',
               'mean': 'Среднее значение', 'error': 'Остановить импорт'}
 EXAMPLES = ROOT / 'examples'
 ISSUE_COLUMNS = ['Файл', 'Лист', 'Строка', 'Уровень', 'Причина']
 EDITOR_REQUIRED = {'production': ['well', 'date', 'q'], 'gdi': ['well', 'date', 'q'], 'response': ['well', 'date', 'horizon'],
                    'object_pressure': ['date', 'pressure'], 'plan': ['group', 'date', 'plan_volume'], 'groups': ['well', 'group'], 'subgroups': ['well', 'subgroup']}
+
+
+def ggh_well_horizon(values) -> str:
+    names = [v for v in values if v]
+    return max(set(names), key=names.count) if names else ''
 
 
 def module_label(value) -> str:
@@ -764,6 +772,71 @@ class Imports:
         self._keep_originals(pid, p['originals'])
         self._forget(p)
         return {'message': f'Сохранено: {len(data)} строк, объектов {data.object.nunique()}',
+                'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    # ---------- ГГХ: газогидрохимические исследования ----------
+    def ggh_inspect(self, pid: str, body: dict) -> dict[str, Any]:
+        """Файл → лист с шапкой ГГХ (сам находит «Общий» или любой с «№№ скв.» и «Дата отбора») → проверка строк."""
+        m = self.projects.manifest(pid)
+        item = self.file(body.get('token'))
+        tables = self.tables(item.token, body.get('encoding') or 'auto', body.get('delimiter') or 'auto')
+        sheets = [n for n, t in tables.items() if t is not None and not t.empty and ggh.find_header(t) is not None]
+        out: dict[str, Any] = {'sheets': sheets, 'sheet': None, 'ready': None, 'error': ''}
+        sheet = body.get('sheet') if body.get('sheet') in sheets else ggh.find_sheet(tables)
+        if sheet is None:
+            out['error'] = ('В файле нет листа ГГХ: нужна шапка с колонками «№№ скв.» и «Дата отбора» '
+                            '(лист «Общий» книги отчёта по ГГХ).')
+            return out
+        out['sheet'] = sheet
+        try:
+            data, notes = ggh.normalize(tables[sheet])
+        except ValueError as e:
+            out['error'] = str(e)
+            return out
+        issues = pd.DataFrame(notes, columns=['Строка', 'Уровень', 'Причина'])
+        issues.insert(0, 'Лист', sheet)
+        issues.insert(0, 'Файл', item.name)
+        summary = data.groupby('well', sort=False).agg(
+            horizon=('horizon', lambda v: ggh_well_horizon(v)), points=('date', 'size'),
+            first=('date', 'min'), last=('date', 'max'), gas=('gas', lambda v: int(v.notna().sum()))).reset_index()
+        summary = summary.rename(columns={'well': 'Скважина', 'horizon': 'Горизонт', 'points': 'Замеров', 'first': 'Первый отбор',
+                                          'last': 'Последний отбор', 'gas': 'С газонасыщенностью'})
+        for c in ('Первый отбор', 'Последний отбор'):
+            summary[c] = summary[c].dt.strftime('%d.%m.%Y')
+        existing = self._raw_frames(pid, m).get('ggh')
+        pending = {'id': uuid.uuid4().hex, 'kind': 'ggh', 'pid': pid, 'revision': m.get('revision'), 'data': data,
+                   'issues': issues, 'summary': summary, 'originals': [(item.name, item.content)], 'tokens': [item.token]}
+        with self.lock:
+            self._keep(self.pending, pending['id'], pending, 8)
+        out['ready'] = {
+            'id': pending['id'],
+            'text': f'Готово к сохранению: {len(data)} замеров, скважин {data.well.nunique()}, '
+                    f'{data.date.min():%d.%m.%Y} — {data.date.max():%d.%m.%Y}',
+            'summary': frame_table('summary', f'Скважины листа «{sheet}»', summary),
+            'issues': frame_table('issues', f'Замечания к строкам: {len(issues)}', issues) if len(issues) else None,
+            'existing': None if existing is None or existing.empty else {
+                'wells': int(existing.well.nunique()), 'rows': len(existing),
+                'replaced': sorted(set(existing.well.astype(str)) & set(data.well))},
+            'modes': [{'value': k, 'label': v} for k, v in GGH_MODES.items()],
+        }
+        return out
+
+    def ggh_apply(self, pid: str, body: dict) -> dict[str, Any]:
+        p = self._take(pid, body.get('pending'), 'ggh')
+        mode = body.get('mode') or 'merge'
+        if mode not in GGH_MODES:
+            raise ParamError('Неизвестный способ сохранения')
+        m = self.projects.manifest(pid)
+        raw = self._raw_frames(pid, m)
+        final = ggh.merge(raw.get('ggh'), p['data'], mode)
+        frames = dict(raw)
+        frames['ggh'] = final
+        saved = self._commit(pid, frames, p['revision'], 'Импорт ГГХ',
+                             details={'rows': len(p['data']), 'wells': int(p['data'].well.nunique()), 'mode': GGH_MODES[mode],
+                                      'diagnostics': p['issues'].to_dict('records')[:200]})
+        self._keep_originals(pid, p['originals'])
+        self._forget(p)
+        return {'message': f'Сохранено: {len(p["data"])} замеров ГГХ, скважин {p["data"].well.nunique()}',
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     # ---------- демонстрационные варианты кроссплота (app/core/pressure_demo.py) ----------

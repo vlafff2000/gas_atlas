@@ -59,6 +59,7 @@ API:
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |
 | `POST /api/modules/{id}/options` `{project, param, params}` | варианты зависимого списка |
 | `GET /api/projects/{id}/passport?well=`, `POST …/passport/comment`, `POST …/passport/pdf` | «Паспорт скважины» (`atlas/api_passport.py`) |
+| `POST /api/projects/{id}/import/ggh`, `…/ggh/apply`; `POST …/export/ggh` | данные ГГХ и Word с графиками ГГХ для отчёта, см. `docs/GGH.md` |
 | `/api/import/*`, `/api/projects/{id}/import/*` | импорт данных (файлы → распознавание → проверка → применение), см. `atlas/api_import.py` и `docs/parity/import.md` |
 
 Ошибки приходят как `{"error": "текст для пользователя"}`: 400 — неверный параметр,

@@ -45,7 +45,7 @@ GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
 PRESET_FIELDS = ('modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
-PRESET_PREFIXES = ('production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_')
+PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_')
 
 
 # Пакет графиков по фонду («Приложение»): режим → (раздел, слово в подписи).
@@ -56,6 +56,7 @@ PACK_PER_PAGE = 6
 # графиков на листе → (колонок, размер графика в мм): график занимает всю ячейку листа A4 под подписью
 PACK_LAYOUTS = {2: (1, (170, 108)), 4: (2, (84, 100)), 6: (2, (84, 68))}
 PACK_DPI = 200
+GGH_NAME = 'ГГХ_графики_для_отчёта.docx'
 
 
 class Failure(Exception):
@@ -91,7 +92,7 @@ def group_of(mapping, well) -> str:
 def well_choices(module: str, raw: Mapping[str, pd.DataFrame]) -> list[str]:
     real = 'production' if module == 'histograms' else module
     if real == 'well_dashboard':
-        return ordered(w for d in raw.values() if 'well' in d for w in d.well.dropna().unique())
+        return ordered(w for k, d in raw.items() if k != 'ggh' and 'well' in d for w in d.well.dropna().unique())
     d = raw.get(real)
     return ordered(d.well.dropna()) if d is not None and 'well' in d else []
 
@@ -149,6 +150,11 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
         out['dashboard_periods'] = dashboard_periods(source, settings, mapping)
         out['asof'] = str(pd.Timestamp(latest_date(raw)).date())
         out['dashboard_charts'] = [{'id': k, 'label': v} for k, v in well_charts.LABELS.items()]
+    if 'ggh' in raw and len(raw['ggh']):
+        from .modules._ggh import well_horizon, wells_of
+        g = raw['ggh']
+        out['ggh'] = {'wells': wells_of(g, None, 1), 'horizon_of': {w: well_horizon(p) for w, p in g.assign(well=g.well.astype(str)).groupby('well')},
+                      'points': {w: int(n) for w, n in g.well.astype(str).value_counts().items()}}
     panels = settings.get('panels', {})
     out['two_panels'] = {'production': bool(panels.get('prod_1')), 'histograms': bool(panels.get('hist_1'))}
     out['captions'] = {m: DEFAULT_CAPTIONS.get(m, DEFAULT_CAPTIONS['well_dashboard']) for m in mods}
@@ -635,6 +641,51 @@ def routes(projects: Projects) -> list[Route]:
         return {'files': [p.name for p in map(_path, paths)], 'planned': planned, 'completed': done,
                 'chart_files': len(paths), 'errors': errors}
 
+    def ggh(request, body):
+        """Word с графиками ГГХ: страница на скважину — график, таблица, подпись (``atlas/ggh_report.py``)."""
+        from . import ggh_report
+        from .domain import DatasetKind
+        from .modules._ggh import MIN_POINTS, well_horizon, wells_of
+        pid, form = request.path_params['pid'], form_of(body)
+        data = projects.data(pid)
+        if DatasetKind.GGH not in data or data[DatasetKind.GGH].empty:
+            raise Failure(400, 'В проекте нет данных ГГХ: загрузите их в разделе «Импорт данных» → «ГГХ».')
+        frame = data[DatasetKind.GGH]
+        try:
+            start, dpi = int(form.get('ggh_start', 1)), int(form.get('ggh_dpi', PACK_DPI))
+        except (TypeError, ValueError):
+            raise Failure(400, 'Первый номер рисунка и качество графиков должны быть числами') from None
+        if not 1 <= start <= 100000:
+            raise Failure(400, 'Первый номер рисунка: от 1 до 100000')
+        if dpi not in (150, 200, 250, 300):
+            raise Failure(400, 'Качество графиков: 150, 200, 250 или 300 DPI')
+        section = str(form.get('ggh_section') or 'В').strip()[:12] or 'В'
+        horizons = [str(h) for h in form.get('ggh_horizons') or []]
+        wanted = [str(w) for w in form.get('ggh_wells') or []]
+        pool = wells_of(frame, horizons or None, 1)
+        wells = [w for w in pool if not wanted or w in set(wanted)]
+        if not wells:
+            raise Failure(400, 'Нет скважин для выгрузки: выберите скважины или горизонты с данными ГГХ.')
+        errors, items = [], []
+        for w in wells:
+            part = frame[frame.well.astype(str) == w]
+            if len(part) < MIN_POINTS:
+                errors.append({'График': 'Скважина ' + w, 'Формат': 'docx', 'Ошибка': 'Замеров меньше двух: график не строится'})
+                continue
+            items.append({'well': w, 'frame': part, 'horizon': well_horizon(part)})
+        if not items:
+            raise Failure(400, 'У выбранных скважин меньше двух замеров ГГХ: графики не строятся.')
+        content = ggh_report.build_docx(items, start=start, section=section, dpi=dpi)
+        exports = projects.store.path(pid) / 'exports'
+        exports.mkdir(exist_ok=True)
+        info = {'module': 'ggh', 'charts': len(items), 'section': section, 'start': start, 'dpi': dpi}
+        with tempfile.TemporaryDirectory(prefix='pending_ggh_', dir=str(exports)) as tmp:
+            target = Path(tmp) / GGH_NAME
+            target.write_bytes(content)
+            saved = projects.store.save_export_file(pid, GGH_NAME, target, info)
+        projects.store.event(pid, 'Экспорт', info)
+        return {'files': [_path(saved).name], 'planned': len(wells), 'completed': len(items), 'chart_files': 1, 'errors': errors}
+
     def bundle(request, body):
         pid = request.path_params['pid']
         names = body.get('files') or []
@@ -671,6 +722,7 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/archive', E(archive), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
         Route(base + '/pack', E(pack), methods=['POST']),
+        Route(base + '/ggh', E(ggh), methods=['POST']),
         Route(base + '/bundle', E(bundle), methods=['POST']),
         Route(base + '/presets', E(save_preset), methods=['POST']),
         Route(base + '/sync', E(sync)),

@@ -71,6 +71,13 @@ export interface PressureInspect {
     existing: null | { objects: number; replaced: string[] }
   }
 }
+export interface GghInspect {
+  sheets: string[]; sheet: string | null; error: string
+  ready: null | {
+    id: string; text: string; summary: Table; issues: Table | null; modes: Choice[]
+    existing: null | { wells: number; rows: number; replaced: string[] }
+  }
+}
 export interface Applied { message: string; project: Project; duplicates?: number; undo?: { snapshot: string } | null }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
@@ -133,6 +140,11 @@ export const importApi = {
   }, signal?: AbortSignal) => post<PressureInspect>(`/api/projects/${project}/import/pressure`, body, signal),
   pressureApply: (project: string, pending: string, mode: string) =>
     post<Applied>(`/api/projects/${project}/import/pressure/apply`, { pending, mode }),
+  /** ГГХ: лист с шапкой «№№ скв.» / «Дата отбора» находится сам; ``sheet`` — выбрать другой лист. */
+  ggh: (project: string, body: { token: string; sheet?: string }, signal?: AbortSignal) =>
+    post<GghInspect>(`/api/projects/${project}/import/ggh`, body, signal),
+  gghApply: (project: string, pending: string, mode: string) =>
+    post<Applied>(`/api/projects/${project}/import/ggh/apply`, { pending, mode }),
   /** Демонстрационные варианты кроссплота: книги факт + модели + фонд, как рабочие файлы. */
   pressureDemos: async () => (await send('/api/import/pressure-demo')).json() as Promise<PressureDemo[]>,
   pressureDemoBook: async (variant: string, name: string) =>
