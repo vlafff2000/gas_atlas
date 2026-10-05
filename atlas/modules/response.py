@@ -212,7 +212,7 @@ class ResponseModule(Module):
             Param('date_from', 'Период с', 'date', default=None, section=SECTION_DATA,
                   help='Пусто — с первого замера'),
             Param('date_to', 'по', 'date', default=None, section=SECTION_DATA, help='Пусто — до последнего замера'),
-            Param('view', 'Вид графиков', 'choice', default='separate', options=VIEWS, section=SECTION_VIEW),
+            Param('view', 'Вид графиков', 'choice', default='separate', options=VIEWS, section=SECTION_VIEW, chart_kind=True),
             Param('split', 'Построение', 'choice', default='horizon', options=SPLITS, section=SECTION_VIEW),
         ),
     )

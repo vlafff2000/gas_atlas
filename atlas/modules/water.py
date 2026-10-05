@@ -84,7 +84,7 @@ class WaterModule(Module):
             Param('start', 'Объём газа в пласте на начало данных', 'number', default=0.0, unit='млн м³', step=100,
                   section=SECTION_DATA,
                   help='Стартовый объём; при 0 по оси X — изменение объёма газа с начала загруженных данных'),
-            Param('metric', 'График', 'choice', default='all', section=SECTION_VIEW, options=(
+            Param('metric', 'График', 'choice', default='all', section=SECTION_VIEW, chart_kind=True, options=(
                 Option('all', 'Все три'), *(Option(k, v) for k, v in METRICS.items()))),
             Param('inverse', 'Ось X справа налево (объём убывает)', 'boolean', default=True, section=SECTION_VIEW),
         ),

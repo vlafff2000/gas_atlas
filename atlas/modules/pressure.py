@@ -102,7 +102,7 @@ class PressureModule(Module):
             Param('percentiles', 'Процентили', 'multi', default=['80', '85', '90'], section=SECTION_CALC,
                   options=tuple(Option(str(p), str(p)) for p in range(1, 100)),
                   help='Пусто — 80, 85, 90, как в 5.8.'),
-            Param('view', 'Представление', 'choice', default='cross', section=SECTION_VIEW,
+            Param('view', 'Представление', 'choice', default='cross', section=SECTION_VIEW, chart_kind=True,
                   options=tuple(Option(k, v[0]) for k, v in VIEWS.items())),
             Param('color', 'Цвет точек', 'choice', default='scenario', section=SECTION_VIEW,
                   options=tuple(Option(k, v) for k, v in COLORS.items())),
