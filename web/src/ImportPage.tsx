@@ -2,10 +2,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Project } from './api'
 import {
-  importApi, type Applied, type Book, type CheckFile, type FileInfo, type FileOptions, type ImportOptions, type Pending,
+  importApi, type Applied, type Book, type CheckFile, type FileInfo, type FileOptions, type ImportOptions, type IssueSource, type Pending,
   type GghInspect, type PressureChoice, type PressureDemo, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
 } from './api_import'
 import { projectsApi } from './api_projects'
+import { RowFixer } from './RowFixer'
 import { SheetEditor } from './SheetEditor'
 import { TableView } from './TableView'
 import './import.css'
@@ -245,11 +246,12 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const [accept, setAccept] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<Message | null>(null)
+  const [fixing, setFixing] = useState<IssueSource | null>(null)
   const files = uploads.files
   const opts = (token: string) => fileOpts[token] ?? AUTO
 
   // Любое изменение входа делает прежнюю проверку недействительной (как подпись в 5.8).
-  useEffect(() => { setPending(null); setAccept(false) }, [files, view, mode, kind, punit, gunit, pressureUnit, fileOpts, choices, detailed, books])
+  useEffect(() => { setPending(null); setAccept(false); setFixing(null) }, [files, view, mode, kind, punit, gunit, pressureUnit, fileOpts, choices, detailed, books])
 
   useEffect(() => {
     if (!files.length) { setSimple(null); setInfos(null); return }
@@ -297,10 +299,11 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
 
   const check = async () => {
     setBusy(true); setMessage(null)
-    try { setPending(await importApi.check(project.id, body())) }
+    try { setPending(await importApi.check(project.id, body())); setFixing(null) }
     catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
     setBusy(false)
   }
+  const fixed = async (text: string) => { await check(); setMessage({ text, ok: true }) }
   const apply = async () => {
     if (!pending) return
     setBusy(true)
@@ -450,7 +453,10 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
           {pending.issues && (
             <>
               <div className="note warning">Отклоненных строк / файлов: {pending.rejected}. Предупреждений: {pending.warnings}. В журнале до 2000 замечаний на файл.</div>
-              <TableView table={pending.issues} onDownload={format => importApi.table(project.id, pending.id, 'issues', format)} />
+              <p className="muted small">Щёлкните по строке журнала, чтобы открыть её в таблице файла, исправить значения и записать их в файл.</p>
+              <TableView table={pending.issues} onDownload={format => importApi.table(project.id, pending.id, 'issues', format)}
+                         onRow={i => setFixing(pending.issue_rows[i] ?? null)} rowOpen={i => !!pending.issue_rows[i]} />
+              {fixing && <RowFixer project={project} source={fixing} onFixed={fixed} onClose={() => setFixing(null)} />}
             </>
           )}
           <QualityReport quality={pending.quality} onDownload={format => importApi.table(project.id, pending.id, 'quality', format)} />

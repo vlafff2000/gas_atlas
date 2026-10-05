@@ -109,6 +109,8 @@ function alignedRange(lo: number, hi: number, minimum?: number | null, maximum?:
 function alignedYAxes(chart: Chart, base: Chart): Record<'y' | 'y2', { min: number; max: number; step: number }> | null {
   if (!chart.y2 || chart.y.scale !== 'value' || chart.y2.scale !== 'value') return null
   const out = {} as Record<'y' | 'y2', { min: number; max: number; step: number }>
+  const hasData = base.series.some(s => s.kind !== 'box' && s.y.some(v => typeof v === 'number' && Number.isFinite(v)))
+  if (!hasData) return null
   for (const key of ['y', 'y2'] as const) {
     const spec = key === 'y' ? chart.y : chart.y2
     let lo = Infinity, hi = -Infinity
@@ -116,7 +118,7 @@ function alignedYAxes(chart: Chart, base: Chart): Record<'y' | 'y2', { min: numb
       if ((s.axis ?? 'y') !== key || s.kind === 'box') continue
       for (const v of s.y) if (typeof v === 'number' && Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v) }
     }
-    if (lo > hi) return null
+    if (lo > hi) { lo = 0; hi = 1 }      // у оси без данных всё равно те же 5 делений
     if (spec.from_zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0) }
     const { start, step } = alignedRange(lo, hi, spec.minimum, spec.maximum)
     out[key] = { min: start, max: start + TICK_INTERVALS * step, step }
@@ -155,9 +157,10 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
 
   // две оси Y: одинаковое число делений строго друг напротив друга — одна основная сетка на обе
   const dual = alignedYAxes(chart, base)
+  const twin = !!chart.y2 && chart.y.scale === 'value' && chart.y2.scale === 'value'      // ручные границы тоже делятся на 5
   const axis = (a: Axis, position: 'x' | 'y' | 'y2') => {
     const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position === 'y' || position === 'y2' ? dual?.[position] : undefined
-    if (fixed) return { ...plain, min: fixed[0], max: fixed[1], ...(dual ? { interval: (fixed[1] - fixed[0]) / TICK_INTERVALS } : {}) }
+    if (fixed) return { ...plain, min: fixed[0], max: fixed[1], ...(twin ? { interval: (fixed[1] - fixed[0]) / TICK_INTERVALS } : {}) }
     return grid ? { ...plain, min: grid.min, max: grid.max, interval: grid.step } : plain
   }
   const axisBase = (a: Axis, position: 'x' | 'y' | 'y2') => {

@@ -17,9 +17,11 @@ interface Props {
   onApply?: (add: string[], remove: string[], reason: string) => Promise<void>
   onAssign?: (changes: Assignments, journal: string) => Promise<void>
   onLoad?: () => Promise<Table>      // для таблицы с `deferred`: полные строки
+  onRow?: (index: number) => void    // щелчок по строке (индекс в исходной таблице); для журнала проверки импорта
+  rowOpen?: (index: number) => boolean   // строку можно открыть (иначе щелчок не работает)
 }
 
-export function TableView({ table: given, onDownload, onApply, onAssign, onLoad }: Props) {
+export function TableView({ table: given, onDownload, onApply, onAssign, onLoad, onRow, rowOpen }: Props) {
   const [loaded, setLoaded] = useState<Table | null>(null)
   const [loading, setLoading] = useState(false)
   useEffect(() => { setLoaded(null) }, [given])
@@ -142,7 +144,9 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad 
                 const on = id !== undefined && checked.has(id)
                 const changed = (id !== undefined && on !== initial.has(id)) || rowChanged(i)
                 return (
-                  <tr key={i} className={(on ? 'is-excluded' : '') + (changed ? ' is-changed' : '')}>
+                  <tr key={i} className={(on ? 'is-excluded' : '') + (changed ? ' is-changed' : '') + (onRow && (!rowOpen || rowOpen(i)) ? ' clickable' : '')}
+                      onClick={onRow && (!rowOpen || rowOpen(i)) ? () => onRow(i) : undefined}
+                      title={onRow && (!rowOpen || rowOpen(i)) ? 'Открыть эту строку в таблице файла' : undefined}>
                     {action && id !== undefined && (
                       <td className="check"><input type="checkbox" checked={on} onChange={() => flip(id)} aria-label={action.column ?? 'Исключить'} /></td>
                     )}

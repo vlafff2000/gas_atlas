@@ -300,3 +300,40 @@ def test_pressure_fine_tuning_override_and_missing_fact(env, tmp_path):
     no_fact = client.post(f'/api/projects/{pid}/import/pressure', json={
         'files': files, 'overrides': over, 'choices': {tf: {'Север_факт': {'use': False}}}}).json()
     assert no_fact['ready'] is None and 'не выбран лист или файл с фактом' in no_fact['errors'][0]
+
+
+def test_fix_problem_rows_in_csv_and_xlsx(env, tmp_path):
+    client, store = env
+    pid = store.create('П')
+    raw = 'Скважина;Дата;Расход\r\n73;01.11.2025;2000\r\n73;не дата;2000\r\n'.encode('cp1251')
+    token = upload(client, 'плохой.csv', raw)
+    r = client.post(f'/api/projects/{pid}/import/check', json={'files': [{'token': token}]}).json()
+    src = r['issue_rows'][0]
+    assert (src['token'], src['sheet'], src['row']) == (token, 'плохой', 3) and 'дата' in src['reason']
+    w = client.post('/api/import/rows', json={'token': token, 'sheet': 'плохой', 'row': 3}).json()
+    assert w['editable'] and w['rows'][-1]['cells'] == ['73', 'не дата', '2000']
+    edit = {'token': token, 'sheet': 'плохой', 'edits': [{'row': 3, 'col': 1, 'value': '02.11.2025'}]}
+    assert client.post(f'/api/projects/{pid}/import/fix', json=edit).status_code == 400      # без галочки
+    done = client.post(f'/api/projects/{pid}/import/fix', json={**edit, 'confirm': True})
+    assert done.status_code == 200
+    assert Path(done.json()['backup']).read_bytes() == raw                                  # копия оригинала
+    assert client.get(f'/api/import/files/{token}').content == raw.replace('не дата'.encode('cp1251'), b'02.11.2025')
+    r = client.post(f'/api/projects/{pid}/import/check', json={'files': [{'token': token}]}).json()
+    assert r['rejected'] == 0 and r['issues'] is None
+
+    import openpyxl, io
+    book = openpyxl.Workbook()
+    ws = book.active
+    ws.title = 'Эксплуатация'
+    ws.append(['Скважина', 'Дата', 'Расход'])
+    ws.append([73, 'ошибка', 2000])
+    ws.append([73, '03.11.2025', 2100])
+    out = io.BytesIO()
+    book.save(out)
+    token = upload(client, 'книга.xlsx', out.getvalue())
+    r = client.post(f'/api/projects/{pid}/import/check', json={'files': [{'token': token}]}).json()
+    assert r['rejected'] == 1 and r['issue_rows'][0]['row'] == 2
+    edit = {'token': token, 'sheet': 'Эксплуатация', 'confirm': True, 'edits': [{'row': 2, 'col': 1, 'value': '02.11.2025'}]}
+    assert client.post(f'/api/projects/{pid}/import/fix', json=edit).status_code == 200
+    r = client.post(f'/api/projects/{pid}/import/check', json={'files': [{'token': token}]}).json()
+    assert r['rejected'] == 0 and r['counts'][0]['rows'] == 2
