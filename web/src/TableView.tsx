@@ -118,6 +118,12 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad 
         <div className="table-scroll">
           <table className={(action ? 'has-check' : '') + (table.columns.length > 2 ? ' frozen' : '')}>
             <thead>
+              {table.header?.map((row, r) => (
+                <tr key={`h${r}`} className="header-group">
+                  {action && <th className="check" />}
+                  {row.map(([label, span], k) => <th key={k} colSpan={span} className={label ? 'group-label' : ''}>{label}</th>)}
+                </tr>
+              ))}
               <tr>
                 {action && <th className="check">{action.column ?? 'Исключить'}</th>}
                 {table.columns.map((c, k) => (

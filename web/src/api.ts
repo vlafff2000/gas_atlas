@@ -62,6 +62,7 @@ export type Assignments = Record<string, Record<string, string>>
 export interface Table {
   id: string; title: string; columns: Column[]; rows: Cell[][]; count: number
   note: string; collapsed: boolean; action: TableAction | null
+  header?: [string, number][][]   // объединённая шапка над подписями колонок: (подпись, пролёт)
   deferred?: boolean   // большая свёрнутая таблица: строки подгружаются при раскрытии (count — сколько их всего)
 }
 export interface Axis {
