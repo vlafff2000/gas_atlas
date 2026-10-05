@@ -128,3 +128,29 @@ def test_space_separated_files_with_spelled_out_dates(tmp_path):
     data,notes,errors,warnings,summary=q.assemble(rows,cache,'first')
     assert not errors and len(data)==2*6 and np.allclose(data.model-data.fact,1)
     assert data.date.min()==pd.Timestamp('2022-01-01') and data.date.max()==pd.Timestamp('2022-02-20')
+
+
+def history_files(tmp_path):
+    days=pd.date_range('2022-01-01',periods=10,freq='10D');files={}
+    fact=pd.DataFrame([(w,d.strftime('%d.%m.%Y'),100.0+i) for w in ('1','2') for i,d in enumerate(days)],columns=['Скважина','Дата','Давление'])
+    for name,frame in [('история_факт',fact),('Старая_модель',fact.assign(Давление=fact.Давление+1)),('Новая_модель',fact.assign(Давление=fact.Давление+2))]:
+        path=tmp_path/(name+'.csv');frame.to_csv(path,sep=';',index=False,encoding='cp1251',decimal=',');files[str(path)]=(path.name,path.read_bytes())
+    return files
+
+def test_shared_history_is_used_for_every_object(tmp_path):
+    files=history_files(tmp_path);cache=loaded(files);shas={v[0]:k for k,v in files.items()}
+    rows=q.build_rows(files,cache,{(shas['история_факт.csv'],'история_факт'):{'shared':True}},'Проект')
+    data,notes,errors,warnings,summary=q.assemble(rows,cache,'first')
+    assert not errors and sorted(data.object.unique())==['Новая','Старая']
+    assert len(data)==2*2*10 and data.fact.notna().all()
+    assert np.allclose(data[data.object=='Новая'].model-data[data.object=='Новая'].fact,2)
+
+def test_history_is_taken_from_project_when_batch_has_no_fact(tmp_path):
+    files=history_files(tmp_path);cache=loaded(files);shas={v[0]:k for k,v in files.items()}
+    rows=q.build_rows(files,cache,{(shas['история_факт.csv'],'история_факт'):{'shared':True}},'Проект')
+    stored,*_=q.assemble(rows,cache,'first')
+    only={k:v for k,v in files.items() if v[0]=='Новая_модель.csv'};cache2=loaded(only)
+    rows=q.build_rows(only,cache2,{},'Проект')
+    assert q.assemble(rows,cache2,'first')[0] is None
+    data,notes,errors,warnings,summary=q.assemble(rows,cache2,'first',stored)
+    assert not errors and len(data)==20 and data.fact.notna().all() and 'история взята из проекта' in warnings[0]
