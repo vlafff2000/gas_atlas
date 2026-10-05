@@ -277,3 +277,28 @@ def test_response_control_and_working_horizons(env):
     assert all(n.startswith('контроль · ') and n.endswith('уровень') for n in names['control'])
     assert all(n.startswith('рабочий · ') for n in names['working'])
     assert names['control'] or names['working']
+
+
+def test_chart_height_in_preview_and_archive(env):
+    """Высота графика: пустая — как в 5.8, заданная меняет размер картинки предпросмотра и файлов архива."""
+    import struct
+    client, pid, _, _ = env
+    form = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31'], 'formats': ['svg'], 'width': 200}
+    name = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()['charts'][0]['name']
+
+    def size(extra):
+        png = client.post(f'/api/projects/{pid}/export/preview', json={'form': {**form, **extra}, 'chart': name})
+        assert png.status_code == 200
+        return struct.unpack('>II', png.content[16:24])
+    auto_w, auto_h = size({})
+    tall_w, tall_h = size({'height': 250})
+    assert auto_w == tall_w and abs(tall_h / tall_w - 250 / 200) < 0.01 and tall_h != auto_h
+    assert size({'height': 0}) == (auto_w, auto_h)
+    for bad in (10, 900, 'abc'):
+        assert client.post(f'/api/projects/{pid}/export/preview', json={'form': {**form, 'height': bad}, 'chart': name}).status_code == 400
+    archive = client.post(f'/api/projects/{pid}/export/archive', json={'form': {**form, 'height': 100}}).json()
+    with zipfile.ZipFile(env[3].path(pid) / 'exports' / archive['files'][0]) as z:
+        svg = z.read([n for n in z.namelist() if n.endswith('.svg')][0]).decode('utf8')
+    import re
+    w, h = re.search(r'width="([\d.]+)pt" height="([\d.]+)pt"', svg).groups()
+    assert abs(float(h) / float(w) - 100 / 200) < 0.01

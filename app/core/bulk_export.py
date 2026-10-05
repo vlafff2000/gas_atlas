@@ -28,7 +28,7 @@ def _modules(plan):
     for module,jobs in groups.items():
         yield module,jobs,module_tables.get(module,plan.tables if len(groups)==1 else {})
 
-def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metadata=None,progress=None,chunk_size=40,max_part_bytes=70*1024**2):
+def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metadata=None,progress=None,chunk_size=40,max_part_bytes=70*1024**2,height_mm=None):
     # Legacy keyword arguments remain accepted; they no longer split the output.
     if chunk_size<1:raise ValueError('Размер части должен быть положительным')
     if any(fmt not in ('svg','pdf','png') for fmt in formats):raise ValueError('Неизвестный формат графика')
@@ -46,7 +46,7 @@ def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metada
                         if fig is not None:
                             for fmt in formats:
                                 try:
-                                    content=figure_bytes(fig,fmt,dpi,width_mm);member='charts/{:05}_{}.{}'.format(i,safe_name(job.name),fmt)
+                                    content=figure_bytes(fig,fmt,dpi,width_mm,height_mm);member='charts/{:05}_{}.{}'.format(i,safe_name(job.name),fmt)
                                     z.writestr(member,content);files+=1;good=True;records.append({'chart':job.name,'format':fmt,'file':member,'status':'ok'})
                                     del content
                                 except Exception as error:local_errors.append({'График':job.name,'Формат':fmt,'Ошибка':str(error)})
