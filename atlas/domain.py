@@ -32,6 +32,7 @@ class DatasetKind(str, Enum):
     CONSTRUCTION = 'construction'
     PRESSURE_MATCH = 'pressure_match'    # кроссплот давлений: факт / модель
     PLAN = 'plan'                        # плановые объёмы отбора и закачки по группам и месяцам
+    GGH = 'ggh'                          # газогидрохимические исследования: состав водорастворённого газа
 
     @property
     def label(self) -> str:
@@ -49,6 +50,7 @@ LABELS = {
     DatasetKind.CONSTRUCTION: 'Конструкция скважин',
     DatasetKind.PRESSURE_MATCH: 'Кроссплот давлений',
     DatasetKind.PLAN: 'План по группам',
+    DatasetKind.GGH: 'ГГХ',
 }
 
 # Обязательные колонки каждого набора (как после импорта 5.8).
@@ -63,6 +65,7 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.CONSTRUCTION: ('well',),
     DatasetKind.PRESSURE_MATCH: ('well', 'date'),
     DatasetKind.PLAN: ('group', 'date', 'plan_volume', 'kind'),
+    DatasetKind.GGH: ('well', 'date'),
 }
 
 # Подписи колонок для таблиц и подсказок.

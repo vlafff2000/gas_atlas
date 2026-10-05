@@ -6,7 +6,7 @@ import pandas as pd
 KEYS={'pressure_match':['object','scenario','well','date','fact','model'],'production':['kind','well','date'],
       'gdi':['well','date','method','study','q','dp2'],
       'response':['well','date','horizon'], 'object_pressure':['date'],
-      'plan':['kind','group','date'], 'operations':['well','date','kind'], 'water':['well','date'], 'bottom':['well','date'],
+      'plan':['kind','group','date'], 'ggh':['well','date'], 'operations':['well','date','kind'], 'water':['well','date'], 'bottom':['well','date'],
       'construction':['well','date','element','top_m','bottom_m','diameter_mm']}
 
 def _text(series):
