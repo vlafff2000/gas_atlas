@@ -204,6 +204,9 @@ class Table:
     note: str = ''                    # пояснение под таблицей
     collapsed: bool = False           # показывать свёрнутой
     action: TableAction | None = None
+    # Строки объединённой шапки над подписями колонок: [(подпись, на сколько колонок), ...]; сумма пролётов — число
+    # колонок, пустая подпись — ячейка колонки без группы (в Excel сливается с подписью колонки).
+    header: list[list[tuple[str, int]]] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.columns:
@@ -442,7 +445,7 @@ def _table_json(t: Table, defer: bool = False) -> dict[str, Any]:
                   'ids': _column(frame[t.action.id_column]),
                   'checked': [bool(v) for v in frame[t.action.checked_column]] if t.action.checked_column else None}
     return {'id': t.id, 'title': t.title, 'columns': [asdict(c) for c in t.columns], 'note': t.note,
-            'collapsed': t.collapsed, 'action': action,
+            'collapsed': t.collapsed, 'action': action, 'header': [[[a, n] for a, n in row] for row in t.header],
             'rows': [_column(frame[k]) for k in keys], 'count': len(frame)}  # по колонкам: компактнее
 
 

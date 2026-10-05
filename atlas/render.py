@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import re
+
 import math
 
 import pandas as pd
@@ -170,12 +172,78 @@ def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_s
     return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
 
 
+def column_titles(table: Table) -> list[str]:
+    """Подписи колонок; у таблицы с объединённой шапкой — с подписями групп (в плоском файле иначе не различить колонки)."""
+    titles = []
+    for k, c in enumerate(table.columns):
+        groups, at = [], 0
+        for row in table.header:
+            for label, span in row:
+                if at <= k < at + span and label:
+                    groups.append(label)
+                at += span
+            at = 0
+        titles.append(axis_title(' · '.join(groups + [c.label]), c.unit))
+    return titles
+
+
 def table_frame(table: Table) -> pd.DataFrame:
     keys = [c.key for c in table.columns]
-    return table.frame[keys].rename(columns={c.key: axis_title(c.label, c.unit) for c in table.columns})
+    return table.frame[keys].set_axis(column_titles(table), axis=1)
+
+
+def header_sheet(ws, table: Table) -> None:
+    """Лист с объединённой шапкой, как в «Сводная_транспон2.xlsx»: группы сверху, подписи колонок внизу."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from app.core.export import safe_table
+    side = Side(style='thin', color='000000')
+    fill, rows = PatternFill('solid', fgColor='D9E1F2'), len(table.header) + 1
+    for r, row in enumerate(table.header, 1):
+        at = 1
+        for label, span in row:
+            if label:
+                ws.cell(r, at, label)
+                if span > 1:
+                    ws.merge_cells(start_row=r, start_column=at, end_row=r, end_column=at + span - 1)
+            at += span
+    for k, c in enumerate(table.columns, 1):
+        ws.cell(rows, k, axis_title(c.label, c.unit))
+        if not table.header[0][0][0] and k <= table.header[0][0][1]:    # колонка без группы: во всю высоту шапки
+            ws.merge_cells(start_row=1, start_column=k, end_row=rows, end_column=k)
+    for r in range(1, rows + 1):
+        for k in range(1, len(table.columns) + 1):
+            cell = ws.cell(r, k)
+            cell.font, cell.fill, cell.border = Font(bold=True), fill, Border(left=side, right=side, top=side, bottom=side)
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    body = safe_table(table.frame[[c.key for c in table.columns]])
+    for r, values in enumerate(body.itertuples(index=False, name=None), rows + 1):
+        for k, (v, c) in enumerate(zip(values, table.columns), 1):
+            v = None if pd.isna(v) else v.item() if hasattr(v, 'item') else v
+            cell = ws.cell(r, k, v)
+            cell.border = Border(left=side, right=side, top=side, bottom=side)
+            if c.kind == 'number' and c.decimals is not None:
+                cell.number_format = '0.' + '0' * c.decimals if c.decimals else '0'
+    ws.freeze_panes = ws.cell(rows + 1, 1)
+    ws.column_dimensions['B'].width = 38
 
 
 def tables_file(tables: list[Table], name: str) -> tuple[bytes, str, str]:
+    if any(t.header for t in tables):
+        import io
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.remove(wb.active)
+        for i, t in enumerate(tables, 1):
+            ws = wb.create_sheet(re.sub(r'[\[\]:*?/\\]', '_', t.title)[:25] + '_' + str(i))
+            if t.header:
+                header_sheet(ws, t)
+            else:
+                ws.append(list(table_frame(t).columns))
+                for row in table_frame(t).itertuples(index=False, name=None):
+                    ws.append([None if pd.isna(v) else v.item() if hasattr(v, 'item') else v for v in row])
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        return buffer.getvalue(), f'{safe_name(name)}.xlsx', XLSX
     content = xlsx_bytes({t.title: table_frame(t) for t in tables})
     return content, f'{safe_name(name)}.xlsx', XLSX
 

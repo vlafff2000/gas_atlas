@@ -413,3 +413,7 @@ button.quiet.on { color: var(--accent-strong); border-color: var(--accent); back
 }
 .kind:hover { border-color: var(--line-strong); }
 .kind.on { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; font-weight: 700; }
+
+/* объединённая шапка таблицы (итоговая таблица по объектам) */
+thead tr.header-group th { position: static; padding: 4px 8px; text-align: center; font-weight: 600; font-size: 12px; }
+thead tr.header-group th.group-label { border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); }
