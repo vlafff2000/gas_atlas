@@ -66,3 +66,9 @@ export const zoomSync = pref<boolean>('atlas.chart.zoomSync', true)
 export const savedRanges = pref<Record<string, { y: [number, number] | null; y2: [number, number] | null }>>('atlas.chart.ranges', {})
 /** Границы Y, разосланные всем графикам раздела с той же подписью и единицей оси (не хранится). */
 export const sharedRange = pref<{ key: string; range: [number, number]; n: number } | null>('', null)
+
+/** Синхронизация закреплённых точек между графиками — отдельно от перекрестия. По времени полезна (по умолчанию включена),
+ *  у остальных графиков (ГДИ и др.) выключена. */
+export const pinSync = pref<{ time: boolean; other: boolean }>('atlas.chart.pinSync', { time: true, other: false },
+  raw => { const v = JSON.parse(raw); return { time: v?.time !== false, other: v?.other === true } })
+export const pinSyncKind = (chart: { x: { scale: string } }): 'time' | 'other' => (chart.x.scale === 'time' ? 'time' : 'other')
