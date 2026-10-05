@@ -43,18 +43,19 @@ def _whitespace_cells(line):
     cells=shlex.split(_SPACED_DATE.sub(keep,line),comments=False)
     return [re.sub('\x00(\\d+)\x00',lambda m:found[int(m.group(1))],c) for c in cells]
 
-def text_rows(text,delimiter='auto'):
+def resolve_delimiter(text,delimiter='auto'):
+    if delimiter!='auto':return delimiter
     sample='\n'.join(text.splitlines()[:40])
-    if delimiter=='auto':
-        if '\t' in sample:delimiter='\t'
-        elif ';' in sample:delimiter=';'
-        else:
-            first=next((line for line in text.splitlines() if line.strip()),'')
-            if '|' in first:delimiter='|'
-            elif ',' not in first:delimiter='whitespace'
-            else:
-                try:delimiter=csv.Sniffer().sniff(sample,delimiters=',|').delimiter
-                except csv.Error:delimiter=','
+    if '\t' in sample:return '\t'
+    if ';' in sample:return ';'
+    first=next((line for line in text.splitlines() if line.strip()),'')
+    if '|' in first:return '|'
+    if ',' not in first:return 'whitespace'
+    try:return csv.Sniffer().sniff(sample,delimiters=',|').delimiter
+    except csv.Error:return ','
+
+def text_rows(text,delimiter='auto'):
+    delimiter=resolve_delimiter(text,delimiter)
     if delimiter=='whitespace':
         for line in text.splitlines():
             yield _whitespace_cells(line) if line.strip() else []
