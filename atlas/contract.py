@@ -43,6 +43,8 @@ class Param:
     kind: ParamKind
     default: Any = None
     help: str = ''
+    formula: str = ''                 # как считается (кнопка «?» у параметра): формула или правило одной строкой
+    example: str = ''                 # числовой пример к формуле
     options: tuple[Option, ...] = ()
     source: Source | None = None      # для choice/multi: варианты из данных
     minimum: float | None = None

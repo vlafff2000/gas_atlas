@@ -204,6 +204,25 @@ function MapRow({ label, value, placeholder, onCommit }:
   )
 }
 
+/** «?» у параметра, который считается по формуле: пояснение, формула и числовой пример по щелчку. */
+function HelpMark({ param: p }: { param: Param }) {
+  const [open, setOpen] = useState(false)
+  if (!p.formula && !p.example) return null
+  return (
+    <span className="help-mark">
+      <button type="button" className="help-button" aria-expanded={open} aria-label={`Как считается: ${p.label}`}
+        title="Как это считается" onClick={e => { e.preventDefault(); setOpen(o => !o) }}>?</button>
+      {open && (
+        <span className="help-pop" role="note">
+          {p.help && <span>{p.help}</span>}
+          {p.formula && <code>{p.formula}</code>}
+          {p.example && <span className="help-example">Пример. {p.example}</span>}
+        </span>
+      )}
+    </span>
+  )
+}
+
 function Field({ param: p, value, options, onChange }:
   { param: Param; value: unknown; options?: string[]; onChange: (v: unknown) => void }) {
   if (p.kind === 'multi') {
@@ -215,7 +234,7 @@ function Field({ param: p, value, options, onChange }:
     return (
       <label className="toggle" title={p.help}>
         <input type="checkbox" checked={Boolean(value)} onChange={e => onChange(e.target.checked)} />
-        <span>{p.label}</span>
+        <span>{p.label}</span><HelpMark param={p} />
       </label>
     )
   }
@@ -231,7 +250,7 @@ function Field({ param: p, value, options, onChange }:
     const index = p.options.findIndex(o => o.value === value)
     return (
       <label className="field" title={p.help}>
-        <span className="field-label">{p.label}</span>
+        <span className="field-label">{p.label}<HelpMark param={p} /></span>
         <select value={index} onChange={e => onChange(p.options[Number(e.target.value)].value)}>
           {p.options.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
         </select>
@@ -265,7 +284,7 @@ function NumberField({ param: p, value, onChange }: { param: Param; value: numbe
   const range = [p.minimum !== null ? `от ${p.minimum}` : '', p.maximum !== null ? `до ${p.maximum}` : ''].filter(Boolean).join(' ')
   return (
     <label className={'field number' + (invalid ? ' invalid' : '')} title={p.help || range}>
-      <span className="field-label">{p.label}{p.unit ? `, ${p.unit}` : ''}</span>
+      <span className="field-label">{p.label}{p.unit ? `, ${p.unit}` : ''}<HelpMark param={p} /></span>
       <input inputMode="decimal" value={text} aria-invalid={invalid}
         onChange={e => setText(e.target.value)}
         onBlur={() => { if (!invalid && number !== value) onChange(number) }}

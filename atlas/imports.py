@@ -31,8 +31,10 @@ from app.core.templates import input_templates
 from app.core.well_import import REQUIRED
 
 from .contract import Column, ParamError, Table, _table_json
+from . import quality
 from .projects import Conflict, Projects
 
+QUALITY_ROWS = 500
 MAX_FILES = 200
 BINARY = (b'PK', b'\xd0\xcf\x11\xe0')
 POLICIES = {'new': 'Добавить, совпадения заменить новыми', 'old': 'Добавить, совпадения оставить прежними',
@@ -487,7 +489,27 @@ class Imports:
         out['previews'] = [frame_table(k, module_label(k) + ' — предпросмотр', v.head(30),
                                        note=f'Первые 30 из {len(v)} строк.' if len(v) > 30 else '')
                            for k, v in p['frames'].items()]
+        out['quality'] = self._quality_json(p)
         return out
+
+    @staticmethod
+    def _quality_frame(found: pd.DataFrame) -> pd.DataFrame:
+        labels = {'production': 'Эксплуатация', 'gdi': 'ГДИ', 'response': 'Реагирование'}
+        return pd.DataFrame({'Набор': found.dataset.map(labels), 'Скважина': found.well,
+                             'Дата': pd.to_datetime(found.date, errors='coerce').dt.strftime('%d.%m.%Y').fillna(''), 'Проверка': found.check,
+                             'Уровень': found.level, 'Значение': found.value, 'Пояснение': found.details})
+
+    @staticmethod
+    def _quality_json(p: dict) -> dict[str, Any]:
+        """Отчёт о качестве загруженных данных (``atlas.quality``): находки до сохранения, ничего не исключается само."""
+        found = p.get('quality')
+        if found is None:
+            found = p['quality'] = quality.scan({k: v for k, v in p['frames'].items() if k in quality.CHECKS})
+        frame = Imports._quality_frame(found.head(QUALITY_ROWS))
+        errors = int(found.level.eq('ошибка').sum())
+        note = f'Первые {QUALITY_ROWS} из {len(found)} находок.' if len(found) > QUALITY_ROWS else ''
+        return {'errors': errors, 'attention': len(found) - errors, 'by_check': quality.summary(found).to_dict('records'),
+                'table': frame_table('quality', 'Находки проверки данных', frame, note=note) if len(found) else None}
 
     def _take(self, pid: str, pending_id: str, kind: str) -> dict:
         with self.lock:
@@ -505,6 +527,8 @@ class Imports:
             return Table('issues', 'import_issues', p['issues'])
         if table == 'summary' and p.get('summary') is not None:
             return Table('summary', 'Сопоставление', p['summary'])
+        if table == 'quality' and p.get('quality') is not None:
+            return Table('quality', 'Проверка данных', self._quality_frame(p['quality']))
         if table == 'notes':
             return Table('notes', 'Замечания сопоставления', pd.DataFrame(p.get('notes') or []))
         if table in p.get('frames', {}):
@@ -523,6 +547,12 @@ class Imports:
             if 'изменен' in str(e):
                 raise Conflict('Проект изменён в другом окне (например, в версии 5.8). Проверьте файлы заново.') from None
             raise
+
+    def _undo(self, pid: str) -> dict[str, Any] | None:
+        """Копия данных до только что сохранённого импорта: по ней работает «Откатить этот импорт»."""
+        versions = self.projects.store.versions(pid)
+        before = versions[0]['before'] if versions else None
+        return {'snapshot': before} if before else None
 
     def _keep_originals(self, pid: str, originals) -> list[dict]:
         kept = []
@@ -550,7 +580,8 @@ class Imports:
         saved = self._commit(pid, updated, p['revision'], 'Импорт данных', groups=groups, imports=originals)
         self.projects.store.event(pid, 'Результат импорта', {'removed_duplicates': duplicates, 'rejected': p['rejected']})
         self._forget(p)
-        return {'message': 'Данные сохранены', 'duplicates': duplicates, 'project': self.projects.summary(saved)}
+        return {'message': 'Данные сохранены', 'duplicates': duplicates, 'project': self.projects.summary(saved),
+                'undo': self._undo(pid)}
 
     def _forget(self, p: dict):
         with self.lock:
@@ -671,7 +702,7 @@ class Imports:
         self._keep_originals(pid, p['originals'])
         self._forget(p)
         return {'message': f'Сохранено: {len(data)} строк, объектов {data.object.nunique()}',
-                'project': self.projects.summary(saved)}
+                'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     # ---------- демонстрационные варианты кроссплота (app/core/pressure_demo.py) ----------
     @staticmethod

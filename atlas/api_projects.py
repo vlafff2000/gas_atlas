@@ -22,6 +22,7 @@ from starlette.routing import Route
 
 from app.core.config import ROOT
 from app.core.export import safe_name
+from app.core.storage import KEEP_SNAPSHOTS
 from app.ui import navigation
 
 from .projects import Conflict, Projects
@@ -230,6 +231,19 @@ def routes(projects: Projects) -> list[Route]:
             path.suffix.lower(), 'application/octet-stream')
         return attachment(path.read_bytes(), path.name, mime)
 
+    def versions(request, body):
+        """Копии данных проекта (снимок перед каждым импортом и откатом), которые можно вернуть."""
+        pid = request.path_params['pid']
+        projects.manifest(pid)
+        return {'versions': projects.store.versions(pid), 'keep': KEEP_SNAPSHOTS}
+
+    def rollback(request, body):
+        """«Вернуть эти данные»: новая ревизия с данными выбранной копии, история и настройки остаются."""
+        pid = request.path_params['pid']
+        projects.manifest(pid)
+        saved = projects.store.rollback(pid, str(body.get('snapshot') or ''), revision(body))
+        return projects.summary(saved)
+
     def journal(request, body):
         content = log_bytes()
         if content is None:
@@ -246,6 +260,8 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/rename', E(rename), methods=['POST']),
         Route('/api/projects/{pid}/copy', E(copy), methods=['POST']),
         Route('/api/projects/{pid}/backup', E(backup)),
+        Route('/api/projects/{pid}/versions', E(versions)),
+        Route('/api/projects/{pid}/rollback', E(rollback), methods=['POST']),
         Route('/api/projects/{pid}/exports', E(exports)),
         Route('/api/projects/{pid}/exports/{name}', E(export_file)),
     ]

@@ -19,8 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-ATLAS_MODULES = ('overview', 'production', 'histograms', 'gdi', 'response', 'pressure', 'fund', 'groups', 'wells',
-                 'exclusions', 'filter_history')
+ATLAS_MODULES = ('overview', 'production', 'histograms', 'gdi', 'gdi_trend', 'response', 'pressure', 'fund', 'groups', 'wells',
+                 'quality', 'exclusions', 'filter_history')
 PAGES_58 = ('Обзор', 'Производительность скважин', 'Гистограммы по эксплуатации скважин', 'ГДИ', 'Графики реагирования',
             'Кроссплот давлений', 'Поскважинный анализ', 'Аналитика фонда', 'Группы', 'Исключенные точки')
 
@@ -74,6 +74,8 @@ def bench_atlas(storage, pid):
     obs = options('response', 'wells', {})
     run('все %d наблюдательных скважин' % len(obs), 'response', {'wells': obs})
     run('все пары', 'pressure', {})
+    run('все скважины', 'gdi_trend', {})
+    run('все наборы', 'quality', {})
     run('все сезоны', 'fund', {'periods': periods})
     run('последний сезон', 'groups', {'periods': periods[-1:]})
     run('одна скважина, все сезоны', 'wells', {'wells': wells[:1], 'periods': periods})

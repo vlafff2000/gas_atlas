@@ -47,6 +47,7 @@ export interface CheckBody {
 export interface Pending {
   id: string; counts: { module: string; label: string; rows: number }[]; rejected: number; warnings: number
   issues: Table | null; issues_count: number; previews: Table[]; policies: Choice[]
+  quality: { errors: number; attention: number; by_check: { dataset: string; check: string; level: string; count: number }[]; table: Table | null }
 }
 export interface PressureRow {
   'Исп.': boolean; 'Файл': string; 'Лист': string; 'Роль': string; 'Объект': string; 'Сценарий': string; 'Общая': boolean
@@ -62,7 +63,7 @@ export interface PressureInspect {
     existing: null | { objects: number; replaced: string[] }
   }
 }
-export interface Applied { message: string; project: Project; duplicates?: number }
+export interface Applied { message: string; project: Project; duplicates?: number; undo?: { snapshot: string } | null }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
   let response: Response

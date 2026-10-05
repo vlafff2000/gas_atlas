@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 from typing import Any
 
@@ -48,6 +49,54 @@ def summary(text: Any) -> str:
     return out if len(out) <= DETAILS_LIMIT else out[:DETAILS_LIMIT - 1] + '…'
 
 
+FIELDS = {'name': 'название', 'before': 'было', 'after': 'стало', 'variant': 'вариант', 'mode': 'режим', 'files': 'файлов',
+          'revision': 'ревизия', 'removed_duplicates': 'удалено повторов', 'rejected': 'отклонено строк'}
+SKIP = ('rows', 'revision', 'snapshot', 'previous_snapshot', 'diagnostics')
+
+
+def local_time(stamp: Any) -> str:
+    """Время записи журнала (UTC в хранилище) — местным временем компьютера: ``ГГГГ-ММ-ДДTЧЧ:ММ``."""
+    try:
+        return dt.datetime.fromisoformat(str(stamp)).astimezone().strftime('%Y-%m-%dT%H:%M')
+    except ValueError:
+        return str(stamp)
+
+
+def _count(n: Any) -> str:
+    return f'{int(n):,}'.replace(',', '\u00a0') if isinstance(n, (int, float)) else str(n)
+
+
+def _rows_text(rows: Any) -> str:
+    """``{'production': 7908, 'gdi': 120}`` → «Производительность скважин 7 908, ГДИ 120»."""
+    if not isinstance(rows, dict) or not rows:
+        return ''
+    return ', '.join(f'{_journal.module_label(k)} {_count(v)}' for k, v in rows.items())
+
+
+def describe(action: Any, text: Any) -> str:
+    """«Подробности» записи журнала по-русски: что произошло и сколько строк в проекте после этого."""
+    details = _journal.details_of(text)
+    if not details:
+        return '' if text in (None, '', '{}') else str(text)[:DETAILS_LIMIT]
+    parts = []
+    if 'added_ids' in details or 'removed_ids' in details:
+        parts.append(f'исключено точек {len(details.get("added_ids", []))}, возвращено {len(details.get("removed_ids", []))}, '
+                     f'всего исключено {len(details.get("after_exclusions", {}))}')
+    elif action == 'Откат данных':
+        parts.append('данные возвращены к более ранней копии')
+    for key, value in details.items():
+        if key in BULKY or key in SKIP or value in (None, '', [], {}, 0):
+            continue
+        if isinstance(value, (dict, list)):
+            value = f'{len(value)} шт.' if isinstance(value, list) else json.dumps(value, ensure_ascii=False, default=str)
+        parts.append(f'{FIELDS.get(key, key)}: {value}')
+    rows = _rows_text(details.get('rows'))
+    if rows and action not in ('Результат импорта',):
+        parts.append('в проекте: ' + rows)
+    out = '; '.join(parts)
+    return out if len(out) <= DETAILS_LIMIT else out[:DETAILS_LIMIT - 1] + '…'
+
+
 class OverviewModule(Module):
     spec = ModuleSpec(
         id='overview',
@@ -72,8 +121,8 @@ class OverviewModule(Module):
 
         parts = composition(info)
         if parts.empty:
-            result.notes.append(Note('Данных пока нет. Загрузите книгу Excel или текстовую таблицу в разделе «Импорт данных» '
-                                     'версии 5.8: проекты у обеих версий общие.'))
+            result.notes.append(Note('Данных пока нет. Загрузите книгу Excel или текстовую таблицу в разделе «Импорт данных». '
+                                     'Проекты общие с версией 5.8.'))
         else:
             result.tables.append(Table('composition', 'Состав проекта', parts, [
                 Column('module', 'Модуль'), Column('rows', 'Строк', kind='number'),
@@ -87,9 +136,10 @@ class OverviewModule(Module):
 
         history = info.history()
         if not history.empty:
-            shown = pd.DataFrame({'date': history['Дата'], 'action': history['Действие'],
-                                  'details': history['Подробности'].map(summary)})
-            note = 'Время — UTC. Показаны последние 500 действий; полные состояния фильтра — в разделе «История фильтра».'
+            shown = pd.DataFrame({'date': history['Дата'].map(local_time), 'action': history['Действие'],
+                                  'details': [describe(a, d) for a, d in zip(history['Действие'], history['Подробности'])]})
+            note = ('Время местное. Показаны последние 500 действий; полные состояния фильтра — в разделе «История фильтра», '
+                    'прежние данные проекта — в разделе «Проекты», «Копии данных».')
             result.tables.append(Table('history', 'История действий', shown, [
                 Column('date', 'Дата', kind='date'), Column('action', 'Действие'), Column('details', 'Подробности')],
                 note=note))

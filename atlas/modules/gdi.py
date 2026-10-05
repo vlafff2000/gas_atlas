@@ -136,7 +136,10 @@ class GdiModule(Module):
                   section='Выбор данных'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01,
                   setting='r2_threshold', section='Выбор данных',
-                  help='Общая настройка проекта: действует во всех разделах и в версии 5.8'),
+                  help='Общая настройка проекта: действует во всех разделах и в версии 5.8. Исследование с R² ниже порога '
+                       'помечается как низкого качества, Qсв для него не определяется.',
+                  formula='R² = 1 − Σ(ΔP² − aQ − bQ²)² / Σ(ΔP² − среднее ΔP²)²',
+                  example='R² = 0,97 при пороге 0,95 — подбор принят; R² = 0,91 — исследование помечено «низкое качество».'),
             Param('orientation', 'Оси', 'choice', default='standard', section='Вид', options=(
                 Option('standard', 'X = Q, Y = ΔP²'), Option('swapped', 'X = ΔP², Y = Q'))),
             Param('curves', 'Расчетные кривые', 'boolean', default=True, section='Вид'),
@@ -145,7 +148,11 @@ class GdiModule(Module):
             Param('show_excluded', 'Показывать исключенные точки', 'boolean', default=True, section='Вид'),
             Param('outliers', 'Искать возможные выбросы', 'boolean', default=False, section='Проверка точек'),
             Param('outlier_threshold', 'Порог отклонения', 'number', default=15, minimum=5, maximum=100, step=5,
-                  unit='%', section='Проверка точек'),
+                  unit='%', section='Проверка точек',
+                  help='Точка предлагается к исключению, только если отклонение не меньше порога и втрое больше обычного '
+                       'разброса остальных точек. Решение — за инженером: ничего не исключается само.',
+                  formula='отклонение = |ΔP² точки − (aQ + bQ²)| / (aQ + bQ²) × 100%, где a и b подобраны по остальным точкам',
+                  example='Точка ΔP² = 600 при расчётном 500 по остальным точкам: отклонение 20% — при пороге 15% будет предложена.'),
         ),
     )
 

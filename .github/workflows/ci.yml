@@ -34,6 +34,19 @@ jobs:
           python -m pip install -r "$(python -c 'import sys;sys.path.insert(0,"tools");from check_runtime import requirements_name;print(requirements_name())')" pytest httpx
       - name: Tests (5.8 + atlas)
         run: python -m pytest tests -q
+  perf:
+    # Скорость на большом демо-объекте (2 млн строк): время каждого раздела против бюджета tools/perf_budget.json.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-atlas.txt httpx
+      - name: Speed on the large demo (budget in tools/perf_budget.json; update with --update after an intended change)
+        run: python tools/check_perf.py
   web:
     runs-on: ubuntu-22.04
     steps:

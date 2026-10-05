@@ -403,6 +403,34 @@ td.tone-poor { color: var(--bad); font-weight: 600; }
 td.bar { background-image: linear-gradient(to left, var(--bar-c) var(--bar-w), transparent var(--bar-w)); background-repeat: no-repeat; background-size: calc(100% - 8px) 60%; background-position: right 4px center; }
 button.quiet.on { color: var(--accent-strong); border-color: var(--accent); background: var(--accent-soft); }
 
+/* «?» у расчётных параметров */
+.help-mark { position: relative; display: inline-block; margin-left: 6px; }
+.help-button {
+  width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.help-button:hover, .help-button[aria-expanded='true'] { border-color: var(--accent-strong); color: var(--accent-strong); }
+.help-pop {
+  position: absolute; z-index: 30; top: 24px; left: -8px; width: 320px; display: grid; gap: 8px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .14);
+  font-size: 13px; font-weight: 400; line-height: 1.4; color: var(--ink, inherit); text-align: left; white-space: normal;
+}
+.help-pop code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: var(--bg); padding: 6px 8px; border-radius: 6px; }
+.help-example { color: var(--muted); }
+
+/* мастер первого запуска */
+.first-run { max-width: 720px; }
+.first-steps { list-style: none; margin: 18px 0 22px; padding: 0; display: grid; gap: 12px; }
+.first-steps li { display: grid; grid-template-columns: 32px 1fr; gap: 12px; align-items: start; opacity: .62; }
+.first-steps li.current, .first-steps li.done { opacity: 1; }
+.first-steps .mark {
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px;
+  border: 1.5px solid var(--line-strong); color: var(--muted); background: var(--surface);
+}
+.first-steps .current .mark { border-color: var(--accent-strong); color: var(--accent-strong); }
+.first-steps .done .mark { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+.first-steps p { margin: 2px 0 8px; color: var(--muted); font-size: 14px; }
+
 /* ---------- вид графиков в верхнем тулбаре ---------- */
 .chart-kinds { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
 .kind-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
