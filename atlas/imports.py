@@ -31,7 +31,7 @@ from app.core.templates import input_templates
 from app.core.well_import import REQUIRED
 
 from .contract import Column, ParamError, Table, _table_json
-from . import quality
+from . import import_fix, quality
 from .projects import Conflict, Projects
 
 QUALITY_ROWS = 500
@@ -443,6 +443,7 @@ class Imports:
             if self._blocked(options, problems, errors):
                 raise ParamError(' '.join(problems + errors) or 'Нет листов для загрузки: отметьте хотя бы один.')
         parsed, issues, originals, rejected, warnings = {}, [], [], 0, 0
+        sources = []                  # к каждому замечанию: из какого загруженного файла (для правки строки)
         with tempfile.TemporaryDirectory(prefix='gas_atlas_import_') as staging:
             for i, f in enumerate(files):
                 item = self.file(f.get('token'))
@@ -464,16 +465,20 @@ class Imports:
                     for module, frame in r.frames.items():
                         parsed[module] = pd.concat([parsed[module], frame], ignore_index=True) if module in parsed else frame
                     issues.extend(r.issues)
+                    sources.extend([item.token] * len(r.issues))
                     rejected += r.rejected
                     warnings += r.warnings
                     if r.frames:
                         originals.append((item.name, item.content))
                 except Exception as e:
                     issues.append({'Файл': item.name, 'Лист': '', 'Строка': 0, 'Уровень': 'ошибка', 'Причина': str(e)})
+                    sources.append(item.token)
                     rejected += 1
         pending = {'id': uuid.uuid4().hex, 'kind': 'general', 'pid': pid, 'revision': m.get('revision'),
                    'frames': parsed, 'issues': pd.DataFrame(issues, columns=ISSUE_COLUMNS), 'rejected': rejected,
-                   'warnings': warnings, 'originals': originals, 'tokens': [f.get('token') for f in files]}
+                   'warnings': warnings, 'originals': originals, 'tokens': [f.get('token') for f in files],
+                   'sources': sources, 'file_options': {f.get('token'): {'encoding': f.get('encoding') or 'auto',
+                                                                         'delimiter': f.get('delimiter') or 'auto'} for f in files}}
         with self.lock:
             self._keep(self.pending, pending['id'], pending, 8)
         return self._pending_json(pending)
@@ -486,11 +491,22 @@ class Imports:
                                     note=f'Показаны первые 200 из {len(p["issues"])}. Полный журнал — в выгрузке.'
                                     if len(p['issues']) > 200 else '') if len(p['issues']) else None
         out['issues_count'] = len(p['issues'])
+        out['issue_rows'] = [self._issue_source(p, i) for i in range(min(200, len(p['issues'])))]
         out['previews'] = [frame_table(k, module_label(k) + ' — предпросмотр', v.head(30),
                                        note=f'Первые 30 из {len(v)} строк.' if len(v) > 30 else '')
                            for k, v in p['frames'].items()]
         out['quality'] = self._quality_json(p)
         return out
+
+    def _issue_source(self, p: dict, i: int) -> dict[str, Any] | None:
+        """Где искать замечание: файл, лист, строка — или ``None``, если строку открыть нельзя (замечание о файле)."""
+        token, issue = p['sources'][i], p['issues'].iloc[i]
+        with self.lock:
+            item = self.files.get(token)
+        if item is None or not issue['Лист'] or int(issue['Строка']) < 1:
+            return None
+        return {'token': token, 'file': item.name, 'sheet': issue['Лист'], 'row': int(issue['Строка']),
+                'reason': issue['Причина'], **p['file_options'].get(token, {})}
 
     @staticmethod
     def _quality_frame(found: pd.DataFrame) -> pd.DataFrame:
@@ -591,6 +607,52 @@ class Imports:
             for cache in (self.samples, self.full, self.parsed):
                 for key in [k for k in cache if k[0] in p.get('tokens', [])]:
                     cache.pop(key, None)
+
+    # ---------- правка проблемных строк ----------
+    def rows(self, body: dict) -> dict[str, Any]:
+        """Окно листа вокруг строки из журнала проверки: чтобы посмотреть и поправить значения."""
+        token, sheet = body.get('token'), body.get('sheet')
+        enc, delim = body.get('encoding') or 'auto', body.get('delimiter') or 'auto'
+        item = self.file(token)
+        tables = self.tables(token, enc, delim)
+        if sheet not in tables:
+            raise KeyError(f'В файле нет листа «{sheet}»')
+        fmt = self.sample(token, enc, delim)[0]
+        try:
+            radius = max(1, min(int(body.get('radius', 8)), 30))
+            row = int(body.get('row'))
+        except (TypeError, ValueError):
+            raise ParamError('Неверный номер строки') from None
+        out = import_fix.window(tables[sheet], row, radius)
+        out.update(name=item.name, sheet=sheet, format=fmt, editable=fmt not in import_fix.NOT_EDITABLE,
+                   note=import_fix.NOT_EDITABLE.get(fmt, ''))
+        return out
+
+    def fix(self, pid: str, body: dict) -> dict[str, Any]:
+        """Записать исправления в файл: копия оригинала — в папку проекта, загруженный файл заменяется исправленным."""
+        if not body.get('confirm'):
+            raise ParamError('Подтвердите перезапись файла галочкой.')
+        self.projects.manifest(pid)
+        item = self.file(body.get('token'))
+        enc, delim = body.get('encoding') or 'auto', body.get('delimiter') or 'auto'
+        fmt = self.sample(item.token, enc, delim)[0]
+        content = import_fix.rewrite(item.content, item.name, fmt, body.get('sheet'), body.get('edits') or [], enc, delim)
+        stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        backup = self.projects.store.path(pid) / 'originals' / f'до_правки_{stamp}_{item.name}'
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_bytes(item.content)
+        fresh = Upload(item.name, content)
+        with self.lock:
+            item.content, item.sha = content, fresh.sha
+            for cache in (self.samples, self.full, self.parsed):
+                for key in [k for k in cache if k[0] == item.token]:
+                    cache.pop(key, None)
+        return {'message': 'Исправления записаны', 'name': item.name, 'bytes': len(content),
+                'changed': len(body['edits']), 'backup': str(backup)}
+
+    def content(self, token: str) -> tuple[str, bytes]:
+        item = self.file(token)
+        return item.name, item.content
 
     # ---------- данные давлений (pressure_quick_import) ----------
     def _parsed(self, token, encoding, delimiter) -> dict:

@@ -44,9 +44,17 @@ export interface CheckBody {
   view: 'simple' | 'detailed'; mode: string; kind: string; production_unit: string; gdi_unit: string
   pressure_unit: string; files: CheckFile[]
 }
+/** Где искать замечание журнала: файл, лист, строка (и как читался файл). */
+export interface IssueSource { token: string; file: string; sheet: string; row: number; reason: string; encoding?: string; delimiter?: string }
+export interface RowsWindow {
+  name: string; sheet: string; format: string; editable: boolean; note: string
+  row: number; first: number; last: number; total: number; width: number; rows: { n: number; cells: string[] }[]
+}
+export interface CellEdit { row: number; col: number; value: string }
+export interface Fixed { message: string; name: string; bytes: number; changed: number; backup: string }
 export interface Pending {
   id: string; counts: { module: string; label: string; rows: number }[]; rejected: number; warnings: number
-  issues: Table | null; issues_count: number; previews: Table[]; policies: Choice[]
+  issues: Table | null; issues_count: number; issue_rows: (IssueSource | null)[]; previews: Table[]; policies: Choice[]
   quality: { errors: number; attention: number; by_check: { dataset: string; check: string; level: string; count: number }[]; table: Table | null }
 }
 export interface PressureRow {
@@ -110,6 +118,11 @@ export const importApi = {
   check: (project: string, body: CheckBody) => post<Pending>(`/api/projects/${project}/import/check`, body),
   apply: (project: string, pending: string, policy: string, accept: boolean) =>
     post<Applied>(`/api/projects/${project}/import/apply`, { pending, policy, accept }),
+  rows: (body: { token: string; sheet: string; row: number; encoding?: string; delimiter?: string; radius?: number }) =>
+    post<RowsWindow>('/api/import/rows', body),
+  fix: (project: string, body: { token: string; sheet: string; edits: CellEdit[]; confirm: boolean; encoding?: string; delimiter?: string }) =>
+    post<Fixed>(`/api/projects/${project}/import/fix`, body),
+  fileBlob: async (token: string) => (await send(`/api/import/files/${token}`)).blob(),
   table: async (project: string, pending: string, table: string, format: 'xlsx' | 'csv') =>
     save(await send(`/api/projects/${project}/import/table`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pending, table, format }),

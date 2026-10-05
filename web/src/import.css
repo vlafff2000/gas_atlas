@@ -67,3 +67,16 @@ fieldset.choices label { display: inline-flex; gap: 6px; align-items: center; }
 
 .demo-variants { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 14px; display: grid; gap: 8px; }
 .demo-variants summary { cursor: pointer; color: var(--accent-strong); }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--accent-soft); }
+.row-fixer { display: grid; gap: 10px; }
+.row-fixer .reason { font-weight: 600; }
+table.fix-grid { border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+table.fix-grid th, table.fix-grid td { border: 1px solid var(--line); padding: 0; text-align: left; }
+table.fix-grid thead th { position: sticky; top: 0; background: var(--bg); padding: 3px 8px; color: var(--muted); font-weight: 600; }
+table.fix-grid tbody th { background: var(--bg); color: var(--muted); font-weight: 400; padding: 3px 8px; text-align: right; }
+table.fix-grid td input { border: 0; background: transparent; padding: 4px 8px; width: 100%; min-width: 90px; font: inherit; color: inherit; }
+table.fix-grid td input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+table.fix-grid tr.issue-row td, table.fix-grid tr.issue-row th { background: var(--accent-soft); }
+table.fix-grid td.changed { background: #fff3c4; }
+@media (prefers-color-scheme: dark) { table.fix-grid td.changed { background: #5a4a10; } }
