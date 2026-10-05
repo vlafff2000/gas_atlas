@@ -43,11 +43,11 @@ class ProductionModule(ProductionBase):
             Param('overlay', 'Скважины поверх суммы', 'multi', default=[], dynamic=True, depends=('groups',),
                   empty='ничего', prefix='№ ', section=SECTION_DATA, show_if=GROUPS,
                   help='Выбор кривых наложения не меняет сумму'),
-            Param('view', 'График', 'choice', default='curve', section=SECTION_VIEW, show_if=INDIVIDUAL, options=(
+            Param('view', 'График', 'choice', default='curve', section=SECTION_VIEW, show_if=INDIVIDUAL, chart_kind=True, options=(
                 Option('curve', 'Q / накопленный объем объекта'), Option('time', 'Q / дата'))),
             Param('direction', 'Порядок скважин', 'choice', default='number', options=DIRECTIONS,
                   section=SECTION_VIEW, show_if=INDIVIDUAL),
-            Param('metric', 'Показатель группы', 'choice', default='daily', section=SECTION_VIEW, show_if=GROUPS,
+            Param('metric', 'Показатель группы', 'choice', default='daily', section=SECTION_VIEW, show_if=GROUPS, chart_kind=True,
                   options=(Option('daily', 'Суточный суммарный расход'), Option('cumulative', 'Накопленный объем'),
                            Option('active', 'Работающие скважины'),
                            Option('shares', 'Доля скважин в накопленном объеме группы'),

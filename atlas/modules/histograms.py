@@ -39,7 +39,7 @@ class HistogramModule(ProductionBase):
                   empty='ничего', prefix='№ ', section=SECTION_DATA),
             Param('periods', 'Периоды', 'multi', default=[], dynamic=True, depends=('kind',), auto='last:3',
                   empty='ничего', section=SECTION_DATA),
-            Param('axis', 'Ось гистограммы', 'choice', default='well', section=SECTION_VIEW,
+            Param('axis', 'Ось гистограммы', 'choice', default='well', section=SECTION_VIEW, chart_kind=True,
                   options=(Option('well', 'Скважины'), Option('period', 'Периоды'))),
             Param('hist_size', 'Скважин на одной гистограмме', 'choice', default='Авто', section=SECTION_VIEW,
                   options=tuple(Option(s, s) for s in SIZES)),

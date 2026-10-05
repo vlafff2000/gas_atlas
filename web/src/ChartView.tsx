@@ -6,9 +6,9 @@ import { CanvasRenderer } from 'echarts/renderers'
 import type { Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
-import { buildTracks, decimalsFor, hover, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
+import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { axisAt, formatBound, parseBound, shiftRange, wheelFactor, zoomRange, type AxisName, type Range } from './chartAxes'
-import { hiddenEvents, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { hiddenEvents, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
 
@@ -363,6 +363,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: on })
   }
   const syncZoom = usePref(zoomSync)
+  const pinSyncAll = usePref(pinSync)
+  const kind = pinSyncKind(chart), pinsOn = pinSyncAll[kind]
   const rangeKey = `${given.title}|${given.y.label}|${given.y2?.label ?? ''}`
   const yKey = `${given.y.label}|${given.y.unit}`
   const [ranges, setRangesState] = useState<Manual>(() => savedRanges.get()[rangeKey] ?? { y: null, y2: null })      // ручные границы Y: переживают обновление данных и перезапуск
@@ -500,8 +502,9 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
       const el = document.createElement('div')
       el.className = 'atlas-tip pinned'
       host.appendChild(el)
-      const token = st.sync ? pinShared(st.id, st.sync, x, MAX_PINS) : nextSyncId()
-      st.pins.push({ x, y, axis, html: copy.innerHTML, el, off: null, token, shared: !!st.sync, own: true })
+      const share = pinsShared()
+      const token = share ? pinShared(st.id, st.sync!, x, MAX_PINS) : nextSyncId()
+      st.pins.push({ x, y, axis, html: copy.innerHTML, el, off: null, token, shared: share, own: true })
       while (st.pins.length > MAX_PINS) { const old = st.pins.shift()!; old.el.remove(); if (old.shared) unpinShared(old.token) }
       renderPins()
     }
@@ -768,10 +771,9 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
       card.hidden = false
       const bw = card.offsetWidth, bh = card.offsetHeight
       const ax = h.point?.px ?? h.focus?.px ?? m![0], ay = h.point?.py ?? h.focus?.py ?? m![1]
-      let left = ax + 18, top = ay - bh / 2
-      if (left + bw > w - 4) left = ax - 18 - bw
-      if (left < 4) left = Math.max(4, Math.min(w - bw - 4, ax - bw / 2))
-      top = Math.max(4, Math.min(hh - bh - 4, top))
+      const tipRect = gridRect()
+      const [left, top] = placeTip(st.tracks, view, [ax, ay], [bw, bh],
+        tipRect ? { x: tipRect.x, y: tipRect.y, w: tipRect.width, h: tipRect.height } : { x: 0, y: 0, w, h: hh })
       card.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
     }
     /** Карточка, закреплённая на другом графике с той же осью X: значения наших кривых в этой точке. */
@@ -788,14 +790,16 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
       host.appendChild(el)
       st.pins.push({ x, y: v.y, axis: v.track.axis, html: valuesTip(h, py, [], ''), el, off: null, token, shared: true, own: false })
     }
+    /** Делятся ли закрепления с другими графиками: свой переключатель, не зависит от общего перекрестия. */
+    const pinsShared = () => !!st.sync && pinSync.get()[pinSyncKind(st.chart)]
     /** Сверка с общим списком: чужие закрепления появляются, снятые — исчезают. */
     st.reconcile = () => {
       if (!st.sync) return
-      const list = sharedPins(st.sync)
+      const list = pinsShared() ? sharedPins(st.sync) : []
       const live = new Set(list.map(e => e.token))
       let changed = false
       st.pins = st.pins.filter(p => {
-        if (!p.shared || live.has(p.token)) return true
+        if (!p.shared || p.own || live.has(p.token)) return true
         p.el.remove(); changed = true; return false
       })
       for (const e of list) {
@@ -813,6 +817,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     st.draw = draw
     const schedule = () => { if (!st.frame) st.frame = requestAnimationFrame(draw) }
     const unsync = subscribe(() => { st.reconcile(); if (!st.mouse) schedule() })
+    const unpinPref = pinSync.subscribe(() => { st.reconcile(); schedule() })
 
     const zr = ch.getZr()
     zr.on('mousemove', (e: { offsetX: number; offsetY: number }) => { st.mouse = [e.offsetX, e.offsetY]; schedule() })
@@ -1042,7 +1047,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     observer.observe(el)
     return () => {
       window.clearTimeout(timer); ++seq
-      observer.disconnect(); unsync(); unzoom(); unpref(); publish(st.id, null, null)
+      observer.disconnect(); unsync(); unpinPref(); unzoom(); unpref(); publish(st.id, null, null)
       st.pins.forEach(p => { p.el.remove(); if (p.own && p.shared) unpinShared(p.token) })
       window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin); host.removeEventListener('click', onOpen)
       host.removeEventListener('pointerdown', onGrab); host.removeEventListener('pointermove', onDrag)
@@ -1138,6 +1143,11 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
                 onClick={() => zoomSync.set(!syncZoom)}
                 title="Синхронизировать масштаб: окно по времени одинаково на всех графиках по времени, в том числе после перехода в другой раздел">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5l3-3" /><path d="M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1" /><path d="M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1" /></svg>
+              </button>}
+              {state.current.sync && <button type="button" className={'icon' + (pinsOn ? ' on' : '')} aria-pressed={pinsOn}
+                onClick={() => pinSync.set({ ...pinSyncAll, [kind]: !pinsOn })}
+                title={`Синхронизировать закреплённые точки: закреплённая подсказка появляется на всех графиках с такой же осью X. Отдельно от общего перекрестия; ${kind === 'time' ? 'для графиков по времени' : 'для остальных графиков'}`}>
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v6" /><path d="M5.5 8.5h5" /><path d="M6.5 8.5l-1 5M9.5 8.5l1 5" /><circle cx="8" cy="3.5" r="1.5" /></svg>
               </button>}
               <button type="button" className="icon" onClick={() => state.current.fitY()}
                 title="Подогнать шкалу Y под точки в видимом окне по X">

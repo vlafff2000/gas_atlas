@@ -103,7 +103,7 @@ class WellsModule(Module):
                   show_if={'fixed_dp2': True},
                   formula='Q(ΔP²) = (−a + √(a² + 4b·ΔP²)) / (2b)',
                   example='a = 0,7, b = 0,012, ΔP² = 500: Q = (−0,7 + √(0,49 + 24)) / 0,024 ≈ 177 тыс. м³/сут.'),
-            Param('section', 'Раздел анализа', 'choice', default=SECTIONS[0], section=SECTION_VIEW,
+            Param('section', 'Раздел анализа', 'choice', default=SECTIONS[0], section=SECTION_VIEW, chart_kind=True,
                   options=tuple(Option(s, s) for s in SECTIONS)),
             Param('alignment', 'Начало отсчета сезонов', 'choice', default='well', section=SECTION_VIEW,
                   options=(Option('well', 'Первый замер скважины = 0'), Option('object', 'Первый день данных объекта')),

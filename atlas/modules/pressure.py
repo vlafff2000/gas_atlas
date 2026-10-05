@@ -37,6 +37,7 @@ VIEWS = {'cross': ('Кроссплот', ['cross']), 'dynamics': ('Динами�
          'objects': ('Объекты', ['object_box', 'percentiles']), 'stats': ('Статистика', [])}
 PER_WELL = ('time', 'error_time', 'box')
 LIMITS = (Option('12', '12'), Option('24', '24'), Option('48', '48'), Option('96', '96'), Option('all', 'Все'))
+SUMMARY_ID, SUMMARY_TITLE = 'object-summary', 'Итоговая таблица по объектам'
 STAT_ORDER = ('Сводная объектов', 'Общая статистика', 'По скважинам', 'По фондам', 'По сезонам', 'Последние 3 года',
               'По группам')
 KEY_LABELS = {'object': 'Объект', 'scenario': 'Сценарий', 'well': 'Скважина', 'fond': 'Фонд', 'period': 'Период',
@@ -106,7 +107,7 @@ class PressureModule(Module):
             Param('percentiles', 'Процентили', 'multi', default=['80', '85', '90'], section=SECTION_CALC,
                   options=tuple(Option(str(p), str(p)) for p in range(1, 100)),
                   help='Пусто — 80, 85, 90, как в 5.8.'),
-            Param('view', 'Представление', 'choice', default='cross', section=SECTION_VIEW,
+            Param('view', 'Представление', 'choice', default='cross', section=SECTION_VIEW, chart_kind=True,
                   options=tuple(Option(k, v[0]) for k, v in VIEWS.items())),
             Param('color', 'Цвет точек', 'choice', default='scenario', section=SECTION_VIEW,
                   options=tuple(Option(k, v) for k, v in COLORS.items())),
@@ -172,6 +173,7 @@ class PressureModule(Module):
             for title, frame in stat_tables(d, cfg):
                 result.tables.append(Table(f'stats-{STAT_ORDER.index(title)}', title, frame, stat_columns(frame, cfg['match_good']),
                                            collapsed=not (view == 'stats' and title == 'Сводная объектов')))
+            result.tables.append(object_summary(d, cfg, collapsed=view != 'stats'))
             matrix = match_matrix(d, cfg)
             if matrix is not None:
                 matrix.collapsed = view != 'stats'
@@ -377,6 +379,48 @@ def summary_table(d: pd.DataFrame, cfg: Mapping[str, Any]) -> Table:
 def stat_tables(d: pd.DataFrame, cfg: Mapping[str, Any]) -> list[tuple[str, pd.DataFrame]]:
     tables = legacy.tables(d, cfg)
     return [(name, tables[name]) for name in STAT_ORDER]
+
+
+PERIODS = (('all', 'Вся история'), ('recent', 'Последние 3 сезона'))
+WHOLE_FUND = 'Весь фонд'
+
+
+def object_summary(d: pd.DataFrame, cfg: Mapping[str, Any], collapsed: bool = False) -> Table:
+    """Итоговая таблица по объектам (как «Сводная_транспон2.xlsx»): отклонение |модель − факт| на процентилях
+    по фондам и периодам. Окно адаптации — первый процентиль по всему фонду и всей истории / максимальное давление
+    объекта. Максимальное давление — наибольший факт в выборке. Процентили — ``np.percentile``, как ``legacy.statistics``."""
+    unit = '%' if cfg.get('threshold_mode') == 'relative' else cfg.get('unit', 'бар')
+    ps = list(cfg.get('percentiles') or [80, 85, 90])
+    fonds = [WHOLE_FUND] + [f for f in ordered(d.fond) if f != WHOLE_FUND]
+    several = d.scenario.nunique() > 1
+    keys = [(fond, period, p) for fond in fonds for period, _ in PERIODS for p in ps]
+    name = lambda k: 'p|{}|{}|{:g}'.format(*k)   # noqa: E731
+    rows, number_of = [], {}
+    for (obj, scenario), g in d.groupby(['object', 'scenario'], sort=False):
+        first = obj not in number_of
+        number_of.setdefault(obj, len(number_of) + 1)
+        row: dict[str, Any] = {'n': number_of[obj] if first else None, 'object': obj, 'scenario': str(scenario),
+                               'pmax': float(d.fact[d.object.eq(obj)].max())}
+        for fond, period, p in keys:
+            part = g if fond == WHOLE_FUND else g[g.fond.eq(fond)]
+            part = part[part.recent] if period == 'recent' else part
+            row[name((fond, period, p))] = float(np.percentile(part.error, p)) if len(part) else None
+        row['window'] = row[name((WHOLE_FUND, 'all', ps[0]))] / row['pmax'] * 100 if row['pmax'] else None
+        rows.append(row)
+    frame = pd.DataFrame(rows)
+    fixed = [Column('n', '№ п/п', kind='number'), Column('object', 'Объект')]
+    if several:
+        fixed.append(Column('scenario', 'Сценарий'))
+    fixed += [Column('pmax', 'Макс. пластовое давление', cfg.get('unit', 'бар'), 2, 'number'),
+              Column('window', 'Окно адаптации, % от макс. давления (по P{:g})'.format(ps[0]), '%', 1, 'number')]
+    columns = fixed + [Column(name(k), 'P{:g}'.format(k[2]), unit, 2, 'number') for k in keys]
+    top = [('', len(fixed)), ('Отклонение ({})'.format(unit), len(keys))]
+    fond_row = [('', len(fixed))] + [(f, len(PERIODS) * len(ps)) for f in fonds]
+    period_row = [('', len(fixed))] + [(label, len(ps)) for _ in fonds for _, label in PERIODS]
+    return Table(SUMMARY_ID, SUMMARY_TITLE, frame, columns, collapsed=collapsed, header=[top, fond_row, period_row],
+                 note='Отклонение |модель − факт| на процентилях по фондам; «Последние 3 сезона» — по правилу фильтра '
+                      '«Последние 3 года». Максимальное давление — наибольший факт объекта в выборке. '
+                      'Выгрузка Excel повторяет раскладку образца с объединённой шапкой.')
 
 
 MATRIX_TITLE = 'Совпадение по скважинам и сценариям'

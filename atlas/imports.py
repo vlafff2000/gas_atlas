@@ -39,7 +39,8 @@ MAX_FILES = 200
 BINARY = (b'PK', b'\xd0\xcf\x11\xe0')
 POLICIES = {'new': 'Добавить, совпадения заменить новыми', 'old': 'Добавить, совпадения оставить прежними',
             'replace': 'Заменить целиком только импортируемые модули'}
-PRESSURE_MODES = {'add': 'Добавить / обновить объекты', 'replace': 'Заменить все данные давлений'}
+PRESSURE_MODES = {'add': 'Добавить / обновить объекты', 'scenarios': 'Добавить сценарии к объектам (прежние сохраняются)',
+                  'replace': 'Заменить все данные давлений'}
 DUPLICATES = {'first': 'Первая запись (как в Python-скрипте)', 'last': 'Последняя запись',
               'mean': 'Среднее значение', 'error': 'Остановить импорт'}
 EXAMPLES = ROOT / 'examples'
@@ -633,7 +634,7 @@ class Imports:
         for token, sheets in (body.get('choices') or {}).items():
             sha = self.file(token).sha
             for sheet, c in (sheets or {}).items():
-                choices[(sha, sheet)] = {k: v for k, v in c.items() if k in ('use', 'role', 'object', 'scenario')}
+                choices[(sha, sheet)] = {k: v for k, v in c.items() if k in ('use', 'role', 'object', 'scenario', 'shared')}
         return files, cache, tokens, choices, bad
 
     def pressure_inspect(self, pid: str, body: dict) -> dict[str, Any]:
@@ -651,15 +652,15 @@ class Imports:
                         'binary': files[r['_sha']][1].startswith(BINARY)} for r in rows]
         out['counts'] = {'files': len(files), 'sheets': len(rows), 'use': sum(r['Исп.'] for r in rows),
                          'objects': len({r['Объект'] for r in rows if r['Исп.'] and r['Роль'] != pq.SKIP})}
+        raw = self._raw_frames(pid, m)
+        existing = raw.get('pressure_match')
         try:
-            data, notes, errors, warnings, summary = pq.assemble(rows, cache, duplicate)
+            data, notes, errors, warnings, summary = pq.assemble(rows, cache, duplicate, existing)
         except Exception as e:
             data, notes, errors, warnings, summary = None, [], [str(e)], [], None
         out.update(errors=errors, warnings=warnings)
         if data is None or errors:
             return out
-        raw = self._raw_frames(pid, m)
-        existing = raw.get('pressure_match')
         pending = {'id': uuid.uuid4().hex, 'kind': 'pressure', 'pid': pid, 'revision': m.get('revision'), 'data': data,
                    'notes': notes, 'summary': summary, 'originals': list(files.values()), 'tokens': list(tokens.values())}
         with self.lock:
@@ -689,6 +690,10 @@ class Imports:
         if 'pressure_match' in raw and mode == 'add':
             old = raw['pressure_match'].drop(columns=['_point_id'], errors='ignore')
             final = pd.concat([old[~old.object.isin(data.object.unique())], data], ignore_index=True)
+        elif 'pressure_match' in raw and mode == 'scenarios':
+            old = raw['pressure_match'].drop(columns=['_point_id'], errors='ignore')
+            replaced = old.set_index(['object', 'scenario']).index.isin(list(zip(data.object, data.scenario)))
+            final = pd.concat([old[~replaced], data], ignore_index=True)
         frames = dict(raw)
         frames['pressure_match'] = final
         label = PRESSURE_MODES[mode] if 'pressure_match' in raw else PRESSURE_MODES['add']

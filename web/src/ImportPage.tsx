@@ -614,8 +614,12 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
                       <td>{r['Файл']}</td><td>{r['Лист']}</td>
                       <td><select value={r['Роль']} title="Факт — X, Модель — Y, Фонд — справочник «скважина → тип»"
                                   onChange={e => choose(r.token, r['Лист'], { role: e.target.value })}>
-                        {options.roles.map(x => <option key={x}>{x}</option>)}</select></td>
-                      <td><input key={r['Объект']} defaultValue={r['Объект']} title="Факт и модели с одинаковым названием объекта сопоставляются между собой"
+                        {options.roles.map(x => <option key={x}>{x}</option>)}</select>
+                        {r['Роль'] === 'Факт' && (
+                          <label className="toggle small" title="Один набор исторических данных для всех объектов загрузки, у которых нет своего факта: например, сравнить старую и новую модель с одними и теми же замерами">
+                            <input type="checkbox" checked={r['Общая']} onChange={e => choose(r.token, r['Лист'], { shared: e.target.checked })} /><span>Общая история</span>
+                          </label>)}</td>
+                      <td><input key={r['Объект']} defaultValue={r['Объект']} title="Факт и модели с одинаковым названием объекта сопоставляются между собой" disabled={r['Общая']}
                                  onBlur={e => { const v = e.target.value.trim(); if (v && v !== r['Объект']) choose(r.token, r['Лист'], { object: v }) }} /></td>
                       <td><input key={r['Сценарий']} defaultValue={r['Сценарий']} title="Название модели на графиках" disabled={r['Роль'] !== 'Модель'}
                                  onBlur={e => { const v = e.target.value.trim(); if (v !== r['Сценарий']) choose(r.token, r['Лист'], { scenario: v }) }} /></td>
@@ -671,6 +675,7 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
                     <legend>Что делать с уже загруженными данными давлений</legend>
                     {result.ready.modes.map(m => <label key={m.value}><input type="radio" checked={mode === m.value} onChange={() => setMode(m.value)} />{m.label}</label>)}
                   </fieldset>
+                  {mode === 'scenarios' && <p className="muted small">Прежние сценарии объектов сохраняются; заменяются только сценарии с теми же названиями. Если у объекта нет факта в загрузке, берётся история из проекта.</p>}
                   {mode === 'add' && <p className="muted small">В проекте объектов: {result.ready.existing.objects}. Будут заменены: {result.ready.existing.replaced.join(', ') || 'нет совпадений'}.</p>}
                 </>
               )}
