@@ -5,11 +5,25 @@ import { ChartView } from './ChartView'
 import { api, type Chart } from './api'
 import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
+import { ResizableFrame, HEIGHT_MM, WIDTH_MM } from './ResizableFrame'
 
 type Opt = [unknown, string]
 const SPLIT: Opt[] = [['well', 'По скважинам'], ['group', 'По группам (отдельные кривые)'], ['subgroup', 'По подгруппам'], ['all', 'Все выбранные вместе']]
 const DIRECTION: Opt[] = [['number', 'По номеру'], ['desc', 'Больший дебит слева'], ['asc', 'Больший дебит справа']]
 const ORIENTATION: Opt[] = [['standard', 'X = Q, Y = ΔP²'], ['swapped', 'X = ΔP², Y = Q']]
+// Популярные форматы: ширина × высота, мм. Без высоты — подбирается по ширине и легенде.
+const SIZES: [string, string, number | null][] = [
+  ['auto', 'Авто (220 мм по ширине)', null],
+  ['a4-width', 'A4: ширина поля 170 × 110', 110],
+  ['a4-half', 'A4: пол-листа 170 × 125', 125],
+  ['a4-page', 'A4 книжный: весь лист 190 × 270', 270],
+  ['a4-land', 'A4 альбомный 270 × 180', 180],
+  ['16x9', 'Слайд 16:9, 254 × 143', 143],
+  ['4x3', 'Слайд 4:3, 240 × 180', 180],
+  ['column', 'Колонка статьи 85 × 65', 65],
+  ['square', 'Квадрат 150 × 150', 150],
+]
+const SIZE_WIDTH: Record<string, number> = { auto: 220, 'a4-width': 170, 'a4-half': 170, 'a4-page': 190, 'a4-land': 270, '16x9': 254, '4x3': 240, column: 85, square: 150 }
 const KINDS = [['withdrawal', 'Отбор'], ['injection', 'Закачка']] as const
 
 /** Без локального хранилища черновика: форма живёт, пока открыт раздел; для повтора — шаблоны. */
@@ -33,6 +47,7 @@ export function ExportPage({ project, onProject }: PageProps) {
   const [toast, setToast] = useState<string | null>(null)
   const [presetName, setPresetName] = useState('')
   const [presetChoice, setPresetChoice] = useState('')
+  const [natural, setNatural] = useState<[number, number] | null>(null)    // размеры картинки предпросмотра: для автовысоты
   const closeToast = useCallback(() => setToast(null), [])
   const exclusions = form.exclusions !== false
 
@@ -43,12 +58,14 @@ export function ExportPage({ project, onProject }: PageProps) {
   const set = useCallback((field: string, value: unknown) => setForm(f => ({ ...f, [field]: value })), [])
   const modules = (form.modules as string[] | undefined) ?? choices?.default_modules ?? []
   const key = JSON.stringify([project.revision, form])
+  // Перечень графиков от размера не зависит: растягивание в предпросмотре не должно его сбрасывать.
+  const planned = useMemo(() => { const { width: _w, height: _h, ...rest } = form; return JSON.stringify([project.revision, rest]) }, [form, project.revision])
   const ready = modules.length > 0
 
   const prepare = async () => {
-    if (planKey === key && plan) return plan
+    if (planKey === planned && plan) return plan
     const next = await exportApi.plan(project.id, form)
-    setPlan(next); setPlanKey(key)
+    setPlan(next); setPlanKey(planned)
     return next
   }
   const run = async (label: string, work: () => Promise<void>) => {
@@ -75,30 +92,28 @@ export function ExportPage({ project, onProject }: PageProps) {
   // Автоматическое обновление предпросмотра (как флажок 5.8).
   useEffect(() => {
     if (!form.auto || !ready) return
-    const timer = setTimeout(() => { exportApi.plan(project.id, form).then(p => { setPlan(p); setPlanKey(key); setShowPreview(true) }).catch(() => undefined) }, 400)
+    const timer = setTimeout(() => { exportApi.plan(project.id, form).then(p => { setPlan(p); setPlanKey(planned); setShowPreview(true) }).catch(() => undefined) }, 400)
     return () => clearTimeout(timer)
-  }, [form, key, project.id, ready])
+  }, [form, key, planned, project.id, ready])
 
   // Картинка выбранного графика (макет файла, 150 DPI при выбранной ширине).
-  const shownPlan = plan && planKey === key ? plan : null
+  const shownPlan = plan && planKey === planned ? plan : null
   useEffect(() => {
     if (!shownPlan || !showPreview || live || !shownPlan.charts.length) return
     const name = shownPlan.charts.some(c => c.name === chart) ? chart : shownPlan.charts[0].name
     if (name !== chart) { setChart(name); return }
     let alive = true
-    let url: string | null = null
-    setImage(null)
-    exportApi.preview(project.id, form, name).then(u => { url = u; if (alive) setImage(u); else URL.revokeObjectURL(u) })
+    exportApi.preview(project.id, form, name).then(u => { if (alive) setImage(old => { if (old) URL.revokeObjectURL(old); return u }); else URL.revokeObjectURL(u) })
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
-    return () => { alive = false; if (url) URL.revokeObjectURL(url) }
+    return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart, live])
+  }, [shownPlan, showPreview, chart, live, form.width, form.height])
 
   // Открытый предпросмотр обновляется сам, когда меняется проект (исключили точку).
   useEffect(() => {
     if (!showPreview || !ready || !plan || planKey === key) return
     let alive = true
-    exportApi.plan(project.id, form).then(p => { if (alive) { setPlan(p); setPlanKey(key) } }).catch(() => undefined)
+    exportApi.plan(project.id, form).then(p => { if (alive) { setPlan(p); setPlanKey(planned) } }).catch(() => undefined)
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.revision])
@@ -225,7 +240,7 @@ export function ExportPage({ project, onProject }: PageProps) {
             </span>
           </div>
           <Select {...F} field="dpi" label="Разрешение PNG" def={300} options={[[300, '300'], [600, '600'], [1200, '1200']]} />
-          <Num {...F} field="width" label="Ширина, мм" def={220} min={80} max={300} />
+          <SizePick {...F} />
           <Select {...F} field="font" label="Шрифт" def="default"
             options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow']]} />
           <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
@@ -367,9 +382,18 @@ export function ExportPage({ project, onProject }: PageProps) {
                 </>
               ) : (
                 <>
-                  <p className="muted small-text">Макет статического файла при выбранной ширине. Для предпросмотра используется 150 DPI.
+                  <p className="muted small-text">Макет статического файла в выбранном размере. Тяните за края и углы рамки, чтобы изменить ширину и высоту (Shift на углу сохраняет пропорции); размер попадёт в выгрузку. Для предпросмотра используется 150 DPI.
                     Чтобы исключать точки, переключите вид на «Интерактивный график».</p>
-                  {image ? <img className="export-preview" src={image} alt={chart} /> : <p className="pulse">Построение графика…</p>}
+                  {image ? (() => {
+                    const wMm = (form.width as number | undefined) ?? 220
+                    const hMm = (form.height as number | undefined) ?? (natural ? Math.round(wMm * natural[1] / natural[0]) : Math.round(wMm * 0.68))
+                    return (
+                      <ResizableFrame widthMm={wMm} heightMm={hMm} onResize={(w, h) => { set('width', w); set('height', h) }}>
+                        <img className="export-preview" src={image} alt={chart} draggable={false}
+                          onLoad={e => setNatural([e.currentTarget.naturalWidth, e.currentTarget.naturalHeight])} />
+                      </ResizableFrame>
+                    )
+                  })() : <p className="pulse">Построение графика…</p>}
                 </>
               )}
             </div>
@@ -387,6 +411,42 @@ export function ExportPage({ project, onProject }: PageProps) {
         </div>
       )}
       <Toast text={toast} onClose={closeToast} />
+    </>
+  )
+}
+
+/** Формат листа: готовые размеры, ширина и высота в мм (пустая высота — подбирается автоматически). */
+function SizePick({ form, set, choices }: FieldProps) {
+  const width = (form.width as number | undefined) ?? 220
+  const height = form.height as number | undefined
+  const preset = SIZES.find(([id, , h]) => (h ?? undefined) === height && SIZE_WIDTH[id] === width)?.[0] ?? 'custom'
+  const [text, setText] = useState(height === undefined ? '' : String(height))
+  useEffect(() => setText(height === undefined ? '' : String(height)), [height])
+  const n = Number(text)
+  const bad = text.trim() !== '' && !(n >= HEIGHT_MM[0] && n <= HEIGHT_MM[1])
+  return (
+    <>
+      <label className="field">
+        <span className="field-label">Формат графика</span>
+        <select value={preset} onChange={e => {
+          const [, , h] = SIZES.find(([id]) => id === e.target.value) ?? ['', '', null]
+          if (e.target.value === 'custom') return
+          set('width', SIZE_WIDTH[e.target.value])
+          set('height', h ?? undefined)
+        }}>
+          {SIZES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          <option value="custom">Свой размер</option>
+        </select>
+      </label>
+      <Num form={form} set={set} choices={choices} field="width" label="Ширина, мм" def={220} min={WIDTH_MM[0]} max={WIDTH_MM[1]} />
+      <label className={'field number' + (bad ? ' invalid' : '')} title="Пусто — высота подбирается по ширине и легенде">
+        <span className="field-label">Высота, мм</span>
+        <input type="number" min={HEIGHT_MM[0]} max={HEIGHT_MM[1]} placeholder="авто" value={text}
+          onChange={e => { setText(e.target.value); const v = Number(e.target.value)
+            if (e.target.value.trim() === '') set('height', undefined)
+            else if (v >= HEIGHT_MM[0] && v <= HEIGHT_MM[1]) set('height', v) }} />
+        {bad && <span className="field-error">от {HEIGHT_MM[0]} до {HEIGHT_MM[1]}</span>}
+      </label>
     </>
   )
 }

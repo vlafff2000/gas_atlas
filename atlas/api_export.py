@@ -16,7 +16,7 @@ import tempfile
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 from urllib.parse import quote
 
 import pandas as pd
@@ -44,7 +44,7 @@ STYLE_FIELDS = (('points', 'Экспорт: точки'), ('legend', 'Экспо
 GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'), ('db', 'db_curves'),
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
-PRESET_FIELDS = ('modules', 'formats', 'dpi', 'width', 'font', 'font_size', 'exclusions', 'raw', 'auto')
+PRESET_FIELDS = ('modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
 PRESET_PREFIXES = ('production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_')
 
 
@@ -357,6 +357,20 @@ def files_from(form: Mapping[str, Any]) -> tuple[list[str], int, int]:
     return formats, dpi, width
 
 
+def height_from(form: Mapping[str, Any]) -> Optional[int]:
+    """Высота графика, мм. Не задана (или 0) — подбирается по ширине и легенде, как в 5.8."""
+    raw = form.get('height')
+    if raw in (None, '', 0):
+        return None
+    try:
+        height = int(raw)
+    except (TypeError, ValueError):
+        raise Failure(400, 'Высота должна быть числом') from None
+    if not 40 <= height <= 400:
+        raise Failure(400, 'Высота графика: от 40 до 400 мм')
+    return height
+
+
 def preset_values(form: Mapping[str, Any]) -> dict[str, Any]:
     """Поля формы, которые 5.8 сохраняет в шаблон (тот же отбор по именам)."""
     out = {}
@@ -464,7 +478,7 @@ def routes(projects: Projects) -> list[Route]:
 
     def prepared(pid: str, form: dict):
         data = projects.data(pid)
-        key = (pid, data.revision, json.dumps(form, sort_keys=True, ensure_ascii=False, default=str))
+        key = (pid, data.revision, json.dumps({k: v for k, v in form.items() if k not in ('width', 'height')}, sort_keys=True, ensure_ascii=False, default=str))
 
         def build():
             options, source, raw = options_from(form, data)
@@ -483,7 +497,7 @@ def routes(projects: Projects) -> list[Route]:
         formats, dpi, width = files_from(form)
         m = projects.manifest(pid)
         return {'project': m['name'], 'version': VERSION_58, 'atlas': VERSION, 'revision': data.revision, 'options': options,
-                'settings': data.settings, 'formats': formats, 'dpi': dpi, 'width_mm': width,
+                'settings': data.settings, 'formats': formats, 'dpi': dpi, 'width_mm': width, 'height_mm': height_from(form),
                 **dict(zip(('font', 'font_size'), font_from(form))),
                 'created_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
 
@@ -514,7 +528,7 @@ def routes(projects: Projects) -> list[Route]:
             raise Failure(404, 'График не найден. Обновите предпросмотр.')
         _, _, width = files_from(form)
         font, font_size = font_from(form)
-        content = figure_bytes(job.render(), 'png', 150, width, font=font, font_size=font_size)   # макет файла при выбранной ширине, 150 DPI
+        content = figure_bytes(job.render(), 'png', 150, width, height_from(form), font=font, font_size=font_size)   # макет файла при выбранной ширине, 150 DPI
         return Response(content, media_type='image/png')
 
     def chart(request, body):
@@ -531,7 +545,7 @@ def routes(projects: Projects) -> list[Route]:
         pid, form = request.path_params['pid'], form_of(body)
         options, plan, data = need_plan(pid, form)
         meta = metadata(pid, data, options, form)
-        result = export_plan(plan, projects.store, pid, meta['formats'], meta['dpi'], meta['width_mm'], meta)
+        result = export_plan(plan, projects.store, pid, meta['formats'], meta['dpi'], meta['width_mm'], meta, height_mm=meta.get('height_mm'))
         projects.store.event(pid, 'Экспорт', meta)
         return result_json(result)
 
