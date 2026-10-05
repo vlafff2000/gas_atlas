@@ -49,11 +49,11 @@ export interface Pending {
   issues: Table | null; issues_count: number; previews: Table[]; policies: Choice[]
 }
 export interface PressureRow {
-  'Исп.': boolean; 'Файл': string; 'Лист': string; 'Роль': string; 'Объект': string; 'Сценарий': string
+  'Исп.': boolean; 'Файл': string; 'Лист': string; 'Роль': string; 'Объект': string; 'Сценарий': string; 'Общая': boolean
   'Значений': number; 'Скважин': number; 'Период': string; 'Структура': string; 'Статус': string
   token: string; binary: boolean
 }
-export interface PressureChoice { use?: boolean; role?: string; object?: string; scenario?: string }
+export interface PressureChoice { use?: boolean; role?: string; object?: string; scenario?: string; shared?: boolean }
 export interface PressureInspect {
   bad: string[]; rows: PressureRow[]; errors: string[]; warnings: string[]; duplicates: Choice[]
   counts?: { files: number; sheets: number; use: number; objects: number }
