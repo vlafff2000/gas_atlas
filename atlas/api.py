@@ -240,7 +240,8 @@ def create_app(projects: Projects | None = None) -> Starlette:
             except (TypeError, ValueError):
                 raise Failure(400, 'DPI должен быть числом') from None
             try:
-                content, name, mime = render.chart_file(chart, str(body.get('format', 'png')), dpi)
+                content, name, mime = render.chart_file(chart, str(body.get('format', 'png')), dpi,
+                                                          body.get('font'), body.get('font_size'))
             except ValueError as e:
                 raise Failure(400, str(e)) from None
         elif target == 'tables':

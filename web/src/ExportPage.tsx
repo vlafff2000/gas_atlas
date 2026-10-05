@@ -226,6 +226,10 @@ export function ExportPage({ project, onProject }: PageProps) {
           </div>
           <Select {...F} field="dpi" label="Разрешение PNG" def={300} options={[[300, '300'], [600, '600'], [1200, '1200']]} />
           <Num {...F} field="width" label="Ширина, мм" def={220} min={80} max={300} />
+          <Select {...F} field="font" label="Шрифт" def="default"
+            options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow']]} />
+          <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
+            options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
           <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
           <Check {...F} field="raw" label="Добавить нормализованные данные" def={false} />
           {(['points', 'legend', 'grid'] as const).map(f => (
