@@ -57,6 +57,7 @@ class Param:
     prefix: str = ''                  # приставка к подписи варианта на экране, например '№ '
     empty: str = 'все'                # что значит пустой выбор в списке: 'все' или 'ничего'
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
+    chart_kind: bool = False          # переключатель вида графиков: выводится в верхнем тулбаре раздела
 
     def coerce(self, value: Any) -> Any:
         if value is None or (self.kind == 'date' and value == ''):
