@@ -92,10 +92,10 @@ def align_y_axes(fig, chart: Chart) -> None:
     if chart.y2 is None or any(a.scale != 'value' for a in specs.values()):
         return
     extents = {key: axis_extent(chart, key) for key in specs}
-    if any(e is None for e in extents.values()):
+    if all(e is None for e in extents.values()):
         return
     for key, spec in specs.items():
-        lo, hi = extents[key]
+        lo, hi = extents[key] or (0.0, 1.0)      # у оси без данных всё равно те же 5 делений
         if spec.from_zero:
             lo, hi = min(lo, 0.0), max(hi, 0.0)
         start, step = aligned_range(lo, hi, spec.minimum, spec.maximum)
