@@ -35,3 +35,12 @@ def test_range_always_covers_data():
 def test_png_export_runs():
     data, name, _ = chart_file(_chart(), 'png', 150)
     assert data[:4] == b'\x89PNG'
+
+
+def test_axis_without_data_still_aligned():
+    c = _chart(from_zero=True)
+    c.series.pop()      # у y2 нет данных
+    fig = to_plotly(c)
+    for axis in (fig.layout.yaxis, fig.layout.yaxis2):
+        lo, hi = axis.range
+        assert round((hi - lo) / axis.dtick) == TICK_INTERVALS

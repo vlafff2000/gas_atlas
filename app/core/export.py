@@ -83,10 +83,19 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
     if fig.layout.showlegend is False:legend=[]
     longest=max((len(t.name or '') for t in legend),default=0)
     is_gdi=(fig.layout.meta or {}).get('module')=='gdi' or any(isinstance(t.meta,dict) and t.meta.get('module')=='gdi' for t in traces)
-    ncols=(max(1,int(width_mm/70)) if is_gdi else 1 if width_mm<150 else (3 if longest<22 else 2))
+    # легенда занимает всю ширину рисунка: число колонок — сколько самых длинных подписей помещается в строку
+    lfont=(6.5 if compact else 7)*k
+    char_mm=lfont*.5*25.4/72
+    avail_mm=width_mm*.94
+    wrap_at=max(18,int(avail_mm/char_mm)-8)
+    names=[(t.name or '') for t in legend]
+    widest=max((min(len(n),wrap_at) for n in names),default=0)
+    entry_mm=widest*char_mm+(1.6+.8+1.2)*lfont*25.4/72
+    ncols=max(1,min(len(legend) or 1,int(avail_mm/entry_mm)))
     legend_rows=int(np.ceil(len(legend)/ncols))
-    if compact:ncols=max(1,min(len(legend),4 if width_mm>=120 else 3));legend_rows=int(np.ceil(len(legend)/ncols))
-    height_mm=height_mm if height_mm else width_mm*.72+max(0,legend_rows-1)*5 if is_gdi else width_mm*.68+max(0,legend_rows-2)*(9 if longest>=40 else 5)
+    if height_mm:pass
+    elif is_gdi:height_mm=width_mm*.72+max(0,legend_rows-1)*5*k
+    else:height_mm=width_mm*.68+max(0,legend_rows-2)*(9 if longest>=wrap_at else 5)*k
     if fmt=='png' and width_mm*height_mm*(dpi/25.4)**2>90_000_000:raise ValueError('Слишком большой PNG. Уменьшите ширину или DPI.')
     with LOCK,plt.rc_context({'font.family':family_for(font),'font.size':base,'svg.fonttype':'none','pdf.fonttype':42}):
         f,ax=plt.subplots(figsize=(width_mm/25.4,height_mm/25.4),layout='constrained')
@@ -169,7 +178,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 handles,labels=ax.get_legend_handles_labels()
                 if secondary is not None:
                     h,l=secondary.get_legend_handles_labels();handles+=h;labels+=l
-                if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=46 if width_mm>=170 else 28)) for v in labels]
+                if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=wrap_at)) for v in labels]
                 if handles:f.legend(handles,labels,loc='outside lower center',ncol=ncols,fontsize=(6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6)
             if compact:
                 from matplotlib.ticker import MaxNLocator
