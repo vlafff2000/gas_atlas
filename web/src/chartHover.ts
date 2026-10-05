@@ -202,3 +202,55 @@ export function decimalsFor(span: number) {
   if (!Number.isFinite(span) || span <= 0) return 2
   return Math.max(0, Math.min(6, -Math.floor(Math.log10(span / 1000))))
 }
+
+export interface Box { x: number; y: number; w: number; h: number }
+
+/** Сколько отметок и вершин кривых лежит внутри прямоугольника (в пикселях): по x ищем двоичным поиском, потолок на серию. */
+export function coveredCount(tracks: Track[], view: View, r: Box, limit = 3000): number {
+  const [x0] = view.fromPixel(r.x, r.y), [x1] = view.fromPixel(r.x + r.w, r.y)
+  const lo = Math.min(x0, x1), hi = Math.max(x0, x1)
+  let n = 0
+  for (const t of tracks) {
+    if (!view.visible(t) || t.bar || !(t.points || t.curve)) continue
+    const ord = t.monotonic ? null : t.order
+    if (!t.monotonic && !ord) continue
+    const end = ord ? ord.length : t.xs.length
+    let k = lowerBound(t.xs, lo, ord)
+    for (let c = 0; k < end && c < limit; k++, c++) {
+      const j = ord ? ord[k] : k
+      if (t.xs[j] > hi) break
+      if (!Number.isFinite(t.ys[j])) continue
+      const [, py] = view.toPixel(t.xs[j], t.ys[j], t.axis)
+      if (py >= r.y && py <= r.y + r.h) n++
+    }
+  }
+  return n
+}
+
+/** Место для карточки подсказки: рядом с курсором, но так, чтобы не закрывать данные.
+ *  Перебираем положения вокруг точки (справа, слева, сверху, снизу и по диагонали), затем углы области графика;
+ *  берём то, где под карточкой меньше всего отметок, при равенстве — ближе к курсору и раньше в списке.
+ *  Карточка никогда не накрывает саму точку наведения. */
+export function placeTip(tracks: Track[], view: View, anchor: [number, number], size: [number, number],
+  bounds: Box, gap = 16): [number, number] {
+  const [ax, ay] = anchor, [bw, bh] = size, pad = 4
+  const maxX = bounds.x + bounds.w - bw - pad, maxY = bounds.y + bounds.h - bh - pad
+  const clampX = (v: number) => Math.max(bounds.x + pad, Math.min(maxX, v))
+  const clampY = (v: number) => Math.max(bounds.y + pad, Math.min(maxY, v))
+  const cands: Array<[number, number]> = [
+    [ax + gap, ay - bh / 2], [ax - gap - bw, ay - bh / 2],
+    [ax - bw / 2, ay - gap - bh], [ax - bw / 2, ay + gap],
+    [ax + gap, ay - gap - bh], [ax + gap, ay + gap], [ax - gap - bw, ay - gap - bh], [ax - gap - bw, ay + gap],
+    [bounds.x + pad, bounds.y + pad], [maxX, bounds.y + pad], [bounds.x + pad, maxY], [maxX, maxY],
+  ]
+  let best: [number, number] | null = null, bestScore = Infinity
+  cands.forEach(([cx, cy], i) => {
+    const x = clampX(cx), y = clampY(cy)
+    // сдвинутая границами карточка не должна накрыть точку наведения
+    if (ax >= x - 6 && ax <= x + bw + 6 && ay >= y - 6 && ay <= y + bh + 6) return
+    const covered = coveredCount(tracks, view, { x, y, w: bw, h: bh })
+    const score = covered * 1000 + (i < 8 ? 0 : 500) + Math.hypot(x + bw / 2 - ax, y + bh / 2 - ay) / 10 + i
+    if (score < bestScore) { bestScore = score; best = [x, y] }
+  })
+  return best ?? [clampX(ax + gap), clampY(ay - bh / 2)]
+}
