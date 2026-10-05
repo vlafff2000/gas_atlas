@@ -98,7 +98,7 @@ class WellsModule(Module):
                   help=DP2_HELP),
             Param('dp2', 'Общий ΔP²', 'number', default=500.0, minimum=0.001, step=10, section=SECTION_GDI_CMP,
                   show_if={'fixed_dp2': True}),
-            Param('section', 'Раздел анализа', 'choice', default=SECTIONS[0], section=SECTION_VIEW,
+            Param('section', 'Раздел анализа', 'choice', default=SECTIONS[0], section=SECTION_VIEW, chart_kind=True,
                   options=tuple(Option(s, s) for s in SECTIONS)),
             Param('alignment', 'Начало отсчета сезонов', 'choice', default='well', section=SECTION_VIEW,
                   options=(Option('well', 'Первый замер скважины = 0'), Option('object', 'Первый день данных объекта')),

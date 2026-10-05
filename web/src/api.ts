@@ -23,6 +23,7 @@ export interface Param {
   prefix: string
   empty: string
   show_if: Record<string, unknown> | null
+  chart_kind: boolean
 }
 export interface ModuleSpec {
   id: string

@@ -229,6 +229,29 @@ function ModuleView({ spec, project, onProject }: { spec: ModuleSpec; project: P
   )
 }
 
+/** Вид графиков раздела — в верхнем тулбаре, чтобы сразу было видно, что можно построить. */
+function ChartKinds({ spec, values, onChange }: { spec: ModuleSpec; values: Params; onChange: (v: Params) => void }) {
+  const kinds = spec.params.filter(p => p.chart_kind && p.options.length > 1
+    && (!p.show_if || Object.entries(p.show_if).every(([k, v]) => values[k] === v)))
+  if (!kinds.length) return null
+  return (
+    <div className="chart-kinds">
+      {kinds.map(p => (
+        <div key={p.name} className="kind-group" role="radiogroup" aria-label={p.label}>
+          <span className="kind-label">{p.label}</span>
+          {p.options.map(o => (
+            <button key={String(o.value)} type="button" role="radio" aria-checked={o.value === values[p.name]}
+              className={'kind' + (o.value === values[p.name] ? ' on' : '')}
+              onClick={() => { if (o.value !== values[p.name]) onChange({ ...values, [p.name]: o.value }) }}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ModulePanel({ spec, project, onProject, panel, labelled }:
   { spec: ModuleSpec; project: Project; onProject: (p: Project) => void; panel: number; labelled: boolean }) {
   const storeKey = `params:${project.id}:${spec.id}` + (panel ? `:${panel}` : '')
@@ -356,6 +379,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
         {changed && <button type="button" className="quiet" onClick={reset}>Сбросить параметры</button>}
         {!spec.auto_run && <button type="button" className="primary" onClick={() => run(params)}>Рассчитать</button>}
       </div>
+
+      <ChartKinds spec={spec} values={params} onChange={changeParams} />
 
       <ParamBar key={resets} spec={spec} project={project.id} panel={panel} values={params} onChange={changeParams} />
 

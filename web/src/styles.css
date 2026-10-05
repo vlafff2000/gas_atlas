@@ -402,3 +402,14 @@ td.tone-good { color: var(--good); font-weight: 600; }
 td.tone-poor { color: var(--bad); font-weight: 600; }
 td.bar { background-image: linear-gradient(to left, var(--bar-c) var(--bar-w), transparent var(--bar-w)); background-repeat: no-repeat; background-size: calc(100% - 8px) 60%; background-position: right 4px center; }
 button.quiet.on { color: var(--accent-strong); border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------- вид графиков в верхнем тулбаре ---------- */
+.chart-kinds { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+.kind-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.kind-label { font-size: 13px; color: var(--muted); margin-right: 4px; }
+.kind {
+  font: inherit; font-size: 14px; cursor: pointer; padding: 5px 12px; border-radius: var(--radius);
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+}
+.kind:hover { border-color: var(--line-strong); }
+.kind.on { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; font-weight: 700; }
