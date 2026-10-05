@@ -426,3 +426,38 @@ def test_second_panel_saves_separately(env):
     assert panels['pressure_match']['threshold'] == 5 and panels['pressure_match_2']['threshold'] == 7
     second = client.get(f'/api/projects/{pid}/state/pressure?panel=1').json()['panel']
     assert second['threshold'] == 7
+
+
+def test_object_summary_matches_legacy_percentiles_and_exports_merged_header(env):
+    import io
+    import openpyxl
+    client, pid, projects = env
+    params = {'percentiles': ['80', '90']}
+    body = run(client, pid, **params)
+    t = table(body, 'object-summary')
+    assert t['title'] == 'Итоговая таблица по объектам'
+    d, _, cfg = legacy_view(projects, pid, params)
+    frame = frame_of(t)
+    fonds = [pressure.WHOLE_FUND] + [f for f in sorted(d.fond.unique()) if f != pressure.WHOLE_FUND]
+    assert [sum(n for _, n in row) for row in t['header']] == [len(t['columns'])] * 3
+    for _, row in frame.iterrows():
+        g = d[(d.object == row.object) & (d.scenario == row.get('scenario', d.scenario.iloc[0]))]
+        for fond in fonds:
+            part = g if fond == pressure.WHOLE_FUND else g[g.fond == fond]
+            for period, sub in (('all', part), ('recent', part[part.recent])):
+                for p in (80, 90):
+                    expected = legacy.statistics(sub, [80, 90])[f'P{p}'] if len(sub) else None
+                    got = row[f'p|{fond}|{period}|{p}']
+                    assert (got is None or got != got) if expected is None else np.isclose(got, expected), (fond, period, p)
+        assert np.isclose(row.pmax, d[d.object == row.object].fact.max())
+        assert np.isclose(row.window, row[f'p|{pressure.WHOLE_FUND}|all|80'] / row.pmax * 100)
+    r = client.post('/api/modules/pressure/export', json={'project': pid, 'params': params, 'target': 'tables',
+                                                           'id': 'object-summary', 'format': 'xlsx'})
+    assert r.status_code == 200
+    ws = openpyxl.load_workbook(io.BytesIO(r.content)).worksheets[0]
+    merged = {str(m) for m in ws.merged_cells.ranges}
+    first = next(k for k, c in enumerate(t['columns'], 1) if c['key'].startswith('p|'))
+    cell = lambda r: ws.cell(r, first).value   # noqa: E731
+    assert 'A1:A4' in merged and cell(1).startswith('Отклонение')
+    assert cell(2) == pressure.WHOLE_FUND and cell(4).startswith('P80')
+    assert ws.max_row == 4 + len(frame)

@@ -402,3 +402,7 @@ td.tone-good { color: var(--good); font-weight: 600; }
 td.tone-poor { color: var(--bad); font-weight: 600; }
 td.bar { background-image: linear-gradient(to left, var(--bar-c) var(--bar-w), transparent var(--bar-w)); background-repeat: no-repeat; background-size: calc(100% - 8px) 60%; background-position: right 4px center; }
 button.quiet.on { color: var(--accent-strong); border-color: var(--accent); background: var(--accent-soft); }
+
+/* объединённая шапка таблицы (итоговая таблица по объектам) */
+thead tr.header-group th { position: static; padding: 4px 8px; text-align: center; font-weight: 600; font-size: 12px; }
+thead tr.header-group th.group-label { border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); }
