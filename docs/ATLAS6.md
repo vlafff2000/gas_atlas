@@ -47,7 +47,7 @@ API:
 | `POST /api/projects/demo` | создать демонстрационный объект; `{"large": true, "rows": {...}}` — большой (`app/core/demo_large.py`) |
 | `GET /api/projects/{id}/options?dataset=gdi&column=well` | варианты для списков выбора |
 | `POST /api/modules/{id}/run` `{project, params}` | расчёт, ответ — `Result` в JSON |
-| `POST /api/modules/{id}/export` `{project, params, target, id, format, dpi}` | график (SVG/PDF/PNG) или таблицы (XLSX, одна таблица — CSV) |
+| `POST /api/modules/{id}/export` `{project, params, target, id, format, dpi, font, font_size}` | график (SVG/PDF/PNG) или таблицы (XLSX, одна таблица — CSV) |
 | `GET /api/projects/{id}` | сводка проекта: ревизия, наборы данных, общие настройки, число исключений |
 | `PATCH /api/projects/{id}/settings` `{values}` | общие настройки: `r2_threshold`, `season_start/end`, `auto_seasons` + `season_gap_days` + `season_rate_share` (автоопределение сезонов по накопленному расходу, `app/modules/seasons.py`; по умолчанию выключено), `manometer_wells`, `visible_pages`, `chart_style`, `working_horizons`; проекты, копии, резервные копии, выгрузки — `atlas/api_projects.py`, экспорт — `atlas/api_export.py` |
 | `POST /api/projects/{id}/exclusions` `{dataset, add, remove, reason}` | исключить / вернуть точки (журнал как в 5.8) |
@@ -167,3 +167,8 @@ CI проверяет, что `atlas/web/dist` соответствует исх
 * Многокривый график «Производительности» (больше 200 кривых) сопровождается предупреждением.
 * Открытие проекта: сезоны считаются по различным сочетаниям, идентификаторы точек без промежуточной колонки, память оценивается выборкой,
   повторяющиеся строки хранятся одним объектом. Суточный набор «Поскважинного анализа» готовится в фоне после открытия большого проекта.
+
+
+## Шрифты выгрузки
+
+Графики выгружаются со шрифтом `default` (DejaVu Sans), `times` (Times New Roman) или `arial_narrow` (Arial Narrow), размер 5–20 пт (`font`, `font_size`; страница «Экспорт» и пакеты приложений). Если в системе есть оригинал (Windows), берётся он; иначе аналог из `atlas/fonts/`: Liberation Serif и Atlas Sans Narrow (Liberation Sans, сжатый до 82 % скриптом `tools/make_narrow_font.py`; SIL OFL 1.1, текст лицензии рядом). Шрифты лежат в git и попадают в портативные сборки вместе с `atlas/`. Отчёты Word пока рисуются стандартным шрифтом.

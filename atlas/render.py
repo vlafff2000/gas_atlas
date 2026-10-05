@@ -164,10 +164,10 @@ def to_plotly(chart: Chart):
     return fig
 
 
-def chart_file(chart: Chart, fmt: str, dpi: int) -> tuple[bytes, str, str]:
+def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_size=None) -> tuple[bytes, str, str]:
     if fmt not in FORMATS:
         raise ValueError('Формат графика: svg, pdf или png')
-    return figure_bytes(to_plotly(chart), fmt, dpi), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
+    return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
 
 
 def table_frame(table: Table) -> pd.DataFrame:
