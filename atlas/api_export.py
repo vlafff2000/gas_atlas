@@ -44,7 +44,7 @@ STYLE_FIELDS = (('points', 'Экспорт: точки'), ('legend', 'Экспо
 GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'), ('db', 'db_curves'),
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
-PRESET_FIELDS = ('modules', 'formats', 'dpi', 'width', 'exclusions', 'raw', 'auto')
+PRESET_FIELDS = ('modules', 'formats', 'dpi', 'width', 'font', 'font_size', 'exclusions', 'raw', 'auto')
 PRESET_PREFIXES = ('production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_')
 
 
@@ -333,6 +333,15 @@ def captions_from(form: Mapping[str, Any], modules) -> dict[str, dict]:
     return out
 
 
+def font_from(form: Mapping[str, Any]) -> tuple[str, Any]:
+    """Шрифт и его размер (пт) из формы выгрузки; без них — стандартный шрифт и размер по умолчанию."""
+    from app.core.fonts import check
+    try:
+        return check(form.get('font'), form.get('font_size'))
+    except ValueError as e:
+        raise Failure(400, str(e)) from None
+
+
 def files_from(form: Mapping[str, Any]) -> tuple[list[str], int, int]:
     formats = list(form.get('formats', ['svg', 'pdf']))
     if any(f not in ('svg', 'pdf', 'png') for f in formats):
@@ -475,6 +484,7 @@ def routes(projects: Projects) -> list[Route]:
         m = projects.manifest(pid)
         return {'project': m['name'], 'version': VERSION_58, 'atlas': VERSION, 'revision': data.revision, 'options': options,
                 'settings': data.settings, 'formats': formats, 'dpi': dpi, 'width_mm': width,
+                **dict(zip(('font', 'font_size'), font_from(form))),
                 'created_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
 
     def result_json(result):
@@ -503,7 +513,8 @@ def routes(projects: Projects) -> list[Route]:
         if job is None:
             raise Failure(404, 'График не найден. Обновите предпросмотр.')
         _, _, width = files_from(form)
-        content = figure_bytes(job.render(), 'png', 150, width)     # макет файла при выбранной ширине, 150 DPI
+        font, font_size = font_from(form)
+        content = figure_bytes(job.render(), 'png', 150, width, font=font, font_size=font_size)   # макет файла при выбранной ширине, 150 DPI
         return Response(content, media_type='image/png')
 
     def chart(request, body):
@@ -563,6 +574,7 @@ def routes(projects: Projects) -> list[Route]:
         plan = reporting.plan(source, data.mapping, data.settings, options, raw)
         d = production.periods(source['production'], data.settings['season_start'], data.settings['season_end'])
         meta = metadata(pid, data, options, {})
+        pack_font, pack_font_size = font_from(form)
         name = projects.manifest(pid)['name']
         paths, errors, planned, done = [], [], 0, 0
         for kind, (section_default, _, label) in PACK_KINDS.items():
@@ -576,7 +588,7 @@ def routes(projects: Projects) -> list[Route]:
             for job in jobs:
                 well = job.name.split(' · ', 1)[1]
                 try:
-                    entries.append((optimized_png(figure_bytes(job.render(), 'png', dpi, image_w, image_h, compact=True)),
+                    entries.append((optimized_png(figure_bytes(job.render(), 'png', dpi, image_w, image_h, compact=True, font=pack_font, font_size=pack_font_size)),
                                     pack_label(template, section, len(entries) + 1, well, kind, years)))
                 except Exception as e:
                     errors.append({'График': job.name, 'Формат': 'pack', 'Ошибка': str(e)})
