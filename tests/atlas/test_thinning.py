@@ -196,7 +196,7 @@ def test_chart_export_uses_all_points(env, monkeypatch):
     client, pid, _ = env
     seen = {}
 
-    def fake(chart, fmt, dpi):
+    def fake(chart, fmt, dpi, *font):
         seen['sizes'] = [len(s.x) for s in chart.series]
         return b'x', 'g.' + fmt, 'image/png'
     monkeypatch.setattr('atlas.render.chart_file', fake)
@@ -289,7 +289,7 @@ def test_production_export_and_window_use_full_curves(tmp_path):
 
     import atlas.render as render
     original = render.chart_file
-    render.chart_file = lambda c, fmt, dpi: (seen.setdefault('chart', c), (b'x', 'g.png', 'image/png'))[1]
+    render.chart_file = lambda c, fmt, dpi, *font: (seen.setdefault('chart', c), (b'x', 'g.png', 'image/png'))[1]
     try:
         r = client.post('/api/modules/production/export', json={'project': pid, 'params': params, 'target': 'chart',
                                                                  'id': chart['id'], 'format': 'png'})
