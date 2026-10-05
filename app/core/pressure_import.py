@@ -4,6 +4,7 @@ Moved verbatim from app/ui/pressure_quick_import.py (which re-exports the names)
 """
 import re
 from pathlib import Path
+import numpy as np
 import pandas as pd
 from app.core import tabular,profiles
 from app.modules import pressure_match as pm
@@ -128,15 +129,33 @@ def build_rows(files,cache,choices,project_name):
             use=bool(c.get('use',usable and guesses[s][0]!=SKIP))
             obj=c.get('object') or guess_object(name,multi,project_name)
             scenario=c.get('scenario') or guess_scenario(name,s,multi,obj)
-            rows.append({'Исп.':use,'Файл':name,'Лист':s,'Роль':role,'Объект':obj,'Сценарий':scenario if role==MODEL else '','Значений':valid,'Скважин':wells,'Период':period,'Структура':layout,'Статус':status,'_sha':sha})
+            rows.append({'Исп.':use,'Файл':name,'Лист':s,'Роль':role,'Объект':obj,'Сценарий':scenario if role==MODEL else '','Общая':role==FACT and bool(c.get('shared')),'Значений':valid,'Скважин':wells,'Период':period,'Структура':layout,'Статус':status,'_sha':sha})
     return rows
 
-def assemble(rows,cache,duplicate):
-    """Pair fact and model rows per object. Returns (data,notes,errors,warnings,summary)."""
-    notes=[];errors=[];warnings=[];parts=[];groups={}
+def stored_fact(existing,obj):
+    """History of one object already in the project, in the shape of a normalized fact table (None when there is none)."""
+    if existing is None or existing.empty:return None
+    d=existing[(existing.object==obj)&existing.fact.notna()]
+    if d.empty:return None
+    d=d.drop_duplicates(['well','date']);row=d['_row'] if '_row' in d else pd.Series(np.arange(len(d))+2,index=d.index)
+    return pd.DataFrame({'date':d.date.values,'well':d.well.values,'value':d.fact.values,'_row':row.values})
+
+def assemble(rows,cache,duplicate,existing=None):
+    """Pair fact and model rows per object. Returns (data,notes,errors,warnings,summary).
+
+    A fact row flagged ``Общая`` is the one history for every object of the batch that has no fact of its own;
+    an object with models but no fact at all takes the history already stored in the project (``existing``)."""
+    notes=[];errors=[];warnings=[];parts=[];groups={};shared=[]
     for r in rows:
-        if r['Исп.'] and r['Роль']!=SKIP:groups.setdefault(r['Объект'].strip() or 'Объект',[]).append(r)
-    if not groups:raise ValueError('Не выбран ни один лист.')
+        if not r['Исп.'] or r['Роль']==SKIP:continue
+        if r['Роль']==FACT and r.get('Общая'):shared.append(r);continue
+        groups.setdefault(r['Объект'].strip() or 'Объект',[]).append(r)
+    if not groups and not shared:raise ValueError('Не выбран ни один лист.')
+    shared_facts=[]
+    for r in shared:
+        record=cache[r['_sha']]['sheets'][r['Лист']]
+        if record['norm'] is None:errors.append(r['Файл']+' / '+r['Лист']+': '+str(record['error']))
+        else:shared_facts.append(record['norm'])
     for obj,items in groups.items():
         facts=[];models=[];fonds={}
         for r in items:
@@ -147,8 +166,12 @@ def assemble(rows,cache,duplicate):
             if record['norm'] is None:errors.append(r['Файл']+' / '+r['Лист']+': '+str(record['error']));continue
             if r['Роль']==FACT:facts.append(record['norm'])
             else:models.append((r,record['norm']))
-        if not facts:errors.append('Объект «'+obj+'»: не выбран лист или файл с фактом.');continue
         if not models:warnings.append('Объект «'+obj+'»: нет моделей, объект пропущен.');continue
+        if not facts and shared_facts:facts=shared_facts
+        if not facts:
+            kept=stored_fact(existing,obj)
+            if kept is not None:facts=[kept];warnings.append('Объект «'+obj+'»: история взята из проекта — сохраняйте способом «Добавить сценарии», чтобы не потерять прежние сценарии.')
+        if not facts:errors.append('Объект «'+obj+'»: не выбран лист или файл с фактом (или отметьте факт как общую историю).');continue
         fact=pd.concat(facts,ignore_index=True) if len(facts)>1 else facts[0]
         seen={}
         for r,model in models:
