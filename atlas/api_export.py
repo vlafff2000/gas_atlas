@@ -26,12 +26,12 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from app.core import reporting
-from app.core.bulk_export import bundle_exports, export_plan, export_word, migrate_preset
+from app.core.bulk_export import bundle_exports, export_plan, migrate_preset
 from app.core.config import MODULES, VERSION as VERSION_58, ordered
 from app.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
 from app.core.export import figure_bytes
 
-from . import VERSION
+from . import VERSION, word_export
 from .contract import Data, ParamError
 from .projects import Conflict, Projects
 
@@ -45,7 +45,7 @@ GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
 PRESET_FIELDS = ('modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
-PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_')
+PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_')
 
 
 # Пакет графиков по фонду («Приложение»): режим → (раздел, слово в подписи).
@@ -484,7 +484,7 @@ def routes(projects: Projects) -> list[Route]:
 
     def prepared(pid: str, form: dict):
         data = projects.data(pid)
-        key = (pid, data.revision, json.dumps({k: v for k, v in form.items() if k not in ('width', 'height')}, sort_keys=True, ensure_ascii=False, default=str))
+        key = (pid, data.revision, json.dumps({k: v for k, v in form.items() if k not in ('width', 'height') and not k.startswith('word_')}, sort_keys=True, ensure_ascii=False, default=str))
 
         def build():
             options, source, raw = options_from(form, data)
@@ -555,17 +555,111 @@ def routes(projects: Projects) -> list[Route]:
         projects.store.event(pid, 'Экспорт', meta)
         return result_json(result)
 
+    def word_groups(plan, layout):
+        """Графики по модулям (один документ на модуль) или все вместе, если выбран один документ."""
+        from app.core.config import MODULES
+        if layout.merge:
+            return [('all', 'Графики', list(plan.jobs))]
+        groups: dict = {}
+        for job in plan.jobs:
+            groups.setdefault(getattr(job, 'module', '') or 'results', []).append(job)
+        return [(m, MODULES.get(m, 'Результаты'), jobs) for m, jobs in groups.items()]
+
+    def word_caption(figure, captions, counters, template_default=None):
+        """(текст до номера, номер, текст после): номер вставляется полем Word, поэтому он выделен меткой."""
+        from app.core.documents import caption_for
+        module = (figure.layout.meta or {}).get('module', 'gdi')
+        cfg = {**captions.get(module, {})}
+        if cfg.get('template'):
+            cfg['template'] = cfg['template'].replace('{номер}', word_export.NUMBER_MARK)
+        number = counters.get(module, int(cfg.get('start', 1)))
+        text = caption_for(figure, '', {module: cfg}, counters)
+        before, mark, after = word_export.caption_split(text)
+        return before, (None if mark is None else number), after
+
+    def word_items(jobs, layout, captions, font, font_size, dpi=None, only=None, progress=None):
+        """Готовые к вёрстке графики. ``only`` (предпросмотр) — какие строить по-настоящему; остальные берут размеры у первого."""
+        from dataclasses import replace
+        lay = replace(layout, dpi=dpi) if dpi else layout
+        counters, items, errors, shape = {}, [], [], None
+        cell = lay.cell()
+        for k, job in enumerate(jobs):
+            real = only is None or k in only or shape is None
+            try:
+                figure = job.render()
+                before, number, after = word_caption(figure, captions, counters)
+                item = word_export.Item(job.name, before, number, after, module=getattr(job, 'module', ''))
+                cap_h = word_export.caption_height(lay, item.text, cell)
+                if real:
+                    item.png, item.w, item.h = word_export.render_png(figure, lay, cap_h, font, font_size)
+                    shape = shape or (item.h / item.w, cap_h)
+                else:
+                    item.w, item.h = word_export.fit(lay, shape[0], cap_h)
+                items.append(item)
+            except Exception as e:
+                if only is not None:
+                    raise
+                errors.append({'График': job.name, 'Формат': 'docx', 'Ошибка': str(e)})
+            if progress:
+                progress(k + 1)
+        return items, errors
+
     def word(request, body):
+        from app.core.export import safe_name
         pid, form = request.path_params['pid'], form_of(body)
         options, plan, data = need_plan(pid, form)
         if not plan.jobs:
             raise Failure(400, 'Нет графиков для Word-отчета')
+        layout = word_export.layout_from(form)
         captions = captions_from(form, options['modules'])
         for template in (c['template'] for c in captions.values()):
             _check_caption(template)
-        meta = metadata(pid, data, options, form)
-        result = export_word(plan, projects.store, pid, projects.manifest(pid)['name'], captions, {**meta, 'captions': captions})
-        return result_json(result)
+        font, font_size = font_from(form)
+        meta = {**metadata(pid, data, options, form), 'captions': captions, 'word': {k: v for k, v in form.items() if k.startswith('word_')}}
+        name = projects.manifest(pid)['name']
+        paths, errors, done = [], [], 0
+        exports = projects.store.path(pid) / 'exports'
+        exports.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='pending_word_', dir=str(exports)) as tmp:
+            for module, label, jobs in word_groups(plan, layout):
+                items, local = word_items(jobs, layout, captions, font, font_size)
+                errors.extend(local)
+                if not items:
+                    continue
+                target = Path(tmp) / 'document.docx'
+                word_export.build_docx(items, layout, name + ' · ' + label, local, target=target)
+                done += len(items)
+                paths.append(projects.store.save_export_file(pid, safe_name(label) + '.docx', target, {**meta, 'module': module, 'errors': local}))
+        if not paths:
+            raise Failure(400, 'Word не создан: ни один график не построился. ' + (errors[0]['Ошибка'] if errors else ''))
+        return {'files': [p.name for p in map(_path, paths)], 'planned': len(plan.jobs), 'completed': done, 'chart_files': len(paths), 'errors': errors}
+
+    def word_preview(request, body):
+        """Лист будущего документа картинкой: тот же расчёт, что у ``word``; строятся только графики показанного листа."""
+        import base64
+        pid, form = request.path_params['pid'], form_of(body)
+        options, plan, data = need_plan(pid, form)
+        if not plan.jobs:
+            raise Failure(400, 'Нет графиков для предпросмотра')
+        layout = word_export.layout_from(form)
+        captions = captions_from(form, options['modules'])
+        for template in (c['template'] for c in captions.values()):
+            _check_caption(template)
+        font, font_size = font_from(form)
+        groups = word_groups(plan, layout)
+        doc = min(max(int(body.get('doc') or 0), 0), len(groups) - 1)
+        module, label, jobs = groups[doc]
+        # размеры по первому графику, затем уточняются для графиков показанного листа
+        items, _ = word_items(jobs, layout, captions, font, font_size, dpi=150, only=set())
+        page = max(1, int(body.get('page') or 1))
+        rows = word_export.paginate(layout, items)
+        shown = [i for row in rows[min(page, len(rows)) - 1] for i in row]
+        items, _ = word_items(jobs, layout, captions, font, font_size, dpi=150, only=set(shown))
+        image, pages = word_export.preview_png(layout, items, page, {i: items[i].png for i in shown if items[i].png})
+        pw, ph = layout.page()
+        return {'documents': [{'id': m, 'label': lb, 'charts': len(js)} for m, lb, js in groups], 'doc': doc, 'page': min(page, pages), 'pages': pages,
+                'exact': bool(layout.per_page), 'page_mm': [pw, ph], 'image_mm': [round(items[shown[0]].w), round(items[shown[0]].h)] if shown else [0, 0],
+                'png': 'data:image/png;base64,' + base64.b64encode(image).decode('ascii')}
 
     def pack(request, body):
         """Один щелчок: Word и PDF «6 графиков на листе A4» отдельно для отбора и закачки по всем скважинам фонда."""
@@ -721,6 +815,7 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/chart', E(chart), methods=['POST']),
         Route(base + '/archive', E(archive), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
+        Route(base + '/word-preview', E(word_preview), methods=['POST']),
         Route(base + '/pack', E(pack), methods=['POST']),
         Route(base + '/ggh', E(ggh), methods=['POST']),
         Route(base + '/bundle', E(bundle), methods=['POST']),

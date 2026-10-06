@@ -114,7 +114,8 @@ def test_word_preview_bundle(env):
     word = client.post(f'/api/projects/{pid}/export/word', json={'form': form}).json()
     assert word['completed'] == 2 and word['files'][0].endswith('ГДИ.docx')
     with zipfile.ZipFile(store.path(pid) / 'exports' / word['files'][0]) as z:
-        assert 'Рис. 1 — 31' in z.read('word/document.xml').decode('utf8')
+        xml = z.read('word/document.xml').decode('utf8')
+        assert 'SEQ Рисунок' in xml and 'w:bookmarkStart' in xml and '<w:t xml:space="preserve"> — 31</w:t>' in xml
     bad = client.post(f'/api/projects/{pid}/export/word', json={'form': {**form, 'caption_template_gdi': '{нет}'}})
     assert bad.status_code == 400 and 'Неизвестное поле подписи' in bad.json()['error']
     bundle = client.post(f'/api/projects/{pid}/export/bundle', json={'files': word['files']}).json()
@@ -302,3 +303,29 @@ def test_chart_height_in_preview_and_archive(env):
     import re
     w, h = re.search(r'width="([\d.]+)pt" height="([\d.]+)pt"', svg).groups()
     assert abs(float(h) / float(w) - 100 / 200) < 0.01
+
+
+def test_word_layout_landscape_fill_and_preview(env):
+    """Макет Word: альбомный лист, график на всю ширину поля (не сжат), настоящие подписи, список рисунков, предпросмотр листа."""
+    client, pid, _, store = env
+    form = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31', '45'], 'word_orientation': 'landscape', 'word_columns': 1,
+            'word_list_of_figures': True, 'word_page_numbers': True, 'word_per_page': 1}
+    word = client.post(f'/api/projects/{pid}/export/word', json={'form': form}).json()
+    assert word['completed'] == 2 and not word['errors']
+    with zipfile.ZipFile(store.path(pid) / 'exports' / word['files'][0]) as z:
+        xml = z.read('word/document.xml').decode('utf8')
+        assert 'w:orient="landscape"' in xml and 'w:w="16838" w:h="11906"' in xml
+        assert 'TOC \\h \\z \\c' in xml and 'w:hyperlink w:anchor="_Ref' in xml and 'PAGE' in z.read('word/footer1.xml').decode('utf8')
+        assert xml.count('<w:pageBreakBefore/>') == 2          # после списка рисунков и перед вторым графиком
+        import re
+        cx = int(re.search(r'<wp:extent cx="(\d+)"', xml).group(1))
+        assert abs(cx / 36000 - (297 - 25 - 15)) < 1          # ширина поля листа, мм
+    preview = client.post(f'/api/projects/{pid}/export/word-preview', json={'form': form, 'page': 2}).json()
+    assert preview['pages'] == 2 and preview['exact'] and preview['png'].startswith('data:image/png;base64,')
+    assert preview['page_mm'] == [297.0, 210.0]
+    bad = client.post(f'/api/projects/{pid}/export/word', json={'form': {**form, 'word_columns': 7}})
+    assert bad.status_code == 400 and 'Колонок' in bad.json()['error']
+    one = client.post(f'/api/projects/{pid}/export/word', json={'form': {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31'], 'word_columns': 2, 'word_caption_mode': 'text'}}).json()
+    with zipfile.ZipFile(store.path(pid) / 'exports' / one['files'][0]) as z:
+        xml = z.read('word/document.xml').decode('utf8')
+        assert '<w:tbl>' in xml and 'SEQ' not in xml and 'w:bookmarkStart' in xml

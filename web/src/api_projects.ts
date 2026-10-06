@@ -100,6 +100,11 @@ export const projectsApi = {
   logUrl: '/api/log',
 }
 
+export interface WordPreview {
+  documents: { id: string; label: string; charts: number }[]; doc: number; page: number; pages: number; exact: boolean
+  page_mm: [number, number]; image_mm: [number, number]; png: string
+}
+
 export const exportApi = {
   choices: (pid: string, exclusions: boolean) => request<ExportChoices>(`${P(pid)}/export/form?exclusions=${exclusions ? 1 : 0}`),
   plan: (pid: string, form: Form) => request<ExportPlan>(`${P(pid)}/export/plan`, json('POST', { form })),
@@ -108,6 +113,8 @@ export const exportApi = {
   chart: (pid: string, form: Form, chart: string) => request<Chart>(`${P(pid)}/export/chart`, json('POST', { form, chart })),
   archive: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/archive`, json('POST', { form })),
   word: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/word`, json('POST', { form })),
+  wordPreview: (pid: string, form: Form, doc: number, page: number) =>
+    request<WordPreview>(`${P(pid)}/export/word-preview`, json('POST', { form, doc, page })),
   pack: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/pack`, json('POST', { form })),
   ggh: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/ggh`, json('POST', { form })),
   bundle: (pid: string, files: string[]) => request<{ file: string }>(`${P(pid)}/export/bundle`, json('POST', { files })),

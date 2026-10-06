@@ -48,3 +48,8 @@ details.table-block > summary.block-head { cursor: pointer; list-style: none; }
 .resize-size { position: absolute; right: 6px; bottom: 6px; padding: 1px 6px; font-size: 11px; border-radius: 3px; background: rgba(0, 0, 0, .65); color: #fff; opacity: 0; transition: opacity .15s; pointer-events: none; }
 .resize-frame:hover .resize-size, .resize-frame.dragging .resize-size { opacity: 1; }
 .resize-frame.dragging .export-preview { opacity: .8; }
+
+.word-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 420px); gap: 16px; align-items: start; padding: 0 12px 12px; }
+.word-shot { position: sticky; top: 8px; }
+.word-sheet { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); box-shadow: 0 2px 10px rgba(0, 0, 0, .12); background: #fff; }
+@media (max-width: 1100px) { .word-layout { grid-template-columns: 1fr; } .word-shot { position: static; } }

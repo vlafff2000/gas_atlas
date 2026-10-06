@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { MultiSelect } from './MultiSelect'
 import { ChartView } from './ChartView'
 import { api, type Chart } from './api'
-import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form } from './api_projects'
+import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type WordPreview } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
 import { ResizableFrame, HEIGHT_MM, WIDTH_MM } from './ResizableFrame'
 
@@ -60,7 +60,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const modules = (form.modules as string[] | undefined) ?? choices?.default_modules ?? []
   const key = JSON.stringify([project.revision, form])
   // Перечень графиков от размера не зависит: растягивание в предпросмотре не должно его сбрасывать.
-  const planned = useMemo(() => { const { width: _w, height: _h, ...rest } = form; return JSON.stringify([project.revision, rest]) }, [form, project.revision])
+  const planned = useMemo(() => { const { width: _w, height: _h, ...rest0 } = form; const rest = Object.fromEntries(Object.entries(rest0).filter(([k]) => !k.startsWith('word_'))); return JSON.stringify([project.revision, rest]) }, [form, project.revision])
   const ready = modules.length > 0
 
   const prepare = async () => {
@@ -383,9 +383,11 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           onEnable={on => set('modules', choices.modules.map(m => m.id).filter(m => m === current ? on : modules.includes(m)))} />
       </div>
 
+      <WordLayout {...F} projectId={project.id} ready={ready} revision={project.revision} />
+
       <details className="table-block">
         <summary className="block-head"><h3>Word: подписи под графиками</h3></summary>
-        <p className="muted pad">Таблица в две колонки. Доступные поля: {'{раздел}, {номер}, {скважина}, {горизонт}, {период}, {модуль}'}.
+        <p className="muted pad">Подпись — настоящая подпись Word (поле «Рисунок»): на неё можно сослаться, она попадает в список рисунков. Доступные поля: {'{раздел}, {номер}, {скважина}, {горизонт}, {период}, {модуль}'}.
           Нумерация идет отдельно внутри каждого модуля.</p>
         <div className="param-bar flat">
           {modules.map(m => {
@@ -795,5 +797,109 @@ function ChartsPick(F: FieldProps) {
   return (
     <MultiSelect label="Анализ: графики" options={ids.map(c => c.label)} value={ids.filter(c => chosen.includes(c.id)).map(c => c.label)}
       emptyMeaning="ничего" onChange={v => F.set('dashboard_charts', v.map(l => labels[l]))} />
+  )
+}
+
+const PAPER: Opt[] = [['A4', 'A4'], ['A3', 'A3'], ['A5', 'A5'], ['Letter', 'Letter']]
+const FONT_LIST: Opt[] = ['Times New Roman', 'Arial', 'Calibri', 'Cambria', 'Verdana', 'Tahoma', 'Georgia'].map(f => [f, f] as Opt)
+
+/** «Макет Word»: лист, поля, колонки, размер графиков, подпись и предпросмотр страниц будущего документа. */
+function WordLayout({ form, set, choices, projectId, ready, revision }: FieldProps & { projectId: string; ready: boolean; revision: number }) {
+  const F = { form, set, choices }
+  const [open, setOpen] = useState(false)
+  const [doc, setDoc] = useState(0)
+  const [page, setPage] = useState(1)
+  const [shot, setShot] = useState<WordPreview | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size'), doc, page])
+  useEffect(() => {
+    if (!open || !ready) return
+    let alive = true
+    const timer = setTimeout(() => {
+      setBusy(true)
+      exportApi.wordPreview(projectId, form, doc, page).then(r => { if (alive) { setShot(r); setError(null); if (r.page !== page) setPage(r.page) } })
+        .catch(e => alive && setError((e as Error).message)).finally(() => alive && setBusy(false))
+    }, 450)
+    return () => { alive = false; clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ready, wordKey, projectId])
+  const per = (form.word_per_page as number | undefined) ?? 0
+  const fill = ((form.word_width_mode as string | undefined) ?? 'fill') === 'fill'
+  return (
+    <details className="table-block" onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="block-head"><h3>Word: макет листа и предпросмотр</h3></summary>
+      <p className="muted pad">График строится сразу под размер места на листе, поэтому не сужается и текст на нём остаётся читаемым.
+        Предпросмотр рисует лист так, как его уложит Word.</p>
+      <div className="word-layout">
+        <div className="param-bar flat">
+          <Section title="Лист">
+            <Select {...F} field="word_orientation" label="Ориентация" def="portrait" options={[['portrait', 'Книжная'], ['landscape', 'Альбомная']]} />
+            <Select {...F} field="word_paper" label="Формат" def="A4" options={PAPER} />
+            <Num {...F} field="word_margin_top" label="Поле сверху, мм" def={20} min={0} max={80} />
+            <Num {...F} field="word_margin_bottom" label="Поле снизу, мм" def={20} min={0} max={80} />
+            <Num {...F} field="word_margin_left" label="Поле слева, мм" def={25} min={0} max={80} />
+            <Num {...F} field="word_margin_right" label="Поле справа, мм" def={15} min={0} max={80} />
+            <Check {...F} field="word_page_numbers" label="Номера страниц" def={false} />
+          </Section>
+          <Section title="Графики на листе">
+            <Num {...F} field="word_columns" label="Колонок" def={1} min={1} max={3} />
+            <Num {...F} field="word_per_page" label="Графиков на листе (0 — сколько влезет)" def={0} min={0} max={24} />
+            <Select {...F} field="word_width_mode" label="Ширина графика" def="fill" options={[['fill', 'На всю ширину колонки'], ['mm', 'Задать в мм']]} />
+            {!fill && <Num {...F} field="word_width_mm" label="Ширина, мм" def={160} min={40} max={400} />}
+            <Num {...F} field="word_height_mm" label="Высота, мм (0 — по пропорциям)" def={0} min={0} max={400} />
+            <Num {...F} field="word_gap" label="Промежуток между колонками, мм" def={4} min={0} max={30} />
+            <Num {...F} field="word_row_gap" label="Отступ между рядами, мм" def={6} min={0} max={60} />
+            <Select {...F} field="word_borders" label="Линии между графиками" def="none" options={[['none', 'Нет'], ['thin', 'Тонкая сетка']]} />
+            <Check {...F} field="word_frame" label="Рамка вокруг графика" def={false} />
+            <Select {...F} field="word_dpi" label="Качество (DPI)" def={300} options={[[150, '150'], [200, '200'], [250, '250'], [300, '300'], [600, '600 (тяжелее)']]} />
+            <Check {...F} field="word_compress" label="Сжать картинки (легче файл)" def={false} />
+          </Section>
+          <Section title="Подпись">
+            <Select {...F} field="word_caption_mode" label="Вид подписи" def="field" options={[['field', 'Подпись Word (поле «Рисунок», ссылки)'], ['text', 'Обычный текст']]} />
+            <Select {...F} field="word_caption_pos" label="Положение" def="below" options={[['below', 'Под графиком'], ['above', 'Над графиком']]} />
+            <Select {...F} field="word_caption_font" label="Шрифт" def="Times New Roman" options={FONT_LIST} />
+            <Num {...F} field="word_caption_size" label="Размер, пт" def={12} min={6} max={28} />
+            <Select {...F} field="word_caption_align" label="Выравнивание" def="center" options={[['center', 'По центру'], ['left', 'Влево'], ['right', 'Вправо'], ['justify', 'По ширине']]} />
+            <Num {...F} field="word_caption_gap" label="Отступ от графика, мм" def={2} min={0} max={30} />
+            <Check {...F} field="word_caption_bold" label="Жирная" def={false} />
+            <Check {...F} field="word_caption_italic" label="Курсив" def={false} />
+          </Section>
+          <Section title="Документ">
+            <Check {...F} field="word_merge" label="Все модули в одном документе" def={false} />
+            <Check {...F} field="word_title" label="Заголовок в начале" def={false} />
+            {Boolean(form.word_title) && <Text {...F} field="word_title_text" label="Текст заголовка" def="" wide />}
+            <Check {...F} field="word_list_of_figures" label="Список рисунков с гиперссылками" def={false} />
+          </Section>
+        </div>
+        <div className="word-shot">
+          {!ready ? <p className="muted">Включите хотя бы один модуль.</p> : (
+            <>
+              <div className="toolbar">
+                {shot && shot.documents.length > 1 && (
+                  <label className="field"><span className="field-label">Документ</span>
+                    <select value={doc} onChange={e => { setDoc(Number(e.target.value)); setPage(1) }}>
+                      {shot.documents.map((d, i) => <option key={d.id} value={i}>{d.label} ({d.charts})</option>)}
+                    </select>
+                  </label>
+                )}
+                <button type="button" className="quiet" disabled={!shot || page <= 1} onClick={() => setPage(p => p - 1)}>← Лист</button>
+                <span>{shot ? `Лист ${shot.page} из ${shot.exact ? '' : '≈'}${shot.pages}` : '…'}</span>
+                <button type="button" className="quiet" disabled={!shot || page >= shot.pages} onClick={() => setPage(p => p + 1)}>Лист →</button>
+                {busy && <span className="pulse">Строим лист…</span>}
+              </div>
+              {error && <div className="note warning" role="alert">{error}</div>}
+              {shot && (
+                <>
+                  <img className="word-sheet" src={shot.png} alt={`Предпросмотр листа ${shot.page}`} />
+                  <p className="muted">Лист {Math.round(shot.page_mm[0])}×{Math.round(shot.page_mm[1])} мм; график {shot.image_mm[0]}×{shot.image_mm[1]} мм
+                    {per ? `; ${per} на листе` : '; число листов приблизительное — точное решит Word'}.</p>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </details>
   )
 }
