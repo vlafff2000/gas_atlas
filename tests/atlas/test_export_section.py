@@ -337,9 +337,10 @@ def test_custom_labels_per_chart_type(env):
     base = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31']}
     plan = client.post(f'/api/projects/{pid}/export/plan', json={'form': base}).json()
     name = plan['charts'][0]['name']
-    chart = lambda form: client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': name}).json()
-    before = chart(base)
     texts = lambda c: [s['name'] for s in c['series'] if s.get('name')]
+    chart = lambda form: client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': name}).json()
+    before = chart({**base, 'label_gdi_template': ''})       # пусто — полная запись легенды
+    assert not any('Установившиеся' in t for t in texts(chart(base)))       # по умолчанию — только дата
     assert any('Установившиеся отборы' in t for t in texts(before))
     form = {**base, 'label_gdi_template': '{дата}', 'label_gdi_x': 'Дебит Q, тыс. м³/сут', 'label_gdi_y': 'ΔP², (кгс/см²)²',
             'label_gdi_title': 'ГДИ, скв. {скважина}', 'label_gdi_legend': 'Исключенные точки=Отброшено'}

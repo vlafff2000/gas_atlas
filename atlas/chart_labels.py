@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 FIELDS = ('title', 'x', 'y', 'y2', 'legend', 'template')
 GDI_FIELDS = ('дата', 'метод', 'исследование')
+GDI_DEFAULT = '{дата}'
+GDI_FULL = '{дата} · {метод} · {исследование}'
 CURVE_SUFFIXES = (' · расчет', ' · БД')
 DATE = re.compile(r'^\d{2}\.\d{2}\.\d{4}$')
 
@@ -54,6 +56,9 @@ def configs(form: Mapping[str, Any], modules=None) -> Dict[str, Dict[str, str]]:
         if len(value) > (2000 if field == 'legend' else 300):
             raise LabelError('Подпись «%s» слишком длинная' % field)
         found.setdefault(module, {})[field] = value.strip() if field != 'legend' else value
+    # ГДИ: по умолчанию в легенде только дата; пустое поле «Запись легенды» возвращает полную запись
+    if 'template' not in found.get('gdi', {}):
+        found.setdefault('gdi', {})['template'] = GDI_FULL if 'label_gdi_template' in form else GDI_DEFAULT
     for cfg in found.values():
         if 'template' in cfg:
             check(cfg['template'])

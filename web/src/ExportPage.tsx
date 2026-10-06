@@ -925,7 +925,7 @@ function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: st
               <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def="" />
               <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def="" />
               <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def="" />
-              {m === 'gdi' && <Text {...{ form, set, choices }} field={f('template')} label="Запись легенды: {дата}, {метод}, {исследование}" def="" wide />}
+              {m === 'gdi' && <Text {...{ form, set, choices }} field={f('template')} label="Запись легенды: {дата}, {метод}, {исследование} (пусто — полная)" def="{дата}" wide />}
               <label className="field wide">
                 <span className="field-label">Замены в легенде (по строке «что=на что»)</span>
                 <textarea rows={3} value={(form[f('legend')] as string | undefined) ?? ''} maxLength={2000}
