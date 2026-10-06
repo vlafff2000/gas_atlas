@@ -127,3 +127,13 @@ def test_pending_report_json_for_broken_frames():
     assert [c['label'] for c in report['table']['columns']][:4] == ['Набор', 'Скважина', 'Дата', 'Проверка']
     assert pending['quality'] is not None                       # посчитано один раз: скачивание таблицы берёт то же
     assert Imports._quality_json({'frames': well_demo_frames()})['table'] is None
+
+
+def test_lazy_values_match_full_column_format():
+    """Подписи считаются только для найденных строк (ускорение), но совпадают с форматом по всей колонке."""
+    found = quality.scan(broken())
+    p = broken()['production'].reset_index(drop=True)
+    neg = found[found.check.eq('Отрицательный расход')]
+    assert list(neg.value) == list(quality._fmt(p.q[p.q.lt(0)]))
+    assert neg.value.iloc[0] == '-5,0'
+    assert found[found.check.eq('Скачок дебита')].value.str.startswith('в ').all()
