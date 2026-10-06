@@ -44,7 +44,7 @@ STYLE_FIELDS = (('points', 'Экспорт: точки'), ('legend', 'Экспо
 GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'), ('db', 'db_curves'),
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
-PRESET_FIELDS = ('modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
+PRESET_FIELDS = ('look', 'modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
 PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_')
 
 
@@ -363,6 +363,14 @@ def files_from(form: Mapping[str, Any]) -> tuple[list[str], int, int]:
     return formats, dpi, width
 
 
+def look_from(form: Mapping[str, Any]) -> str:
+    """Вид графиков: ``excel`` — как диаграммы Excel (``figure_bytes(look='excel')``), иначе обычный."""
+    look = form.get('look') or 'default'
+    if look not in ('default', 'excel'):
+        raise Failure(400, 'Вид графиков: обычный или как в Excel')
+    return look
+
+
 def height_from(form: Mapping[str, Any]) -> Optional[int]:
     """Высота графика, мм. Не задана (или 0) — подбирается по ширине и легенде, как в 5.8."""
     raw = form.get('height')
@@ -484,7 +492,7 @@ def routes(projects: Projects) -> list[Route]:
 
     def prepared(pid: str, form: dict):
         data = projects.data(pid)
-        key = (pid, data.revision, json.dumps({k: v for k, v in form.items() if k not in ('width', 'height') and not k.startswith(('word_', 'label_'))}, sort_keys=True, ensure_ascii=False, default=str))
+        key = (pid, data.revision, json.dumps({k: v for k, v in form.items() if k not in ('width', 'height') and k != 'look' and not k.startswith(('word_', 'label_'))}, sort_keys=True, ensure_ascii=False, default=str))
 
         def build():
             options, source, raw = options_from(form, data)
@@ -504,7 +512,7 @@ def routes(projects: Projects) -> list[Route]:
         m = projects.manifest(pid)
         return {'project': m['name'], 'version': VERSION_58, 'atlas': VERSION, 'revision': data.revision, 'options': options,
                 'settings': data.settings, 'labels': {k: v for k, v in form.items() if k.startswith('label_')}, 'formats': formats, 'dpi': dpi, 'width_mm': width, 'height_mm': height_from(form),
-                **dict(zip(('font', 'font_size'), font_from(form))),
+                **dict(zip(('font', 'font_size'), font_from(form))), 'look': look_from(form),
                 'created_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
 
     def result_json(result):
@@ -534,7 +542,7 @@ def routes(projects: Projects) -> list[Route]:
             raise Failure(404, 'График не найден. Обновите предпросмотр.')
         _, _, width = files_from(form)
         font, font_size = font_from(form)
-        content = figure_bytes(job.render(), 'png', 150, width, height_from(form), font=font, font_size=font_size)   # макет файла при выбранной ширине, 150 DPI
+        content = figure_bytes(job.render(), 'png', 150, width, height_from(form), font=font, font_size=font_size, look=look_from(form))   # макет файла при выбранной ширине, 150 DPI
         return Response(content, media_type='image/png')
 
     def chart(request, body):
@@ -577,7 +585,7 @@ def routes(projects: Projects) -> list[Route]:
         before, mark, after = word_export.caption_split(text)
         return before, (None if mark is None else number), after
 
-    def word_items(jobs, layout, captions, font, font_size, dpi=None, only=None, progress=None):
+    def word_items(jobs, layout, captions, font, font_size, dpi=None, look='default', only=None, progress=None):
         """Готовые к вёрстке графики. ``only`` (предпросмотр) — какие строить по-настоящему; остальные берут размеры у первого."""
         from dataclasses import replace
         lay = replace(layout, dpi=dpi) if dpi else layout
@@ -591,7 +599,7 @@ def routes(projects: Projects) -> list[Route]:
                 item = word_export.Item(job.name, before, number, after, module=getattr(job, 'module', ''))
                 cap_h = word_export.caption_height(lay, item.text, cell)
                 if real:
-                    item.png, item.w, item.h = word_export.render_png(figure, lay, cap_h, font, font_size)
+                    item.png, item.w, item.h = word_export.render_png(figure, lay, cap_h, font, font_size, look)
                     shape = shape or (item.h / item.w, cap_h)
                 else:
                     item.w, item.h = word_export.fit(lay, shape[0], cap_h)
@@ -622,7 +630,7 @@ def routes(projects: Projects) -> list[Route]:
         exports.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='pending_word_', dir=str(exports)) as tmp:
             for module, label, jobs in word_groups(plan, layout):
-                items, local = word_items(jobs, layout, captions, font, font_size)
+                items, local = word_items(jobs, layout, captions, font, font_size, look=look_from(form))
                 errors.extend(local)
                 if not items:
                     continue
@@ -650,11 +658,11 @@ def routes(projects: Projects) -> list[Route]:
         doc = min(max(int(body.get('doc') or 0), 0), len(groups) - 1)
         module, label, jobs = groups[doc]
         # размеры по первому графику, затем уточняются для графиков показанного листа
-        items, _ = word_items(jobs, layout, captions, font, font_size, dpi=150, only=set())
+        items, _ = word_items(jobs, layout, captions, font, font_size, dpi=150, look=look_from(form), only=set())
         page = max(1, int(body.get('page') or 1))
         rows = word_export.paginate(layout, items)
         shown = [i for row in rows[min(page, len(rows)) - 1] for i in row]
-        items, _ = word_items(jobs, layout, captions, font, font_size, dpi=150, only=set(shown))
+        items, _ = word_items(jobs, layout, captions, font, font_size, dpi=150, look=look_from(form), only=set(shown))
         image, pages = word_export.preview_png(layout, items, page, {i: items[i].png for i in shown if items[i].png})
         pw, ph = layout.page()
         return {'documents': [{'id': m, 'label': lb, 'charts': len(js)} for m, lb, js in groups], 'doc': doc, 'page': min(page, pages), 'pages': pages,
@@ -702,7 +710,7 @@ def routes(projects: Projects) -> list[Route]:
             for job in jobs:
                 well = job.name.split(' · ', 1)[1]
                 try:
-                    entries.append((optimized_png(figure_bytes(job.render(), 'png', dpi, image_w, image_h, compact=True, font=pack_font, font_size=pack_font_size)),
+                    entries.append((optimized_png(figure_bytes(job.render(), 'png', dpi, image_w, image_h, compact=True, font=pack_font, font_size=pack_font_size, look=look_from(form))),
                                     pack_label(template, section, len(entries) + 1, well, kind, years)))
                 except Exception as e:
                     errors.append({'График': job.name, 'Формат': 'pack', 'Ошибка': str(e)})

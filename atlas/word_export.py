@@ -198,7 +198,7 @@ def fit(layout: Layout, aspect: float, caption_h: float) -> Tuple[float, float]:
     return w, h
 
 
-def render_png(figure, layout: Layout, caption_h: float, font: str = 'default', font_size=None) -> Tuple[bytes, float, float]:
+def render_png(figure, layout: Layout, caption_h: float, font: str = 'default', font_size=None, look: str = 'default') -> Tuple[bytes, float, float]:
     """PNG графика, построенный сразу в размер на листе (без сжатия картинки), и этот размер в мм."""
     from app.core.export import figure_bytes
     inner = layout.image_width()
@@ -206,11 +206,11 @@ def render_png(figure, layout: Layout, caption_h: float, font: str = 'default', 
     draw_w = min(300.0, max(80.0, inner))
     scale = inner / draw_w                                        # <1 при очень узкой колонке: лишь пропорционально уменьшаем
     want = min(layout.height_mm, limit / scale) if layout.height_mm else None
-    png = figure_bytes(figure, 'png', layout.dpi, int(round(draw_w)), int(round(want)) if want else None, font=font, font_size=font_size)
+    png = figure_bytes(figure, 'png', layout.dpi, int(round(draw_w)), int(round(want)) if want else None, font=font, font_size=font_size, look=look)
     w_px, h_px = struct.unpack('>II', png[16:24])
     h = inner * h_px / w_px
     if h > limit:                                                 # слишком высокий: строим ниже, а не сжимаем
-        png = figure_bytes(figure, 'png', layout.dpi, int(round(draw_w)), max(30, int(limit / scale)), font=font, font_size=font_size)
+        png = figure_bytes(figure, 'png', layout.dpi, int(round(draw_w)), max(30, int(limit / scale)), font=font, font_size=font_size, look=look)
         w_px, h_px = struct.unpack('>II', png[16:24])
         h = inner * h_px / w_px
     w = inner

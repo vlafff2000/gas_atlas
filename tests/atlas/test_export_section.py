@@ -354,3 +354,22 @@ def test_custom_labels_per_chart_type(env):
     from atlas import chart_labels
     assert chart_labels.gdi_label('10.12.2023 · Установившиеся отборы · 2', '{дата} · {метод} · {исследование}') == '10.12.2023 · Установившиеся отборы · 2'
     assert chart_labels.gdi_label('10.12.2023 · Изохронный', '{дата} · {метод} · {исследование}') == '10.12.2023 · Изохронный'
+
+
+def test_excel_look(env):
+    """Вид «как в Excel»: выключен по умолчанию, работает в предпросмотре, архиве и Word, ошибка при неизвестном виде."""
+    from app.core.export import XL_PALETTE, figure_bytes
+    from app.core.fonts import family_for
+    client, pid, _, store = env
+    form = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31']}
+    name = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()['charts'][0]['name']
+    shot = lambda f: client.post(f'/api/projects/{pid}/export/preview', json={'form': f, 'chart': name})
+    plain, excel = shot(form), shot({**form, 'look': 'excel'})
+    assert plain.status_code == excel.status_code == 200 and plain.content != excel.content
+    assert shot({**form, 'look': 'excel', 'font': 'calibri', 'font_size': 10}).status_code == 200
+    assert shot({**form, 'look': 'word'}).status_code == 400
+    assert XL_PALETTE[0] == '#4472C4' and family_for('calibri')[0] in ('Calibri', 'Carlito')
+    word = client.post(f'/api/projects/{pid}/export/word', json={'form': {**form, 'look': 'excel'}}).json()
+    assert word['completed'] == 1 and not word['errors']
+    zipped = client.post(f'/api/projects/{pid}/export/archive', json={'form': {**form, 'look': 'excel', 'formats': ['png']}}).json()
+    assert zipped['files'] and not zipped['errors']
