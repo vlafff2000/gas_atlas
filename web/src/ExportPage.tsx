@@ -60,7 +60,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const modules = (form.modules as string[] | undefined) ?? choices?.default_modules ?? []
   const key = JSON.stringify([project.revision, form])
   // Перечень графиков от размера не зависит: растягивание в предпросмотре не должно его сбрасывать.
-  const planned = useMemo(() => { const { width: _w, height: _h, ...rest0 } = form; const rest = Object.fromEntries(Object.entries(rest0).filter(([k]) => !k.startsWith('word_') && !k.startsWith('label_'))); return JSON.stringify([project.revision, rest]) }, [form, project.revision])
+  const planned = useMemo(() => { const { width: _w, height: _h, look: _l, ...rest0 } = form; const rest = Object.fromEntries(Object.entries(rest0).filter(([k]) => !k.startsWith('word_') && !k.startsWith('label_'))); return JSON.stringify([project.revision, rest]) }, [form, project.revision])
   const ready = modules.length > 0
   const labelsKey = JSON.stringify(Object.entries(form).filter(([k]) => k.startsWith('label_')))
 
@@ -113,7 +113,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart, live, form.width, form.height, labelsKey])
+  }, [shownPlan, showPreview, chart, live, form.width, form.height, form.look, form.font, form.font_size, labelsKey])
 
   // Открытый предпросмотр обновляется сам, когда меняется проект (исключили точку).
   useEffect(() => {
@@ -244,8 +244,10 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
             </Section>
             <Section title="Шрифт и исключения">
               <Select {...F} field="font" label="Шрифт" def="default"
-                options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow']]} />
-              <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
+                options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]} />
+              <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
+              <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
+          <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
                 options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
               <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
             </Section>
@@ -360,7 +362,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <Select {...F} field="dpi" label="Разрешение PNG" def={300} options={[[300, '300'], [600, '600'], [1200, '1200']]} />
           <SizePick {...F} />
           <Select {...F} field="font" label="Шрифт" def="default"
-            options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow']]} />
+            options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]} />
           <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
             options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
           <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
@@ -815,7 +817,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
   const [shot, setShot] = useState<WordPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size'), doc, page])
+  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size' || k === 'look'), doc, page])
   useEffect(() => {
     if (!open || !ready) return
     let alive = true

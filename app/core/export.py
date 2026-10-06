@@ -63,8 +63,43 @@ def decode_arrays(value):
     return value
 
 
-def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None):
+XL_PALETTE=['#4472C4','#ED7D31','#A5A5A5','#FFC000','#5B9BD5','#70AD47','#264478','#9E480E','#636363','#997300','#255E91','#43682B']
+XL_TEXT='#595959';XL_GRID='#D9D9D9'
+
+def excel_finish(f,ax,secondary,title,k,date_axis,categorical):
+    """Вид стандартной диаграммы Excel (Office 2013+): палитра по порядку рядов, линии 2,25 пт, серый текст,
+    только горизонтальные линии сетки (у точечной — и вертикальные), без рамки осей, рамка диаграммы #D9D9D9."""
+    from matplotlib.colors import to_hex
+    axes=[a for a in (ax,secondary) if a is not None];mapping={}
+    def paint(color):
+        try:key=to_hex(color,keep_alpha=False).lower()
+        except ValueError:return color
+        if key in ('#ffffff','#000000'):return color
+        return mapping.setdefault(key,XL_PALETTE[len(mapping)%len(XL_PALETTE)])
+    for a in axes:
+        for line in a.get_lines():
+            if len(line.get_xdata())<2 and line.get_marker() in (None,'None',''):continue
+            if to_hex(line.get_color()).lower() in ('#000000','#ffffff'):continue
+            color=paint(line.get_color());hollow=line.get_markerfacecolor()=='white'
+            line.set_color(color);line.set_markeredgecolor(color);line.set_markerfacecolor('white' if hollow else color)
+            if line.get_linestyle() not in ('None','',' '):line.set_linewidth(2.25);line.set_solid_capstyle('round');line.set_solid_joinstyle('round')
+            if line.get_marker() not in (None,'None',''):line.set_markersize(5.5);line.set_markeredgewidth(.75)
+        for patch in a.patches:patch.set_facecolor(paint(patch.get_facecolor()));patch.set_edgecolor('none')
+    for a in axes:
+        a.tick_params(axis='both',length=0,labelsize=9*k,labelcolor=XL_TEXT,pad=5);a.xaxis.label.set_size(10*k);a.yaxis.label.set_size(10*k)
+        a.xaxis.label.set_color(XL_TEXT);a.yaxis.label.set_color(XL_TEXT)
+        for side in ('top','right','left'):a.spines[side].set_visible(False)
+        a.spines['bottom'].set_visible(a is ax);a.spines['bottom'].set_color(XL_GRID);a.spines['bottom'].set_linewidth(.75)
+    ax.grid(False);ax.grid(True,axis='y',color=XL_GRID,linewidth=.75,linestyle='-')
+    if not date_axis and not categorical:ax.grid(True,axis='x',color=XL_GRID,linewidth=.75,linestyle='-')
+    if secondary is not None:secondary.grid(False)
+    ax.set_title('',loc='left');ax.set_title('',loc='right')
+    ax.set_title(title,loc='center',fontsize=14*k,fontweight='normal',color=XL_TEXT,pad=10)
+    f.patch.set_facecolor('white');f.patch.set_edgecolor(XL_GRID);f.patch.set_linewidth(1.0)
+
+def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default'):
     """``font`` / ``font_size`` — шрифт (``app.core.fonts.FONTS``) и основной размер в пт; заголовок и легенда масштабируются вместе с ним.
+    ``look='excel'`` — вид диаграммы Excel (Office: Calibri, палитра, тонкие серые горизонтальные линии сетки, легенда внизу); шрифт по умолчанию — Calibri.
     ``compact`` (листы приложений, ``height_mm`` задаёт высоту): график заполняет рисунок, легенда в одну-две строки под осями,
     не больше 6 делений на оси — числа не налезают друг на друга."""
     import matplotlib
@@ -76,6 +111,9 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
     if dpi not in (150,200,250,300,600,1200):raise ValueError('DPI должен быть 150, 200, 250, 300, 600 или 1200')
     if not 80<=width_mm<=300:raise ValueError('Ширина должна быть от 80 до 300 мм')
     from .fonts import family_for,check
+    if look not in ('default','excel'):raise ValueError('Вид графика: default или excel')
+    excel=look=='excel'
+    if excel and font=='default':font='calibri'
     font,font_size=check(font,font_size)
     base=font_size or (7 if compact else 9);k=base/(7 if compact else 9)
     traces=[t for t in fig.data if t.visible not in (False,'legendonly')]
@@ -174,18 +212,19 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     from matplotlib.ticker import FixedLocator
                     target.yaxis.set_major_locator(FixedLocator([layout.tick0+i*layout.dtick for i in range(int(round(abs(b-a)/layout.dtick))+1)]))
             ax.set_axisbelow(True);ax.spines[['top','right']].set_visible(False)
+            if excel:excel_finish(f,ax,secondary,title,k,date_axis,bool(bars or boxes) and not numeric_bars)     # до легенды: её значки копируют цвета рядов
             if legend:
                 handles,labels=ax.get_legend_handles_labels()
                 if secondary is not None:
                     h,l=secondary.get_legend_handles_labels();handles+=h;labels+=l
                 if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=wrap_at)) for v in labels]
-                if handles:f.legend(handles,labels,loc='outside lower center',ncol=ncols,fontsize=(6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6)
+                if handles:f.legend(handles,labels,loc='outside lower center',ncol=ncols,fontsize=(9 if excel else 6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6,labelcolor=XL_TEXT if excel else None)
             if compact:
                 from matplotlib.ticker import MaxNLocator
                 for axis in (ax.xaxis,ax.yaxis)+((secondary.yaxis,) if secondary is not None else ()):
                     if axis is ax.xaxis and date_axis:continue
                     axis.set_major_locator(MaxNLocator(nbins=6 if width_mm>=120 else 5,steps=[1,2,2.5,5,10]));axis.set_major_formatter(StrMethodFormatter('{x:.10g}'))
-                ax.grid(True,color='#c9ced6',linewidth=.5,linestyle='--');ax.tick_params(length=2.5,pad=2)
+                if not excel:ax.grid(True,color='#c9ced6',linewidth=.5,linestyle='--');ax.tick_params(length=2.5,pad=2)
             if date_axis:
                 ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=5 if compact else 7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))
             buf=io.BytesIO();f.savefig(buf,format=fmt,dpi=dpi)

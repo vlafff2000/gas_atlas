@@ -1,6 +1,6 @@
 """Шрифты экспорта графиков: Times New Roman и Arial Narrow, а где их нет (Linux) — ближайшие аналоги из ``atlas/fonts``.
 
-Аналоги: Liberation Serif (метрически совместим с Times New Roman) и Atlas Sans Narrow — Liberation Sans, сжатый до 82 %
+Аналоги: Carlito (метрически совместим с Calibri), Liberation Serif (метрически совместим с Times New Roman) и Atlas Sans Narrow — Liberation Sans, сжатый до 82 %
 как Arial Narrow (tools/make_narrow_font.py). Оба под SIL OFL 1.1, лежат в репозитории и попадают в портативные сборки.
 Если в системе есть оригинал (Windows, Word), берётся он: SVG и PDF тогда открываются в Word с настоящим шрифтом.
 """
@@ -14,6 +14,7 @@ FONTS = {
     'default': ('Стандартный (DejaVu Sans)', 'DejaVu Sans', None),
     'times': ('Times New Roman', 'Times New Roman', 'Liberation Serif'),
     'arial_narrow': ('Arial Narrow', 'Arial Narrow', 'Atlas Sans Narrow'),
+    'calibri': ('Calibri (как в Excel)', 'Calibri', 'Carlito'),
 }
 SIZE_RANGE = (5.0, 20.0)
 _registered = False
