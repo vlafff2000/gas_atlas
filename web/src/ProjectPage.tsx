@@ -16,6 +16,8 @@ export interface PageProps {
 
 export function ProjectPages({ page, ...props }: PageProps & { page: string }) {
   if (page === '@export') return <ExportPage key={props.project.id} {...props} />
+  if (page === '@pack') return <ExportPage key={props.project.id} {...props} view="pack" />
+  if (page === '@ggh') return <ExportPage key={props.project.id} {...props} view="ggh" />
   if (page === '@settings') return <SettingsPage key={props.project.id} {...props} />
   if (page === '@projects') return <ProjectsPage key={props.project.id} {...props} />
   return <div className="note warning">Нет такого раздела. Выберите раздел в меню слева.</div>

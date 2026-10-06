@@ -131,6 +131,8 @@ export function inMenu(id: string, project: Project | null): boolean {
 export const PROJECT_PAGES = [
   { id: '@passport', title: 'Паспорт скважины' },
   { id: '@export', title: 'Экспорт' },
+  { id: '@pack', title: 'Пакет графиков по фонду' },
+  { id: '@ggh', title: 'Графики ГГХ (Word)' },
   { id: '@projects', title: 'Проекты' },
   { id: '@settings', title: 'Настройки' },
 ]
