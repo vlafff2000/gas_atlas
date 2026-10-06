@@ -27,7 +27,7 @@ const SIZE_WIDTH: Record<string, number> = { auto: 220, 'a4-width': 170, 'a4-hal
 const KINDS = [['withdrawal', 'Отбор'], ['injection', 'Закачка']] as const
 
 /** Без локального хранилища черновика: форма живёт, пока открыт раздел; для повтора — шаблоны. */
-export function ExportPage({ project, onProject }: PageProps) {
+export function ExportPage({ project, onProject, view = 'export' }: PageProps & { view?: 'export' | 'pack' | 'ggh' }) {
   const [form, setForm] = useState<Form>({})
   const [choices, setChoices] = useState<ExportChoices | null>(null)
   const [tab, setTab] = useState<string | null>(null)
@@ -182,7 +182,7 @@ export function ExportPage({ project, onProject }: PageProps) {
     setToast('Параметры просмотра перенесены.')
   })
 
-  const ready_files = [...(ggh?.key === key ? ggh.result.files : []), ...(pack?.key === key ? pack.result.files : []), ...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : [])]
+  const ready_files = [...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : [])]
   const bundle = () => run('bundle', async () => {
     const { file } = await exportApi.bundle(project.id, ready_files)
     saveLink(projectsApi.exportUrl(project.id, file))
@@ -196,12 +196,124 @@ export function ExportPage({ project, onProject }: PageProps) {
       </>
     )
   }
+  const F = { form, set, choices }
+  if (view === 'pack') {
+    if (!choices.modules.some(m => m.id === 'production')) return <><PageTitle text="Пакет графиков по фонду" /><div className="note info">Пакет строится по данным эксплуатации: загрузите их в разделе «Импорт данных».</div></>
+    return (
+      <>
+        <header className="module-title">
+          <div>
+            <h1>Пакет графиков по фонду</h1>
+            <p className="lede">Приложения к отчету: график «Производительность» каждой скважины фонда, по 2, 4 или 6 на лист A4.</p>
+          </div>
+        </header>
+        <section className="table-block">
+<p className="muted pad">Одним нажатием: график «Производительность» каждой скважины фонда по выбранным сезонам, по 2, 4 или 6 на лист A4,
+            отдельный файл на отбор и на закачку. Графики легкие: палитровый PNG 200 DPI, легенда в одну строку под осями. Поля подписи: {'{раздел}, {номер}, {скважина}, {режим}, {годы}'}.</p>
+          <div className="param-bar flat">
+            <Section title="Состав">
+              {KINDS.map(([k, l]) => {
+                const chosen = (form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']
+                return (
+                  <label key={k} className="toggle">
+                    <input type="checkbox" checked={chosen.includes(k)}
+                      onChange={e => set('pack_kinds', e.target.checked ? [...chosen, k] : chosen.filter(x => x !== k))} />
+                    <span>{l}</span>
+                  </label>
+                )
+              })}
+              {([['docx', 'Word'], ['pdf', 'PDF']] as const).map(([k, l]) => {
+                const chosen = (form.pack_formats as string[] | undefined) ?? ['docx', 'pdf']
+                return (
+                  <label key={k} className="toggle">
+                    <input type="checkbox" checked={chosen.includes(k)}
+                      onChange={e => set('pack_formats', e.target.checked ? [...chosen, k] : chosen.filter(x => x !== k))} />
+                    <span>{l}</span>
+                  </label>
+                )
+              })}
+            </Section>
+            <Section title="Сезоны и лист">
+              {KINDS.filter(([k]) => ((form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']).includes(k)).map(([k, l]) => (
+                <Multi key={k} {...F} field={`pack_periods_${k}`} label={`${l}: сезоны (обязательно)`} options={choices.periods?.[k] ?? []} />
+              ))}
+              <Select {...F} field="pack_per_page" label="Графиков на листе" def={6} options={[[2, '2'], [4, '4'], [6, '6']]} />
+              <Select {...F} field="pack_dpi" label="Качество графиков" def={200}
+                options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
+            </Section>
+            <Section title="Шрифт и исключения">
+              <Select {...F} field="font" label="Шрифт" def="default"
+                options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow']]} />
+              <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
+                options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
+              <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
+            </Section>
+            <Section title="Подписи">
+              <Text {...F} field="pack_section_withdrawal" label="Раздел: отбор" def="П4" />
+              <Text {...F} field="pack_section_injection" label="Раздел: закачка" def="П5" />
+              <Text {...F} field="pack_template" label="Шаблон подписи" wide
+                def="Рисунок {раздел}.{номер} - Производительность скважины №{скважина} при {режим} газа за {годы} гг." />
+            </Section>
+          </div>
+          <div className="toolbar">
+            <button type="button" className="primary" disabled={busy !== null || packNoSeasons} onClick={makePack}>Создать пакет по всем скважинам</button>
+            {packNoSeasons && <span className="muted">Выберите хотя бы один сезон.</span>}
+          </div>
+
+        </section>
+        {busy && <span className="pulse">{{ pack: 'Построение графиков всех скважин, это может занять несколько минут…' }[busy] ?? 'Выполняется…'}</span>}
+        {error && <div className="note warning" role="alert">{error}</div>}
+        {pack?.key === key && <Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack />}
+        {pack?.key === key && <div className="muted">Файлы также сохранены в разделе «Проекты».</div>}
+        <Toast text={toast} onClose={closeToast} />
+      </>
+    )
+  }
+  if (view === 'ggh') {
+    if (!choices.ggh) return <><PageTitle text="Графики ГГХ для отчета" /><div className="note info">В проекте нет данных ГГХ: загрузите их в разделе «Импорт данных» → «ГГХ».</div></>
+    return (
+      <>
+        <header className="module-title">
+          <div>
+            <h1>Графики ГГХ для отчета</h1>
+            <p className="lede">Word: страница на скважину по образцу отчета (график, таблица значений, подпись).</p>
+          </div>
+        </header>
+        <section className="table-block">
+<p className="muted pad">Страница на скважину: график (слева содержание, %, справа газонасыщенность, см³/л), под ним таблица значений по датам отбора
+            и подпись «Рисунок В.N – Результаты ГГХИ по скважине № … горизонта». А4 альбомная, Times New Roman, как в образце отчета.
+            Горизонт берется из данных скважины; скважины с одним замером пропускаются.</p>
+          <div className="param-bar flat">
+            <Section title="Скважины">
+              <Multi {...F} field="ggh_horizons" label="Горизонты" options={[...new Set(Object.values(choices.ggh.horizon_of).filter(Boolean))].sort()} empty="все" />
+              <Multi {...F} field="ggh_wells" label="Скважины"
+                options={choices.ggh.wells.filter(w => !((form.ggh_horizons as string[] | undefined) ?? []).length || ((form.ggh_horizons as string[]) ?? []).includes(choices.ggh!.horizon_of[w]))}
+                empty="все" />
+            </Section>
+            <Section title="Подписи и качество">
+              <Text {...F} field="ggh_section" label="Раздел (буква приложения)" def="В" />
+              <Num {...F} field="ggh_start" label="Первый номер рисунка" def={1} min={1} max={100000} />
+              <Select {...F} field="ggh_dpi" label="Качество графиков" def={200}
+                options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
+            </Section>
+          </div>
+          <div className="toolbar">
+            <button type="button" className="primary" disabled={busy !== null} onClick={makeGgh}>Создать Word с графиками ГГХ</button>
+          </div>
+
+        </section>
+        {busy && <span className="pulse">{{ ggh: 'Построение графиков и страниц ГГХ…' }[busy] ?? 'Выполняется…'}</span>}
+        {error && <div className="note warning" role="alert">{error}</div>}
+        {ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
+        <Toast text={toast} onClose={closeToast} />
+      </>
+    )
+  }
   if (!choices.modules.length) {
     return <><Title /><div className="note info">В проекте нет данных для выгрузки. Загрузите данные в разделе «Импорт данных».</div></>
   }
 
   const current = tab && choices.modules.some(m => m.id === tab) ? tab : choices.modules[0].id
-  const F = { form, set, choices }
   const formats = (form.formats as string[] | undefined) ?? ['svg', 'pdf']
   const style = choices.style
 
@@ -290,82 +402,6 @@ export function ExportPage({ project, onProject }: PageProps) {
         </div>
       </details>
 
-      {choices.modules.some(m => m.id === 'production') && (
-        <details className="block" open>
-          <summary className="block-head"><h3>Пакет графиков по фонду (приложения к отчету)</h3></summary>
-          <p className="muted pad">Одним нажатием: график «Производительность» каждой скважины фонда по выбранным сезонам, по 2, 4 или 6 на лист A4,
-            отдельный файл на отбор и на закачку. Графики легкие: палитровый PNG 200 DPI, легенда в одну строку под осями. Поля подписи: {'{раздел}, {номер}, {скважина}, {режим}, {годы}'}.</p>
-          <div className="param-bar flat">
-            <Section title="Состав">
-              {KINDS.map(([k, l]) => {
-                const chosen = (form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']
-                return (
-                  <label key={k} className="toggle">
-                    <input type="checkbox" checked={chosen.includes(k)}
-                      onChange={e => set('pack_kinds', e.target.checked ? [...chosen, k] : chosen.filter(x => x !== k))} />
-                    <span>{l}</span>
-                  </label>
-                )
-              })}
-              {([['docx', 'Word'], ['pdf', 'PDF']] as const).map(([k, l]) => {
-                const chosen = (form.pack_formats as string[] | undefined) ?? ['docx', 'pdf']
-                return (
-                  <label key={k} className="toggle">
-                    <input type="checkbox" checked={chosen.includes(k)}
-                      onChange={e => set('pack_formats', e.target.checked ? [...chosen, k] : chosen.filter(x => x !== k))} />
-                    <span>{l}</span>
-                  </label>
-                )
-              })}
-            </Section>
-            <Section title="Сезоны и лист">
-              {KINDS.filter(([k]) => ((form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']).includes(k)).map(([k, l]) => (
-                <Multi key={k} {...F} field={`pack_periods_${k}`} label={`${l}: сезоны (обязательно)`} options={choices.periods?.[k] ?? []} />
-              ))}
-              <Select {...F} field="pack_per_page" label="Графиков на листе" def={6} options={[[2, '2'], [4, '4'], [6, '6']]} />
-              <Select {...F} field="pack_dpi" label="Качество графиков" def={200}
-                options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
-            </Section>
-            <Section title="Подписи">
-              <Text {...F} field="pack_section_withdrawal" label="Раздел: отбор" def="П4" />
-              <Text {...F} field="pack_section_injection" label="Раздел: закачка" def="П5" />
-              <Text {...F} field="pack_template" label="Шаблон подписи" wide
-                def="Рисунок {раздел}.{номер} - Производительность скважины №{скважина} при {режим} газа за {годы} гг." />
-            </Section>
-          </div>
-          <div className="toolbar">
-            <button type="button" className="primary" disabled={busy !== null || packNoSeasons} onClick={makePack}>Создать пакет по всем скважинам</button>
-            {packNoSeasons && <span className="muted">Выберите хотя бы один сезон.</span>}
-          </div>
-        </details>
-      )}
-
-      {choices.ggh && (
-        <details className="block" open>
-          <summary className="block-head"><h3>Графики ГГХ для отчета (Word)</h3></summary>
-          <p className="muted pad">Страница на скважину: график (слева содержание, %, справа газонасыщенность, см³/л), под ним таблица значений по датам отбора
-            и подпись «Рисунок В.N – Результаты ГГХИ по скважине № … горизонта». А4 альбомная, Times New Roman, как в образце отчета.
-            Горизонт берется из данных скважины; скважины с одним замером пропускаются.</p>
-          <div className="param-bar flat">
-            <Section title="Скважины">
-              <Multi {...F} field="ggh_horizons" label="Горизонты" options={[...new Set(Object.values(choices.ggh.horizon_of).filter(Boolean))].sort()} empty="все" />
-              <Multi {...F} field="ggh_wells" label="Скважины"
-                options={choices.ggh.wells.filter(w => !((form.ggh_horizons as string[] | undefined) ?? []).length || ((form.ggh_horizons as string[]) ?? []).includes(choices.ggh!.horizon_of[w]))}
-                empty="все" />
-            </Section>
-            <Section title="Подписи и качество">
-              <Text {...F} field="ggh_section" label="Раздел (буква приложения)" def="В" />
-              <Num {...F} field="ggh_start" label="Первый номер рисунка" def={1} min={1} max={100000} />
-              <Select {...F} field="ggh_dpi" label="Качество графиков" def={200}
-                options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
-            </Section>
-          </div>
-          <div className="toolbar">
-            <button type="button" className="primary" disabled={busy !== null} onClick={makeGgh}>Создать Word с графиками ГГХ</button>
-          </div>
-        </details>
-      )}
-
       <div className="toolbar">
         <Check {...F} field="auto" label="Автоматически обновлять предпросмотр" def={false} />
         <span className="spacer" />
@@ -432,8 +468,6 @@ export function ExportPage({ project, onProject }: PageProps) {
         </section>
       )}
 
-      {ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
-      {pack?.key === key && <Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack />}
       {word?.key === key && <Outcome title="Отчет Word" result={word.result} pid={project.id} word />}
       {archive?.key === key && <Outcome title="Архив результатов" result={archive.result} pid={project.id} />}
       {ready_files.length > 0 && (
@@ -481,6 +515,10 @@ function SizePick({ form, set, choices }: FieldProps) {
       </label>
     </>
   )
+}
+
+function PageTitle({ text }: { text: string }) {
+  return <header className="module-title"><div><h1>{text}</h1></div></header>
 }
 
 function Title() {
