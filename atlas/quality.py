@@ -23,12 +23,15 @@ class Limits:
     pressure_jump: float = 0.3     # скачок давления между замерами горизонта, доля
 
 
-def _finding(frame: pd.DataFrame, mask, check: str, level: str, value: pd.Series | str, details: str,
-             dataset: str) -> pd.DataFrame:
+def _finding(frame: pd.DataFrame, mask, check: str, level: str, value, details: str, dataset: str) -> pd.DataFrame:
+    """``value`` — строка, серия по всей таблице или функция от отобранных строк (подпись считается только для находок)."""
     rows = frame[mask]
     if rows.empty:
         return pd.DataFrame(columns=COLUMNS)
-    values = value.loc[rows.index] if isinstance(value, pd.Series) else value
+    if callable(value):
+        values = value(rows)
+    else:
+        values = value.loc[rows.index] if isinstance(value, pd.Series) else value
     out = pd.DataFrame({
         'dataset': dataset,
         'id': rows['_point_id'].to_numpy() if '_point_id' in rows else '',
@@ -54,9 +57,9 @@ def production(d: pd.DataFrame, limits: Limits) -> list[pd.DataFrame]:
     d['date'] = pd.to_datetime(d['date'], errors='coerce')
     d = d.sort_values(['well', 'kind', 'date'] if 'kind' in d else ['well', 'date'], kind='stable').reset_index(drop=True)
     keys = [c for c in ('well', 'kind') if c in d]
-    out = [_finding(d, d.q.lt(0), 'Отрицательный расход', 'ошибка', _fmt(d.q), 'Расход не может быть меньше нуля.', 'production')]
+    out = [_finding(d, d.q.lt(0), 'Отрицательный расход', 'ошибка', lambda r: _fmt(r.q), 'Расход не может быть меньше нуля.', 'production')]
     dup = d.duplicated(keys + ['date'], keep=False) & d.date.notna()
-    out.append(_finding(d, dup, 'Повтор даты', 'ошибка', _fmt(d.q), 'Для скважины и даты несколько строк: сумма или '
+    out.append(_finding(d, dup, 'Повтор даты', 'ошибка', lambda r: _fmt(r.q), 'Для скважины и даты несколько строк: сумма или '
                         'последняя запись — решает правило загрузки, проверьте источник.', 'production'))
     grouped = d.groupby(keys, sort=False)['q']
     prev, nxt = grouped.shift(1), grouped.shift(-1)
@@ -65,7 +68,7 @@ def production(d: pd.DataFrame, limits: Limits) -> list[pd.DataFrame]:
     around = pd.concat([before, after], axis=1).where(lambda x: x.gt(0)).median(axis=1)
     ratio = d.q / around
     jump = d.q.gt(0) & around.gt(0) & ((ratio >= limits.jump) | (ratio <= 1 / limits.jump))
-    shown = ratio.where(jump).map(lambda r: '' if pd.isna(r) else (f'в {r:.1f} раза выше' if r >= 1 else f'в {1 / r:.1f} раза ниже').replace('.', ','))
+    shown = lambda r: ratio[r.index].map(lambda x: '' if pd.isna(x) else (f'в {x:.1f} раза выше' if x >= 1 else f'в {1 / x:.1f} раза ниже').replace('.', ','))
     out.append(_finding(d, jump, 'Скачок дебита', 'внимание', shown, f'Расход отличается от соседних дней не менее чем в {limits.jump:g} раза: '
                         'возможна ошибка единиц, опечатка или остановка.', 'production'))
     lone_zero = d.q.eq(0) & prev.gt(0) & nxt.gt(0)
@@ -74,7 +77,7 @@ def production(d: pd.DataFrame, limits: Limits) -> list[pd.DataFrame]:
     if 'season' in d:
         step = d.groupby(keys + ['season'], sort=False)['date'].diff().dt.days
         gap = step.gt(GAP_DAYS[0]) & step.le(GAP_DAYS[1])
-        out.append(_finding(d, gap, 'Пропуск замеров', 'внимание', step.where(gap).map(lambda n: '' if pd.isna(n) else f'{n - 1:.0f} дн.'),
+        out.append(_finding(d, gap, 'Пропуск замеров', 'внимание', lambda r: step[r.index].map(lambda n: '' if pd.isna(n) else f'{n - 1:.0f} дн.'),
                             'Между соседними записями сезона нет суточных данных: график проведёт линию через пропуск.',
                             'production'))
     return [_cap(f) for f in out]
@@ -87,19 +90,19 @@ def gdi(d: pd.DataFrame, limits: Limits) -> list[pd.DataFrame]:
     out = []
     if {'p_res', 'p_bh'} <= set(d.columns):
         bad = d.p_bh.notna() & d.p_res.notna() & d.p_bh.ge(d.p_res)
-        out.append(_finding(d, bad, 'Рзаб не ниже Рпл', 'ошибка', _fmt(d.p_bh, 2) + ' / ' + _fmt(d.p_res, 2),
+        out.append(_finding(d, bad, 'Рзаб не ниже Рпл', 'ошибка', lambda r: _fmt(r.p_bh, 2) + ' / ' + _fmt(r.p_res, 2),
                             'Забойное давление должно быть меньше пластового (значение: Рзаб / Рпл), иначе ΔP² не положителен.', 'gdi'))
         if 'dp2' in d:
             expected = d.p_res ** 2 - d.p_bh ** 2
             diff = (d.dp2 - expected).abs() / expected.abs().where(expected.abs() > 1e-9)
             off = d.dp2.notna() & diff.gt(DP2_TOLERANCE) & d.p_bh.lt(d.p_res)
             out.append(_finding(d, off, 'ΔP² не сходится с давлениями', 'внимание',
-                                _fmt(d.dp2, 1) + ' вместо ' + _fmt(expected, 1),
+                                lambda r: _fmt(r.dp2, 1) + ' вместо ' + _fmt(expected[r.index], 1),
                                 f'ΔP² отличается от Рпл² − Рзаб² более чем на {DP2_TOLERANCE:.0%}: проверьте единицы давления.', 'gdi'))
     if 'q' in d:
-        out.append(_finding(d, d.q.le(0), 'Расход не положителен', 'ошибка', _fmt(d.q, 1), 'Точка не участвует в подборе a и b.', 'gdi'))
+        out.append(_finding(d, d.q.le(0), 'Расход не положителен', 'ошибка', lambda r: _fmt(r.q, 1), 'Точка не участвует в подборе a и b.', 'gdi'))
     if 'dp2' in d:
-        out.append(_finding(d, d.dp2.le(0), 'ΔP² не положителен', 'ошибка', _fmt(d.dp2, 1), 'Точка не участвует в подборе a и b.', 'gdi'))
+        out.append(_finding(d, d.dp2.le(0), 'ΔP² не положителен', 'ошибка', lambda r: _fmt(r.dp2, 1), 'Точка не участвует в подборе a и b.', 'gdi'))
     keys = [c for c in ('well', 'date', 'method', 'study', 'q') if c in d]
     out.append(_finding(d, d.duplicated(keys, keep=False), 'Повтор точки', 'внимание', '', 'Одинаковые скважина, дата, метод, '
                         'исследование и расход встречаются несколько раз.', 'gdi'))
@@ -115,12 +118,12 @@ def response(d: pd.DataFrame, limits: Limits) -> list[pd.DataFrame]:
     out = [_finding(d, d.duplicated(keys + ['date'], keep=False) & d.date.notna(), 'Повтор даты', 'ошибка', '',
                     'Для скважины и горизонта на одну дату несколько замеров.', 'response')]
     if 'pressure' in d:
-        out.append(_finding(d, d.pressure.le(0), 'Давление не положительно', 'ошибка', _fmt(d.pressure, 2), '', 'response'))
+        out.append(_finding(d, d.pressure.le(0), 'Давление не положительно', 'ошибка', lambda r: _fmt(r.pressure, 2), '', 'response'))
         d = d.sort_values(keys + ['date'], kind='stable').reset_index(drop=True)
         prev = d.groupby(keys, sort=False)['pressure'].shift(1)
         change = (d.pressure - prev).abs() / prev.where(prev > 0)
         jump = change.gt(limits.pressure_jump)
-        out.append(_finding(d, jump, 'Скачок давления', 'внимание', change.where(jump).map(lambda c: '' if pd.isna(c) else f'{c:.0%}'),
+        out.append(_finding(d, jump, 'Скачок давления', 'внимание', lambda r: change[r.index].map(lambda c: '' if pd.isna(c) else f'{c:.0%}'),
                             f'Давление изменилось более чем на {limits.pressure_jump:.0%} между соседними замерами горизонта.', 'response'))
     return [_cap(f) for f in out]
 
