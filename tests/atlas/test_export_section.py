@@ -329,3 +329,28 @@ def test_word_layout_landscape_fill_and_preview(env):
     with zipfile.ZipFile(store.path(pid) / 'exports' / one['files'][0]) as z:
         xml = z.read('word/document.xml').decode('utf8')
         assert '<w:tbl>' in xml and 'SEQ' not in xml and 'w:bookmarkStart' in xml
+
+
+def test_custom_labels_per_chart_type(env):
+    """Подписи осей, заголовка и легенды задаются для каждого типа графиков; ГДИ — шаблон записи легенды."""
+    client, pid, _, store = env
+    base = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31']}
+    plan = client.post(f'/api/projects/{pid}/export/plan', json={'form': base}).json()
+    name = plan['charts'][0]['name']
+    texts = lambda c: [s['name'] for s in c['series'] if s.get('name')]
+    chart = lambda form: client.post(f'/api/projects/{pid}/export/chart', json={'form': form, 'chart': name}).json()
+    before = chart({**base, 'label_gdi_template': ''})       # пусто — полная запись легенды
+    assert not any('Установившиеся' in t for t in texts(chart(base)))       # по умолчанию — только дата
+    assert any('Установившиеся отборы' in t for t in texts(before))
+    form = {**base, 'label_gdi_template': '{дата}', 'label_gdi_x': 'Дебит Q, тыс. м³/сут', 'label_gdi_y': 'ΔP², (кгс/см²)²',
+            'label_gdi_title': 'ГДИ, скв. {скважина}', 'label_gdi_legend': 'Исключенные точки=Отброшено'}
+    after = chart(form)
+    assert not any('Установившиеся' in t for t in texts(after)) and len(texts(after)) == len(texts(before))
+    assert 'Дебит Q' in str(after) and 'ГДИ, скв. 31' in str(after)
+    png = client.post(f'/api/projects/{pid}/export/preview', json={'form': form, 'chart': name})
+    assert png.status_code == 200 and png.content[:4] == b'\x89PNG'
+    bad = client.post(f'/api/projects/{pid}/export/preview', json={'form': {**base, 'label_gdi_template': '{нет}'}, 'chart': name})
+    assert bad.status_code == 400 and 'Неизвестное поле легенды' in bad.json()['error']
+    from atlas import chart_labels
+    assert chart_labels.gdi_label('10.12.2023 · Установившиеся отборы · 2', '{дата} · {метод} · {исследование}') == '10.12.2023 · Установившиеся отборы · 2'
+    assert chart_labels.gdi_label('10.12.2023 · Изохронный', '{дата} · {метод} · {исследование}') == '10.12.2023 · Изохронный'

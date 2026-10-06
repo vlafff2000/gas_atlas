@@ -60,8 +60,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const modules = (form.modules as string[] | undefined) ?? choices?.default_modules ?? []
   const key = JSON.stringify([project.revision, form])
   // Перечень графиков от размера не зависит: растягивание в предпросмотре не должно его сбрасывать.
-  const planned = useMemo(() => { const { width: _w, height: _h, ...rest0 } = form; const rest = Object.fromEntries(Object.entries(rest0).filter(([k]) => !k.startsWith('word_'))); return JSON.stringify([project.revision, rest]) }, [form, project.revision])
+  const planned = useMemo(() => { const { width: _w, height: _h, ...rest0 } = form; const rest = Object.fromEntries(Object.entries(rest0).filter(([k]) => !k.startsWith('word_') && !k.startsWith('label_'))); return JSON.stringify([project.revision, rest]) }, [form, project.revision])
   const ready = modules.length > 0
+  const labelsKey = JSON.stringify(Object.entries(form).filter(([k]) => k.startsWith('label_')))
 
   const prepare = async () => {
     if (planKey === planned && plan) return plan
@@ -112,7 +113,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart, live, form.width, form.height])
+  }, [shownPlan, showPreview, chart, live, form.width, form.height, labelsKey])
 
   // Открытый предпросмотр обновляется сам, когда меняется проект (исключили точку).
   useEffect(() => {
@@ -134,7 +135,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart, live])
+  }, [shownPlan, showPreview, chart, live, labelsKey])
 
   const excludePoint = async (dataset: string, id: string) => {
     try {
@@ -382,6 +383,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           enabled={modules.includes(current)} adoptPanels={adoptPanels} {...F}
           onEnable={on => set('modules', choices.modules.map(m => m.id).filter(m => m === current ? on : modules.includes(m)))} />
       </div>
+
+      <ChartLabels {...F} modules={modules} />
 
       <WordLayout {...F} projectId={project.id} ready={ready} revision={project.revision} />
 
@@ -812,7 +815,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
   const [shot, setShot] = useState<WordPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size'), doc, page])
+  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size'), doc, page])
   useEffect(() => {
     if (!open || !ready) return
     let alive = true
@@ -899,6 +902,38 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
             </>
           )}
         </div>
+      </div>
+    </details>
+  )
+}
+
+/** Свои названия графика, осей и записей легенды для каждого типа выгружаемых графиков (Word, архив, предпросмотр). */
+function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
+  const rows = modules.filter(m => choices.modules.some(x => x.id === m))
+  return (
+    <details className="table-block">
+      <summary className="block-head"><h3>Подписи осей и легенд по типам графиков</h3></summary>
+      <p className="muted pad">Пустое поле — как в графике. Названия графика можно писать с {'{скважина}'}.
+        Легенда: по строке «что=на что» — фрагмент названия заменится; «что=» без замены убирает запись из легенды.
+        Подписи действуют на предпросмотр, архив и Word.</p>
+      <div className="param-bar flat">
+        {rows.map(m => {
+          const f = (name: string) => 'label_' + m + '_' + name
+          return (
+            <Section key={m} title={choices.modules.find(x => x.id === m)?.label ?? m}>
+              <Text {...{ form, set, choices }} field={f('title')} label="Название графика" def="" />
+              <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def="" />
+              <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def="" />
+              <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def="" />
+              {m === 'gdi' && <Text {...{ form, set, choices }} field={f('template')} label="Запись легенды: {дата}, {метод}, {исследование} (пусто — полная)" def="{дата}" wide />}
+              <label className="field wide">
+                <span className="field-label">Замены в легенде (по строке «что=на что»)</span>
+                <textarea rows={3} value={(form[f('legend')] as string | undefined) ?? ''} maxLength={2000}
+                  onChange={e => set(f('legend'), e.target.value)} />
+              </label>
+            </Section>
+          )
+        })}
       </div>
     </details>
   )
