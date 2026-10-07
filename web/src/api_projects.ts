@@ -111,6 +111,7 @@ export const exportApi = {
   preview: async (pid: string, form: Form, chart: string) =>
     URL.createObjectURL(await (await send(`${P(pid)}/export/preview`, json('POST', { form, chart }))).blob()),
   chart: (pid: string, form: Form, chart: string) => request<Chart>(`${P(pid)}/export/chart`, json('POST', { form, chart })),
+  series: (pid: string, form: Form) => request<{ series: Record<string, string[]> }>(`${P(pid)}/export/series`, json('POST', { form })),
   archive: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/archive`, json('POST', { form })),
   word: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/word`, json('POST', { form })),
   wordPreview: (pid: string, form: Form, doc: number, page: number) =>
@@ -138,8 +139,6 @@ export function inMenu(id: string, project: Project | null): boolean {
 export const PROJECT_PAGES = [
   { id: '@passport', title: 'Паспорт скважины' },
   { id: '@export', title: 'Экспорт' },
-  { id: '@pack', title: 'Пакет графиков по фонду' },
-  { id: '@ggh', title: 'Графики ГГХ (Word)' },
   { id: '@projects', title: 'Проекты' },
   { id: '@settings', title: 'Настройки' },
 ]

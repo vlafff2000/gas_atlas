@@ -32,8 +32,10 @@ SPLIT_AFTER = 28               # больше дат — таблица в дв�
 FIRST_COLUMN_CM = 3.2
 
 
-def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'times') -> bytes:
-    """График скважины как в скрипте: слева содержание, %, справа газонасыщенность, по 11 меток на каждой оси."""
+def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'times', style: dict | None = None) -> bytes:
+    """График скважины как в скрипте: слева содержание, %, справа газонасыщенность, по 11 меток на каждой оси.
+    ``style`` — настройки выгрузки: ``font_size`` (пт, база 12), ``look`` (``excel`` — палитра Office), общие ``title`` / ``angle`` и
+    правила наборов данных ``series`` (``atlas/chart_format.py``): набор — параметр ГГХ или «Газонасыщенность»."""
     import matplotlib
     matplotlib.use('Agg')
     import numpy as np
@@ -44,46 +46,68 @@ def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'time
     from app.core.export import LOCK
     from app.core.fonts import family_for
 
+    style = style or {}
+    k = float(style.get('font_size') or 12) / 12
+    rules = style.get('series') or []
+    from app.core.export import XL_PALETTE
+
+    def look(label: str, color: str, index: int) -> dict | None:
+        """Цвет, толщина и маркер набора с учётом правил; ``None`` — набор скрыт."""
+        out = {'color': XL_PALETTE[index % len(XL_PALETTE)] if style.get('look') == 'excel' else color, 'width': 1.5, 'size': None}
+        for rule in rules:
+            if rule['match'] in label.lower():
+                if rule.get('hide'):
+                    return None
+                out['color'] = rule.get('color', out['color'])
+                out['width'] = rule.get('width', out['width'])
+                out['size'] = rule.get('marker', out['size'])
+        return out
+
     frame = frame.sort_values('date')
     dates = mdates.date2num(pd.to_datetime(frame.date).dt.to_pydatetime())
     with LOCK, matplotlib.rc_context({'font.family': family_for(font), 'axes.unicode_minus': False}):
         fig = Figure(figsize=FIG_INCHES, facecolor='white')
         FigureCanvasAgg(fig)
         ax = fig.add_subplot(111)
-        ax.set_ylabel('Содержание, %', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Содержание, %', fontsize=14 * k, fontweight='bold')
         ax.set_ylim(0, 100)
         ax.set_yticks(np.linspace(0, 100, TICKS))
-        ax.tick_params(axis='both', labelsize=12)
+        ax.tick_params(axis='both', labelsize=12 * k)
         ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-        for key, (label, color, _) in PARAMS.items():
+        for index, (key, (label, color, _)) in enumerate(PARAMS.items()):
             y = pd.to_numeric(frame[key], errors='coerce').to_numpy(dtype=float) if key in frame else np.full(len(frame), np.nan)
             ok = ~np.isnan(y)
-            if ok.any():
-                ax.plot(dates[ok], y[ok], color=color, marker=MARKERS[key], markersize=SIZES[key], linewidth=1.5, linestyle='-')
+            shown = look(label, color, index)
+            if ok.any() and shown:
+                size = shown['size'] if shown['size'] is not None else SIZES[key]
+                ax.plot(dates[ok], y[ok], color=shown['color'], marker=MARKERS[key] if size > 0 else None, markersize=size, linewidth=shown['width'], linestyle='-')
         gas = pd.to_numeric(frame.gas, errors='coerce').to_numpy(dtype=float) if 'gas' in frame else np.full(len(frame), np.nan)
         ok = ~np.isnan(gas)
-        if ok.any():
+        shown = look(GAS[1], GAS[2], len(PARAMS))
+        if ok.any() and shown:
             ax2 = ax.twinx()
-            ax2.set_ylabel('Газонасыщенность, см³/л', fontsize=14, fontweight='bold')
-            ax2.tick_params(axis='both', labelsize=12)
+            ax2.set_ylabel('Газонасыщенность, см³/л', fontsize=14 * k, fontweight='bold')
+            ax2.tick_params(axis='both', labelsize=12 * k)
             low, high = gas_axis(pd.Series(gas[ok]))
             ax2.set_ylim(low, high)
             ax2.yaxis.set_major_locator(FixedLocator(np.linspace(low, high, TICKS)))
             ax2.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{int(round(v))}' if abs(v) >= 0.5 else '0'))
-            ax2.plot(dates[ok], gas[ok], color=GAS[2], marker=MARKERS['gas'], markersize=SIZES['gas'], linewidth=1.5, linestyle='-')
-        ax.set_xlabel('Год', fontsize=14, fontweight='bold', labelpad=10)
+            size = shown['size'] if shown['size'] is not None else SIZES['gas']
+            ax2.plot(dates[ok], gas[ok], color=shown['color'], marker=MARKERS['gas'] if size > 0 else None, markersize=size, linewidth=shown['width'], linestyle='-')
+        ax.set_xlabel('Год', fontsize=14 * k, fontweight='bold', labelpad=10)
         first, last = pd.to_datetime(frame.date).min().year, pd.to_datetime(frame.date).max().year
         ticks = [mdates.date2num(pd.Timestamp(year=y, month=1, day=1).to_pydatetime()) for y in range(first, last + 1)]
         ax.set_xticks(ticks)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-        turned = len(ticks) > 10
+        angle = float(style['angle']) if style.get('angle') not in (None, 'auto') else 45 if len(ticks) > 10 else 0
         for label in ax.get_xticklabels():
-            label.set_rotation(45 if turned else 0)
-            label.set_ha('right' if turned else 'center')
-            label.set_fontsize(12)
+            label.set_rotation(angle)
+            label.set_ha('right' if 0 < angle < 90 else 'center')
+            label.set_fontsize(12 * k)
         if len(dates) > 1:
             ax.set_xlim(dates[0] - 180, dates[-1] + 180)
-        ax.set_title(f'Скважина №{well}', fontsize=16, fontweight='bold', pad=20)
+        if style.get('title') != 'hide':
+            ax.set_title(f'Скважина №{well}', fontsize=16 * k, fontweight='bold', pad=20)
         fig.tight_layout()
         buf = io.BytesIO()
         fig.savefig(buf, format='png', dpi=dpi, facecolor='white', bbox_inches='tight')   # как в скрипте: без пустых полей
@@ -172,7 +196,7 @@ def well_page(index: int, frame: pd.DataFrame, well: str, horizon: str, png: byt
 
 
 def build_docx(items: list[dict[str, Any]], start: int = 1, section: str = 'В', dpi: int = 200, font: str = 'times',
-               progress=None) -> bytes:
+               progress=None, style: dict | None = None) -> bytes:
     """``items`` — ``{'well', 'frame'}`` по скважинам (порядок сохраняется); горизонт берётся из данных скважины."""
     if not items:
         raise ValueError('Нет скважин для выгрузки: выберите скважины с данными ГГХ.')
@@ -181,7 +205,7 @@ def build_docx(items: list[dict[str, Any]], start: int = 1, section: str = 'В',
     for i, item in enumerate(items, 1):
         frame, well = item['frame'], str(item['well'])
         horizon = item.get('horizon') or well_horizon(frame)
-        xml, png, name = well_page(i, frame, well, horizon, figure_png(frame, well, dpi, font), start + i - 1, section, ids)
+        xml, png, name = well_page(i, frame, well, horizon, figure_png(frame, well, dpi, font, style), start + i - 1, section, ids)
         body.append(xml)
         media.append((name, png))
         rels.append(f'<Relationship Id="rIdImg{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{name}"/>')

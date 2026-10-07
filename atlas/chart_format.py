@@ -1,12 +1,15 @@
-"""Оформление выгружаемых графиков — отдельно для каждого типа (модуля): толщина линий, размер и наличие маркеров,
-цвета и скрытие отдельных наборов данных, наклон подписей оси X, заголовок и положение легенды.
+"""Оформление выгружаемых графиков.
 
-Поля формы ``fmt_<модуль>_<поле>``: ``width`` (толщина линий, пт), ``marker`` (размер маркеров; 0 — без маркеров),
-``angle`` (наклон подписей оси X: auto, 0, 30, 45, 60, 90), ``title`` (show/hide), ``legend`` (bottom/top/right/hide),
-``series`` — JSON-список правил по наборам данных ``[{"match": "фрагмент имени", "color": "#rrggbb", "width": 2,
-"marker": 0, "hide": true}]``: правило действует на все ряды, в имени которых есть фрагмент; пустое поле не меняет ничего.
-Оформление применяется к уже построенному графику (как подписи, ``chart_labels``), пересчёта не требует.
+Общее для всех графиков (поля формы ``fmt_angle``, ``fmt_title``, ``fmt_legend``): наклон подписей оси X (auto, 0, 30, 45,
+60, 90), шапка графика (show/hide), положение легенды (bottom/top/right/hide).
+
+Для наборов данных (поле ``fmt_<модуль>_series``): JSON-список правил ``[{"match": "фрагмент названия", "color": "#rrggbb",
+"width": 2, "marker": 0, "hide": true}]``. Правило действует на все ряды, в названии (или группе легенды) которых есть фрагмент:
+``width`` — толщина линии, пт; ``marker`` — размер маркеров (0 — без маркеров); ``color`` — цвет; ``hide`` — убрать набор
+с графика. Пустое поле не меняет ничего; несколько подходящих правил применяются по порядку.
+Оформление накладывается на уже построенный график (как подписи, ``chart_labels``), пересчёта не требует.
 """
+
 from __future__ import annotations
 
 import copy
@@ -14,7 +17,6 @@ import json
 import re
 from typing import Any, Dict, List, Mapping
 
-FIELDS = ('width', 'marker', 'angle', 'title', 'legend', 'series')
 ANGLES = ('auto', '0', '30', '45', '60', '90')
 LEGENDS = ('bottom', 'top', 'right', 'hide')
 COLOR = re.compile(r'^#[0-9a-fA-F]{6}$')
@@ -63,34 +65,40 @@ def parse_series(text: Any) -> List[Dict[str, Any]]:
     return out
 
 
+def common(form: Mapping[str, Any]) -> Dict[str, Any]:
+    """Общие настройки всех графиков."""
+    out: Dict[str, Any] = {}
+    angle = form.get('fmt_angle')
+    if angle not in (None, '', 'auto'):
+        if str(angle) not in ANGLES:
+            raise FormatError('Наклон подписей оси X: %s' % ', '.join(ANGLES))
+        out['angle'] = str(angle)
+    if form.get('fmt_title') == 'hide':
+        out['title'] = 'hide'
+    if form.get('fmt_legend') in LEGENDS and form.get('fmt_legend') != 'bottom':
+        out['legend'] = form['fmt_legend']
+    return out
+
+
 def configs(form: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
-    """Непустые настройки по модулям; ошибки значений — до построения графиков."""
+    """Настройки по модулям: общие + правила наборов данных этого модуля; ключ ``'*'`` — общие для модулей без правил.
+    Ошибки значений — до построения графиков."""
+    base = common(form)
     found: Dict[str, Dict[str, Any]] = {}
     for key, value in form.items():
-        if not key.startswith('fmt_'):
+        if not key.startswith('fmt_') or not key.endswith('_series'):
             continue
-        module, _, field = key[len('fmt_'):].rpartition('_')
-        if field not in FIELDS or not module or value in (None, '', 'auto', 'default'):
-            continue
-        if field == 'width':
-            value = number(value, 'Толщина линий', .2, 10)
-        elif field == 'marker':
-            value = number(value, 'Размер маркеров', 0, 20)
-        elif field == 'angle':
-            if str(value) not in ANGLES:
-                raise FormatError('Наклон подписей оси X: %s' % ', '.join(ANGLES))
-        elif field == 'title':
-            if value not in ('show', 'hide'):
-                continue
-        elif field == 'legend':
-            if value not in LEGENDS:
-                continue
-        elif field == 'series':
-            value = parse_series(value)
-            if not value:
-                continue
-        found.setdefault(module, {})[field] = value
+        module = key[len('fmt_'):-len('_series')]
+        rules = parse_series(value)
+        if module and rules:
+            found[module] = {**base, 'series': rules}
+    if base:
+        found['*'] = base
     return found
+
+
+def for_module(found: Mapping[str, Dict[str, Any]], module: str) -> Dict[str, Any]:
+    return dict(found.get(module) or found.get('*') or {})
 
 
 def apply(figure, cfg: Mapping[str, Any]):
@@ -105,8 +113,7 @@ def apply(figure, cfg: Mapping[str, Any]):
     for trace in fig.data:
         line = trace.type in (None, 'scatter')
         mode = trace.mode or ''
-        width = cfg.get('width') if 'lines' in mode else None
-        size = cfg.get('marker') if 'markers' in mode else None
+        width = size = None
         color = None
         name = ' '.join(str(x) for x in (trace.name, trace.legendgroup) if x).lower()
         for rule in rules:                  # правила наборов данных перекрывают настройки типа графика

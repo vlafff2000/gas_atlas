@@ -57,3 +57,6 @@ details.table-block > summary.block-head { cursor: pointer; list-style: none; }
 .series-rule { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
 .series-rule input:not([type]) { min-width: 130px; }
 .series-rule input[type=color] { width: 36px; height: 28px; padding: 0; }
+.series-rule input, .series-rule button, .series-rule .toggle { width: auto; flex: 0 0 auto; }
+.series-rule input:not([type]):first-child { flex: 1 1 200px; }
+.series-rule input[size] { width: 92px; }

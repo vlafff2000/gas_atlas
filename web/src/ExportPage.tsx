@@ -30,7 +30,7 @@ const KINDS = [['withdrawal', 'Отбор'], ['injection', 'Закачка']] as
 export function ExportPage({ project, onProject, view = 'export' }: PageProps & { view?: 'export' | 'pack' | 'ggh' }) {
   const [form, setForm] = useState<Form>({})
   const [choices, setChoices] = useState<ExportChoices | null>(null)
-  const [tab, setTab] = useState<string | null>(null)
+  const [tab, setTab] = useState<string | null>(view === 'pack' || view === 'ggh' ? view : null)
   const [plan, setPlan] = useState<ExportPlan | null>(null)
   const [planKey, setPlanKey] = useState('')
   const [showPreview, setShowPreview] = useState(false)
@@ -198,16 +198,12 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     )
   }
   const F = { form, set, choices }
-  if (view === 'pack') {
-    if (!choices.modules.some(m => m.id === 'production')) return <><PageTitle text="Пакет графиков по фонду" /><div className="note info">Пакет строится по данным эксплуатации: загрузите их в разделе «Импорт данных».</div></>
-    return (
-      <>
-        <header className="module-title">
-          <div>
-            <h1>Пакет графиков по фонду</h1>
-            <p className="lede">Приложения к отчету: график «Производительность» каждой скважины фонда, по 2, 4 или 6 на лист A4.</p>
-          </div>
-        </header>
+  const packAvailable = choices.modules.some(m => m.id === 'production')
+  const gghAvailable = !!choices.ggh
+  const extraTabs: [string, string][] = [...(packAvailable ? [['pack', 'Пакет по фонду'] as [string, string]] : []), ...(gghAvailable ? [['ggh', 'ГГХ (Word)'] as [string, string]] : [])]
+  const packPanel = (
+    <>
+      <p className="lede">Приложения к отчету: график «Производительность» каждой скважины фонда, по 2, 4 или 6 на лист A4. Шрифт, вид графиков, подписи и оформление берутся из общих настроек ниже.</p>
         <section className="table-block">
 <p className="muted pad">Одним нажатием: график «Производительность» каждой скважины фонда по выбранным сезонам, по 2, 4 или 6 на лист A4,
             отдельный файл на отбор и на закачку. Графики легкие: палитровый PNG 200 DPI, легенда в одну строку под осями. Поля подписи: {'{раздел}, {номер}, {скважина}, {режим}, {годы}'}.</p>
@@ -242,14 +238,6 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
               <Select {...F} field="pack_dpi" label="Качество графиков" def={200}
                 options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
             </Section>
-            <Section title="Шрифт и исключения">
-              <Select {...F} field="font" label="Шрифт" def="default"
-                options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]} />
-              <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
-              <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
-                options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
-              <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
-            </Section>
             <Section title="Подписи">
               <Text {...F} field="pack_section_withdrawal" label="Раздел: отбор" def="П4" />
               <Text {...F} field="pack_section_injection" label="Раздел: закачка" def="П5" />
@@ -267,29 +255,20 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         {error && <div className="note warning" role="alert">{error}</div>}
         {pack?.key === key && <Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack />}
         {pack?.key === key && <div className="muted">Файлы также сохранены в разделе «Проекты».</div>}
-        <Toast text={toast} onClose={closeToast} />
-      </>
-    )
-  }
-  if (view === 'ggh') {
-    if (!choices.ggh) return <><PageTitle text="Графики ГГХ для отчета" /><div className="note info">В проекте нет данных ГГХ: загрузите их в разделе «Импорт данных» → «ГГХ».</div></>
-    return (
-      <>
-        <header className="module-title">
-          <div>
-            <h1>Графики ГГХ для отчета</h1>
-            <p className="lede">Word: страница на скважину по образцу отчета (график, таблица значений, подпись).</p>
-          </div>
-        </header>
+    </>
+  )
+  const gghPanel = !gghAvailable ? null : (
+    <>
+      <p className="lede">Word: страница на скважину по образцу отчета (график, таблица значений, подпись). Шрифт, вид «как в Excel», наклон подписей, шапка и правила для наборов данных («ГГХ») берутся из общих настроек ниже.</p>
         <section className="table-block">
 <p className="muted pad">Страница на скважину: график (слева содержание, %, справа газонасыщенность, см³/л), под ним таблица значений по датам отбора
-            и подпись «Рисунок В.N – Результаты ГГХИ по скважине № … горизонта». А4 альбомная, Times New Roman, как в образце отчета.
+            и подпись «Рисунок В.N – Результаты ГГХИ по скважине № … горизонта». А4 альбомная; шрифт по умолчанию Times New Roman, как в образце отчета (меняется в общих настройках).
             Горизонт берется из данных скважины; скважины с одним замером пропускаются.</p>
           <div className="param-bar flat">
             <Section title="Скважины">
-              <Multi {...F} field="ggh_horizons" label="Горизонты" options={[...new Set(Object.values(choices.ggh.horizon_of).filter(Boolean))].sort()} empty="все" />
+              <Multi {...F} field="ggh_horizons" label="Горизонты" options={[...new Set(Object.values(choices.ggh!.horizon_of).filter(Boolean))].sort()} empty="все" />
               <Multi {...F} field="ggh_wells" label="Скважины"
-                options={choices.ggh.wells.filter(w => !((form.ggh_horizons as string[] | undefined) ?? []).length || ((form.ggh_horizons as string[]) ?? []).includes(choices.ggh!.horizon_of[w]))}
+                options={choices.ggh!.wells.filter(w => !((form.ggh_horizons as string[] | undefined) ?? []).length || ((form.ggh_horizons as string[]) ?? []).includes(choices.ggh!.horizon_of[w]))}
                 empty="все" />
             </Section>
             <Section title="Подписи и качество">
@@ -307,15 +286,14 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         {busy && <span className="pulse">{{ ggh: 'Построение графиков и страниц ГГХ…' }[busy] ?? 'Выполняется…'}</span>}
         {error && <div className="note warning" role="alert">{error}</div>}
         {ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
-        <Toast text={toast} onClose={closeToast} />
-      </>
-    )
-  }
-  if (!choices.modules.length) {
+    </>
+  )
+  if (!choices.modules.length && !gghAvailable) {
     return <><Title /><div className="note info">В проекте нет данных для выгрузки. Загрузите данные в разделе «Импорт данных».</div></>
   }
 
-  const current = tab && choices.modules.some(m => m.id === tab) ? tab : choices.modules[0].id
+  const first = view === 'pack' && packAvailable ? 'pack' : view === 'ggh' && gghAvailable ? 'ggh' : (choices.modules[0]?.id ?? extraTabs[0][0])
+  const current = tab && (choices.modules.some(m => m.id === tab) || extraTabs.some(([id]) => id === tab)) ? tab : first
   const formats = (form.formats as string[] | undefined) ?? ['svg', 'pdf']
   const style = choices.style
 
@@ -363,6 +341,10 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <Select {...F} field="font" label="Шрифт" def="default"
             options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]} />
           <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
+          <Select {...F} field="fmt_angle" label="Подписи оси X" def="auto" options={ANGLE_OPTIONS} />
+          <Select {...F} field="fmt_title" label="Шапка графика" def="show" options={[['show', 'Показывать'], ['hide', 'Скрыть']]} />
+          <Select {...F} field="fmt_legend" label="Легенда" def="bottom"
+            options={[['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]} />
           <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
             options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
           <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
@@ -379,14 +361,27 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <button key={m.id} type="button" role="tab" aria-selected={m.id === current} onClick={() => setTab(m.id)}
             className={modules.includes(m.id) ? 'on' : undefined}>{m.label}</button>
         ))}
+        {extraTabs.map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => setTab(id)}>{label}</button>
+        ))}
       </div>
-      <div className="param-bar">
-        <ModuleTab key={current} module={current} label={choices.modules.find(m => m.id === current)!.label}
-          enabled={modules.includes(current)} adoptPanels={adoptPanels} {...F}
-          onEnable={on => set('modules', choices.modules.map(m => m.id).filter(m => m === current ? on : modules.includes(m)))} />
-      </div>
+      {current === 'pack' || current === 'ggh' ? (
+        <>
+          {current === 'pack' ? packPanel : gghPanel}
+          {busy && <span className="pulse">{{ pack: 'Построение графиков всех скважин, это может занять несколько минут…', ggh: 'Построение графиков и страниц ГГХ…' }[busy] ?? 'Выполняется…'}</span>}
+          {error && <div className="note warning" role="alert">{error}</div>}
+          {current === 'pack' && pack?.key === key && <><Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack /><div className="muted">Файлы также сохранены в разделе «Проекты».</div></>}
+          {current === 'ggh' && ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
+        </>
+      ) : (
+        <div className="param-bar">
+          <ModuleTab key={current} module={current} label={choices.modules.find(m => m.id === current)!.label}
+            enabled={modules.includes(current)} adoptPanels={adoptPanels} {...F}
+            onEnable={on => set('modules', choices.modules.map(m => m.id).filter(m => m === current ? on : modules.includes(m)))} />
+        </div>
+      )}
 
-      <ChartFormat {...F} modules={modules} />
+      <ChartFormat {...F} modules={modules} projectId={project.id} ready={ready} />
 
       <ChartLabels {...F} modules={modules} />
 
@@ -524,10 +519,6 @@ function SizePick({ form, set, choices }: FieldProps) {
       </label>
     </>
   )
-}
-
-function PageTitle({ text }: { text: string }) {
-  return <header className="module-title"><div><h1>{text}</h1></div></header>
 }
 
 function Title() {
@@ -760,8 +751,6 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
           options={[['separate', 'Уровень и давление отдельно'], ['combined', 'Уровень + давление'], ['level', 'Только уровень'], ['pressure', 'Только давление']]} />
         <Select {...F} field="response_split" label="Реагирование: построение" def="horizon"
           options={[['horizon', 'По горизонтам'], ['all', 'Все вместе'], ['well', 'По скважинам']]} />
-        <Select {...F} field="response_level_band" label="Реагирование: уровень на двух шкалах" def="below"
-          options={[['below', 'Отдельной полосой ниже давлений'], ['above', 'Отдельной полосой выше давлений'], ['overlay', 'Наложение на всю высоту']]} />
       </Section>
     )
   } else if (module === 'well_dashboard') {
@@ -945,47 +934,50 @@ function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: st
   )
 }
 
-interface SeriesRule { match: string; color?: string; width?: number | ''; marker?: number | ''; hide?: boolean }
+interface SeriesRule { match: string; color?: string; width?: number | string; marker?: number | string; hide?: boolean }
 
 const ANGLE_OPTIONS: Opt[] = [['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]
 
-/** Толщина линий, маркеры, цвета наборов данных, наклон подписей X, заголовок и легенда — для каждого типа графиков отдельно. */
-function ChartFormat({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
-  const rows = modules.filter(m => choices.modules.some(x => x.id === m))
-  const P = { form, set, choices }
+/** Толщина линии, размер маркеров, цвет и скрытие для каждого набора данных (кривой) — отдельно по типам графиков. */
+function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldProps & { modules: string[]; projectId: string; ready: boolean }) {
+  const [names, setNames] = useState<Record<string, string[]>>({})
+  const [open, setOpen] = useState(false)
+  const rows = [...modules.filter(m => choices.modules.some(x => x.id === m)), ...(choices.ggh ? ['ggh'] : [])]
+  const label = (m: string) => m === 'ggh' ? 'ГГХ (Word)' : choices.modules.find(x => x.id === m)?.label ?? m
+  useEffect(() => {      // подсказки: названия наборов данных в первых графиках каждого типа
+    if (!open) return
+    let alive = true
+    exportApi.series(projectId, form).then(r => alive && setNames(r.series)).catch(() => undefined)
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ready, JSON.stringify(form.modules), projectId])
   return (
-    <details className="table-block">
-      <summary className="block-head"><h3>Оформление графиков по типам</h3></summary>
-      <p className="muted pad">Для каждого типа графиков своё оформление; оно действует на предпросмотр, архив и Word и сохраняется вместе с шаблоном выгрузки.
-        «Наборы данных» — правила для отдельных кривых: фрагмент названия из легенды (например, «объекта»), цвет, толщина, размер маркеров
-        (0 — без маркеров) или «скрыть». Пустое поле — как в графике.</p>
+    <details className="table-block" onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="block-head"><h3>Наборы данных: линии, маркеры и цвета</h3></summary>
+      <p className="muted pad">Для каждого типа графиков можно настроить отдельные кривые: введите часть названия из легенды (подсказки появляются при вводе),
+        затем цвет, толщину линии и размер маркеров в пунктах (0 — без маркеров) или «скрыть». Пустое поле — как в графике.
+        Правило действует на все кривые, в названии которых есть эта часть. Работает в предпросмотре, архиве, Word, пакете по фонду и ГГХ; сохраняется в шаблоне.</p>
       <div className="param-bar flat">
         {rows.map(m => {
-          const f = (name: string) => 'fmt_' + m + '_' + name
+          const f = 'fmt_' + m + '_series'
           let rules: SeriesRule[] = []
-          try { rules = JSON.parse((form[f('series')] as string | undefined) || '[]') } catch { rules = [] }
-          const save = (next: SeriesRule[]) => set(f('series'), next.length ? JSON.stringify(next) : '')
+          try { rules = JSON.parse((form[f] as string | undefined) || '[]') } catch { rules = [] }
+          const save = (next: SeriesRule[]) => set(f, next.length ? JSON.stringify(next) : '')
           const edit = (i: number, patch: Partial<SeriesRule>) => save(rules.map((r, j) => j === i ? { ...r, ...patch } : r))
           return (
-            <Section key={m} title={choices.modules.find(x => x.id === m)?.label ?? m}>
-              <Text {...P} field={f('width')} label="Толщина линий, пт" def="" />
-              <Text {...P} field={f('marker')} label="Размер маркеров (0 — без маркеров)" def="" />
-              <Select {...P} field={f('angle')} label="Подписи оси X" def="auto" options={ANGLE_OPTIONS} />
-              <Select {...P} field={f('title')} label="Шапка графика" def="show" options={[['show', 'Показывать'], ['hide', 'Скрыть']]} />
-              <Select {...P} field={f('legend')} label="Легенда" def="bottom"
-                options={[['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]} />
+            <Section key={m} title={label(m)}>
               <div className="field wide">
-                <span className="field-label">Наборы данных</span>
+                <datalist id={'series-' + m}>{(names[m] ?? []).map(n => <option key={n} value={n} />)}</datalist>
                 {rules.map((r, i) => (
                   <div key={i} className="series-rule">
-                    <input value={r.match} placeholder="часть названия" aria-label="Часть названия набора" maxLength={200}
+                    <input value={r.match} placeholder="часть названия" aria-label="Часть названия набора" maxLength={200} list={'series-' + m}
                       onChange={e => edit(i, { match: e.target.value })} />
                     <input type="color" value={r.color || '#2563eb'} aria-label="Цвет" onChange={e => edit(i, { color: e.target.value })} />
                     <button type="button" title="Цвет как в графике" onClick={() => edit(i, { color: '' })} disabled={!r.color}>цвет ✕</button>
-                    <input value={r.width ?? ''} placeholder="толщина" aria-label="Толщина линии" size={6}
-                      onChange={e => edit(i, { width: e.target.value as unknown as number })} />
-                    <input value={r.marker ?? ''} placeholder="маркер" aria-label="Размер маркеров" size={6}
-                      onChange={e => edit(i, { marker: e.target.value as unknown as number })} />
+                    <input value={r.width ?? ''} placeholder="линия, пт" aria-label="Толщина линии, пт" size={8} inputMode="decimal"
+                      onChange={e => edit(i, { width: e.target.value })} />
+                    <input value={r.marker ?? ''} placeholder="маркер, пт" aria-label="Размер маркеров, пт (0 — без маркеров)" size={8} inputMode="decimal"
+                      onChange={e => edit(i, { marker: e.target.value })} />
                     <label className="toggle"><input type="checkbox" checked={!!r.hide} onChange={e => edit(i, { hide: e.target.checked })} /><span>скрыть</span></label>
                     <button type="button" aria-label="Удалить правило" onClick={() => save(rules.filter((_, j) => j !== i))}>✕</button>
                   </div>
