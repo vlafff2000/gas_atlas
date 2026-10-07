@@ -31,7 +31,7 @@ from app.core.config import MODULES, VERSION as VERSION_58, ordered
 from app.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
 from app.core.export import figure_bytes
 
-from . import VERSION, chart_labels, word_export
+from . import VERSION, chart_format, chart_labels, word_export
 from .contract import Data, ParamError
 from .projects import Conflict, Projects
 
@@ -247,7 +247,7 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             cfg['dates'] = [_date(v) for v in dates]
             cfg['view'] = form.get('response_view', 'separate')
             cfg['split'] = form.get('response_split', 'horizon')
-            cfg['level_band'] = form.get('response_level_band', 'below')
+            cfg['level_band'] = 'auto'      # ≈ 5.8: уровень на двух шкалах стоит отдельной полосой, положение подбирается по данным
             if form.get('response_mode', 'all') != 'all':      # выгрузка контрольных и/или рабочих горизонтов (нового в 5.8 нет)
                 cfg['mode'] = form['response_mode']
                 cfg['working_view'] = form.get('response_working_view', 'combined')
@@ -556,6 +556,35 @@ def routes(projects: Projects) -> list[Route]:
             raise Failure(404, 'График не найден. Обновите предпросмотр.')
         return _chart_json(to_chart(job.render(), 'export-' + str(job.module or 'chart')))
 
+    def series(request, body):
+        """Названия наборов данных в графиках каждого модуля — подсказки для правил оформления (по первым графикам модуля)."""
+        import re
+        form = {k: v for k, v in form_of(body).items() if not k.startswith('fmt_')}
+        try:
+            _, plan, _ = need_plan(request.path_params['pid'], form)
+            jobs = plan.jobs
+        except Failure:
+            jobs = []
+        found: dict = {}
+        seen: dict = {}
+        for job in jobs:
+            module = getattr(job, 'module', '') or ''
+            if seen.get(module, 0) >= 2:
+                continue
+            seen[module] = seen.get(module, 0) + 1
+            try:
+                figure = job.render()
+            except Exception:
+                continue
+            names = found.setdefault(module, [])
+            for trace in figure.data:
+                text = re.sub(r'^(№\s*\d+[^\s]*\s*·\s*|№\s*\d+\s*$)', '', str(trace.name or '')).strip()
+                if text and text not in names and trace.visible is not False:
+                    names.append(text)
+        from .modules._ggh import GAS, PARAMS
+        found['ggh'] = [label for label, _, _ in PARAMS.values()] + [GAS[1]]
+        return {'series': {m: v[:40] for m, v in found.items() if v}}
+
     def archive(request, body):
         pid, form = request.path_params['pid'], form_of(body)
         options, plan, data = need_plan(pid, form)
@@ -694,7 +723,7 @@ def routes(projects: Projects) -> list[Route]:
         options, source, raw = options_from(pack_options(form, data), data)
         if not options['wells']:
             raise Failure(400, 'В проекте нет скважин с эксплуатацией для пакета графиков.')
-        plan = reporting.plan(source, data.mapping, data.settings, options, raw)
+        plan = chart_labels.labelled(reporting.plan(source, data.mapping, data.settings, options, raw), form)     # подписи и оформление, как у остальных графиков
         d = production.periods(source['production'], data.settings['season_start'], data.settings['season_end'])
         meta = metadata(pid, data, options, {})
         pack_font, pack_font_size = font_from(form)
@@ -778,7 +807,9 @@ def routes(projects: Projects) -> list[Route]:
             items.append({'well': w, 'frame': part, 'horizon': well_horizon(part)})
         if not items:
             raise Failure(400, 'У выбранных скважин меньше двух замеров ГГХ: графики не строятся.')
-        content = ggh_report.build_docx(items, start=start, section=section, dpi=dpi)
+        font, font_size = font_from(form)
+        style = {**chart_format.for_module(chart_format.configs(form), 'ggh'), 'font_size': font_size, 'look': look_from(form)}
+        content = ggh_report.build_docx(items, start=start, section=section, dpi=dpi, font=font if font != 'default' else 'times', style=style)
         exports = projects.store.path(pid) / 'exports'
         exports.mkdir(exist_ok=True)
         info = {'module': 'ggh', 'charts': len(items), 'section': section, 'start': start, 'dpi': dpi}
@@ -822,6 +853,7 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/plan', E(plan_view), methods=['POST']),
         Route(base + '/preview', E(preview), methods=['POST']),
         Route(base + '/chart', E(chart), methods=['POST']),
+        Route(base + '/series', E(series), methods=['POST']),
         Route(base + '/archive', E(archive), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
         Route(base + '/word-preview', E(word_preview), methods=['POST']),

@@ -183,7 +183,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         color: tk.muted, fontSize: 11, hideOverlap: true, margin: 10,
         ...(a.scale === 'time'
           ? { formatter: { year: '{yyyy}', month: '{MM}.{yyyy}', day: '{dd}.{MM}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', none: '{dd}.{MM}.{yyyy}' } }
-          : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(v) }),
+          : a.scale === 'category' ? {} : { formatter: (v: number) => position === 'y2' && a.inverse && v < -1e-9 ? '' : formatNumber(v) }),   // уровень не бывает отрицательным: метки в запасе шкалы скрыты
       },
       splitLine: { show: position !== 'y2' && (y || a.scale !== 'category'), lineStyle: { color: tk.grid, width: 1 } },
     }

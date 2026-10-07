@@ -146,5 +146,9 @@ def labelled(plan, form: Mapping[str, Any]):
     cfgs, formats = configs(form), chart_format.configs(form)
     if not cfgs and not formats:
         return plan
-    return replace(plan, jobs=[LabelledJob(j, cfgs.get(j.module, {}), formats.get(j.module)) if getattr(j, 'module', '') in cfgs or getattr(j, 'module', '') in formats else j
-                               for j in plan.jobs])
+    jobs = []
+    for job in plan.jobs:
+        module = getattr(job, 'module', '') or ''
+        look = chart_format.for_module(formats, module)
+        jobs.append(LabelledJob(job, cfgs.get(module, {}), look) if module in cfgs or look else job)
+    return replace(plan, jobs=jobs)

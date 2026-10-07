@@ -155,24 +155,56 @@ def style_figure(figure,style=None,copy_figure=True):
     return fig
 
 
-# Две шкалы Y графика реагирования: доля высоты поля (снизу вверх), которую занимает кривая давления и кривая уровня.
-# «below» — уровень отдельной полосой ниже давлений, «above» — выше; «overlay» — обе шкалы на всю высоту, как раньше.
+# Две шкалы Y графика реагирования: доля высоты поля (снизу вверх), которую занимает кривая давления и кривая уровня,
+# и допуск — в этих пределах кривая может сдвинуться, когда границы шкал подбираются «круглыми» (по 5 одинаковых делений).
+# «below» — уровень отдельной полосой ниже давлений, «above» — выше; «auto» — выбирается по данным (см. ``auto_band``);
+# «overlay» — обе шкалы на всю высоту, как раньше (5.8).
 LEVEL_BANDS={'below':((.44,.96),(.04,.34)),'above':((.04,.56),(.66,.96))}
+BAND_LIMITS={'below':((.40,.98),(.02,.38)),'above':((.02,.60),(.62,.98))}
+TICKS=5
+
+def auto_band(pressure,level):
+    """«below» (уровень внизу) или «above» (вверху): уровень ставится туда, где давление в среднем дальше от края поля —
+    давление высокое (выше середины своего размаха) → уровень уходит вниз, низкое → вверх."""
+    p=np.asarray(pressure,dtype=float);p=p[np.isfinite(p)]
+    if p.size<2 or p.max()<=p.min():return 'below'
+    return 'below' if float(p.mean())>=(float(p.max())+float(p.min()))/2 else 'above'
+
+def nice_axis(lo,hi,low,high,n=TICKS):
+    """Шкала из ``n`` равных делений с «круглым» шагом (1, 2, 2.5, 5 · 10^k) и началом на сетке шага или полушага, в которую
+    данные ``lo…hi`` ложатся в доле ``low…high`` высоты. Возвращает ``(начало, конец)`` или ``None``, если не нашлось."""
+    width=hi-lo if hi>lo else max(1.,abs(hi)*.1)
+    if hi<=lo:lo,hi=lo-width/2,hi+width/2
+    raw=width/(high-low)/n
+    base=10.0**np.floor(np.log10(raw))
+    for step in sorted(m*base*10**e for e in (0,1) for m in (1,2,2.5,4,5)):
+        if step<raw*(1-1e-9) or step>raw*4:continue
+        length=step*n
+        first,last=hi-high*length,lo-low*length             # допустимое начало шкалы
+        for grid in (step,step/2):
+            k=np.ceil(first/grid-1e-9)
+            if k*grid<=last+1e-9:return float(k*grid),float(k*grid+length)
+    return None
 
 def separated_ranges(pressure,level,band='below'):
     """Границы двух шкал Y так, чтобы кривые давления и уровня жидкости занимали разные полосы поля.
     ``pressure`` / ``level`` — значения кривых; возвращает ``((p_низ, p_верх), (l_верх, l_низ))`` — уровень по обратной шкале
-    (глубже — ниже), либо ``None``, если разносить нечего или ``band`` не «below» / «above»."""
-    if band not in LEVEL_BANDS:return None
+    (глубже — ниже), либо ``None``, если разносить нечего или ``band`` не «below» / «above» / «auto». Деления «круглые»,
+    когда это получается без выхода за допуск полосы; иначе границы точные."""
     p=np.asarray(pressure,dtype=float);l=np.asarray(level,dtype=float);p=p[np.isfinite(p)];l=l[np.isfinite(l)]
     if not p.size or not l.size:return None
-    (p_lo,p_hi),(l_lo,l_hi)=LEVEL_BANDS[band]
+    if band=='auto':band=auto_band(p,l)
+    if band not in LEVEL_BANDS:return None
+    (p_lo,p_hi),(l_lo,l_hi)=LEVEL_BANDS[band];(pl,ph),(ll,lh)=BAND_LIMITS[band]
     def span(values,width):
         lo,hi=float(values.min()),float(values.max())
         return (hi-lo if hi>lo else max(1.,abs(hi)*.1))/width,lo,hi
     sp,pmin,pmax=span(p,p_hi-p_lo);p_bottom=(pmin if pmax>pmin else pmin-(sp*(p_hi-p_lo))/2)-sp*p_lo
     sl,lmin,lmax=span(l,l_hi-l_lo);l_bottom=(lmax if lmax>lmin else lmax+(sl*(l_hi-l_lo))/2)+sl*l_lo
-    return (p_bottom,p_bottom+sp),(l_bottom-sl,l_bottom)
+    exact_p,exact_l=(p_bottom,p_bottom+sp),(l_bottom-sl,l_bottom)
+    nice_p=nice_axis(float(p.min()),float(p.max()),pl,ph)
+    nice_l=nice_axis(-float(l.max()),-float(l.min()),ll,lh)         # уровень растёт вниз: считаем по обратным значениям
+    return nice_p or exact_p,(-nice_l[1],-nice_l[0]) if nice_l else exact_l
 
 @cached_chart
 def response_chart(df,working,metric='level',title=None,interactive=True,color_map=None,
