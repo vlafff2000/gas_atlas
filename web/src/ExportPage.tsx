@@ -758,6 +758,8 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
           options={[['separate', 'Уровень и давление отдельно'], ['combined', 'Уровень + давление'], ['level', 'Только уровень'], ['pressure', 'Только давление']]} />
         <Select {...F} field="response_split" label="Реагирование: построение" def="horizon"
           options={[['horizon', 'По горизонтам'], ['all', 'Все вместе'], ['well', 'По скважинам']]} />
+        <Select {...F} field="response_level_band" label="Реагирование: уровень на двух шкалах" def="below"
+          options={[['below', 'Отдельной полосой ниже давлений'], ['above', 'Отдельной полосой выше давлений'], ['overlay', 'Наложение на всю высоту']]} />
       </Section>
     )
   } else if (module === 'well_dashboard') {

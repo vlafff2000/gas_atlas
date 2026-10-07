@@ -152,7 +152,7 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
                         if metric!='combined' and (metric not in part or not part[metric].notna().any()):continue
                         if metric=='combined' and not any(col in part and part[col].notna().any() for col in ('level','pressure')):continue
                         name=tag+label+' · '+{'level':'уровень','pressure':'давление','combined':'уровень и давление'}[metric]
-                        add(name,charts.response_chart,part,working,metric,title=charts.response_title(ordered(part.well),label,split),interactive=False,color_map=charts.well_colors(raw_frames[module].well),object_pressure=frames.get('object_pressure'),manometer_wells=settings.get('manometer_wells',[]),by_well=split=='well',pressure_horizons=ordered(raw_frames[module].loc[raw_frames[module].pressure.notna(),'horizon']) if 'pressure' in raw_frames[module] else [])
+                        add(name,charts.response_chart,part,working,metric,title=charts.response_title(ordered(part.well),label,split),interactive=False,color_map=charts.well_colors(raw_frames[module].well),object_pressure=frames.get('object_pressure'),manometer_wells=settings.get('manometer_wells',[]),by_well=split=='well',pressure_horizons=ordered(raw_frames[module].loc[raw_frames[module].pressure.notna(),'horizon']) if 'pressure' in raw_frames[module] else [],level_band=cfg.get('level_band','overlay'))
             tables['Реагирование']=response.statistics(d)
             if options.get('raw'):tables['Замеры']=exclusions.public_table(d)
         elif module=='object_pressure':add('Давление объекта',object_figure,frames[module]);tables['Давление_объекта']=exclusions.public_table(frames[module])

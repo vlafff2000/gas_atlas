@@ -211,6 +211,9 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     a,b=layout.range;target.set_ylim(a,b)
                     from matplotlib.ticker import FixedLocator
                     target.yaxis.set_major_locator(FixedLocator([layout.tick0+i*layout.dtick for i in range(int(round(abs(b-a)/layout.dtick))+1)]))
+            if secondary is not None and fig.layout.yaxis2.range is not None:secondary.set_ylim(*fig.layout.yaxis2.range)
+            if secondary is not None and fig.layout.yaxis2.range is not None and min(fig.layout.yaxis2.range)<0:
+                from matplotlib.ticker import FuncFormatter;secondary.yaxis.set_major_formatter(FuncFormatter(lambda v,_:'' if v<-1e-9 else f'{v:g}'))     # уровень не бывает отрицательным: метки в запасе шкалы скрыты
             ax.set_axisbelow(True);ax.spines[['top','right']].set_visible(False)
             if excel:excel_finish(f,ax,secondary,title,k,date_axis,bool(bars or boxes) and not numeric_bars)     # до легенды: её значки копируют цвета рядов
             if legend:

@@ -61,7 +61,8 @@ def options58(data, form):
             r = frames['response']
             hs = ordered(r.horizon)
             cfg.update(horizons=hs, working=[h for h in settings.get('working_horizons', []) if h in hs],
-                       dates=[str(r.date.min().date()), str(r.date.max().date())], view='separate', split=form['response_split'])
+                       dates=[str(r.date.min().date()), str(r.date.max().date())], view='separate', split=form['response_split'],
+                       level_band='below')      # ≈ 5.8: уровень на двух шкалах отдельной полосой (docs/parity/response.md)
         out[module] = cfg
         out['modules'].append(module)
     out['wells'] = ordered(selected)
