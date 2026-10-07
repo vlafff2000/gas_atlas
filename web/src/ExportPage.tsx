@@ -60,9 +60,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const modules = (form.modules as string[] | undefined) ?? choices?.default_modules ?? []
   const key = JSON.stringify([project.revision, form])
   // Перечень графиков от размера не зависит: растягивание в предпросмотре не должно его сбрасывать.
-  const planned = useMemo(() => { const { width: _w, height: _h, look: _l, ...rest0 } = form; const rest = Object.fromEntries(Object.entries(rest0).filter(([k]) => !k.startsWith('word_') && !k.startsWith('label_'))); return JSON.stringify([project.revision, rest]) }, [form, project.revision])
+  const planned = useMemo(() => { const { width: _w, height: _h, look: _l, ...rest0 } = form; const rest = Object.fromEntries(Object.entries(rest0).filter(([k]) => !k.startsWith('word_') && !k.startsWith('label_') && !k.startsWith('fmt_'))); return JSON.stringify([project.revision, rest]) }, [form, project.revision])
   const ready = modules.length > 0
-  const labelsKey = JSON.stringify(Object.entries(form).filter(([k]) => k.startsWith('label_')))
+  const labelsKey = JSON.stringify(Object.entries(form).filter(([k]) => k.startsWith('label_') || k.startsWith('fmt_')))
 
   const prepare = async () => {
     if (planKey === planned && plan) return plan
@@ -246,8 +246,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
               <Select {...F} field="font" label="Шрифт" def="default"
                 options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]} />
               <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
-              <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
-          <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
+              <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
                 options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
               <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
             </Section>
@@ -363,6 +362,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <SizePick {...F} />
           <Select {...F} field="font" label="Шрифт" def="default"
             options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]} />
+          <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
           <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
             options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
           <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
@@ -385,6 +385,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           enabled={modules.includes(current)} adoptPanels={adoptPanels} {...F}
           onEnable={on => set('modules', choices.modules.map(m => m.id).filter(m => m === current ? on : modules.includes(m)))} />
       </div>
+
+      <ChartFormat {...F} modules={modules} />
 
       <ChartLabels {...F} modules={modules} />
 
@@ -758,6 +760,8 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
           options={[['separate', 'Уровень и давление отдельно'], ['combined', 'Уровень + давление'], ['level', 'Только уровень'], ['pressure', 'Только давление']]} />
         <Select {...F} field="response_split" label="Реагирование: построение" def="horizon"
           options={[['horizon', 'По горизонтам'], ['all', 'Все вместе'], ['well', 'По скважинам']]} />
+        <Select {...F} field="response_level_band" label="Реагирование: уровень на двух шкалах" def="below"
+          options={[['below', 'Отдельной полосой ниже давлений'], ['above', 'Отдельной полосой выше давлений'], ['overlay', 'Наложение на всю высоту']]} />
       </Section>
     )
   } else if (module === 'well_dashboard') {
@@ -817,7 +821,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
   const [shot, setShot] = useState<WordPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size' || k === 'look'), doc, page])
+  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('fmt_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size' || k === 'look'), doc, page])
   useEffect(() => {
     if (!open || !ready) return
     let alive = true
@@ -933,6 +937,61 @@ function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: st
                 <textarea rows={3} value={(form[f('legend')] as string | undefined) ?? ''} maxLength={2000}
                   onChange={e => set(f('legend'), e.target.value)} />
               </label>
+            </Section>
+          )
+        })}
+      </div>
+    </details>
+  )
+}
+
+interface SeriesRule { match: string; color?: string; width?: number | ''; marker?: number | ''; hide?: boolean }
+
+const ANGLE_OPTIONS: Opt[] = [['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]
+
+/** Толщина линий, маркеры, цвета наборов данных, наклон подписей X, заголовок и легенда — для каждого типа графиков отдельно. */
+function ChartFormat({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
+  const rows = modules.filter(m => choices.modules.some(x => x.id === m))
+  const P = { form, set, choices }
+  return (
+    <details className="table-block">
+      <summary className="block-head"><h3>Оформление графиков по типам</h3></summary>
+      <p className="muted pad">Для каждого типа графиков своё оформление; оно действует на предпросмотр, архив и Word и сохраняется вместе с шаблоном выгрузки.
+        «Наборы данных» — правила для отдельных кривых: фрагмент названия из легенды (например, «объекта»), цвет, толщина, размер маркеров
+        (0 — без маркеров) или «скрыть». Пустое поле — как в графике.</p>
+      <div className="param-bar flat">
+        {rows.map(m => {
+          const f = (name: string) => 'fmt_' + m + '_' + name
+          let rules: SeriesRule[] = []
+          try { rules = JSON.parse((form[f('series')] as string | undefined) || '[]') } catch { rules = [] }
+          const save = (next: SeriesRule[]) => set(f('series'), next.length ? JSON.stringify(next) : '')
+          const edit = (i: number, patch: Partial<SeriesRule>) => save(rules.map((r, j) => j === i ? { ...r, ...patch } : r))
+          return (
+            <Section key={m} title={choices.modules.find(x => x.id === m)?.label ?? m}>
+              <Text {...P} field={f('width')} label="Толщина линий, пт" def="" />
+              <Text {...P} field={f('marker')} label="Размер маркеров (0 — без маркеров)" def="" />
+              <Select {...P} field={f('angle')} label="Подписи оси X" def="auto" options={ANGLE_OPTIONS} />
+              <Select {...P} field={f('title')} label="Шапка графика" def="show" options={[['show', 'Показывать'], ['hide', 'Скрыть']]} />
+              <Select {...P} field={f('legend')} label="Легенда" def="bottom"
+                options={[['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]} />
+              <div className="field wide">
+                <span className="field-label">Наборы данных</span>
+                {rules.map((r, i) => (
+                  <div key={i} className="series-rule">
+                    <input value={r.match} placeholder="часть названия" aria-label="Часть названия набора" maxLength={200}
+                      onChange={e => edit(i, { match: e.target.value })} />
+                    <input type="color" value={r.color || '#2563eb'} aria-label="Цвет" onChange={e => edit(i, { color: e.target.value })} />
+                    <button type="button" title="Цвет как в графике" onClick={() => edit(i, { color: '' })} disabled={!r.color}>цвет ✕</button>
+                    <input value={r.width ?? ''} placeholder="толщина" aria-label="Толщина линии" size={6}
+                      onChange={e => edit(i, { width: e.target.value as unknown as number })} />
+                    <input value={r.marker ?? ''} placeholder="маркер" aria-label="Размер маркеров" size={6}
+                      onChange={e => edit(i, { marker: e.target.value as unknown as number })} />
+                    <label className="toggle"><input type="checkbox" checked={!!r.hide} onChange={e => edit(i, { hide: e.target.checked })} /><span>скрыть</span></label>
+                    <button type="button" aria-label="Удалить правило" onClick={() => save(rules.filter((_, j) => j !== i))}>✕</button>
+                  </div>
+                ))}
+                <button type="button" disabled={rules.length >= 50} onClick={() => save([...rules, { match: '' }])}>+ набор данных</button>
+              </div>
             </Section>
           )
         })}

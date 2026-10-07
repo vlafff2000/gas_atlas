@@ -14,7 +14,7 @@ import pandas as pd
 
 from app.core import exclusions
 from app.core.config import ordered
-from app.modules.charts import well_colors, well_title
+from app.modules.charts import separated_ranges, well_colors, well_title
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)
@@ -36,6 +36,9 @@ METRIC_WORDS = {'level': 'уровень', 'pressure': 'давление', 'comb
 LEVEL_COLOR, MANOMETER_COLOR, RECALC_COLOR, OBJECT_COLOR = '#32BDA4', '#8B5CF6', '#2563EB', '#DC3545'
 LEVEL_AXIS = Axis('Уровень жидкости', 'м')
 PRESSURE_AXIS = Axis('Пластовое давление', UNITS['pressure'])
+
+BANDS = (Option('below', 'Уровень отдельной полосой ниже давлений'), Option('above', 'Уровень отдельной полосой выше давлений'),
+         Option('overlay', 'Обе шкалы на всю высоту (наложение)'))
 
 VIEW_NOTE = ('При совмещении давление — слева, уровень — справа с обратной шкалой. В графиках по скважине: '
              'объект — красный, уровень — мятный, ГДМ — фиолетовый, пересчет — синий.')
@@ -74,7 +77,7 @@ class Selection:
 
 def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, palette: Mapping[str, str],
                    object_pressure: pd.DataFrame | None, manometer: set[str], by_well: bool,
-                   pressure_horizons: set[str]) -> Chart:
+                   pressure_horizons: set[str], level_band: str = 'overlay') -> Chart:
     """Перенос ``charts.response_chart``: те же серии, цвета, маркеры и оси; точки — все (прореживает только выдача на экран)."""
     wells = ordered(part.well)
     pressure_enabled = bool(set(part.horizon).intersection(pressure_horizons)) if not part.empty else False
@@ -118,6 +121,13 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
                 'Пластовое давление объекта', data.date.to_numpy(), data.pressure.to_numpy(float), 'line',
                 color=OBJECT_COLOR, dash='solid', width=2.0, markers=True,
                 ids=data['_point_id'].astype(str).tolist() if '_point_id' in data else None, dataset=OBJECT))
+    if dual:      # шкалы разнесены: кривая уровня стоит отдельной полосой, а не поверх давлений
+        apart = separated_ranges([v for s in chart.series if s.axis != 'y2' for v in s.y],
+                                 [v for s in chart.series if s.axis == 'y2' for v in s.y], level_band)
+        if apart:
+            (p0, p1), (top, bottom) = apart
+            chart.y.minimum, chart.y.maximum = p0, p1
+            chart.y2.minimum, chart.y2.maximum = top, bottom
     return chart
 
 
@@ -214,6 +224,8 @@ class ResponseModule(Module):
             Param('date_to', 'по', 'date', default=None, section=SECTION_DATA, help='Пусто — до последнего замера'),
             Param('view', 'Вид графиков', 'choice', default='separate', options=VIEWS, section=SECTION_VIEW, chart_kind=True),
             Param('split', 'Построение', 'choice', default='horizon', options=SPLITS, section=SECTION_VIEW),
+            Param('level_band', 'Уровень жидкости на двух шкалах', 'choice', default='below', options=BANDS, section=SECTION_VIEW,
+                  help='Только для вида «Уровень + давление»: полоса уровня не накладывается на кривые давления'),
         ),
     )
 
@@ -244,7 +256,7 @@ class ResponseModule(Module):
                 Stat('Действующих уровней', str(level)), Stat('Замеров давления', str(pressure)),
                 Stat('Исключено точек', str(excluded), 'Уровень и давление одного замера считаются отдельно')]
             result.notes.append(Note(VIEW_NOTE))
-            result.charts.extend(self.charts(data, sel, f, params['view'], params['split']))
+            result.charts.extend(self.charts(data, sel, f, params['view'], params['split'], params['level_band']))
             result.tables.append(measurements_table(f))
         for field in ('level', 'pressure'):
             table = point_table(original, field, data.excluded)
@@ -257,7 +269,7 @@ class ResponseModule(Module):
         return result
 
     @staticmethod
-    def charts(data: Data, sel: Selection, f: pd.DataFrame, view: str, split: str) -> list[Chart]:
+    def charts(data: Data, sel: Selection, f: pd.DataFrame, view: str, split: str, level_band: str = 'overlay') -> list[Chart]:
         raw = sel.raw
         pressure_horizons = set(ordered(raw.loc[raw.pressure.notna(), 'horizon'])) if 'pressure' in raw else set()
         palette = well_colors(sel.df.well)
@@ -275,7 +287,7 @@ class ResponseModule(Module):
                     continue
                 title = chart_title(ordered(part.well), label, split) + ' · ' + METRIC_WORDS[metric]
                 chart = response_chart(part, metric, title, f'response-{split}-{label}-{metric}', palette,
-                                       object_pressure, manometer, split == 'well', pressure_horizons)
+                                       object_pressure, manometer, split == 'well', pressure_horizons, level_band)
                 chart.events = list(events)
                 out.append(chart)
         return out

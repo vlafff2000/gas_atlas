@@ -155,9 +155,28 @@ def style_figure(figure,style=None,copy_figure=True):
     return fig
 
 
+# Две шкалы Y графика реагирования: доля высоты поля (снизу вверх), которую занимает кривая давления и кривая уровня.
+# «below» — уровень отдельной полосой ниже давлений, «above» — выше; «overlay» — обе шкалы на всю высоту, как раньше.
+LEVEL_BANDS={'below':((.44,.96),(.04,.34)),'above':((.04,.56),(.66,.96))}
+
+def separated_ranges(pressure,level,band='below'):
+    """Границы двух шкал Y так, чтобы кривые давления и уровня жидкости занимали разные полосы поля.
+    ``pressure`` / ``level`` — значения кривых; возвращает ``((p_низ, p_верх), (l_верх, l_низ))`` — уровень по обратной шкале
+    (глубже — ниже), либо ``None``, если разносить нечего или ``band`` не «below» / «above»."""
+    if band not in LEVEL_BANDS:return None
+    p=np.asarray(pressure,dtype=float);l=np.asarray(level,dtype=float);p=p[np.isfinite(p)];l=l[np.isfinite(l)]
+    if not p.size or not l.size:return None
+    (p_lo,p_hi),(l_lo,l_hi)=LEVEL_BANDS[band]
+    def span(values,width):
+        lo,hi=float(values.min()),float(values.max())
+        return (hi-lo if hi>lo else max(1.,abs(hi)*.1))/width,lo,hi
+    sp,pmin,pmax=span(p,p_hi-p_lo);p_bottom=(pmin if pmax>pmin else pmin-(sp*(p_hi-p_lo))/2)-sp*p_lo
+    sl,lmin,lmax=span(l,l_hi-l_lo);l_bottom=(lmax if lmax>lmin else lmax+(sl*(l_hi-l_lo))/2)+sl*l_lo
+    return (p_bottom,p_bottom+sp),(l_bottom-sl,l_bottom)
+
 @cached_chart
 def response_chart(df,working,metric='level',title=None,interactive=True,color_map=None,
-                   object_pressure=None,manometer_wells=None,by_well=False,pressure_horizons=None):
+                   object_pressure=None,manometer_wells=None,by_well=False,pressure_horizons=None,level_band='overlay'):
     wells=ordered(df.well) if 'well' in df else []
     manometer=set(manometer_wells or [])
     pressure_horizons=set(pressure_horizons if pressure_horizons is not None else df.loc[df.pressure.notna(),'horizon'].unique() if 'pressure' in df else [])
@@ -205,6 +224,11 @@ def response_chart(df,working,metric='level',title=None,interactive=True,color_m
     if dual:
         fig.update_layout(yaxis={'autorange':True,'title':'Пластовое давление, кгс/см²'},
             yaxis2={'title':'Уровень жидкости, м','overlaying':'y','side':'right','showgrid':False,'autorange':'reversed'},margin={'r':85})
+        apart=separated_ranges([v for t in fig.data if t.yaxis!='y2' for v in np.asarray(t.y,dtype=float)],
+                               [v for t in fig.data if t.yaxis=='y2' for v in np.asarray(t.y,dtype=float)],level_band)
+        if apart:
+            (p0,p1),(l_top,l_bottom)=apart
+            fig.update_layout(yaxis={'autorange':False,'range':[p0,p1]},yaxis2={'autorange':False,'range':[l_bottom,l_top]})
     return fig
 
 

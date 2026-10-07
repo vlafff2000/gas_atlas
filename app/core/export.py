@@ -80,10 +80,16 @@ def excel_finish(f,ax,secondary,title,k,date_axis,categorical):
         for line in a.get_lines():
             if len(line.get_xdata())<2 and line.get_marker() in (None,'None',''):continue
             if to_hex(line.get_color()).lower() in ('#000000','#ffffff'):continue
-            color=paint(line.get_color());hollow=line.get_markerfacecolor()=='white'
-            line.set_color(color);line.set_markeredgecolor(color);line.set_markerfacecolor('white' if hollow else color)
-            if line.get_linestyle() not in ('None','',' '):line.set_linewidth(2.25);line.set_solid_capstyle('round');line.set_solid_joinstyle('round')
-            if line.get_marker() not in (None,'None',''):line.set_markersize(5.5);line.set_markeredgewidth(.75)
+            own=getattr(line,'_own',())       # то, что задано в «Оформлении графиков», вид Excel не меняет
+            if 'color' not in own:
+                color=paint(line.get_color());hollow=line.get_markerfacecolor()=='white'
+                line.set_color(color);line.set_markeredgecolor(color);line.set_markerfacecolor('white' if hollow else color)
+            if line.get_linestyle() not in ('None','',' '):
+                if 'width' not in own:line.set_linewidth(2.25)
+                line.set_solid_capstyle('round');line.set_solid_joinstyle('round')
+            if line.get_marker() not in (None,'None',''):
+                if 'size' not in own:line.set_markersize(5.5)
+                line.set_markeredgewidth(.75)
         for patch in a.patches:patch.set_facecolor(paint(patch.get_facecolor()));patch.set_edgecolor('none')
     for a in axes:
         a.tick_params(axis='both',length=0,labelsize=9*k,labelcolor=XL_TEXT,pad=5);a.xaxis.label.set_size(10*k);a.yaxis.label.set_size(10*k)
@@ -178,11 +184,17 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     marker={'square':'s','diamond':'D','triangle-up':'^'}.get(str(symbol).replace('-open',''),'o') if 'markers' in mode else None
                     edge=t.marker.line.color or color
                     face='white' if hollow else t.marker.color or color
-                    target.plot(x,y,label=label,color=color,linestyle=dash if 'lines' in mode else 'None',marker=marker,
+                    own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set()      # задано в «Оформлении графиков» (atlas/chart_format.py)
+                    msize=t.marker.size if isinstance(t.marker.size,(int,float)) else None
+                    twidth=t.line.width if isinstance(t.line.width,(int,float)) and t.line.width>0 else None
+                    ln,=target.plot(x,y,label=label,color=color,linestyle=dash if 'lines' in mode else 'None',marker=marker,
                         markerfacecolor=face,markeredgecolor=edge,markeredgewidth=t.marker.line.width or .7,
-                        markersize=3,linewidth=1.2)
+                        markersize=msize/2 if msize and 'size' in own else 3,linewidth=twidth if twidth and 'width' in own else 1.2)
+                    ln._own=own
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
             title=re.sub('<[^>]+>','',fig.layout.title.text or '')
+            fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}
+            if fo.get('title')=='hide':title=''
             if compact:ax.set_title(title,loc='center',fontsize=8.5*k,fontweight='bold',pad=5)
             else:ax.set_title(title,loc='left',fontsize=12*k,pad=14)
             ax.set_xlabel(fig.layout.xaxis.title.text or '');ax.set_ylabel(fig.layout.yaxis.title.text or '')
@@ -211,14 +223,23 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     a,b=layout.range;target.set_ylim(a,b)
                     from matplotlib.ticker import FixedLocator
                     target.yaxis.set_major_locator(FixedLocator([layout.tick0+i*layout.dtick for i in range(int(round(abs(b-a)/layout.dtick))+1)]))
+            if secondary is not None and fig.layout.yaxis2.range is not None:secondary.set_ylim(*fig.layout.yaxis2.range)
+            if secondary is not None and fig.layout.yaxis2.range is not None and min(fig.layout.yaxis2.range)<0:
+                from matplotlib.ticker import FuncFormatter;secondary.yaxis.set_major_formatter(FuncFormatter(lambda v,_:'' if v<-1e-9 else f'{v:g}'))     # уровень не бывает отрицательным: метки в запасе шкалы скрыты
             ax.set_axisbelow(True);ax.spines[['top','right']].set_visible(False)
             if excel:excel_finish(f,ax,secondary,title,k,date_axis,bool(bars or boxes) and not numeric_bars)     # до легенды: её значки копируют цвета рядов
+            if fo.get('angle') not in (None,'auto'):
+                angle=float(fo['angle'])
+                for lab in ax.get_xticklabels():lab.set_rotation(angle);lab.set_ha('right' if 0<angle<90 else 'center')
+            if fo.get('legend')=='hide':legend=[]
             if legend:
                 handles,labels=ax.get_legend_handles_labels()
                 if secondary is not None:
                     h,l=secondary.get_legend_handles_labels();handles+=h;labels+=l
                 if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=wrap_at)) for v in labels]
-                if handles:f.legend(handles,labels,loc='outside lower center',ncol=ncols,fontsize=(9 if excel else 6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6,labelcolor=XL_TEXT if excel else None)
+                if handles:
+                    where={'top':'outside upper center','right':'outside center right'}.get(fo.get('legend'),'outside lower center')
+                    f.legend(handles,labels,loc=where,ncol=1 if where.endswith('right') else ncols,fontsize=(9 if excel else 6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6,labelcolor=XL_TEXT if excel else None)
             if compact:
                 from matplotlib.ticker import MaxNLocator
                 for axis in (ax.xaxis,ax.yaxis)+((secondary.yaxis,) if secondary is not None else ()):

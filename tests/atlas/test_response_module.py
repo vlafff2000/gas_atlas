@@ -256,3 +256,25 @@ def test_demo_project_works(tmp_path):
     pid = client.post('/api/projects/demo').json()['id']
     body = run(client, pid, wells=['31'], view='combined', split='horizon')
     assert body['charts'] and 'points-object' not in [t['id'] for t in body['tables']]
+
+
+def test_level_band_separates_level_from_pressure(env):
+    """Две шкалы: кривая уровня стоит отдельной полосой ниже (выше) давлений; «overlay» — как в 5.8."""
+    from app.modules.charts import separated_ranges
+    pressure, level = np.linspace(50, 80, 20), np.linspace(10, 40, 20)
+    for band in ('below', 'above'):
+        (p0, p1), (top, bottom) = separated_ranges(pressure, level, band)
+        pos = lambda v: (v - p0) / (p1 - p0)                      # доля высоты от низа, давление растёт вверх
+        lev = lambda v: (bottom - v) / (bottom - top)             # уровень: глубже — ниже
+        p_band, l_band = (pos(pressure.min()), pos(pressure.max())), (lev(level.max()), lev(level.min()))
+        low, high = sorted([p_band, l_band])
+        assert high[0] - low[1] > .05 and 0 < low[0] and high[1] < 1               # полосы не пересекаются, есть зазор
+        assert (l_band[0] < p_band[0]) == (band == 'below')
+    assert separated_ranges(pressure, level, 'overlay') is None and separated_ranges([], level, 'below') is None
+    assert separated_ranges([60, 60], [20, 20], 'below')
+    client, pid, projects = env
+    body = run(client, pid, wells=WELLS, view='combined', split='all')
+    chart = body['charts'][0]
+    assert chart['y']['minimum'] is not None and chart['y2']['minimum'] is not None and chart['y2']['inverse']
+    over = run(client, pid, wells=WELLS, view='combined', split='all', level_band='overlay')['charts'][0]
+    assert over['y']['minimum'] is None and over['y2']['minimum'] is None

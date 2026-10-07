@@ -11,6 +11,8 @@ import copy
 import re
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from . import chart_format
+
 FIELDS = ('title', 'x', 'y', 'y2', 'legend', 'template')
 GDI_FIELDS = ('дата', 'метод', 'исследование')
 GDI_DEFAULT = '{дата}'
@@ -125,20 +127,24 @@ def apply(figure, cfg: Mapping[str, str]):
 class LabelledJob:
     """Задание на график с подписями: всё остальное (имя, модуль) берётся у исходного."""
 
-    def __init__(self, job, cfg: Mapping[str, str]):
-        self._job, self._cfg = job, cfg
+    def __init__(self, job, cfg: Mapping[str, str], format: Optional[Mapping[str, Any]] = None):
+        self._job, self._cfg, self._format = job, cfg, format
 
     def __getattr__(self, name):
         return getattr(self._job, name)
 
     def render(self):
-        return apply(self._job.render(), self._cfg)
+        figure = self._job.render()
+        if self._format:
+            figure = chart_format.apply(figure, self._format)
+        return apply(figure, self._cfg) if self._cfg else figure
 
 
 def labelled(plan, form: Mapping[str, Any]):
     """План выгрузки, в котором графики модулей с настроенными подписями строятся уже с ними."""
     from dataclasses import replace
-    cfgs = configs(form)
-    if not cfgs:
+    cfgs, formats = configs(form), chart_format.configs(form)
+    if not cfgs and not formats:
         return plan
-    return replace(plan, jobs=[LabelledJob(j, cfgs[j.module]) if getattr(j, 'module', '') in cfgs else j for j in plan.jobs])
+    return replace(plan, jobs=[LabelledJob(j, cfgs.get(j.module, {}), formats.get(j.module)) if getattr(j, 'module', '') in cfgs or getattr(j, 'module', '') in formats else j
+                               for j in plan.jobs])

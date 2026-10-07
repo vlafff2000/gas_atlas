@@ -61,7 +61,8 @@ def options58(data, form):
             r = frames['response']
             hs = ordered(r.horizon)
             cfg.update(horizons=hs, working=[h for h in settings.get('working_horizons', []) if h in hs],
-                       dates=[str(r.date.min().date()), str(r.date.max().date())], view='separate', split=form['response_split'])
+                       dates=[str(r.date.min().date()), str(r.date.max().date())], view='separate', split=form['response_split'],
+                       level_band='below')      # ≈ 5.8: уровень на двух шкалах отдельной полосой (docs/parity/response.md)
         out[module] = cfg
         out['modules'].append(module)
     out['wells'] = ordered(selected)
@@ -373,3 +374,31 @@ def test_excel_look(env):
     assert word['completed'] == 1 and not word['errors']
     zipped = client.post(f'/api/projects/{pid}/export/archive', json={'form': {**form, 'look': 'excel', 'formats': ['png']}}).json()
     assert zipped['files'] and not zipped['errors']
+
+
+def test_chart_format_per_chart_type(env):
+    """Оформление по типу графиков: толщина, маркеры, правила для наборов данных, наклон X; вид Excel это не перебивает."""
+    import plotly.graph_objects as go
+    from app.core.export import figure_bytes
+    from atlas import chart_format
+    client, pid, _, store = env
+    fig = go.Figure([go.Scatter(x=[1, 2, 3], y=[1, 2, 3], mode='lines+markers', name='Пластовое давление объекта'),
+                     go.Scatter(x=[1, 2, 3], y=[3, 2, 1], mode='lines+markers', name='№ 31')])
+    form = {'fmt_response_width': '3', 'fmt_response_marker': '0', 'fmt_response_angle': '45', 'fmt_response_title': 'hide',
+            'fmt_response_series': '[{"match": "объекта", "color": "#ff0000", "width": 4, "marker": 6}, {"match": "№ 31", "hide": true}]'}
+    cfg = chart_format.configs(form)['response']
+    out = chart_format.apply(fig, cfg)
+    first, second = out.data
+    assert first.line.color == '#ff0000' and first.line.width == 4 and first.marker.size == 12 and first.mode == 'lines+markers'
+    assert second.visible is False and second.mode == 'lines'
+    assert out.layout.meta['format'] == {'title': 'hide', 'angle': '45'} and fig.data[0].line.width is None
+    for look in ('default', 'excel'):
+        assert figure_bytes(out, 'png', 150, 160, look=look)[:4] == b'\x89PNG'
+    for bad in ({'fmt_response_width': '99'}, {'fmt_response_angle': '13'}, {'fmt_response_series': '[{"match":"a","color":"red"}]'}, {'fmt_response_series': '{'}):
+        with pytest.raises(chart_format.FormatError):
+            chart_format.configs(bad)
+    base = {**FORM, 'modules': ['response'], 'response_wells': ['31']}
+    name = client.post(f'/api/projects/{pid}/export/plan', json={'form': base}).json()['charts'][0]['name']
+    shot = lambda f: client.post(f'/api/projects/{pid}/export/preview', json={'form': f, 'chart': name})
+    assert shot({**base, 'fmt_response_width': '3', 'fmt_response_marker': '0', 'fmt_response_legend': 'top'}).status_code == 200
+    assert shot({**base, 'fmt_response_width': '99'}).status_code == 400
