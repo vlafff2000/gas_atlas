@@ -45,7 +45,7 @@ GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
 PRESET_FIELDS = ('look', 'modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
-PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_')
+PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_')
 
 
 # Пакет графиков по фонду («Приложение»): режим → (раздел, слово в подписи).
@@ -493,7 +493,7 @@ def routes(projects: Projects) -> list[Route]:
 
     def prepared(pid: str, form: dict):
         data = projects.data(pid)
-        key = (pid, data.revision, json.dumps({k: v for k, v in form.items() if k not in ('width', 'height') and k != 'look' and not k.startswith(('word_', 'label_'))}, sort_keys=True, ensure_ascii=False, default=str))
+        key = (pid, data.revision, json.dumps({k: v for k, v in form.items() if k not in ('width', 'height') and k != 'look' and not k.startswith(('word_', 'label_', 'fmt_'))}, sort_keys=True, ensure_ascii=False, default=str))
 
         def build():
             options, source, raw = options_from(form, data)
@@ -512,7 +512,7 @@ def routes(projects: Projects) -> list[Route]:
         formats, dpi, width = files_from(form)
         m = projects.manifest(pid)
         return {'project': m['name'], 'version': VERSION_58, 'atlas': VERSION, 'revision': data.revision, 'options': options,
-                'settings': data.settings, 'labels': {k: v for k, v in form.items() if k.startswith('label_')}, 'formats': formats, 'dpi': dpi, 'width_mm': width, 'height_mm': height_from(form),
+                'settings': data.settings, 'labels': {k: v for k, v in form.items() if k.startswith(('label_', 'fmt_'))}, 'formats': formats, 'dpi': dpi, 'width_mm': width, 'height_mm': height_from(form),
                 **dict(zip(('font', 'font_size'), font_from(form))), 'look': look_from(form),
                 'created_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
 
