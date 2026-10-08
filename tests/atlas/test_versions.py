@@ -3,8 +3,8 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core import config
-from app.core.storage import KEEP_SNAPSHOTS, Store
+from atlas.engine.core import config
+from atlas.engine.core.storage import KEEP_SNAPSHOTS, Store
 from atlas.api import create_app
 from atlas.projects import Projects
 from tests.atlas.test_import import EXAMPLES, import6, upload
@@ -45,7 +45,7 @@ def test_rollback_refuses_unknown_and_pruned_copies(tmp_path):
 
 def test_env_limit_is_read(monkeypatch):
     import importlib
-    from app.core import storage
+    from atlas.engine.core import storage
     monkeypatch.setenv('GAS_ATLAS_SNAPSHOTS', '4')
     assert importlib.reload(storage).KEEP_SNAPSHOTS == 4
     monkeypatch.setenv('GAS_ATLAS_SNAPSHOTS', 'много')

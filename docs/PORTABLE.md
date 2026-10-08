@@ -5,8 +5,8 @@
 
 | Архив | Python внутри | Где работает | Запуск |
 |---|---|---|---|
-| `Gas_Atlas_portable_windows_x64.zip` | CPython 3.8.10 с python.org (пакет nuget.org, подпись PSF) | Windows 7 SP1 – 11, 64-bit | `Gas_Atlas_6.bat`, `Gas_Atlas_5.8.bat`, `Sozdat_yarlyki.bat` (ярлыки со значками на рабочий стол) |
-| `Gas_Atlas_portable_linux_x64.tar.gz` | CPython 3.8.20 (python-build-standalone) | Linux x86_64 с glibc 2.17+: РЕД ОС 7.3 и новее, Astra, ALT, CentOS 7+ | `gas_atlas_6.sh`, `gas_atlas_5.8.sh`, `sozdat_yarlyki.sh` |
+| `Gas_Atlas_portable_windows_x64.zip` | CPython 3.8.10 с python.org (пакет nuget.org, подпись PSF) | Windows 7 SP1 – 11, 64-bit | `Gas_Atlas_6.bat`, `Sozdat_yarlyki.bat` (ярлыки со значками на рабочий стол) |
+| `Gas_Atlas_portable_linux_x64.tar.gz` | CPython 3.8.20 (python-build-standalone) | Linux x86_64 с glibc 2.17+: РЕД ОС 7.3 и новее, Astra, ALT, CentOS 7+ | `gas_atlas_6.sh`, `sozdat_yarlyki.sh` |
 
 Архив весит около 175 МБ, в распакованном виде около 700 МБ. Данные (`storage/`) хранятся рядом
 с программой; при обновлении папку `storage` переносят в новую распаковку. Можно задать другую папку
@@ -26,7 +26,7 @@
 (на Linux только manylinux2014, glibc 2.17), копирует приложение и кладёт файлы запуска. Если
 сборка идёт на целевой ОС, в конце скрипт проверяет импорт обоих приложений встроенным Python.
 Архивы CI собирает только по запросу: GitHub → Actions → «Portable archives» → Run workflow (или пуш тега `v*`).
-Workflow запускает из распакованного архива атлас 6 и 5.8 и выкладывает архивы в артефакты запуска.
+Workflow запускает из распакованного архива Атлас 6 и выкладывает архивы в артефакты запуска.
 Обычный CI (`ci.yml`) идёт на Python 3.8; три версии сразу — Actions → CI → Run workflow → `all_pythons`.
 Правки только в `docs/`, `*.md` и `storage/` CI не запускают.
 

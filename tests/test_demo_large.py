@@ -2,11 +2,11 @@
 import pandas as pd
 import pytest
 
-from app.core import exclusions
-from app.core.demo import demo_frames
-from app.core.demo_large import create_large_demo, large_demo_frames
-from app.core.storage import Store
-from app.modules import gdi, pressure_match, production
+from atlas.engine.core import exclusions
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.core.demo_large import create_large_demo, large_demo_frames
+from atlas.engine.core.storage import Store
+from atlas.engine.modules import gdi, pressure_match, production
 
 SIZES = dict(production=20000, gdi=3000, response=4000, pressure_match=6000)
 
@@ -66,7 +66,7 @@ def test_frame_index_is_not_copied_with_attrs(frames):
     """pandas>=2.1 копирует DataFrame.attrs глубоко при каждом iloc/merge: индекс должен передаваться по ссылке,
     иначе кривые «Производительности» на миллионе строк строятся минутами."""
     import copy
-    from app.core.performance import index_for, prepare_table
+    from atlas.engine.core.performance import index_for, prepare_table
     d = prepare_table(frames['production'], 'production', {}, 'test')
     index = index_for(d)
     assert index is not None and copy.deepcopy(index) is index

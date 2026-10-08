@@ -1,7 +1,7 @@
 """Аналитика фонда: состав проекта, рейтинг динамики, качество последних ГДИ, выполнение программы ГДИ.
 
-Математика не переписана: рейтинг и проверка программы — ``app.modules.group_analysis.ranking / program``,
-качество ГДИ — ``app.modules.gdi.analyze`` из 5.8. Перечень функций — docs/parity/groups.md.
+Математика не переписана: рейтинг и проверка программы — ``atlas.engine.modules.group_analysis.ranking / program``,
+качество ГДИ — ``atlas.engine.modules.gdi.analyze`` из 5.8. Перечень функций — docs/parity/groups.md.
 """
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from typing import Any
 
 import pandas as pd
 
-from app.core.config import ordered
-from app.modules import gdi as legacy_gdi
-from app.modules import group_analysis
+from atlas.engine.core.config import ordered
+from atlas.engine.modules import gdi as legacy_gdi
+from atlas.engine.modules import group_analysis
 
 from ..contract import Column, Data, Module, ModuleSpec, Note, Param, Result, Table
 from ..domain import DatasetKind

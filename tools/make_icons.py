@@ -75,21 +75,8 @@ def atlas6(d):
     flame(d, 560, 470, 520, WHITE, (255, 150, 50, 255))
 
 
-def atlas58(d):
-    """Газовый атлас 5.8: то же пламя, спокойные цвета и цифры версии."""
-    flame(d, 512, 400, 520, WHITE, (140, 160, 190, 255))
-    try:
-        from PIL import ImageFont
-        font = ImageFont.load_default(size=250)
-        width = d.textlength('5.8', font=font)
-        d.text(((S - width) / 2, 640), '5.8', font=font, fill=(255, 255, 255, 240))
-    except Exception:
-        pass
-
-
 ICONS = {
     'gas_atlas_6': ((38, 150, 214), (18, 62, 140), atlas6),
-    'gas_atlas_58': ((120, 138, 162), (52, 64, 84), atlas58),
 }
 
 

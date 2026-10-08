@@ -1,7 +1,7 @@
-"""Доступ к проектам. Пока — адаптер к хранилищу 5.8 (``app/core/storage.py``):
+"""Доступ к проектам. Пока — адаптер к хранилищу 5.8 (``atlas/engine/core/storage.py``):
 те же папки, тот же формат, обе версии видят одни проекты, настройки и исключения.
 
-Таблицы снимка читает и индексирует ``app.core.performance.Project`` из 5.8 (тот же код, те же кэши):
+Таблицы снимка читает и индексирует ``atlas.engine.core.performance.Project`` из 5.8 (тот же код, те же кэши):
 диск читается один раз на снимок; вид с исключёнными точками и сезонами пересобирается при новой ревизии.
 """
 from __future__ import annotations
@@ -16,14 +16,14 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-from app.core import exclusions
-from app.core.config import DEFAULT_SETTINGS, STORAGE, natural_key, ordered
-from app.core.history import filter_details
-from app.core.performance import Project as FrameCache
-from app.core.storage import Store
-from app.ui import navigation
-from app.modules import seasons
-from app.ui.selection import parse_wells
+from atlas.engine.core import exclusions
+from atlas.engine.core.config import DEFAULT_SETTINGS, STORAGE, natural_key, ordered
+from atlas.engine.core.history import filter_details
+from atlas.engine.core.performance import Project as FrameCache
+from atlas.engine.core.storage import Store
+from atlas import navigation
+from atlas.engine.modules import seasons
+from atlas.engine.core.config import parse_wells
 
 from .contract import Data, MissingData, ParamError
 from .domain import DatasetKind
@@ -125,13 +125,13 @@ class Projects:
                 'excluded': len(settings.get('excluded_points', {}))}
 
     def create_demo(self, large: bool = False, rows: Mapping[str, Any] | None = None) -> str:
-        """Демо-объект; ``large`` — большой объём для проверки скорости (``app.core.demo_large``)."""
+        """Демо-объект; ``large`` — большой объём для проверки скорости (``atlas.engine.core.demo_large``)."""
         if large:
-            from app.core.demo_large import DEFAULTS, create_large_demo
+            from atlas.engine.core.demo_large import DEFAULTS, create_large_demo
             sizes = {k: int(v) for k, v in (rows or {}).items() if k in DEFAULTS and v is not None}
             return create_large_demo(self.store, **sizes)
-        from app.core import pressure_demo
-        from app.core.demo import demo_frames
+        from atlas.engine.core import pressure_demo
+        from atlas.engine.core.demo import demo_frames
         pid = self.store.create('Демонстрационный объект', demo=True)
         frames = demo_frames()
         frames['pressure_match'] = pressure_demo.frame()
@@ -202,7 +202,7 @@ class Projects:
         """Суточный набор объекта (14–16 с на 2 млн строк) строится один раз; запрос пользователя ждёт тот же кэш, а не считает заново."""
         def build():
             try:
-                from app.modules import well_analysis
+                from atlas.engine.modules import well_analysis
                 well_analysis.dataset({k.value: data[k] for k in data}, data.settings, data.mapping)
             except Exception:       # прогрев необязателен: ошибку покажет сам раздел
                 pass

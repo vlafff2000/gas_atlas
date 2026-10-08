@@ -10,10 +10,10 @@ import sys
 import tempfile
 import time
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from app.core.loader import load_file
-from app.core.storage import Store
-from app.core import exclusions
-from app.modules.production import periods,curve_data
+from atlas.engine.core.loader import load_file
+from atlas.engine.core.storage import Store
+from atlas.engine.core import exclusions
+from atlas.engine.modules.production import periods,curve_data
 
 def main():
     with tempfile.TemporaryDirectory(prefix='gas_atlas_benchmark_') as directory:

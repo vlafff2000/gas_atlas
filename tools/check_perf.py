@@ -25,8 +25,8 @@ FACTOR, FLOOR = 3.0, 2.0
 
 def measure():
     from benchmark_large_demo import bench_atlas
-    from app.core.demo_large import create_large_demo
-    from app.core.storage import Store
+    from atlas.engine.core.demo_large import create_large_demo
+    from atlas.engine.core.storage import Store
     with tempfile.TemporaryDirectory(prefix='gas_atlas_perf_') as tmp:
         os.environ['GAS_ATLAS_STORAGE'] = tmp
         started = time.perf_counter()

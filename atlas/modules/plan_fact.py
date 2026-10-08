@@ -12,8 +12,8 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
-from app.core.config import ordered
-from app.modules import production as legacy
+from atlas.engine.core.config import ordered
+from atlas.engine.modules import production as legacy
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind

@@ -2,7 +2,7 @@
 import numpy as np
 from starlette.testclient import TestClient
 
-from app.modules.gdi import free_flow
+from atlas.engine.modules.gdi import free_flow
 from atlas.api import create_app
 from atlas.projects import Projects
 

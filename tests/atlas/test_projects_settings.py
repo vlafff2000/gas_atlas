@@ -8,9 +8,9 @@ import pytest
 from starlette.testclient import TestClient
 
 import atlas.api_projects as api_projects
-from app.core.storage import Store
-from app.ui import navigation
-from app.ui.selection import parse_wells
+from atlas.engine.core.storage import Store
+from atlas import navigation
+from atlas.engine.core.config import parse_wells
 from atlas.api import create_app
 from atlas.projects import Projects
 

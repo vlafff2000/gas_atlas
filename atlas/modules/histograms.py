@@ -14,7 +14,7 @@ SIZES = ('Авто', '10', '20', '50', 'Все')
 
 
 def histogram_size(value: str, count: int) -> int:
-    """Скважин на одной гистограмме: как ``app.ui.selection.histogram_size``."""
+    """Скважин на одной гистограмме: как ``atlas.engine.core.config.histogram_size``."""
     if value == 'Все':
         return max(1, count)
     if value == 'Авто':

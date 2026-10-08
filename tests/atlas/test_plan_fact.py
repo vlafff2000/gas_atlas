@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core.loader import load_file
+from atlas.engine.core.loader import load_file
 from atlas.api import create_app
 from atlas.domain import DatasetKind
 from atlas.modules import plan_fact

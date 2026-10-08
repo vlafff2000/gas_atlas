@@ -1,7 +1,7 @@
 """Поскважинный анализ: сезоны эксплуатации, условия работы, продуктивность, вода, забой и конструкция.
 
 Математика не переписана: суточный баланс, сезонные показатели, отдача при общем ΔP², наблюдения воды, выводы
-и все графики — ``app.modules.well_analysis`` и ``app.modules.well_charts`` из 5.8 (фигуры Plotly переводятся
+и все графики — ``atlas.engine.modules.well_analysis`` и ``atlas.engine.modules.well_charts`` из 5.8 (фигуры Plotly переводятся
 в ``Chart`` без пересчёта). Здесь выбор данных и представление. Полный перечень функций — docs/parity/wells.md.
 """
 from __future__ import annotations
@@ -11,12 +11,12 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
-from app.core.config import ordered
-from app.core.performance import select_wells
-from app.modules import charts as legacy_charts
-from app.modules import gdi as legacy_gdi
-from app.modules import well_analysis as legacy
-from app.modules import well_charts
+from atlas.engine.core.config import ordered
+from atlas.engine.core.performance import select_wells
+from atlas.engine.modules import charts as legacy_charts
+from atlas.engine.modules import gdi as legacy_gdi
+from atlas.engine.modules import well_analysis as legacy
+from atlas.engine.modules import well_charts
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Table,
                         TableAction)

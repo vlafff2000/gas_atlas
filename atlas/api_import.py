@@ -16,7 +16,7 @@
 | `POST /api/projects/{pid}/import/table` `{pending, table, format}` | журнал проверки / таблица CSV, XLSX |
 | `POST /api/projects/{pid}/import/pressure` `{files, choices, overrides, duplicate}` | данные давлений: роли листов и сопоставление |
 | `POST /api/projects/{pid}/import/pressure/apply` `{pending, mode}` | сохранить данные давлений |
-| `POST /api/projects/{pid}/import/ggh` `{token, sheet}` · `…/ggh/apply` `{pending, mode}` | данные ГГХ: проверка листа и сохранение (`app/core/ggh_import.py`) |
+| `POST /api/projects/{pid}/import/ggh` `{token, sheet}` · `…/ggh/apply` `{pending, mode}` | данные ГГХ: проверка листа и сохранение (`atlas/engine/core/ggh_import.py`) |
 | `GET /api/import/pressure-demo`, `GET /api/import/pressure-demo/{variant}/{name}` | демонстрационные варианты кроссплота и их книги |
 | `POST /api/projects/{pid}/import/pressure-demo` `{variant}` | вариант сразу в демонстрационный проект |
 """

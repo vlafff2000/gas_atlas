@@ -2,7 +2,7 @@
 import re
 from pathlib import Path
 
-from app.core.config import COLORS
+from atlas.engine.core.config import COLORS
 from atlas.contract import Axis, Chart, Series
 from atlas.render import LEGACY, PALETTE, to_plotly
 

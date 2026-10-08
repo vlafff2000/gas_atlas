@@ -3,10 +3,10 @@ import zipfile
 import numpy as np
 import pandas as pd
 from PIL import Image
-from app.core.loader import numeric,dates,merge_frames
-from app.core.demo import demo_frames
-from app.modules import production,gdi,response,charts
-from app.core.export import figure_bytes,export_zip
+from atlas.engine.core.loader import numeric,dates,merge_frames
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.modules import production,gdi,response,charts
+from atlas.engine.core.export import figure_bytes,export_zip
 
 def test_pressure_difference():
     assert abs(75.4**2-71.01**2-642.7399)<1e-8

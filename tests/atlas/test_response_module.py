@@ -1,15 +1,15 @@
-"""Паритет с 5.8: «Графики реагирования» рисуют то же, что ``app.modules.charts.response_chart``."""
+"""Паритет с 5.8: «Графики реагирования» рисуют то же, что ``atlas.engine.modules.charts.response_chart``."""
 import numpy as np
 import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core import exclusions
-from app.core.config import ordered
-from app.core.demo import demo_frames
-from app.core.storage import Store
-from app.modules import charts as legacy_charts
-from app.modules.response import statistics
+from atlas.engine.core import exclusions
+from atlas.engine.core.config import ordered
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.core.storage import Store
+from atlas.engine.modules import charts as legacy_charts
+from atlas.engine.modules.response import statistics
 from atlas.api import create_app
 from atlas.contract import Param, ParamError
 from atlas.domain import DatasetKind
@@ -260,7 +260,7 @@ def test_demo_project_works(tmp_path):
 
 def test_level_band_separates_level_from_pressure(env):
     """Две шкалы: кривая уровня стоит отдельной полосой ниже (выше) давлений; «overlay» — как в 5.8."""
-    from app.modules.charts import separated_ranges
+    from atlas.engine.modules.charts import separated_ranges
     pressure, level = np.linspace(50, 80, 20), np.linspace(10, 40, 20)
     for band in ('below', 'above', 'auto'):
         (p0, p1), (top, bottom) = separated_ranges(pressure, level, band)

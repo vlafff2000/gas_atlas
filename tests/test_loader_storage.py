@@ -4,9 +4,9 @@ import zipfile
 from pathlib import Path
 import pandas as pd
 import pytest
-from app.core.loader import load_file
-from app.core.demo import demo_frames
-from app.core.storage import Store
+from atlas.engine.core.loader import load_file
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.core.storage import Store
 
 def put(tmp_path,text,name='data.csv',encoding='utf8'):
     p=tmp_path/name;p.write_text(text,encoding=encoding);return p

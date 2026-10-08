@@ -1,7 +1,7 @@
 """«Паспорт скважины»: выбор скважины, разделов и периодов, комментарий инженера и PDF.
 
-Паспорт строит тот же код 5.8: ``app.core.reporting.build`` (графики и таблицы разделов) и
-``app.core.documents.passport_pdf``; файл сохраняется в выгрузки проекта (``store.save_export``), комментарий —
+Паспорт строит тот же код 5.8: ``atlas.engine.core.reporting.build`` (графики и таблицы разделов) и
+``atlas.engine.core.documents.passport_pdf``; файл сохраняется в выгрузки проекта (``store.save_export``), комментарий —
 в ``settings.well_comments`` действием «Комментарий инженера». Здесь только выбор данных и HTTP.
 Перечень функций раздела — docs/parity/passport.md.
 """
@@ -19,7 +19,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from app.core.config import DEFAULT_SETTINGS, MODULES, ordered
+from atlas.engine.core.config import DEFAULT_SETTINGS, MODULES, ordered
 
 from .contract import MissingData, ParamError
 from .projects import Conflict, Projects
@@ -62,7 +62,7 @@ class Passport:
     """Данные страницы 5.8 «Паспорт скважины» для одного проекта."""
 
     def __init__(self, projects: Projects, pid: str):
-        from app.core.performance import Frames
+        from atlas.engine.core.performance import Frames
         self.projects, self.pid = projects, pid
         self.manifest = projects.manifest(pid)
         self.settings = {**DEFAULT_SETTINGS, **self.manifest.get('settings', {})}
@@ -79,7 +79,7 @@ class Passport:
     def periods(self) -> dict[str, list[str]]:
         if 'production' not in self.frames:
             return {}
-        from app.modules import production
+        from atlas.engine.modules import production
         d = production.periods_for(self.frames['production'], self.settings)
         return {kind: [str(p) for p in visible_periods(ordered(d.loc[d.kind.eq(kind), 'period']), self.settings)] for kind, _ in KINDS}
 
@@ -107,9 +107,9 @@ class Passport:
         return self.projects.data(self.pid).mapping
 
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str):
-        from app.core import reporting
-        from app.core.documents import passport_pdf
-        from app.core.export import safe_name
+        from atlas.engine.core import reporting
+        from atlas.engine.core.documents import passport_pdf
+        from atlas.engine.core.export import safe_name
         options = self.options(well, sections, periods)
         figures, tables = reporting.build(self.frames, self.mapping(), self.settings, options, self.raw)
         content = passport_pdf(self.manifest['name'], well, figures, tables, self.settings, comment)

@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 import pandas as pd
-from app.modules import group_analysis
+from atlas.engine.modules import group_analysis
 
 from ..contract import Data, ModuleSpec, Note, Option, Param, Result, Stat
 from ..domain import DatasetKind

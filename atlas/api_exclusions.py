@@ -16,7 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from app.core.history import filter_details
+from atlas.engine.core.history import filter_details
 
 from .contract import ParamError
 from .modules._journal import filter_records

@@ -1,12 +1,12 @@
 import pytest
-from app.core import pressure_import
+from atlas.engine.core import pressure_import
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from pathlib import Path
 from tools.make_pressure_samples import make_book
-from app.modules import pressure_match as pm
-from app.ui import pressure_quick_import as q
+from atlas.engine.modules import pressure_match as pm
+from atlas.engine.core import pressure_import as q
 
 
 def books(tmp_path,count=3,wells=5,dates=20):
@@ -108,7 +108,7 @@ def test_wide_headers_named_like_wells_are_not_a_well_column():
 
 
 def test_pair_duplicate_rules_and_diagnostics():
-    from app.modules import pressure_match as pm
+    from atlas.engine.modules import pressure_match as pm
     fact = pd.DataFrame({'well': ['1', '1', '2'], 'date': pd.to_datetime(['2020-01-01'] * 2 + ['2020-01-01']),
                          'value': [10.0, 20.0, 5.0], '_row': [2, 3, 4]})
     model = pd.DataFrame({'well': ['1', '2'], 'date': pd.to_datetime(['2020-01-01'] * 2), 'value': [11.0, 6.0], '_row': [2, 3]})

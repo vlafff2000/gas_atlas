@@ -14,7 +14,7 @@ def check(quiet=False):
 
 def requirements_name():
     """Python 3.8 keeps the exact tested lock; newer interpreters use version ranges (wheels exist for them).
-    Both cover 5.8 and Gas Atlas 6."""
+    Covers Gas Atlas 6."""
     return 'requirements-lock-py38.txt' if sys.version_info[:2]==(3,8) else 'requirements-atlas.txt'
 
 if __name__=='__main__':

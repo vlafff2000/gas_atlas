@@ -5,10 +5,10 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core.config import ordered
-from app.modules import gdi as legacy_gdi
-from app.modules import group_analysis
-from app.modules import production as legacy
+from atlas.engine.core.config import ordered
+from atlas.engine.modules import gdi as legacy_gdi
+from atlas.engine.modules import group_analysis
+from atlas.engine.modules import production as legacy
 from atlas.api import create_app
 from atlas.contract import Param, ParamError
 from atlas.domain import DatasetKind

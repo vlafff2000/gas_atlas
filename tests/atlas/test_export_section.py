@@ -9,10 +9,10 @@ import pytest
 from starlette.testclient import TestClient
 
 import atlas.api_projects as api_projects
-from app.core import reporting
-from app.core.bulk_export import export_plan, migrate_preset
-from app.core.config import ordered
-from app.core.storage import Store
+from atlas.engine.core import reporting
+from atlas.engine.core.bulk_export import export_plan, migrate_preset
+from atlas.engine.core.config import ordered
+from atlas.engine.core.storage import Store
 from atlas.api import create_app
 from atlas.api_export import options_from, preset_values, sync_form
 from atlas.projects import Projects
@@ -182,7 +182,7 @@ def test_sync_from_saved_views(env):
 
 def test_every_module_plans_and_renders(tmp_path):
     """Все вкладки экспорта 5.8 (в т. ч. поскважинный анализ, эксплуатация, кроссплот давлений) строят план и графики."""
-    from app.core.demo import well_demo_frames
+    from atlas.engine.core.demo import well_demo_frames
     from atlas.api_export import choices
     from tests.atlas.test_pressure_module import pressure_frame
     projects = Projects(tmp_path / 'storage')
@@ -360,8 +360,8 @@ def test_custom_labels_per_chart_type(env):
 
 def test_excel_look(env):
     """Вид «как в Excel»: выключен по умолчанию, работает в предпросмотре, архиве и Word, ошибка при неизвестном виде."""
-    from app.core.export import XL_PALETTE, figure_bytes
-    from app.core.fonts import family_for
+    from atlas.engine.core.export import XL_PALETTE, figure_bytes
+    from atlas.engine.core.fonts import family_for
     client, pid, _, store = env
     form = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31']}
     name = client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()['charts'][0]['name']
@@ -380,7 +380,7 @@ def test_excel_look(env):
 def test_chart_format_per_dataset(env):
     """Общие наклон X, шапка и легенда — для всех графиков; толщина, маркеры, цвет и скрытие — по наборам данных каждого типа."""
     import plotly.graph_objects as go
-    from app.core.export import figure_bytes
+    from atlas.engine.core.export import figure_bytes
     from atlas import chart_format
     client, pid, _, store = env
     fig = go.Figure([go.Scatter(x=[1, 2, 3], y=[1, 2, 3], mode='lines+markers', name='Пластовое давление объекта'),
@@ -440,7 +440,7 @@ def test_pack_and_ggh_ids_in_modules_are_ignored_by_plan(env):
 def test_zero_width_keeps_markers_and_season_titles(env):
     """Толщина 0 выключает линию, маркеры остаются; подписи поскважинных графиков и скрытие нейтральных периодов."""
     import plotly.graph_objects as go
-    from app.modules import charts
+    from atlas.engine.modules import charts
     from atlas import chart_format
     from atlas.modules._production import visible_periods
     fig = go.Figure([go.Scatter(x=[1, 2, 3], y=[1, 2, 3], mode='lines+markers', name='Набор')])

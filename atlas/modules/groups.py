@@ -1,6 +1,6 @@
 """Группы и подгруппы скважин: ручное назначение и автоматические подгруппы по среднему дебиту.
 
-Математика не переписана: подгруппы — ``app.modules.production.partitions`` из 5.8, предпросмотр —
+Математика не переписана: подгруппы — ``atlas.engine.modules.production.partitions`` из 5.8, предпросмотр —
 та же гистограмма средних, что в разделе «Гистограммы». Назначения пишутся в проект (``manifest.groups``)
 через ``POST /api/projects/{id}/groups`` — тот же формат, что у 5.8. Перечень функций — docs/parity/groups.md.
 """
@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.modules import production as legacy
+from atlas.engine.modules import production as legacy
 
 from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Table, TableAction
 from .fund import program_wells

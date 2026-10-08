@@ -1,11 +1,8 @@
-"""Замер скорости Atlas 6 и 5.8 на большом демо-объекте (``tools/make_large_demo.py``).
+"""Замер скорости Atlas 6 на большом демо-объекте (``tools/make_large_demo.py``).
 
-    python tools/benchmark_large_demo.py              # создать большое демо во временной папке и замерить обе версии
-    python tools/benchmark_large_demo.py --only 6     # только Atlas 6 (Python 3.10+)
-    python tools/benchmark_large_demo.py --only 5.8   # только 5.8 (страницы через streamlit.testing)
+    python tools/benchmark_large_demo.py              # создать большое демо во временной папке и замерить
 
-Каждая версия меряется в отдельном процессе: время — серверная часть (расчёт и JSON / отрисовка Streamlit), без браузера;
-память — пик RSS процесса. Данные создаются заново, в git не попадают.
+Время — серверная часть (расчёт и JSON), без браузера; память — пик RSS процесса. Данные создаются заново, в git не попадают.
 """
 import argparse
 import json
@@ -21,10 +18,6 @@ sys.path.insert(0, str(ROOT))
 
 ATLAS_MODULES = ('overview', 'production', 'histograms', 'gdi', 'gdi_trend', 'response', 'pressure', 'fund', 'groups', 'wells',
                  'quality', 'exclusions', 'filter_history')
-PAGES_58 = ('Обзор', 'Производительность скважин', 'Гистограммы по эксплуатации скважин', 'ГДИ', 'Графики реагирования',
-            'Кроссплот давлений', 'Поскважинный анализ', 'Аналитика фонда', 'Группы', 'Исключенные точки')
-
-
 def peak_mb():
     try:
         import resource
@@ -84,39 +77,14 @@ def bench_atlas(storage, pid):
     return out
 
 
-def bench_58(storage, pid):
-    from streamlit.testing.v1 import AppTest
-    from app.core import config
-    from app.core.storage import Store
-    from app.ui import navigation
-    store = Store(storage)
-    m = store.manifest(pid)
-    store.commit(pid, settings={**m['settings'], 'visible_pages': navigation.PAGES})
-    config.STORAGE = Path(storage)
-    out = []
-    started = time.perf_counter()
-    at = AppTest.from_file(str(ROOT / 'app' / 'main.py'), default_timeout=900).run()
-    out.append(('Запуск и первая страница', time.perf_counter() - started, None, at.exception[0].message if at.exception else None))
-    for page in PAGES_58:
-        for attempt in ('первый', 'повтор'):
-            started = time.perf_counter()
-            try:
-                at.sidebar.radio[0].set_value(page).run()
-                note = at.exception[0].message[:120] if at.exception else None
-            except Exception as e:      # таймаут AppTest и т. п.
-                note = repr(e)[:120]
-            out.append(('%s (%s)' % (page, attempt), time.perf_counter() - started, None, note))
-    return out
-
-
 def child(version, storage, pid):
     os.environ['GAS_ATLAS_STORAGE'] = storage
-    rows = bench_atlas(storage, pid) if version == '6' else bench_58(storage, pid)
+    rows = bench_atlas(storage, pid)
     print(json.dumps({'rows': rows, 'peak_mb': peak_mb()}, ensure_ascii=False))
 
 
 def report(version, result):
-    print('\n%s — пик памяти %.0f МБ' % ('Atlas 6' if version == '6' else '5.8', result['peak_mb']))
+    print('\n%s — пик памяти %.0f МБ' % ('Atlas 6', result['peak_mb']))
     for name, took, size, note in result['rows']:
         size_text = '' if size is None else '%8.1f МБ' % (size / 2 ** 20)
         print('  %-44s %7.2f с %s %s' % (name, took, size_text, note or ''))
@@ -124,7 +92,6 @@ def report(version, result):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument('--only', choices=('6', '5.8'))
     parser.add_argument('--storage', help='готовое хранилище (по умолчанию временная папка)')
     parser.add_argument('--project', help='id готового проекта в хранилище')
     parser.add_argument('--verbose', action='store_true', help='показывать журнал и предупреждения версий')
@@ -135,12 +102,12 @@ def main(argv=None):
     with tempfile.TemporaryDirectory(prefix='gas_atlas_large_demo_') as tmp:
         storage, pid = args.storage or tmp, args.project
         if not pid:
-            from app.core.demo_large import create_large_demo
-            from app.core.storage import Store
+            from atlas.engine.core.demo_large import create_large_demo
+            from atlas.engine.core.storage import Store
             started = time.perf_counter()
             pid = create_large_demo(Store(storage))
             print('Большое демо создано за %.1f с' % (time.perf_counter() - started))
-        for version in ([args.only] if args.only else ['6', '5.8']):
+        for version in ['6']:
             done = subprocess.run([sys.executable, __file__, '--child', version, storage, pid],
                                   stdout=subprocess.PIPE, stderr=None if args.verbose else subprocess.DEVNULL,
                                   universal_newlines=True, cwd=str(ROOT))

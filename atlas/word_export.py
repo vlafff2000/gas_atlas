@@ -1,6 +1,6 @@
 """Выгрузка графиков в Word с настраиваемым макетом и предпросмотром страниц.
 
-Что делает вместо ``app.core.documents.report_docx`` (5.8 остаётся как есть):
+Что делает вместо ``atlas.engine.core.documents.report_docx`` (5.8 остаётся как есть):
  * график строится сразу в размер ячейки страницы, а не сжимается картинкой: подписи осей и легенда читаются;
  * лист — книжный или альбомный, формат A5…A3, любые поля, 1–3 колонки, заданное число графиков на листе;
  * подпись — настоящая подпись Word («Название объекта», поле SEQ «Рисунок»): ссылки «Вставка → Перекрёстная ссылка»,
@@ -200,7 +200,7 @@ def fit(layout: Layout, aspect: float, caption_h: float) -> Tuple[float, float]:
 
 def render_png(figure, layout: Layout, caption_h: float, font: str = 'default', font_size=None, look: str = 'default') -> Tuple[bytes, float, float]:
     """PNG графика, построенный сразу в размер на листе (без сжатия картинки), и этот размер в мм."""
-    from app.core.export import figure_bytes
+    from atlas.engine.core.export import figure_bytes
     inner = layout.image_width()
     limit = layout.max_image_height(caption_h)
     draw_w = min(300.0, max(80.0, inner))

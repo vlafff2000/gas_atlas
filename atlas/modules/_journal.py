@@ -1,6 +1,6 @@
 """Общее для «Исключенных точек» и «Истории фильтра»: журнал исключений 5.8 в виде таблицы.
 
-Журнал — ``settings.excluded_points`` (формат 5.8, ``app.core.exclusions.entry``); здесь только представление.
+Журнал — ``settings.excluded_points`` (формат 5.8, ``atlas.engine.core.exclusions.entry``); здесь только представление.
 """
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-from app.core import exclusions as legacy
-from app.core.config import MODULES
+from atlas.engine.core import exclusions as legacy
+from atlas.engine.core.config import MODULES
 
 from ..contract import Column
 

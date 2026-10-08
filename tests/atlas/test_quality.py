@@ -4,10 +4,10 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core import config
-from app.core.config import DEFAULT_SETTINGS
-from app.core.demo import well_demo_frames
-from app.core.storage import Store
+from atlas.engine.core import config
+from atlas.engine.core.config import DEFAULT_SETTINGS
+from atlas.engine.core.demo import well_demo_frames
+from atlas.engine.core.storage import Store
 from atlas import quality
 from atlas.api import create_app
 from atlas.projects import Projects

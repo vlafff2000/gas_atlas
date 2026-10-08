@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parent.parent  # tools/ лежит в папке
 # (имя значка, название ярлыка, запускалка Windows, запускалка Linux, нужен ли терминал)
 APPS = [
     ('gas_atlas_6', 'Газовый атлас 6', 'Gas_Atlas_6.bat', 'gas_atlas_6.sh'),
-    ('gas_atlas_58', 'Газовый атлас 5.8', 'Gas_Atlas_5.8.bat', 'gas_atlas_5.8.sh'),
 ]
 
 

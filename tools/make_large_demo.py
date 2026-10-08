@@ -17,9 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.config import STORAGE  # noqa: E402
-from app.core.demo_large import DEFAULTS, create_large_demo  # noqa: E402
-from app.core.storage import Store  # noqa: E402
+from atlas.engine.core.config import STORAGE  # noqa: E402
+from atlas.engine.core.demo_large import DEFAULTS, create_large_demo  # noqa: E402
+from atlas.engine.core.storage import Store  # noqa: E402
 
 
 def main(argv=None):

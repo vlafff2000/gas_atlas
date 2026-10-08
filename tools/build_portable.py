@@ -45,7 +45,7 @@ RUNTIMES = {
 }
 
 # Tracked application files that go into the folder (tests, interface sources and dev scripts stay out).
-INCLUDE = ['app', 'atlas', 'tools', 'examples', 'docs', 'README.md', 'CHANGES_v5.md', 'CHANGES_UI_update.md',
+INCLUDE = ['atlas', 'tools', 'examples', 'docs', 'README.md', 'CHANGES_v5.md', 'CHANGES_UI_update.md',
            'requirements-lock-py38.txt']
 SDIST_ONLY = {'proxy-tools'}  # pywebview dependency, pure Python
 SKIP_TOOLS = {'tools/build_portable.py', 'tools/install.py', 'tools/make_pressure_samples.py', 'tools/make_icons.py'}
@@ -53,8 +53,6 @@ SKIP_TOOLS = {'tools/build_portable.py', 'tools/install.py', 'tools/make_pressur
 WINDOWS_LAUNCHERS = {
     'Gas_Atlas_6.bat': 'rem Газовый атлас 6: окно приложения (или браузер, если окно недоступно).\r\n'
                        '"%~dp0python\\python.exe" -s -X utf8 -m atlas %*',
-    'Gas_Atlas_5.8.bat': 'rem Газовый атлас 5.8 (Streamlit) в браузере.\r\n'
-                         '"%~dp0python\\python.exe" -s -X utf8 tools\\launch.py %*',
     'Sozdat_yarlyki.bat': 'rem Создаёт ярлыки со значками на рабочем столе (убрать: --remove).\r\n'
                           '"%~dp0python\\python.exe" -s -X utf8 tools\\desktop_shortcuts.py %*\r\n'
                           'echo.\r\necho Нажмите любую клавишу, чтобы закрыть окно.\r\npause >nul\r\nexit /b 0',
@@ -65,7 +63,6 @@ WINDOWS_SUFFIX = '\r\nif errorlevel 1 pause\r\n'
 
 LINUX_LAUNCHERS = {
     'gas_atlas_6.sh': '# Газовый атлас 6 в браузере.\nexec "$PY" -s -X utf8 -m atlas --browser "$@"',
-    'gas_atlas_5.8.sh': '# Газовый атлас 5.8 (Streamlit) в браузере.\nexec "$PY" -s -X utf8 tools/launch.py "$@"',
     'sozdat_yarlyki.sh': '# Ярлыки со значками на рабочем столе: bash sozdat_yarlyki.sh (убрать: bash sozdat_yarlyki.sh --remove).\n'
                          '"$PY" -s -X utf8 tools/desktop_shortcuts.py "$@"\n'
                          'echo; read -r -p "Нажмите Enter, чтобы закрыть окно..." _ || true',
@@ -82,8 +79,7 @@ README = '''Газовый атлас — переносная версия ({ta
 1. Распакуйте архив в любую папку, куда у вас есть права на запись
    (например, {example}).
 2. Запустите {six} — Газовый атлас 6.
-   {five} — прежняя версия 5.8.
-3. {shortcuts} — один раз создаёт на рабочем столе ярлыки со значками (Газовый атлас 6 и 5.8).
+3. {shortcuts} — один раз создаёт на рабочем столе ярлыки со значками (Газовый атлас 6).
    Папку программы после этого не переносите; перенесли — запустите {shortcuts} ещё раз.
    Убрать ярлыки: {shortcuts} --remove.
 
@@ -193,8 +189,7 @@ def write_launchers(target, folder):
     if target == 'windows':
         for name, body in WINDOWS_LAUNCHERS.items():
             (folder / name).write_bytes((WINDOWS_PREFIX + body + WINDOWS_SUFFIX).encode('utf-8'))
-        text = README.format(target='Windows', example='C:\\GasAtlas', six='Gas_Atlas_6.bat',
-                             five='Gas_Atlas_5.8.bat', shortcuts='Sozdat_yarlyki.bat', note=WINDOWS_NOTE)
+        text = README.format(target='Windows', example='C:\\GasAtlas', six='Gas_Atlas_6.bat', shortcuts='Sozdat_yarlyki.bat', note=WINDOWS_NOTE)
         (folder / 'ПРОЧТИТЕ.txt').write_bytes(text.replace('\n', '\r\n').encode('utf-8-sig'))
     else:
         for name, body in LINUX_LAUNCHERS.items():
@@ -202,7 +197,7 @@ def write_launchers(target, folder):
             path.write_text(LINUX_PREFIX + body + '\n', encoding='utf-8')
             path.chmod(0o755)
         text = README.format(target='Linux x86_64, glibc 2.17+ (РЕД ОС 7.3 и новее)', example='~/GasAtlas',
-                             six='gas_atlas_6.sh', five='gas_atlas_5.8.sh', shortcuts='sozdat_yarlyki.sh', note=LINUX_NOTE)
+                             six='gas_atlas_6.sh', shortcuts='sozdat_yarlyki.sh', note=LINUX_NOTE)
         (folder / 'ПРОЧТИТЕ.txt').write_text(text, encoding='utf-8')
 
 
@@ -228,7 +223,7 @@ def smoke_test(folder):
     env = {k: v for k, v in os.environ.items() if not k.startswith('PYTHON')}
     env.update(PYTHONNOUSERSITE='1', MPLBACKEND='Agg')
     env['GAS_ATLAS_STORAGE'] = tempfile.mkdtemp()
-    code = ('import sys, atlas.api, app.modules.gdi, streamlit, pandas, scipy, pyarrow, matplotlib, python_calamine;'
+    code = ('import sys, atlas.api, atlas.engine.modules.gdi, pandas, scipy, pyarrow, matplotlib, python_calamine;'
             + ('import webview, win32api, win32com.shell.shell;' if os.name == 'nt' else '') +
             'atlas.api.create_app();'
             'assert sys.prefix.startswith({!r}), sys.prefix;print("ok", sys.version.split()[0])').format(str(folder))

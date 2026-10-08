@@ -1,10 +1,10 @@
-"""Паритет с 5.8: «Кроссплот давлений» отбирает пары, считает статистику и рисует то же, что app.modules.pressure_match."""
+"""Паритет с 5.8: «Кроссплот давлений» отбирает пары, считает статистику и рисует то же, что atlas.engine.modules.pressure_match."""
 import numpy as np
 import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.modules import pressure_match as legacy
+from atlas.engine.modules import pressure_match as legacy
 from atlas.api import create_app
 from atlas.domain import DatasetKind
 from atlas.modules import pressure
@@ -15,7 +15,7 @@ PM = DatasetKind.PRESSURE_MATCH
 
 def pressure_frame(tmp_path, books=2, wells=8, dates=30):
     """Пары факт / модель так же, как их собирает быстрый импорт 5.8 (две книги, два сценария, фонды)."""
-    from app.ui import pressure_quick_import as q
+    from atlas.engine.core import pressure_import as q
     from tools.make_pressure_samples import make_book
     files = {}
     for i in range(books):
@@ -38,7 +38,7 @@ def env(tmp_path_factory):
     projects = Projects(tmp / 'storage')
     client = TestClient(create_app(projects))
     pid = client.post('/api/projects/demo').json()['id']
-    from app.core.demo import demo_frames
+    from atlas.engine.core.demo import demo_frames
     projects.store.commit(pid, {**demo_frames(), 'pressure_match': pressure_frame(tmp)}, action='test')
     return client, pid, projects
 
@@ -234,7 +234,7 @@ def test_click_exclusion_and_manual_filter(env):
     assert points['action']['dataset'] == 'pressure_match'
     assert points['action']['checked'][points['action']['ids'].index(point)] is True
     # 5.8 видит то же исключение: её отбор по тем же данным проекта
-    from app.core import exclusions
+    from atlas.engine.core import exclusions
     m = projects.manifest(pid)
     assert point in m['settings']['excluded_points']
     assert client.post(f'/api/projects/{pid}/exclusions/undo').json()['removed'] == 1

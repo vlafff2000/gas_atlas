@@ -1,6 +1,6 @@
 """Единый экспорт результата любого модуля.
 
-Графики: ``Chart`` → фигура Plotly → ``app.core.export.figure_bytes`` (тот же статический рендер
+Графики: ``Chart`` → фигура Plotly → ``atlas.engine.core.export.figure_bytes`` (тот же статический рендер
 через Matplotlib, что в 5.8: SVG / PDF / PNG, 300–1200 DPI, без браузера и сети).
 Таблицы: ``Table`` → XLSX с подписями столбцов, как на экране.
 """
@@ -12,8 +12,8 @@ import math
 
 import pandas as pd
 
-from app.core.config import COLORS
-from app.core.export import csv_bytes, figure_bytes, safe_name, xlsx_bytes
+from atlas.engine.core.config import COLORS
+from atlas.engine.core.export import csv_bytes, figure_bytes, safe_name, xlsx_bytes
 
 from .contract import Chart, Table
 
@@ -195,7 +195,7 @@ def table_frame(table: Table) -> pd.DataFrame:
 def header_sheet(ws, table: Table) -> None:
     """Лист с объединённой шапкой, как в «Сводная_транспон2.xlsx»: группы сверху, подписи колонок внизу."""
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from app.core.export import safe_table
+    from atlas.engine.core.export import safe_table
     side = Side(style='thin', color='000000')
     fill, rows = PatternFill('solid', fgColor='D9E1F2'), len(table.header) + 1
     for r, row in enumerate(table.header, 1):

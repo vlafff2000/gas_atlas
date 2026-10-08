@@ -6,8 +6,8 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core.history import comparison, filter_details
-from app.core.storage import Store
+from atlas.engine.core.history import comparison, filter_details
+from atlas.engine.core.storage import Store
 from atlas.api import create_app
 from atlas.projects import Projects
 

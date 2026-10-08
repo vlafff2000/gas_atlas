@@ -3,8 +3,8 @@ import re
 
 import pytest
 
-from app.core import fonts
-from app.core.export import figure_bytes
+from atlas.engine.core import fonts
+from atlas.engine.core.export import figure_bytes
 from atlas.contract import Axis, Chart, Series
 from atlas.render import chart_file
 

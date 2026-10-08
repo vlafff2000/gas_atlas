@@ -32,7 +32,7 @@ jobs:
           python tools/check_runtime.py
           python -m pip install --upgrade pip
           python -m pip install -r "$(python -c 'import sys;sys.path.insert(0,"tools");from check_runtime import requirements_name;print(requirements_name())')" pytest httpx
-      - name: Tests (5.8 + atlas)
+      - name: Tests
         run: python -m pytest tests -q
   perf:
     # Скорость на большом демо-объекте (2 млн строк): время каждого раздела против бюджета tools/perf_budget.json.
