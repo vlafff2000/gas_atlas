@@ -4,7 +4,7 @@
 Matplotlib: оси, значки и цвета как в скрипте построения), таблица во всю ширину листа с цветными названиями параметров,
 подпись Times New Roman 12 пт по центру. Таблица — настоящая таблица Word (правится руками), не картинка.
 Если замеров много, таблица делится на две части, а график уменьшается, чтобы страница не растекалась.
-Файл пишется «вручную» (zip + XML), как отчёт 5.8 (``app/core/documents.py``): новых зависимостей нет.
+Файл пишется «вручную» (zip + XML), как отчёт 5.8 (``atlas/engine/core/documents.py``): новых зависимостей нет.
 """
 from __future__ import annotations
 
@@ -43,13 +43,13 @@ def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'time
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from matplotlib.ticker import FuncFormatter, FixedLocator
-    from app.core.export import LOCK
-    from app.core.fonts import family_for
+    from atlas.engine.core.export import LOCK
+    from atlas.engine.core.fonts import family_for
 
     style = style or {}
     k = float(style.get('font_size') or 12) / 12
     rules = style.get('series') or []
-    from app.core.export import XL_PALETTE
+    from atlas.engine.core.export import XL_PALETTE
 
     def look(label: str, color: str, index: int) -> dict | None:
         """Цвет, толщина и маркер набора с учётом правил; ``None`` — набор скрыт."""

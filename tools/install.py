@@ -25,7 +25,7 @@ def main():
     subprocess.check_call([str(executable),'-m','pip','install','--disable-pip-version-check','--only-binary=:all:','--no-binary=proxy-tools','-r',name])  # proxy-tools (pywebview, Windows) is pure Python and has no wheel
     subprocess.check_call([str(executable),'-m','pip','check'])
     subprocess.check_call([str(executable),'-m','compileall','-q','app','atlas','tools'])
-    print('Installation complete. Start run_atlas_windows.bat / bash run_atlas.sh (Gas Atlas 6) or run_windows.bat / bash run.sh (5.8).')
+    print('Installation complete. Start run_atlas_windows.bat / bash run_atlas.sh.')
     return 0
 
 if __name__=='__main__':

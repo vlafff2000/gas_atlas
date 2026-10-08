@@ -15,7 +15,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.core import tabular
+from atlas.engine.core import tabular
 
 from .contract import ParamError
 

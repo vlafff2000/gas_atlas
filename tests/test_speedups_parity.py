@@ -3,9 +3,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.core import exclusions, performance
-from app.core.demo import demo_frames
-from app.modules import production, well_analysis
+from atlas.engine.core import exclusions, performance
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.modules import production, well_analysis
 
 
 def old_periods(df, start=11, end=4):

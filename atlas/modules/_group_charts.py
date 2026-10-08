@@ -7,8 +7,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from app.core.performance import select_wells
-from app.modules.charts import well_colors
+from atlas.engine.core.performance import select_wells
+from atlas.engine.modules.charts import well_colors
 
 from ..contract import Axis, Chart, Series
 from ..thinning import screen_decimate

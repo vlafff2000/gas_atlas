@@ -1,7 +1,7 @@
 """Разделы «Проекты» и «Настройки» 5.8 в API ядра 6: создание, переименование, копия, резервная копия
 и восстановление, сохранённые выгрузки, журнал ошибок, состав меню.
 
-Хранилище — то же ``app/core/storage.Store``: архивы, имена файлов и записи журнала совпадают с 5.8.
+Хранилище — то же ``atlas/engine/core/storage.Store``: архивы, имена файлов и записи журнала совпадают с 5.8.
 """
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from app.core.config import ROOT
-from app.core.export import safe_name
-from app.core.storage import KEEP_SNAPSHOTS
-from app.ui import navigation
+from atlas.engine.core.config import ROOT
+from atlas.engine.core.export import safe_name
+from atlas.engine.core.storage import KEEP_SNAPSHOTS
+from atlas import navigation
 
 from .projects import Conflict, Projects
 

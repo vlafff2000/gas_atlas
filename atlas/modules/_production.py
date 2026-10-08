@@ -1,7 +1,7 @@
 """Общее для разделов «Производительность скважин» и «Гистограммы по эксплуатации».
 
 Математика не переписана: сезоны, накопленный объём, средние, ранжирование и суммы групп —
-``app.modules.production`` и ``app.modules.group_analysis`` из 5.8. Здесь выбор данных и представление.
+``atlas.engine.modules.production`` и ``atlas.engine.modules.group_analysis`` из 5.8. Здесь выбор данных и представление.
 """
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
-from app.core.config import COLORS, ordered
-from app.core.performance import index_for, select_wells
-from app.modules import group_analysis
-from app.modules import production as legacy
-from app.modules.charts import DASH, well_colors
+from atlas.engine.core.config import COLORS, ordered
+from atlas.engine.core.performance import index_for, select_wells
+from atlas.engine.modules import group_analysis
+from atlas.engine.modules import production as legacy
+from atlas.engine.modules.charts import DASH, well_colors
 
 from ..thinning import screen_decimate
 

@@ -1,6 +1,6 @@
 """Кроссплот давлений: факт / модель по объектам, сценариям, скважинам, группам и фондам.
 
-Математика не переписана: сопоставление, отбор пар, пороги, сезоны и статистика — ``app.modules.pressure_match``
+Математика не переписана: сопоставление, отбор пар, пороги, сезоны и статистика — ``atlas.engine.modules.pressure_match``
 из 5.8 (``filter_data``, ``statistics``, ``tables``). Здесь выбор данных и представление.
 Полный перечень функций раздела — docs/parity/pressure.md.
 """
@@ -11,9 +11,9 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
-from app.core.config import ordered
-from app.modules import pressure_match as legacy
-from app.modules.charts import well_colors
+from atlas.engine.core.config import ordered
+from atlas.engine.modules import pressure_match as legacy
+from atlas.engine.modules.charts import well_colors
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series,
                         Source, Table, TableAction)

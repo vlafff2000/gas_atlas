@@ -12,7 +12,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.core.config import ordered
+from atlas.engine.core.config import ordered
 
 # ключ колонки → (подпись, цвет, значок на экране); порядок — как в таблице под графиком
 PARAMS = {

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core import config, ggh_import as ggh
+from atlas.engine.core import config, ggh_import as ggh
 from atlas.api import create_app
 from atlas.modules._ggh import caption, gas_axis, horizon_genitive, rows_for
 from atlas.projects import Projects

@@ -39,21 +39,20 @@ jobs:
           python-version: '3.11'
       - name: Build portable folder (own Python 3.8, no install needed)
         run: python tools/build_portable.py ${{ matrix.target }}
-      - name: Start both apps from the unpacked archive
+      - name: Start the app from the unpacked archive
         run: |
           mkdir t && cd t
           python -c "import sys,zipfile,tarfile; p=sys.argv[1]; zipfile.ZipFile(p).extractall('.') if p.endswith('.zip') else tarfile.open(p).extractall('.')" ../dist/Gas_Atlas_portable_*
           cd Gas_Atlas
           PY=python/bin/python3.8; [ -f python/python.exe ] && PY=python/python.exe
-          export PYTHONNOUSERSITE=1 GAS_ATLAS_PORT=8766
+          export PYTHONNOUSERSITE=1
           "$PY" -s -m atlas --server --port 8765 > atlas6.log 2>&1 &
-          "$PY" -s tools/launch.py --no-browser > atlas58.log 2>&1 &
           ok=
           for i in $(seq 90); do
-            curl -sf http://127.0.0.1:8765/api/modules > modules.json && curl -sf http://127.0.0.1:8766/_stcore/health && ok=1 && break
+            curl -sf http://127.0.0.1:8765/api/modules > modules.json && ok=1 && break
             sleep 1
           done
-          cat atlas6.log atlas58.log
+          cat atlas6.log
           test -n "$ok" && head -c 200 modules.json
       - uses: actions/upload-artifact@v4
         with:

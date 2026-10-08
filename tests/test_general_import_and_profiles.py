@@ -1,8 +1,8 @@
 import pandas as pd
 from pathlib import Path
-from app.core import config,profiles,tabular
-from app.ui import general_import as gi
-from app.ui import pressure_quick_import as q
+from atlas.engine.core import config,profiles,tabular
+from atlas.engine.core import import_rules as gi
+from atlas.engine.core import pressure_import as q
 
 EXAMPLES=Path(__file__).resolve().parents[1]/'examples'
 

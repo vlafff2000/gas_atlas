@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.modules.charts import separated_ranges
+from atlas.engine.modules.charts import separated_ranges
 from atlas import chart_format
 
 
@@ -38,7 +38,7 @@ def test_manual_axes_in_export():
     import numpy as np
     import pandas as pd
     import plotly.graph_objects as go
-    from app.core.export import figure_bytes
+    from atlas.engine.core.export import figure_bytes
     dates = pd.date_range('2006-01-01', periods=40, freq='MS')
     fig = go.Figure([go.Scatter(x=dates, y=np.linspace(50, 100, 40), mode='lines', name='p'),
                      go.Scatter(x=dates, y=np.linspace(10, 20, 40), mode='lines', name='l', yaxis='y2')])
@@ -56,7 +56,7 @@ def test_x_labels_fit_by_angle():
     import numpy as np
     import pandas as pd
     import plotly.graph_objects as go
-    from app.core import export
+    from atlas.engine.core import export
     seen = {}
     original = export.x_labels
 

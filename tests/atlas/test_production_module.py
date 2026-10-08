@@ -1,13 +1,13 @@
-"""Паритет с 5.8: «Производительность скважин» и «Гистограммы» считают и рисуют то же, что app.modules."""
+"""Паритет с 5.8: «Производительность скважин» и «Гистограммы» считают и рисуют то же, что atlas.engine.modules."""
 import numpy as np
 import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core.demo import demo_frames
-from app.modules import charts as legacy_charts
-from app.modules import group_analysis
-from app.modules import production as legacy
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.modules import charts as legacy_charts
+from atlas.engine.modules import group_analysis
+from atlas.engine.modules import production as legacy
 from atlas.api import create_app
 from atlas.projects import Projects
 
@@ -50,7 +50,7 @@ def test_dynamic_options_cascade(env):
                                         json={'project': pid, 'param': name, 'params': p}).json()
     periods = ask('periods', kind='withdrawal')
     df = frame(projects, pid)
-    from app.core.config import ordered
+    from atlas.engine.core.config import ordered
     assert periods == ordered(df[df.kind == 'withdrawal'].period)          # естественный порядок, как в 5.8
     assert set(ask('periods', kind='injection')) == set(df[df.kind == 'injection'].period)
     everyone = ask('wells', groups=gs)

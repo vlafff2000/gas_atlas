@@ -5,10 +5,10 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core.config import DEFAULT_SETTINGS, MODULES
-from app.core.demo import well_demo_frames
-from app.core.performance import Project as FrameCache
-from app.core.storage import Store
+from atlas.engine.core.config import DEFAULT_SETTINGS, MODULES
+from atlas.engine.core.demo import well_demo_frames
+from atlas.engine.core.performance import Project as FrameCache
+from atlas.engine.core.storage import Store
 from atlas.api import create_app
 from atlas.modules.overview import describe, local_time, summary
 from atlas.projects import Projects

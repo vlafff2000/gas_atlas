@@ -1,6 +1,6 @@
 """ГДИ: индикаторные диаграммы, коэффициенты, сравнения, выбросы, ручной фильтр точек.
 
-Математика не переписана: подбор a, b, R², Qсв, сравнения и подсказки выбросов — ``app.modules.gdi`` из 5.8.
+Математика не переписана: подбор a, b, R², Qсв, сравнения и подсказки выбросов — ``atlas.engine.modules.gdi`` из 5.8.
 Здесь только выбор данных и представление. Полный перечень функций раздела — docs/parity/gdi.md.
 """
 from __future__ import annotations
@@ -10,8 +10,8 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
-from app.core.config import COLORS, natural_key
-from app.modules import gdi as legacy
+from atlas.engine.core.config import COLORS, natural_key
+from atlas.engine.modules import gdi as legacy
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)
@@ -303,7 +303,7 @@ class GdiModule(Module):
 
     @staticmethod
     def chart(points: pd.DataFrame, studies: pd.DataFrame, original: pd.DataFrame, well: str, params) -> Chart:
-        """Как ``app.modules.charts.gdi_chart``: цвет по дате (последняя — красная), маркер по исследованию."""
+        """Как ``atlas.engine.modules.charts.gdi_chart``: цвет по дате (последняя — красная), маркер по исследованию."""
         swapped = params['orientation'] == 'swapped'
         q_axis = Axis('Q', UNITS['q_gdi'], from_zero=True)
         dp_axis = Axis('ΔP²', UNITS['dp2'], from_zero=True)

@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
-from app.core import exclusions,reporting
-from app.core.demo import demo_frames
-from app.core.storage import Store
-from app.core.config import DEFAULT_SETTINGS
-from app.core.export import figure_bytes
-from app.modules import gdi,production,charts
+from atlas.engine.core import exclusions,reporting
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.core.storage import Store
+from atlas.engine.core.config import DEFAULT_SETTINGS
+from atlas.engine.core.export import figure_bytes
+from atlas.engine.modules import gdi,production,charts
 
 
 def outlier_frames():

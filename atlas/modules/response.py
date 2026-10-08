@@ -1,6 +1,6 @@
 """Графики реагирования: уровень жидкости и приведённое пластовое давление контрольных горизонтов.
 
-Как в 5.8 (``app/main.py``, страница «Графики реагирования»; рисунок — ``app.modules.charts.response_chart``):
+Как в 5.8 (``app/main.py``, страница «Графики реагирования»; рисунок — ``atlas.engine.modules.charts.response_chart``):
 выбор горизонтов → скважин → периода; вид (уровень и давление отдельно, на двух шкалах, только одно);
 построение по горизонтам, все вместе или по скважинам. Новой математики нет: здесь выбор данных и представление,
 все точки остаются в результате (экранное прореживание М4 и выгрузки — atlas/thinning.py), цвета скважин — ``charts.well_colors``, идентификаторы точек —
@@ -12,9 +12,9 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-from app.core import exclusions
-from app.core.config import ordered
-from app.modules.charts import separated_ranges, well_colors, well_title
+from atlas.engine.core import exclusions
+from atlas.engine.core.config import ordered
+from atlas.engine.modules.charts import separated_ranges, well_colors, well_title
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)

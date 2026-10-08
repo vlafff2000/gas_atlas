@@ -65,7 +65,7 @@ ROWS = [['24.10.15', 28.886, 0.0, 0.0, None, 0.0, 21971.1144], ['25.10.15', 60.1
 
 
 def test_new_table_import_and_chart(tmp_path):
-    from app.core.loader import load_file
+    from atlas.engine.core.loader import load_file
     f = tmp_path / 'wf.xlsx'
     pd.DataFrame(ROWS, columns=HEADER).to_excel(f, index=False)
     r = load_file(str(f))
@@ -100,7 +100,7 @@ def test_x_axis_by_season_take(env):
 
 def test_export_includes_water(env):
     from atlas.api_export import WATERFACTOR, options_from, with_water
-    from app.core import reporting
+    from atlas.engine.core import reporting
     client, pid, projects = env
     data = projects.data(pid)
     opts = client.post('/api/modules/water/options', json={'project': pid, 'param': 'periods', 'params': {}}).json()

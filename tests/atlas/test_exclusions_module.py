@@ -2,8 +2,8 @@
 import pytest
 from starlette.testclient import TestClient
 
-from app.core import exclusions as legacy
-from app.core.storage import Store
+from atlas.engine.core import exclusions as legacy
+from atlas.engine.core.storage import Store
 from atlas.api import create_app
 from atlas.projects import Projects
 

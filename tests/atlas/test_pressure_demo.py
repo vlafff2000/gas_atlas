@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core import config, pressure_demo
+from atlas.engine.core import config, pressure_demo
 from atlas.api import create_app
 from atlas.projects import Projects
 

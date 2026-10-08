@@ -1,12 +1,12 @@
-"""Паритет с 5.8: раздел ГДИ возвращает ровно то, что считает и рисует app.modules.gdi / charts.gdi_chart."""
+"""Паритет с 5.8: раздел ГДИ возвращает ровно то, что считает и рисует atlas.engine.modules.gdi / charts.gdi_chart."""
 import numpy as np
 import pandas as pd
 import pytest
 
-from app.core import exclusions
-from app.core.demo import demo_frames
-from app.modules import charts
-from app.modules import gdi as legacy
+from atlas.engine.core import exclusions
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.modules import charts
+from atlas.engine.modules import gdi as legacy
 from atlas import registry
 from atlas.contract import Data, Result
 from atlas.domain import DatasetKind

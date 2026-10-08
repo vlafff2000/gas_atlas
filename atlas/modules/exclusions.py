@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.core.config import ordered
+from atlas.engine.core.config import ordered
 
 from ..contract import Command, Data, Module, ModuleSpec, Note, Option, Param, Result, Table, TableAction
 from ..domain import DatasetKind

@@ -1,7 +1,7 @@
 """Импорт данных в проект (раздел 5.8 «Импорт данных» и загрузка данных «Кроссплота давлений»).
 
 Здесь только выбор данных и порядок шагов. Чтение файлов, распознавание шапки, проверка строк, слияние
-и сопоставление факта с моделью — код 5.8: ``app/core/loader.py``, ``tabular.py``, ``import_rules.py``,
+и сопоставление факта с моделью — код 5.8: ``atlas/engine/core/loader.py``, ``tabular.py``, ``import_rules.py``,
 ``pressure_import.py``, ``profiles.py``; запись — ``Store.commit`` с теми же действиями журнала,
 что пишет 5.8 («Импорт данных», «Результат импорта», «Импорт кроссплота давлений»).
 
@@ -21,15 +21,15 @@ from typing import Any
 
 import pandas as pd
 
-from app.core import ggh_import as ggh
-from app.core import import_rules as rules
-from app.core import pressure_import as pq
-from app.core import profiles, tabular
-from app.core.config import MODULES, ROOT
-from app.core.loader import column_map, detect_layout, load_file
-from app.core import pressure_demo
-from app.core.templates import input_templates
-from app.core.well_import import REQUIRED
+from atlas.engine.core import ggh_import as ggh
+from atlas.engine.core import import_rules as rules
+from atlas.engine.core import pressure_import as pq
+from atlas.engine.core import profiles, tabular
+from atlas.engine.core.config import MODULES, ROOT
+from atlas.engine.core.loader import column_map, detect_layout, load_file
+from atlas.engine.core import pressure_demo
+from atlas.engine.core.templates import input_templates
+from atlas.engine.core.well_import import REQUIRED
 
 from .contract import Column, ParamError, Table, _table_json
 from . import import_fix, quality
@@ -839,7 +839,7 @@ class Imports:
         return {'message': f'Сохранено: {len(p["data"])} замеров ГГХ, скважин {p["data"].well.nunique()}',
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
-    # ---------- демонстрационные варианты кроссплота (app/core/pressure_demo.py) ----------
+    # ---------- демонстрационные варианты кроссплота (atlas/engine/core/pressure_demo.py) ----------
     @staticmethod
     def pressure_demo_variants() -> list[dict[str, Any]]:
         return pressure_demo.variants()
@@ -885,7 +885,7 @@ class Imports:
     @staticmethod
     def options() -> dict[str, Any]:
         """Списки для формы: типы таблиц, поля сопоставления (подписи 5.8)."""
-        from app.core.loader import ALIASES
+        from atlas.engine.core.loader import ALIASES
         return {'types': [{'value': v, 'label': rules.type_label(v)} for v in ['auto'] + rules.MODULE_CHOICES[1:]],
                 'sheet_types': [{'value': v, 'label': 'Автоопределение' if v == 'auto' else module_label(v)}
                                 for v in rules.MODULE_CHOICES],

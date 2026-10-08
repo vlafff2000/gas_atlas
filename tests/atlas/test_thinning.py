@@ -273,7 +273,7 @@ def test_excluding_a_point_from_thinned_view_hits_the_raw_point(env, tmp_path):
 # ---------- другие графики: производительность ----------
 
 def test_production_export_and_window_use_full_curves(tmp_path):
-    from app.core.demo_large import create_large_demo
+    from atlas.engine.core.demo_large import create_large_demo
     projects = Projects(tmp_path)
     pid = create_large_demo(projects.store, production=60000, gdi=500, response=500, pressure_match=500)
     client = TestClient(create_app(projects))
@@ -301,7 +301,7 @@ def test_production_export_and_window_use_full_curves(tmp_path):
 
 
 def test_many_curves_warning(tmp_path):
-    from app.core.demo_large import create_large_demo
+    from atlas.engine.core.demo_large import create_large_demo
     projects = Projects(tmp_path)
     pid = create_large_demo(projects.store, production=80000, gdi=500, response=500, pressure_match=500)
     client = TestClient(create_app(projects))

@@ -3,8 +3,8 @@
 
 Форма экспорта хранит поля под теми же именами, что виджеты 5.8 (``app/ui/export_panel.py``: ``gdi_n``,
 ``production_periods_withdrawal``, ``caption_template_gdi`` …), поэтому шаблоны экспорта общие у 5.8 и 6.
-Перечень графиков, их построение, архивы и Word — код 5.8 без изменений: ``app.core.reporting.plan``,
-``app.core.bulk_export.export_plan`` / ``export_word`` / ``bundle_exports``.
+Перечень графиков, их построение, архивы и Word — код 5.8 без изменений: ``atlas.engine.core.reporting.plan``,
+``atlas.engine.core.bulk_export.export_plan`` / ``export_word`` / ``bundle_exports``.
 """
 from __future__ import annotations
 
@@ -25,12 +25,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from app.core import reporting
-from app.core.bulk_export import bundle_exports, export_plan, migrate_preset
-from app.core.config import MODULES, VERSION as VERSION_58, ordered
+from atlas.engine.core import reporting
+from atlas.engine.core.bulk_export import bundle_exports, export_plan, migrate_preset
+from atlas.engine.core.config import MODULES, VERSION as VERSION_58, ordered
 from .modules._production import visible_periods
-from app.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
-from app.core.export import figure_bytes
+from atlas.engine.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
+from atlas.engine.core.export import figure_bytes
 
 from . import VERSION, chart_format, chart_labels, word_export
 from .contract import Data, ParamError
@@ -114,7 +114,7 @@ def latest_date(raw: Mapping[str, pd.DataFrame]):
 
 
 def dashboard_periods(source, settings, mapping) -> dict[str, list[str]]:
-    from app.modules import well_analysis
+    from atlas.engine.modules import well_analysis
     try:
         daily = well_analysis.dataset(source, settings, mapping)['daily']
     except Exception:      # нет эксплуатации — нет периодов
@@ -127,7 +127,7 @@ def dashboard_periods(source, settings, mapping) -> dict[str, list[str]]:
 
 def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
     """Списки для формы: скважины и группы модулей, периоды, сезоны ГДИ, горизонты, даты, подписи Word."""
-    from app.modules import well_charts
+    from atlas.engine.modules import well_charts
     source, raw = frames_of(data, apply_exclusions)
     settings, mapping = data.settings, data.mapping
     mods = available(raw)
@@ -181,7 +181,7 @@ def _date(value) -> str:
 def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]:
     """Повторяет сборку ``options`` в ``export_panel.render`` 5.8. Не заданное поле — значение виджета 5.8
     по умолчанию (списки — «все»). Возвращает (options, frames, raw_frames)."""
-    from app.modules import well_charts
+    from atlas.engine.modules import well_charts
     apply_exclusions = bool(form.get('exclusions', True))
     source, raw = frames_of(data, apply_exclusions)
     settings, mapping = data.settings, data.mapping
@@ -303,7 +303,7 @@ def water_cfg(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
 def with_water(plan, data: Data, options: Mapping[str, Any]):
     """Графики и таблица «Выноса воды» добавляются к плану 5.8: их строит модуль Атласа 6 (код 5.8 о нём не знает)."""
     from functools import partial
-    from app.core.reporting import FigureJob
+    from atlas.engine.core.reporting import FigureJob
     from .modules.water import WaterModule
     from .render import to_plotly
     if WATERFACTOR not in options['modules']:
@@ -390,7 +390,7 @@ def captions_from(form: Mapping[str, Any], modules) -> dict[str, dict]:
 
 def font_from(form: Mapping[str, Any]) -> tuple[str, Any]:
     """Шрифт и его размер (пт) из формы выгрузки; без них — стандартный шрифт и размер по умолчанию."""
-    from app.core.fonts import check
+    from atlas.engine.core.fonts import check
     try:
         return check(form.get('font'), form.get('font_size'))
     except ValueError as e:
@@ -659,7 +659,7 @@ def routes(projects: Projects) -> list[Route]:
 
     def word_groups(plan, layout):
         """Графики по модулям (один документ на модуль) или все вместе, если выбран один документ."""
-        from app.core.config import MODULES
+        from atlas.engine.core.config import MODULES
         if layout.merge:
             return [('all', 'Графики', list(plan.jobs))]
         groups: dict = {}
@@ -669,7 +669,7 @@ def routes(projects: Projects) -> list[Route]:
 
     def word_caption(figure, captions, counters, template_default=None):
         """(текст до номера, номер, текст после): номер вставляется полем Word, поэтому он выделен меткой."""
-        from app.core.documents import caption_for
+        from atlas.engine.core.documents import caption_for
         module = (figure.layout.meta or {}).get('module', 'gdi')
         cfg = {**captions.get(module, {})}
         if cfg.get('template'):
@@ -707,7 +707,7 @@ def routes(projects: Projects) -> list[Route]:
         return items, errors
 
     def word(request, body):
-        from app.core.export import safe_name
+        from atlas.engine.core.export import safe_name
         pid, form = request.path_params['pid'], form_of(body)
         options, plan, data = need_plan(pid, form)
         if not plan.jobs:
@@ -765,8 +765,8 @@ def routes(projects: Projects) -> list[Route]:
 
     def pack(request, body):
         """Один щелчок: Word и PDF «6 графиков на листе A4» отдельно для отбора и закачки по всем скважинам фонда."""
-        from app.core.export import figure_bytes
-        from app.modules import production
+        from atlas.engine.core.export import figure_bytes
+        from atlas.engine.modules import production
         pid, form = request.path_params['pid'], form_of(body)
         data = projects.data(pid)
         template = str(form.get('pack_template') or PACK_TEMPLATE)[:500]
@@ -911,7 +911,7 @@ def routes(projects: Projects) -> list[Route]:
         return sync_form(projects.data(pid).settings)
 
     def pack_plan(pid, form):
-        from app.modules import production
+        from atlas.engine.modules import production
         data = projects.data(pid)
         options, source, raw = options_from(pack_options(form, data), data)
         if not options['wells']:

@@ -44,7 +44,7 @@ def is_full() -> bool:
 
 def screen_decimate(frame: pd.DataFrame, column: str, limit: int = 5000) -> pd.DataFrame:
     """Прореживание 5.8 (``charts.decimate``) для экрана; в ``full_resolution`` — все точки."""
-    from app.modules.charts import decimate
+    from atlas.engine.modules.charts import decimate
     return frame if is_full() else decimate(frame, column, limit)
 
 

@@ -2,7 +2,7 @@
 
 В 5.8 — страница «История фильтра» (``app/ui/extras.py::render_extra``). Записи — журнал проекта 5.8 с
 ``before_exclusions``/``after_exclusions`` (их пишут ручной фильтр, исключение кликом и восстановление);
-сравнение ГДИ — ``app.core.history.comparison``. Восстановление состояния — ``POST exclusions/state``
+сравнение ГДИ — ``atlas.engine.core.history.comparison``. Восстановление состояния — ``POST exclusions/state``
 (atlas/api_exclusions.py), действие «Восстановление фильтра», как в 5.8. Перечень функций — docs/parity/filter_history.md.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.core.history import comparison
+from atlas.engine.core.history import comparison
 
 from ..contract import Column, Command, Data, Module, ModuleSpec, Note, Option, Param, Result, Table
 from . import _journal

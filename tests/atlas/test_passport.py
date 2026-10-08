@@ -5,11 +5,11 @@ import pytest
 from starlette.testclient import TestClient
 
 from _wells_data import make_project
-from app.core import reporting
-from app.core.config import DEFAULT_SETTINGS, MODULES, ordered
-from app.core.documents import passport_pdf
-from app.core.performance import Frames
-from app.modules import production
+from atlas.engine.core import reporting
+from atlas.engine.core.config import DEFAULT_SETTINGS, MODULES, ordered
+from atlas.engine.core.documents import passport_pdf
+from atlas.engine.core.performance import Frames
+from atlas.engine.modules import production
 from atlas.api import create_app
 from atlas.projects import Projects
 

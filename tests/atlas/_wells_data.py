@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from app.core.demo import demo_frames
+from atlas.engine.core.demo import demo_frames
 
 
 def well_frames():

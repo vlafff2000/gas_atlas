@@ -5,12 +5,12 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
-from app.core import config, exclusions, profiles, tabular
-from app.core.import_rules import parse_pressure_book, to_kgf
-from app.core.loader import load_file, merge_frames
-from app.core.storage import Store
-from app.ui import general_import as gi
-from app.ui import pressure_quick_import as q
+from atlas.engine.core import config, exclusions, profiles, tabular
+from atlas.engine.core.import_rules import parse_pressure_book, to_kgf
+from atlas.engine.core.loader import load_file, merge_frames
+from atlas.engine.core.storage import Store
+from atlas.engine.core import import_rules as gi
+from atlas.engine.core import pressure_import as q
 from atlas.api import create_app
 from atlas.imports import Imports
 from atlas.projects import Projects

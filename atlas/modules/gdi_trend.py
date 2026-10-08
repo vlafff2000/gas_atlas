@@ -1,7 +1,7 @@
 """Динамика коэффициентов ГДИ по годам и рейтинг скважин с ухудшением отдачи.
 
 Новый раздел (в 5.8 есть только сравнение двух исследований и «Динамика трёх последних»). Математика 5.8 не
-переписана: коэффициенты a, b, R² и признак надёжности — ``app.modules.well_analysis.gdi_history``, расход при общем
+переписана: коэффициенты a, b, R² и признак надёжности — ``atlas.engine.modules.well_analysis.gdi_history``, расход при общем
 ΔP² — оттуда же (по методу, без экстраполяции). Здесь только выбор данных, сравнение первого и последнего
 надёжного исследования и представление.
 """
@@ -12,8 +12,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from app.core.config import COLORS
-from app.modules import well_analysis as legacy
+from atlas.engine.core.config import COLORS
+from atlas.engine.modules import well_analysis as legacy
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source, Stat, Table
 from ..domain import UNITS, DatasetKind

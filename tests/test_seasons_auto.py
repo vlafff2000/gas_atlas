@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from app.modules import production, seasons
+from atlas.engine.modules import production, seasons
 
 
 def _frame(with_season=False):

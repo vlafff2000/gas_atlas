@@ -1,4 +1,4 @@
-"""Паритет с 5.8: «Поскважинный анализ» считает и рисует то же, что app.modules.well_analysis / well_charts."""
+"""Паритет с 5.8: «Поскважинный анализ» считает и рисует то же, что atlas.engine.modules.well_analysis / well_charts."""
 import math
 
 import numpy as np
@@ -7,12 +7,11 @@ import pytest
 from starlette.testclient import TestClient
 
 from _wells_data import make_project
-from app.core.config import DEFAULT_SETTINGS
-from app.core.performance import Frames, select_wells
-from app.modules import gdi as legacy_gdi
-from app.modules import well_analysis as legacy
-from app.modules import well_charts
-from app.ui.well_dashboard import number
+from atlas.engine.core.config import DEFAULT_SETTINGS
+from atlas.engine.core.performance import Frames, select_wells
+from atlas.engine.modules import gdi as legacy_gdi
+from atlas.engine.modules import well_analysis as legacy
+from atlas.engine.modules import well_charts
 from atlas.api import create_app
 from atlas.contract import _column
 from atlas.modules.wells import GDI_HISTORY_LABELS, OPERATING, SECTIONS
@@ -28,6 +27,11 @@ def env(tmp_path_factory):
     client = TestClient(create_app(projects))
     pid = make_project(projects)
     return client, pid, projects
+
+
+def number(value, precision=1):
+    """Формат числа, как в 5.8 (well_dashboard.number)."""
+    return f'{float(value):,.{precision}f}'.replace(',', ' ') if pd.notna(value) and np.isfinite(value) else 'Нет данных'
 
 
 def ask(client, pid, name, **params):
@@ -102,7 +106,7 @@ def test_options_match_58(env):
     client, pid, projects = env
     frames, raw, settings, mapping = legacy_inputs(projects, pid)
     catalog = raw.project.catalog()
-    from app.core.config import ordered
+    from atlas.engine.core.config import ordered
     assert ask(client, pid, 'wells') == ordered(catalog['wells'])
     assert ask(client, pid, 'groups') == ordered(mapping.get(w, {}).get('group', 'Без группы') for w in catalog['wells'])
     daily = legacy.dataset(frames, settings, mapping)['daily']
