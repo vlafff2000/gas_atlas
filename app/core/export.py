@@ -103,6 +103,35 @@ def excel_finish(f,ax,secondary,title,k,date_axis,categorical):
     ax.set_title(title,loc='center',fontsize=14*k,fontweight='normal',color=XL_TEXT,pad=10)
     f.patch.set_facecolor('white');f.patch.set_edgecolor(XL_GRID);f.patch.set_linewidth(1.0)
 
+def x_labels(ax,angle,width_mm,font_pt,date_axis,auto,categorical):
+    """Наклон подписей оси X; число подписей подбирается по тому, сколько их помещается в ширину графика при этом наклоне:
+    горизонтальная подпись занимает свою ширину, наклонная — проекцию на ось (ширина·cos + высота·sin), вертикальная — только высоту строки.
+    Зазор между подписями — полтора размера шрифта. Заданные вручную деления оси X (``auto=False``) не трогаются."""
+    import math
+    from matplotlib.ticker import MaxNLocator,StrMethodFormatter
+    from matplotlib.dates import DateFormatter
+    if auto and not categorical:
+        theta=math.radians(abs(angle))
+        room=width_mm*.8*72/25.4                                  # ширина поля графика без полей осей, пт
+        def fits(chars,ticks):                                    # помещаются ли ticks подписей из chars знаков при этом наклоне
+            footprint=font_pt*.6*chars*abs(math.cos(theta))+font_pt*1.25*abs(math.sin(theta))+font_pt*1.5
+            return ticks*footprint<=room
+        if date_axis:
+            from matplotlib import dates as md
+            lo,hi=ax.get_xlim();days=abs(hi-lo)
+            options=[('day',n,n) for n in (1,2,5,10,15)]+[('month',n,30.44*n) for n in (1,2,3,6)]+[('year',n,365.25*n) for n in (1,2,4,5,10,20,50,100)]
+            chars={'day':10,'month':7,'year':4}
+            unit,n,_=next((o for o in options if fits(chars[o[0]],int(days/o[2])+1)),options[-1])      # самый частый круглый шаг, при котором подписи помещаются
+            ax.xaxis.set_major_locator({'day':lambda:md.DayLocator(interval=n),'month':lambda:md.MonthLocator(interval=n),'year':lambda:md.YearLocator(base=n)}[unit]())
+            ax.xaxis.set_major_formatter(DateFormatter({'day':'%d.%m.%Y','month':'%m.%Y','year':'%Y'}[unit]))
+        else:
+            count=next((c for c in range(60,2,-1) if fits(6,c)),3)
+            ax.xaxis.set_major_locator(MaxNLocator(nbins=count,steps=[1,2,2.5,5,10]));ax.xaxis.set_major_formatter(StrMethodFormatter('{x:.10g}'))
+    ax.tick_params(axis='x',labelrotation=angle)
+    for lab in ax.get_xticklabels():lab.set_ha('right' if 0<angle<90 else 'center')
+    if angle==90:ax.tick_params(axis='x',labelrotation=90)
+
+
 def manual_axes(ax,secondary,axes,date_axis,categorical):
     """Ручные границы и деления осей из «Оформления графиков» (``atlas/chart_format.parse_axes``). Сетка основных и дополнительных
     делений начинается с нижней границы оси; не заданное остаётся автоматическим."""
@@ -264,9 +293,6 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             if secondary is not None and fig.layout.yaxis2.range is not None:secondary.set_ylim(*fig.layout.yaxis2.range)
             ax.set_axisbelow(True);ax.spines[['top','right']].set_visible(False)
             if excel:excel_finish(f,ax,secondary,title,k,date_axis,bool(bars or boxes) and not numeric_bars)     # до легенды: её значки копируют цвета рядов
-            if fo.get('angle') not in (None,'auto'):
-                angle=float(fo['angle'])
-                for lab in ax.get_xticklabels():lab.set_rotation(angle);lab.set_ha('right' if 0<angle<90 else 'center')
             if fo.get('legend')=='hide':legend=[]
             if legend:
                 handles,labels=ax.get_legend_handles_labels()
@@ -285,6 +311,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             if date_axis:
                 ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=5 if compact else 7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))
             if fo.get('axes'):manual_axes(ax,secondary,fo['axes'],date_axis,bool(bars or boxes) and not numeric_bars)
+            if fo.get('angle') not in (None,'auto'):x_labels(ax,float(fo['angle']),width_mm,base,date_axis,not (fo.get('axes') or {}).get('x',{}).get('major'),bool(bars or boxes) and not numeric_bars)
             buf=io.BytesIO();f.savefig(buf,format=fmt,dpi=dpi)
             return buf.getvalue()
         finally:plt.close(f)
