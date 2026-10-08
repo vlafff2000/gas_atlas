@@ -49,3 +49,28 @@ def test_manual_axes_in_export():
                                 ' "major": {"unit": "year", "n": 1}, "minor": {"unit": "month", "n": 3}}}'})
     styled = chart_format.apply(fig, cfg['response'])
     assert figure_bytes(styled, 'png', 150)[:4] == b'\x89PNG'
+
+
+def test_x_labels_fit_by_angle():
+    """Чем круче наклон подписей оси X, тем больше их помещается; ручные деления X автоподбор не трогает."""
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+    from app.core import export
+    seen = {}
+    original = export.x_labels
+
+    def spy(ax, angle, *rest):
+        original(ax, angle, *rest)
+        ax.figure.canvas.draw()
+        seen[angle] = len([t for t in ax.get_xticklabels() if t.get_text()])
+    export.x_labels = spy
+    try:
+        dates = pd.date_range('2025-03-01', '2025-12-01', freq='3D')
+        fig = go.Figure([go.Scatter(x=dates, y=np.arange(len(dates)), mode='lines', name='p')])
+        fig.update_layout(xaxis={'type': 'date'})
+        for angle in ('0', '45', '90'):
+            export.figure_bytes(chart_format.apply(fig, chart_format.configs({'fmt_angle': angle})['*']), 'png', 150)
+    finally:
+        export.x_labels = original
+    assert seen[0.0] <= seen[45.0] <= seen[90.0] and seen[0.0] < seen[90.0]
