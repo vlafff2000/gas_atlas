@@ -56,7 +56,7 @@ jobs:
           test -n "$ok" && head -c 200 modules.json
           test -f tools/icons/gas_atlas_6.ico
           mkdir -p ../desk && "$PY" -s tools/desktop_shortcuts.py --dir ../desk
-          test "$(ls ../desk | wc -l)" = 2
+          test "$(ls ../desk | wc -l)" = 1
       - uses: actions/upload-artifact@v4
         with:
           name: Gas_Atlas_portable_${{ matrix.target }}
