@@ -72,7 +72,7 @@ interface Props {
 
 export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
   const [options, setOptions] = useState<ImportOptions | null>(null)
-  const [tab, setTab] = useState<'tables' | 'pressure' | 'ggh'>(pressure ? 'pressure' : 'tables')
+  const [tab, setTab] = useState<'tables' | 'pressure'>(pressure ? 'pressure' : 'tables')
   const [failure, setFailure] = useState('')
   useEffect(() => { importApi.options().then(setOptions).catch(e => setFailure((e as Error).message)) }, [])
 
@@ -82,7 +82,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
         <div>
           <h1>Импорт данных</h1>
           <p className="lede">Простой режим: перетащите все файлы сразу. Подробный: настройка шапки и колонок каждого листа.
-            Данные давлений для кроссплота и газогидрохимия (ГГХ) — отдельные подразделы.
+            Газогидрохимия (ГГХ) загружается на той же вкладке ниже; данные давлений для кроссплота — отдельная вкладка.
             Какие колонки и форматы нужны — в <a href={tab === 'pressure' ? '#/@help/pressure' : '#/@help'}>справке по форматам данных</a>.</p>
         </div>
       </header>
@@ -91,16 +91,19 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
       {project && options && (
         <>
           <div className="tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={tab === 'tables'} onClick={() => setTab('tables')}>Таблицы исследований и эксплуатации</button>
+            <button type="button" role="tab" aria-selected={tab === 'tables'} onClick={() => setTab('tables')}>Таблицы исследований, эксплуатации и ГГХ</button>
             <button type="button" role="tab" aria-selected={tab === 'pressure'} onClick={() => setTab('pressure')}>Данные давлений (кроссплот)</button>
-            <button type="button" role="tab" aria-selected={tab === 'ggh'} onClick={() => setTab('ggh')}>ГГХ (газогидрохимия)</button>
           </div>
           {project.demo && <div className="note warning">Это демонстрационный проект. Для рабочих файлов создайте отдельный проект.</div>}
           {tab === 'tables'
-            ? <TablesImport key={project.id} project={project} options={options} onProject={onProject} />
-            : tab === 'ggh'
-              ? <GghImport key={project.id} project={project} onProject={onProject} />
-              : <PressureImport key={project.id} project={project} options={options} onProject={onProject} />}
+            ? (
+              <>
+                <TablesImport key={project.id} project={project} options={options} onProject={onProject} />
+                <h2>Газогидрохимия (ГГХ)</h2>
+                <GghImport key={`ggh-${project.id}`} project={project} onProject={onProject} />
+              </>
+            )
+            : <PressureImport key={project.id} project={project} options={options} onProject={onProject} />}
         </>
       )}
     </>
