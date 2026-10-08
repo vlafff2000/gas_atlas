@@ -687,6 +687,25 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
     )
   }
 
+  if (module === 'waterfactor') {
+    const seasons = choices.water?.periods ?? []
+    return (
+      <>
+        {head}
+        <Section title="Вынос воды и водный фактор">
+          <Multi {...F} field="waterfactor_periods" label="Сезоны отбора" options={seasons} def={seasons.slice(-5)} />
+          <Num {...F} field="waterfactor_start" label="Объём газа в пласте на начало данных, млн м³" def={0} min={0} max={1e9} step={100} />
+          <Select {...F} field="waterfactor_metric" label="График" def="all"
+            options={[['all', 'Все три'], ['carry', 'Накопленный вынос воды'], ['daily', 'Суточный водный фактор'], ['cumulative', 'Накопленный водный фактор']]} />
+          <Select {...F} field="waterfactor_xaxis" label="Ось X" def="volume"
+            options={[['volume', 'По объёму газа в пласте'], ['cumulative', 'По накопленному отбору за сезон']]} />
+          <Check {...F} field="waterfactor_inverse" label="Ось X справа налево (объём убывает)" def />
+        </Section>
+        <p className="muted pad">Данные и расчёт — как в разделе «Вынос воды и водный фактор»; цвета, оси и подписи — в общих настройках оформления.</p>
+      </>
+    )
+  }
+
   const groups = choices.groups[module] ?? []
   const prefix = module === 'well_dashboard' ? 'dashboard' : module
   const chosenGroups = ((form[module + '_groups'] as string[] | undefined) ?? groups).filter(g => groups.includes(g))
@@ -828,7 +847,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
   const [shot, setShot] = useState<WordPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('fmt_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size' || k === 'look'), doc, page])
+  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('fmt_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k.startsWith('waterfactor_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size' || k === 'look'), doc, page])
   useEffect(() => {
     if (!open || !ready) return
     let alive = true

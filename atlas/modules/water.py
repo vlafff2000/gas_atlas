@@ -116,7 +116,10 @@ class WaterModule(Module):
                   help='Стартовый объём; при 0 по оси X — изменение объёма газа с начала загруженных данных'),
             Param('metric', 'График', 'choice', default='all', section=SECTION_VIEW, chart_kind=True, options=(
                 Option('all', 'Все три'), *(Option(k, v) for k, v in METRICS.items()))),
-            Param('inverse', 'Ось X справа налево (объём убывает)', 'boolean', default=True, section=SECTION_VIEW),
+            Param('xaxis', 'Ось X', 'choice', default='volume', section=SECTION_VIEW, options=(
+                Option('volume', 'По объёму газа в пласте'), Option('cumulative', 'По накопленному отбору за сезон'))),
+            Param('inverse', 'Ось X справа налево (объём убывает)', 'boolean', default=True, section=SECTION_VIEW,
+                  help='Только для оси «по объёму газа в пласте»'),
         ),
     )
 
@@ -190,13 +193,20 @@ class WaterModule(Module):
         y = {'carry': Axis('Накопленный вынос воды', 'м³', from_zero=True),
              'daily': Axis('Суточный водный фактор', WF_UNIT, from_zero=True),
              'cumulative': Axis('Накопленный водный фактор', WF_UNIT, from_zero=True)}[metric]
-        chart = Chart(f'water-{metric}', METRICS[metric] + ' от объёма газа в пласте',
-                      Axis('Объём газа в пласте', 'млн м³', inverse=bool(params['inverse'])), y)
+        by_take = params.get('xaxis') == 'cumulative'
+        x = (Axis('Накопленный отбор за сезон', 'млн м³', from_zero=True) if by_take
+             else Axis('Объём газа в пласте', 'млн м³', inverse=bool(params['inverse'])))
+        chart = Chart(f'water-{metric}', METRICS[metric] + (' от накопленного отбора за сезон' if by_take else ' от объёма газа в пласте'),
+                      x, y)
         colors = legacy.period_colors(df, 'withdrawal') if not df.empty else {
             p: COLORS[i % len(COLORS)] for i, p in enumerate(reversed(list(frames)))}
         for period, f in frames.items():
             col = {'carry': 'cum_water', 'daily': 'daily', 'cumulative': 'cumulative'}[metric]
-            part = f[['date', 'v', col]].rename(columns={col: 'value'}).dropna(subset=['v', 'value'])
+            part = f[['date', 'v', col]].rename(columns={col: 'value'})
+            if by_take:
+                take = f.cum_gas.astype(float) / 1e6
+                part['v'] = take - (take.dropna().iloc[0] if take.notna().any() else 0)
+            part = part.dropna(subset=['v', 'value'])
             if part.empty:
                 continue
             markers = len(part) <= SPARSE

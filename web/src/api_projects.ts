@@ -39,6 +39,7 @@ export interface ExportChoices {
   horizons?: string[]
   working?: string[]
   response_dates?: string[]
+  water?: { periods: string[] }
   dashboard_periods?: Record<'withdrawal' | 'injection', string[]>
   asof?: string
   dashboard_charts?: { id: string; label: string }[]
