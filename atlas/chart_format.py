@@ -7,6 +7,10 @@
 "width": 2, "marker": 0, "hide": true}]``. Правило действует на все ряды, в названии (или группе легенды) которых есть фрагмент:
 ``width`` — толщина линии, пт; ``marker`` — размер маркеров (0 — без маркеров); ``color`` — цвет; ``hide`` — убрать набор
 с графика. Пустое поле не меняет ничего; несколько подходящих правил применяются по порядку.
+Оси (поле ``fmt_<модуль>_axes``): JSON ``{"y": {"min": 0, "max": 150, "major": 25, "minor": 5}, "y2": {...}, "x": {...}}``;
+для оси X-дат границы — даты (``"2006-07-01"`` или ``"01.07.2006"``), деления — ``{"unit": "year"|"month"|"day", "n": 1}``:
+``{"x": {"min": "2006-01-01", "max": "2026-01-01", "major": {"unit": "year", "n": 1}, "minor": {"unit": "month", "n": 3}}}``.
+Пустое значение — автоматически. Рисует ``app.core.export.figure_bytes`` (сетка делений начинается с нижней границы).
 Оформление накладывается на уже построенный график (как подписи, ``chart_labels``), пересчёта не требует.
 """
 
@@ -15,6 +19,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Mapping
 
 ANGLES = ('auto', '0', '30', '45', '60', '90')
@@ -56,12 +61,70 @@ def parse_series(text: Any) -> List[Dict[str, Any]]:
                 raise FormatError('Цвет набора данных: вид #rrggbb')
             item['color'] = color
         if rule.get('width') not in (None, ''):
-            item['width'] = number(rule['width'], 'Толщина линии набора', .2, 10)
+            item['width'] = number(rule['width'], 'Толщина линии набора', 0, 10)
         if rule.get('marker') not in (None, ''):
             item['marker'] = number(rule['marker'], 'Размер маркеров набора', 0, 20)
         if rule.get('hide'):
             item['hide'] = True
         out.append(item)
+    return out
+
+
+UNITS = ('year', 'month', 'day')
+
+
+def _date(value: Any, name: str) -> str:
+    text = str(value).strip()
+    for fmt in ('%Y-%m-%d', '%d.%m.%Y'):
+        try:
+            return datetime.strptime(text, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            pass
+    raise FormatError('%s: дата вида дд.мм.гггг' % name)
+
+
+def _step(value: Any, name: str, dates: bool) -> Any:
+    if not dates:
+        return number(value, name, 1e-9, 1e12)
+    if not isinstance(value, dict):
+        raise FormatError('%s: укажите единицу и количество' % name)
+    unit = str(value.get('unit') or '')
+    if unit not in UNITS:
+        raise FormatError('%s: год, месяц или день' % name)
+    n = int(number(value.get('n'), name + ' (количество)', 1, 10000))
+    return {'unit': unit, 'n': n}
+
+
+def parse_axes(text: Any) -> Dict[str, Dict[str, Any]]:
+    """Ручные границы и деления осей (см. описание модуля); пустые поля пропускаются."""
+    if not str(text or '').strip():
+        return {}
+    try:
+        raw = json.loads(text) if isinstance(text, str) else dict(text)
+    except ValueError:
+        raise FormatError('Оси: неверный формат') from None
+    if not isinstance(raw, dict):
+        raise FormatError('Оси: неверный формат')
+    out: Dict[str, Dict[str, Any]] = {}
+    for axis, label in (('x', 'ось X'), ('y', 'ось Y'), ('y2', 'дополнительная ось Y')):
+        spec = raw.get(axis)
+        if not isinstance(spec, dict):
+            continue
+        dates = bool(spec.get('dates'))
+        item: Dict[str, Any] = {}
+        for key, title in (('min', 'минимум'), ('max', 'максимум')):
+            value = spec.get(key)
+            if value not in (None, ''):
+                item[key] = _date(value, '%s, %s' % (label, title)) if dates else number(value, '%s, %s' % (label, title), -1e12, 1e12)
+        for key, title in (('major', 'основное деление'), ('minor', 'дополнительное деление')):
+            value = spec.get(key)
+            if value not in (None, '') and not (dates and isinstance(value, dict) and not value.get('n')):
+                item[key] = _step(value, '%s, %s' % (label, title), dates)
+        if 'min' in item and 'max' in item and not item['min'] < item['max']:
+            raise FormatError('%s: минимум должен быть меньше максимума' % label)
+        if item:
+            item['dates'] = dates
+            out[axis] = item
     return out
 
 
@@ -86,12 +149,13 @@ def configs(form: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
     base = common(form)
     found: Dict[str, Dict[str, Any]] = {}
     for key, value in form.items():
-        if not key.startswith('fmt_') or not key.endswith('_series'):
+        if not key.startswith('fmt_'):
             continue
-        module = key[len('fmt_'):-len('_series')]
-        rules = parse_series(value)
-        if module and rules:
-            found[module] = {**base, 'series': rules}
+        for suffix, field, parse in (('_series', 'series', parse_series), ('_axes', 'axes', parse_axes)):
+            if key.endswith(suffix) and len(key) > len('fmt_') + len(suffix):
+                module, parsed = key[len('fmt_'):-len(suffix)], parse(value)
+                if parsed:
+                    found.setdefault(module, dict(base))[field] = parsed
     if base:
         found['*'] = base
     return found
@@ -105,7 +169,9 @@ def apply(figure, cfg: Mapping[str, Any]):
     """Копия графика с оформлением из ``cfg``."""
     fig = copy.deepcopy(figure)
     meta = dict(fig.layout.meta) if isinstance(fig.layout.meta, dict) else {}
-    look = {f: str(cfg[f]) for f in ('title', 'angle', 'legend') if f in cfg}
+    look: Dict[str, Any] = {f: str(cfg[f]) for f in ('title', 'angle', 'legend') if f in cfg}
+    if cfg.get('axes'):
+        look['axes'] = cfg['axes']
     if look:
         meta['format'] = look
         fig.layout.meta = meta
@@ -122,17 +188,22 @@ def apply(figure, cfg: Mapping[str, Any]):
             if rule.get('hide'):
                 trace.visible = False
             color = rule.get('color', color)
-            if 'width' in rule and 'lines' in mode:
+            if 'width' in rule and ('lines' in mode or rule['width'] <= 0):
                 width = rule['width']
             if 'marker' in rule and 'markers' in mode:
                 size = rule['marker']
         own = set()
         if line:
-            if width is not None:
+            if width is not None and width <= 0:      # толщина 0 — линия выключена, остаются маркеры
+                trace.mode = 'markers'
+                own.add('width')
+            elif width is not None:
                 trace.line.width = width
                 own.add('width')
             if size is not None:
-                if size <= 0 and 'lines' in mode:
+                if size <= 0 and trace.mode == 'markers' and width is not None and width <= 0:
+                    pass
+                elif size <= 0 and 'lines' in mode:
                     trace.mode = 'lines'
                 elif size > 0:
                     trace.marker.size = size * 2

@@ -382,8 +382,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       )}
 
       <ChartFormat {...F} modules={modules} projectId={project.id} ready={readyPlan} />
+      <AxisSettings {...F} modules={modules} />
 
-      <ChartLabels {...F} modules={modules} />
+      <ChartLabels {...F} modules={modules} projectId={project.id} ready={readyPlan} />
 
       <WordLayout {...F} projectId={project.id} ready={readyPlan} revision={project.revision} />
 
@@ -905,10 +906,19 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
 }
 
 /** Свои названия графика, осей и записей легенды для каждого типа выгружаемых графиков (Word, архив, предпросмотр). */
-function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
+function ChartLabels({ form, set, choices, modules, projectId, ready }: FieldProps & { modules: string[]; projectId: string; ready: boolean }) {
   const rows = modules.filter(m => choices.modules.some(x => x.id === m))
+  const [defaults, setDefaults] = useState<Record<string, Record<string, string>>>({})
+  const [open, setOpen] = useState(false)
+  useEffect(() => {      // названия графика и осей, как они сейчас в графиках, — шаблон для полей
+    if (!open) return
+    let alive = true
+    exportApi.series(projectId, form).then(r => alive && setDefaults(r.labels ?? {})).catch(() => undefined)
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ready, JSON.stringify(form.modules), projectId])
   return (
-    <details className="table-block">
+    <details className="table-block" onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary className="block-head"><h3>Подписи осей и легенд по типам графиков</h3></summary>
       <p className="muted pad">Пустое поле — как в графике. Названия графика можно писать с {'{скважина}'}.
         Легенда: по строке «что=на что» — фрагмент названия заменится; «что=» без замены убирает запись из легенды.
@@ -918,10 +928,10 @@ function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: st
           const f = (name: string) => 'label_' + m + '_' + name
           return (
             <Section key={m} title={choices.modules.find(x => x.id === m)?.label ?? m}>
-              <Text {...{ form, set, choices }} field={f('title')} label="Название графика" def="" />
-              <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def="" />
-              <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def="" />
-              <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def="" />
+              <Text {...{ form, set, choices }} field={f('title')} label="Название графика" def={defaults[m]?.title ?? ''} />
+              <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def={defaults[m]?.x ?? ''} />
+              <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def={defaults[m]?.y ?? ''} />
+              <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def={defaults[m]?.y2 ?? ''} />
               {m === 'gdi' && <Text {...{ form, set, choices }} field={f('template')} label="Запись легенды: {дата}, {метод}, {исследование} (пусто — полная)" def="{дата}" wide />}
               <label className="field wide">
                 <span className="field-label">Замены в легенде (по строке «что=на что»)</span>
@@ -940,6 +950,81 @@ interface SeriesRule { match: string; color?: string; width?: number | string; m
 
 const ANGLE_OPTIONS: Opt[] = [['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]
 
+interface AxisSpec { min?: string; max?: string; major?: string; minor?: string; dates?: boolean; majorUnit?: string; minorUnit?: string }
+type AxesSpec = Partial<Record<'x' | 'y' | 'y2', AxisSpec>>
+const UNIT_OPTIONS: [string, string][] = [['year', 'год'], ['month', 'месяц'], ['day', 'день']]
+
+/** Поле формы ``fmt_<модуль>_axes`` (JSON, см. atlas/chart_format.py): пустые поля не передаются. */
+function axesPayload(spec: AxesSpec): string {
+  const out: Record<string, unknown> = {}
+  for (const [key, a] of Object.entries(spec)) {
+    if (!a) continue
+    const item: Record<string, unknown> = { dates: !!a.dates }
+    if (a.min) item.min = a.min
+    if (a.max) item.max = a.max
+    for (const part of ['major', 'minor'] as const) {
+      if (!a[part]) continue
+      item[part] = a.dates ? { unit: a[part === 'major' ? 'majorUnit' : 'minorUnit'] || 'year', n: a[part] } : a[part]
+    }
+    if (Object.keys(item).length > 1) out[key] = item
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : ''
+}
+
+/** Ручные границы и деления осей X, Y и дополнительной Y — отдельно по типам графиков. Состояние — в ``fmt_<модуль>_ui`` (черновик полей). */
+function AxisSettings({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
+  const rows = modules.filter(m => choices.modules.some(x => x.id === m))
+  const label = (m: string) => choices.modules.find(x => x.id === m)?.label ?? m
+  return (
+    <details className="table-block">
+      <summary className="block-head"><h3>Оси: границы и деления</h3></summary>
+      <p className="muted pad">Для каждого типа графиков можно задать минимум, максимум, основное и дополнительное деление осей X, Y и дополнительной Y (справа).
+        Пустое поле — автоматически. Сетка делений начинается с минимума. Для оси X с датами включите «Даты»: границы вводятся датами (дд.мм.гггг),
+        деления — единицей (год, месяц, день) и количеством. Работает в предпросмотре, архиве, Word и пакете по фонду; сохраняется в шаблоне.</p>
+      <div className="param-bar flat">
+        {rows.map(m => {
+          const f = 'fmt_' + m + '_axes', ui = f + '_ui'
+          let spec: AxesSpec = {}
+          try { spec = JSON.parse((form[ui] as string | undefined) || '{}') } catch { spec = {} }
+          const edit = (axis: 'x' | 'y' | 'y2', patch: AxisSpec) => {
+            const next = { ...spec, [axis]: { ...spec[axis], ...patch } }
+            set(ui, JSON.stringify(next)); set(f, axesPayload(next))
+          }
+          return (
+            <Section key={m} title={label(m)}>
+              <div className="field wide">
+                {(['y', 'y2', 'x'] as const).map(axis => {
+                  const a = spec[axis] ?? {}
+                  const dates = axis === 'x' && !!a.dates
+                  const input = (key: 'min' | 'max' | 'major' | 'minor', placeholder: string) => (
+                    <input value={a[key] ?? ''} placeholder={placeholder} aria-label={placeholder} size={dates && (key === 'min' || key === 'max') ? 11 : 7}
+                      inputMode={dates && (key === 'min' || key === 'max') ? 'text' : 'decimal'} onChange={e => edit(axis, { [key]: e.target.value })} />
+                  )
+                  const unit = (key: 'majorUnit' | 'minorUnit') => (
+                    <select value={a[key] ?? 'year'} aria-label="Единица деления" onChange={e => edit(axis, { [key]: e.target.value })}>
+                      {UNIT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  )
+                  return (
+                    <div key={axis} className="series-rule">
+                      <strong>{axis === 'x' ? 'Ось X' : axis === 'y' ? 'Ось Y' : 'Доп. ось Y'}</strong>
+                      {axis === 'x' && <label className="toggle"><input type="checkbox" checked={dates} onChange={e => edit(axis, { dates: e.target.checked, min: '', max: '', major: '', minor: '' })} /><span>Даты</span></label>}
+                      {input('min', dates ? 'с (дд.мм.гггг)' : 'минимум')}
+                      {input('max', dates ? 'по (дд.мм.гггг)' : 'максимум')}
+                      {dates && unit('majorUnit')}{input('major', dates ? 'осн. — кол-во' : 'основное')}
+                      {dates && unit('minorUnit')}{input('minor', dates ? 'доп. — кол-во' : 'дополнительное')}
+                    </div>
+                  )
+                })}
+              </div>
+            </Section>
+          )
+        })}
+      </div>
+    </details>
+  )
+}
+
 /** Толщина линии, размер маркеров, цвет и скрытие для каждого набора данных (кривой) — отдельно по типам графиков. */
 function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldProps & { modules: string[]; projectId: string; ready: boolean }) {
   const [names, setNames] = useState<Record<string, string[]>>({})
@@ -956,8 +1041,8 @@ function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldPro
   return (
     <details className="table-block" onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary className="block-head"><h3>Наборы данных: линии, маркеры и цвета</h3></summary>
-      <p className="muted pad">Для каждого типа графиков можно настроить отдельные кривые: введите часть названия из легенды (подсказки появляются при вводе),
-        затем цвет, толщину линии и размер маркеров в пунктах (0 — без маркеров) или «скрыть». Пустое поле — как в графике.
+      <p className="muted pad">Для каждого типа графиков можно настроить отдельные кривые: выберите набор данных из списка (названия считываются из графиков),
+        затем цвет, толщину линии (0 — без линии, остаются только маркеры), размер маркеров в пунктах (0 — без маркеров) или «скрыть». Пустое поле — как в графике.
         Правило действует на все кривые, в названии которых есть эта часть. Работает в предпросмотре, архиве, Word, пакете по фонду и ГГХ; сохраняется в шаблоне.</p>
       <div className="param-bar flat">
         {rows.map(m => {
@@ -969,14 +1054,15 @@ function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldPro
           return (
             <Section key={m} title={label(m)}>
               <div className="field wide">
-                <datalist id={'series-' + m}>{(names[m] ?? []).map(n => <option key={n} value={n} />)}</datalist>
                 {rules.map((r, i) => (
                   <div key={i} className="series-rule">
-                    <input value={r.match} placeholder="часть названия" aria-label="Часть названия набора" maxLength={200} list={'series-' + m}
-                      onChange={e => edit(i, { match: e.target.value })} />
+                    <select value={r.match} aria-label="Набор данных" onChange={e => edit(i, { match: e.target.value })}>
+                      <option value="">— набор данных —</option>
+                      {[...(names[m] ?? []), ...(r.match && !(names[m] ?? []).includes(r.match) ? [r.match] : [])].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
                     <input type="color" value={r.color || '#2563eb'} aria-label="Цвет" onChange={e => edit(i, { color: e.target.value })} />
                     <button type="button" title="Цвет как в графике" onClick={() => edit(i, { color: '' })} disabled={!r.color}>цвет ✕</button>
-                    <input value={r.width ?? ''} placeholder="линия, пт" aria-label="Толщина линии, пт" size={8} inputMode="decimal"
+                    <input value={r.width ?? ''} placeholder="линия, пт" aria-label="Толщина линии, пт (0 — без линии, только маркеры)" title="0 — линии отключены, остаются только маркеры" size={8} inputMode="decimal"
                       onChange={e => edit(i, { width: e.target.value })} />
                     <input value={r.marker ?? ''} placeholder="маркер, пт" aria-label="Размер маркеров, пт (0 — без маркеров)" size={8} inputMode="decimal"
                       onChange={e => edit(i, { marker: e.target.value })} />

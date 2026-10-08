@@ -74,6 +74,7 @@ def test_form_gives_58_options_and_plan(env):
     data = projects.data(pid)
     options, frames, raw = options_from(FORM, data)
     expected = options58(data, FORM)
+    options['production'].pop('season_titles')      # ≈ 5.8: подписи «в сезон отбора …» только в 6
     assert json.dumps(options, sort_keys=True, default=str) == json.dumps(expected, sort_keys=True, default=str)
     plan = reporting.plan(*frames58(data)[:1], data.mapping, data.settings, expected, frames58(data)[1])
     body = client.post(f'/api/projects/{pid}/export/plan', json={'form': FORM}).json()
@@ -434,3 +435,19 @@ def test_pack_and_ggh_ids_in_modules_are_ignored_by_plan(env):
     base = client.post(f'/api/projects/{pid}/export/plan', json={'form': {'modules': ['production']}}).json()
     mixed = client.post(f'/api/projects/{pid}/export/plan', json={'form': {'modules': ['production', 'pack', 'ggh']}}).json()
     assert mixed['modules'] == ['production'] and mixed['charts'] == base['charts']
+
+
+def test_zero_width_keeps_markers_and_season_titles(env):
+    """Толщина 0 выключает линию, маркеры остаются; подписи поскважинных графиков и скрытие нейтральных периодов."""
+    import plotly.graph_objects as go
+    from app.modules import charts
+    from atlas import chart_format
+    from atlas.modules._production import visible_periods
+    fig = go.Figure([go.Scatter(x=[1, 2, 3], y=[1, 2, 3], mode='lines+markers', name='Набор')])
+    cfg = chart_format.for_module(chart_format.configs({'fmt_gdi_series': '[{"match": "набор", "width": 0}]'}), 'gdi')
+    assert chart_format.apply(fig, cfg).data[0].mode == 'markers'
+    assert charts.season_title('540', 'withdrawal', ['2025-2026']) == 'Производительность скважины № 540 в сезон отбора 2025-2026'
+    assert charts.season_title('540', 'injection', ['2025']) == 'Производительность скважины № 540 в сезон закачки 2025'
+    periods = ['2024-2025', 'Нейтральный период Весна 2025', 'Вне сезона 2025']
+    assert visible_periods(periods, {}) == ['2024-2025']
+    assert visible_periods(periods, {'show_neutral_periods': True}) == periods

@@ -47,6 +47,16 @@ def wells_of(df: pd.DataFrame) -> list[str]:
     return ordered(index.wells) if index is not None else ordered(df.well.unique())
 
 
+NEUTRAL_PREFIXES = ('Нейтральный период', 'Вне сезона')
+
+
+def visible_periods(periods: list[str], settings: Mapping[str, Any] | None) -> list[str]:
+    """Списки «Сезон» без нейтральных периодов, если в «Настройках» не включён их показ."""
+    if settings and settings.get('show_neutral_periods'):
+        return list(periods)
+    return [p for p in periods if not str(p).startswith(NEUTRAL_PREFIXES)]
+
+
 def periods_of(df: pd.DataFrame, kind: str) -> list[str]:
     index = index_for(df)
     return ordered(index.periods.get(kind, [])) if index is not None else ordered(df.loc[df.kind.eq(kind), 'period'])
@@ -372,7 +382,7 @@ class ProductionBase(Module):
         if name == 'groups':
             return groups_of(df, mapping)
         if name == 'periods':
-            return periods_of(df, params.get('kind') or 'withdrawal')
+            return visible_periods(periods_of(df, params.get('kind') or 'withdrawal'), data.settings)
         if name in ('wells', 'overlay'):
             groups = set(params.get('groups') or [])
             return [w for w in wells_of(df) if group_of(mapping, w) in groups]

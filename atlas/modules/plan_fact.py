@@ -18,7 +18,7 @@ from app.modules import production as legacy
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
 from ._group_charts import _valid
-from ._production import KINDS, group_of, periods_of
+from ._production import KINDS, group_of, periods_of, visible_periods
 
 PRODUCTION, PLAN = DatasetKind.PRODUCTION, DatasetKind.PLAN
 UNIT = 'млн м³'
@@ -104,7 +104,7 @@ class PlanFactModule(Module):
         if PLAN not in data or data[PLAN].empty or PRODUCTION not in data:
             return []
         d = compare(data[PRODUCTION], data[PLAN], data.mapping, params.get('kind') or 'injection', data.settings)
-        return [p for p in periods_of(data[PRODUCTION], params.get('kind') or 'injection') if p in set(d.period)]
+        return visible_periods([p for p in periods_of(data[PRODUCTION], params.get('kind') or 'injection') if p in set(d.period)], data.settings)
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         result = Result()
