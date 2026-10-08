@@ -56,3 +56,32 @@ def test_without_seasons_is_a_note(env):
     client, pid, _ = env
     body = run(client, pid, periods=[])
     assert not body['charts'] and body['notes']
+
+
+HEADER = ['Дата', 'Накопленный расход газа, млн.м3', 'Водный фактор нарастающий', 'Накопленная вода,м3', 'Расход воды,м3',
+          'Водный Фактор', 'Объем газа в пласте, млн.м3']
+ROWS = [['24.10.15', 28.886, 0.0, 0.0, None, 0.0, 21971.1144], ['25.10.15', 60.1, 0.5, 15.0, 15.0, 0.48, 21940.0],
+        ['26.10.15', 90.0, 0.6, 30.0, 15.0, 0.5, 21910.0]]
+
+
+def test_new_table_import_and_chart(tmp_path):
+    from app.core.loader import load_file
+    f = tmp_path / 'wf.xlsx'
+    pd.DataFrame(ROWS, columns=HEADER).to_excel(f, index=False)
+    r = load_file(str(f))
+    assert list(r.frames) == ['water_factor'] and not r.issues
+    frame = r.frames['water_factor']
+    assert frame.date.iloc[0] == pd.Timestamp('2015-10-24') and frame.water_day.isna().iloc[0]
+    assert frame.gas_in_place.iloc[0] == 21971.1144 and frame.wf_cum.iloc[2] == 0.6
+
+    projects = Projects(tmp_path / 'p')
+    client = TestClient(create_app(projects))
+    pid = projects.create_demo()
+    projects.store.commit(pid, frames={'water_factor': frame}, action='Тест')
+    opts = client.post('/api/modules/water/options', json={'project': pid, 'param': 'periods', 'params': {}}).json()
+    assert opts == ['2015']
+    body = run(client, pid, periods=opts)
+    assert [c['id'] for c in body['charts']] == ['water-carry', 'water-daily', 'water-cumulative']
+    carry, daily, cumulative = body['charts']
+    assert carry['series'][0]['y'] == [0.0, 15.0, 30.0] and cumulative['series'][0]['y'] == [0.0, 0.5, 0.6]
+    assert carry['series'][0]['x'][0] == 21971.1144

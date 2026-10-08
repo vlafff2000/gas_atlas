@@ -28,6 +28,7 @@ class DatasetKind(str, Enum):
     OBJECT_PRESSURE = 'object_pressure'
     OPERATIONS = 'operations'            # суточная эксплуатация
     WATER = 'water'
+    WATER_FACTOR = 'water_factor'        # вынос воды и водный фактор по объекту: одна таблица по датам, без скважин
     BOTTOM = 'bottom'                    # замеры забоя
     CONSTRUCTION = 'construction'
     PRESSURE_MATCH = 'pressure_match'    # кроссплот давлений: факт / модель
@@ -46,6 +47,7 @@ LABELS = {
     DatasetKind.OBJECT_PRESSURE: 'Давление объекта',
     DatasetKind.OPERATIONS: 'Суточная эксплуатация',
     DatasetKind.WATER: 'Контроль воды',
+    DatasetKind.WATER_FACTOR: 'Вынос воды по объекту',
     DatasetKind.BOTTOM: 'Замеры забоя',
     DatasetKind.CONSTRUCTION: 'Конструкция скважин',
     DatasetKind.PRESSURE_MATCH: 'Кроссплот давлений',
@@ -61,6 +63,7 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.OBJECT_PRESSURE: ('date',),
     DatasetKind.OPERATIONS: ('well', 'date'),
     DatasetKind.WATER: ('well', 'date'),
+    DatasetKind.WATER_FACTOR: ('date', 'gas_in_place'),
     DatasetKind.BOTTOM: ('well', 'date'),
     DatasetKind.CONSTRUCTION: ('well',),
     DatasetKind.PRESSURE_MATCH: ('well', 'date'),

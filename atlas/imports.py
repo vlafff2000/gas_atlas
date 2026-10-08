@@ -49,7 +49,7 @@ DUPLICATES = {'first': 'Первая запись (как в Python-скрипт
 EXAMPLES = ROOT / 'examples'
 ISSUE_COLUMNS = ['Файл', 'Лист', 'Строка', 'Уровень', 'Причина']
 EDITOR_REQUIRED = {'production': ['well', 'date', 'q'], 'gdi': ['well', 'date', 'q'], 'response': ['well', 'date', 'horizon'],
-                   'object_pressure': ['date', 'pressure'], 'plan': ['group', 'date', 'plan_volume'], 'groups': ['well', 'group'], 'subgroups': ['well', 'subgroup']}
+                   'object_pressure': ['date', 'pressure'], 'plan': ['group', 'date', 'plan_volume'], 'water_factor': ['date', 'gas_in_place'], 'groups': ['well', 'group'], 'subgroups': ['well', 'subgroup']}
 
 
 def ggh_well_horizon(values) -> str:
