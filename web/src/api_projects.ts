@@ -110,6 +110,9 @@ export const exportApi = {
   plan: (pid: string, form: Form) => request<ExportPlan>(`${P(pid)}/export/plan`, json('POST', { form })),
   preview: async (pid: string, form: Form, chart: string) =>
     URL.createObjectURL(await (await send(`${P(pid)}/export/preview`, json('POST', { form, chart }))).blob()),
+  extras: (pid: string, form: Form) => request<{ charts: { name: string; module: string }[] }>(`${P(pid)}/export/extras`, json('POST', { form })),
+  extrasPreview: async (pid: string, form: Form, chart: string) =>
+    URL.createObjectURL(await (await send(`${P(pid)}/export/extras-preview`, json('POST', { form, chart }))).blob()),
   chart: (pid: string, form: Form, chart: string) => request<Chart>(`${P(pid)}/export/chart`, json('POST', { form, chart })),
   series: (pid: string, form: Form) => request<{ series: Record<string, string[]>; labels: Record<string, Record<string, string>> }>(`${P(pid)}/export/series`, json('POST', { form })),
   archive: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/archive`, json('POST', { form })),

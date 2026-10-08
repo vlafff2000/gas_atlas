@@ -68,9 +68,17 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const readyPlan = planModules.length > 0               // есть модули с перечнем графиков (предпросмотр, архив, Word)
   const labelsKey = JSON.stringify(Object.entries(form).filter(([k]) => k.startsWith('label_') || k.startsWith('fmt_')))
 
+  // Перечень графиков: обычные модули и (если включены) графики пакета по фонду и ГГХ.
+  const fetchPlan = async (f: Form): Promise<ExportPlan> => {
+    const ms = ((f.modules as string[] | undefined) ?? choices?.default_modules ?? [])
+    const base: ExportPlan = ms.some(m => !EXTRAS.includes(m)) ? await exportApi.plan(project.id, f) : { modules: [], charts: [], tables: [], note: '' }
+    if (!ms.some(m => EXTRAS.includes(m))) return base
+    const more = await exportApi.extras(project.id, f)
+    return { ...base, charts: [...base.charts, ...more.charts] }
+  }
   const prepare = async () => {
     if (planKey === planned && plan) return plan
-    const next = await exportApi.plan(project.id, form)
+    const next = await fetchPlan(form)
     setPlan(next); setPlanKey(planned)
     return next
   }
@@ -98,36 +106,39 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
 
   // Автоматическое обновление предпросмотра (как флажок 5.8).
   useEffect(() => {
-    if (!form.auto || !readyPlan) return
-    const timer = setTimeout(() => { exportApi.plan(project.id, form).then(p => { setPlan(p); setPlanKey(planned); setShowPreview(true) }).catch(() => undefined) }, 400)
+    if (!form.auto || !ready) return
+    const timer = setTimeout(() => { fetchPlan(form).then(p => { setPlan(p); setPlanKey(planned); setShowPreview(true) }).catch(() => undefined) }, 400)
     return () => clearTimeout(timer)
-  }, [form, key, planned, project.id, readyPlan])
+  }, [form, key, planned, project.id, ready])
 
   // Картинка выбранного графика (макет файла, 150 DPI при выбранной ширине).
   const shownPlan = plan && planKey === planned ? plan : null
+  const extraSel = EXTRAS.includes(shownPlan?.charts.find(c => c.name === chart)?.module ?? '')   // у пакета и ГГХ только картинка файла
+  const liveOn = live && !extraSel
   useEffect(() => {
-    if (!shownPlan || !showPreview || live || !shownPlan.charts.length) return
+    if (!shownPlan || !showPreview || liveOn || !shownPlan.charts.length) return
     const name = shownPlan.charts.some(c => c.name === chart) ? chart : shownPlan.charts[0].name
     if (name !== chart) { setChart(name); return }
     let alive = true
-    exportApi.preview(project.id, form, name).then(u => { if (alive) setImage(old => { if (old) URL.revokeObjectURL(old); return u }); else URL.revokeObjectURL(u) })
+    const isExtra = EXTRAS.includes(shownPlan.charts.find(c => c.name === name)?.module ?? '')
+    ;(isExtra ? exportApi.extrasPreview : exportApi.preview)(project.id, form, name).then(u => { if (alive) setImage(old => { if (old) URL.revokeObjectURL(old); return u }); else URL.revokeObjectURL(u) })
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart, live, form.width, form.height, form.look, form.font, form.font_size, labelsKey])
+  }, [shownPlan, showPreview, chart, liveOn, form.width, form.height, form.look, form.font, form.font_size, labelsKey])
 
   // Открытый предпросмотр обновляется сам, когда меняется проект (исключили точку).
   useEffect(() => {
-    if (!showPreview || !readyPlan || !plan || planKey === key) return
+    if (!showPreview || !ready || !plan || planKey === key) return
     let alive = true
-    exportApi.plan(project.id, form).then(p => { if (alive) { setPlan(p); setPlanKey(planned) } }).catch(() => undefined)
+    fetchPlan(form).then(p => { if (alive) { setPlan(p); setPlanKey(planned) } }).catch(() => undefined)
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.revision])
 
   // Интерактивный вид того же графика; после исключения точки меняется ревизия проекта и график строится заново.
   useEffect(() => {
-    if (!shownPlan || !showPreview || !live || !shownPlan.charts.length) return
+    if (!shownPlan || !showPreview || !liveOn || !shownPlan.charts.length) return
     const name = shownPlan.charts.some(c => c.name === chart) ? chart : shownPlan.charts[0].name
     if (name !== chart) { setChart(name); return }
     let alive = true
@@ -136,7 +147,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart, live, labelsKey])
+  }, [shownPlan, showPreview, chart, liveOn, labelsKey])
 
   const excludePoint = async (dataset: string, id: string) => {
     try {
@@ -411,7 +422,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         <Check {...F} field="auto" label="Автоматически обновлять предпросмотр" def={false} />
         <span className="spacer" />
         {busy && <span className="pulse">{{ preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', pack: 'Построение графиков всех скважин, это может занять несколько минут…', ggh: 'Построение графиков и страниц ГГХ…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
-        <button type="button" className="quiet" disabled={!readyPlan || busy !== null} onClick={preview}>Предпросмотр</button>
+        <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={preview}>Предпросмотр</button>
         <button type="button" className="primary" disabled={!ready || busy !== null || packNoSeasons} onClick={makeArchive}>Сформировать архив</button>
         <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={makeWord}>Создать отчет Word</button>
       </div>
@@ -432,17 +443,18 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
                 </select>
               </label>
               <div className="toolbar">
-                <label className="inline-field">Вид
+                {extraSel && <span className="muted small-text">Пакет по фонду и ГГХ показываются картинкой файла.</span>}
+                {!extraSel && <label className="inline-field">Вид
                   <select value={live ? 'live' : 'image'} onChange={e => { setLive(e.target.value === 'live'); setExcludeMode(false) }}>
                     <option value="image">Картинка (макет файла)</option>
                     <option value="live">Интерактивный график</option>
                   </select>
-                </label>
-                {live && exclusions && (
+                </label>}
+                {liveOn && exclusions && (
                   <label className="toggle"><input type="checkbox" checked={excludeMode} onChange={e => setExcludeMode(e.target.checked)} /><span>Исключать точки кликом</span></label>
                 )}
               </div>
-              {live ? (
+              {liveOn ? (
                 <>
                   <p className="muted small-text">Интерактивный вид того же графика: масштаб, подсказки{exclusions ? ' и исключение точек кликом (исключения сохраняются в проекте и попадут в выгрузку)' : ''}.
                     {!exclusions && ' Исключения проекта в этой выгрузке отключены, поэтому точки не выбираются.'}</p>

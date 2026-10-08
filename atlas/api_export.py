@@ -856,6 +856,59 @@ def routes(projects: Projects) -> list[Route]:
         pid = request.path_params['pid']
         return sync_form(projects.data(pid).settings)
 
+    def pack_plan(pid, form):
+        from app.modules import production
+        data = projects.data(pid)
+        options, source, raw = options_from(pack_options(form, data), data)
+        if not options['wells']:
+            raise Failure(400, 'В проекте нет скважин с эксплуатацией для пакета графиков.')
+        return chart_labels.labelled(reporting.plan(source, data.mapping, data.settings, options, raw), form)
+
+    def ggh_items(pid, form):
+        from .modules._ggh import MIN_POINTS, well_horizon, wells_of
+        data = projects.data(pid)
+        if DatasetKind.GGH not in data or data[DatasetKind.GGH].empty:
+            raise Failure(400, 'В проекте нет данных ГГХ: загрузите их в разделе «Импорт данных» → «ГГХ».')
+        frame = data[DatasetKind.GGH]
+        horizons = [str(h) for h in form.get('ggh_horizons') or []]
+        wanted = {str(w) for w in form.get('ggh_wells') or []}
+        wells = [w for w in wells_of(frame, horizons or None, 1) if not wanted or w in wanted]
+        return {w: frame[frame.well.astype(str) == w] for w in wells if len(frame[frame.well.astype(str) == w]) >= MIN_POINTS}
+
+    def extras(request, body):
+        """Перечень графиков «Пакета по фонду» и «ГГХ» для предпросмотра (если они включены в выгрузку)."""
+        pid, form = request.path_params['pid'], form_of(body)
+        wanted = form.get('modules') or []
+        charts = []
+        if 'pack' in wanted:
+            charts += [{'name': 'Пакет · ' + j.name, 'module': 'pack'} for j in pack_plan(pid, form).jobs]
+        if 'ggh' in wanted:
+            charts += [{'name': 'ГГХ · ' + w, 'module': 'ggh'} for w in ggh_items(pid, form)]
+        return {'charts': charts}
+
+    def extras_preview(request, body):
+        """Картинка одного графика пакета или ГГХ в том виде, как он попадёт в файл (150 DPI)."""
+        from . import ggh_report
+        pid, form = request.path_params['pid'], form_of(body)
+        name = str(body.get('chart') or '')
+        font, font_size = font_from(form)
+        if name.startswith('ГГХ · '):
+            frames = ggh_items(pid, form)
+            well = name.split(' · ', 1)[1]
+            if well not in frames:
+                raise Failure(404, 'График не найден. Обновите предпросмотр.')
+            style = {**chart_format.for_module(chart_format.configs(form), 'ggh'), 'font_size': font_size, 'look': look_from(form)}
+            return Response(ggh_report.figure_png(frames[well], well, 150, font if font != 'default' else 'times', style), media_type='image/png')
+        job = next((j for j in pack_plan(pid, form).jobs if 'Пакет · ' + j.name == name), None)
+        if job is None:
+            raise Failure(404, 'График не найден. Обновите предпросмотр.')
+        try:
+            per_page = int(form.get('pack_per_page', PACK_PER_PAGE))
+        except (TypeError, ValueError):
+            per_page = PACK_PER_PAGE
+        _, (image_w, image_h) = PACK_LAYOUTS.get(per_page, PACK_LAYOUTS[PACK_PER_PAGE])
+        return Response(figure_bytes(job.render(), 'png', 150, image_w, image_h, compact=True, font=font, font_size=font_size, look=look_from(form)), media_type='image/png')
+
     E = endpoint
     base = '/api/projects/{pid}/export'
     return [
@@ -867,6 +920,8 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/archive', E(archive), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
         Route(base + '/word-preview', E(word_preview), methods=['POST']),
+        Route(base + '/extras', E(extras), methods=['POST']),
+        Route(base + '/extras-preview', E(extras_preview), methods=['POST']),
         Route(base + '/pack', E(pack), methods=['POST']),
         Route(base + '/ggh', E(ggh), methods=['POST']),
         Route(base + '/bundle', E(bundle), methods=['POST']),
