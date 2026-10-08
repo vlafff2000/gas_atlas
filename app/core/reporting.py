@@ -121,7 +121,7 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
                 else:sets={group:[w for w in chosen if mapping.get(w,{}).get('group','Без группы')==group] for group in ordered(mapping.get(w,{}).get('group','Без группы') for w in chosen)}
                 for label,part in sets.items():
                     title=('Отбор' if kind=='withdrawal' else 'Закачка')+' · '+label
-                    if view in ('curve','time','mixed'):add(title,charts.production_curve,d,kind,ps,part,'date' if view=='time' else 'cumulative',title=charts.well_title(part,label if split not in ('well','all') else None),interactive=False)
+                    if view in ('curve','time','mixed'):add(title,charts.production_curve,d,kind,ps,part,'date' if view=='time' else 'cumulative',title=charts.season_title(part[0],kind,ps) if cfg.get('season_titles') and len(part)==1 else charts.well_title(part,label if split not in ('well','all') else None),interactive=False)
                     if view in ('hist','mixed'):
                         from app.ui.selection import histogram_size
                         size=histogram_size(cfg.get('hist_size','Авто'),len(part))

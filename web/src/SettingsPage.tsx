@@ -18,6 +18,7 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const [start, setStart] = useState(String(s.season_start ?? 11))
   const [end, setEnd] = useState(String(s.season_end ?? 4))
   const [auto, setAuto] = useState(s.auto_seasons === true)
+  const [neutral, setNeutral] = useState(s.show_neutral_periods === true)
   const [gap, setGap] = useState(String(s.season_gap_days ?? 3))
   const [share, setShare] = useState(String(s.season_rate_share ?? 10))
   const [peaks, setPeaks] = useState(s.auto_peaks === true)
@@ -36,11 +37,11 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
     setStart(String(s.season_start ?? 11)); setEnd(String(s.season_end ?? 4)); setThreshold(String(s.r2_threshold ?? 0.95))
     setSchedule(scheduleText(s.season_schedule, s.peak_windows))
     setPeaks(s.auto_peaks === true); setFactor(String(s.peak_factor ?? 2))
-    setAuto(s.auto_seasons === true); setGap(String(s.season_gap_days ?? 3)); setShare(String(s.season_rate_share ?? 10))
+    setAuto(s.auto_seasons === true); setNeutral(s.show_neutral_periods === true); setGap(String(s.season_gap_days ?? 3)); setShare(String(s.season_rate_share ?? 10))
     setManometers(((s.manometer_wells as string[] | null) ?? []).join(', '))
     const saved = (s.chart_style as Record<string, boolean> | null) ?? {}
     setStyle({ points: true, legend: true, grid: true, ...saved })
-  }, [s.season_start, s.season_end, s.r2_threshold, s.auto_seasons, s.season_gap_days, s.season_rate_share, s.season_schedule, s.peak_windows, s.auto_peaks, s.peak_factor, s.manometer_wells, s.chart_style])
+  }, [s.season_start, s.season_end, s.r2_threshold, s.auto_seasons, s.show_neutral_periods, s.season_gap_days, s.season_rate_share, s.season_schedule, s.peak_windows, s.auto_peaks, s.peak_factor, s.manometer_wells, s.chart_style])
   useEffect(() => { if (details) setPages(details.visible_pages) }, [details])
 
   const save = async (values: Record<string, unknown>, done: string) => {
@@ -96,6 +97,10 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
           </div>
         )}
         <label className="check">
+          <input type="checkbox" checked={neutral} onChange={e => setNeutral(e.target.checked)} />
+          <span>Показывать нейтральные периоды в списках «Сезон» («Нейтральный период …», «Вне сезона …»)</span>
+        </label>
+        <label className="check">
           <input type="checkbox" checked={peaks} onChange={e => setPeaks(e.target.checked)} />
           <span>Искать пиковые режимы по расходу (для нестабильных объектов): отметки «Пик» на графиках</span>
         </label>
@@ -117,7 +122,7 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
         <div className="form-row">
           <button type="button" className="primary" disabled={!rulesValid}
             onClick={() => save({ season_start: Number(start), season_end: Number(end), r2_threshold: r2, manometer_wells: manometers,
-              auto_seasons: auto, auto_peaks: peaks, ...(peaks ? { peak_factor: peakFactor } : {}), ...(auto ? { season_gap_days: gapDays, season_rate_share: rate } : {}) },
+              auto_seasons: auto, show_neutral_periods: neutral, auto_peaks: peaks, ...(peaks ? { peak_factor: peakFactor } : {}), ...(auto ? { season_gap_days: gapDays, season_rate_share: rate } : {}) },
               'Правила сохранены. Расчеты обновятся с учетом новых правил.')}>Сохранить правила</button>
         </div>
       </section>
