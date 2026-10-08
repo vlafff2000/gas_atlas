@@ -103,6 +103,44 @@ def excel_finish(f,ax,secondary,title,k,date_axis,categorical):
     ax.set_title(title,loc='center',fontsize=14*k,fontweight='normal',color=XL_TEXT,pad=10)
     f.patch.set_facecolor('white');f.patch.set_edgecolor(XL_GRID);f.patch.set_linewidth(1.0)
 
+def manual_axes(ax,secondary,axes,date_axis,categorical):
+    """Ручные границы и деления осей из «Оформления графиков» (``atlas/chart_format.parse_axes``). Сетка основных и дополнительных
+    делений начинается с нижней границы оси; не заданное остаётся автоматическим."""
+    from matplotlib.ticker import AutoLocator,FixedLocator
+    from matplotlib import dates as md
+    def ticks(lo,hi,step):
+        count=int((hi-lo)/step+1e-9)
+        return [lo+i*step for i in range(min(count,600)+1)] if step>0 and count>=0 else []
+    def locator(unit,n):
+        return {'year':md.YearLocator,'month':md.MonthLocator,'day':md.DayLocator}[unit](**({'base':n} if unit=='year' else {'interval':n}))
+    def numeric(spec,get,put,axis):
+        lo,hi=get();flip=lo>hi;a,b=sorted((lo,hi))
+        a,b=spec.get('min',a),spec.get('max',b)
+        if not a<b:return
+        put((b,a) if flip else (a,b))
+        if 'major' in spec:axis.set_major_locator(FixedLocator(ticks(a,b,spec['major'])))
+        elif 'min' in spec or 'max' in spec:axis.set_major_locator(AutoLocator())
+        if 'minor' in spec:axis.set_minor_locator(FixedLocator(ticks(a,b,spec['minor'])))
+    for name,target in (('y',ax),('y2',secondary)):
+        spec=axes.get(name)
+        if spec and target is not None:numeric(spec,target.get_ylim,target.set_ylim,target.yaxis)
+    spec=axes.get('x')
+    if spec and not categorical:
+        if date_axis and spec.get('dates'):
+            lo,hi=ax.get_xlim()
+            a=md.date2num(pd.Timestamp(spec['min']).to_pydatetime()) if 'min' in spec else lo
+            b=md.date2num(pd.Timestamp(spec['max']).to_pydatetime()) if 'max' in spec else hi
+            if a<b:ax.set_xlim(a,b)
+            if 'major' in spec:
+                ax.xaxis.set_major_locator(locator(spec['major']['unit'],spec['major']['n']))
+                ax.xaxis.set_major_formatter(md.DateFormatter({'year':'%Y','month':'%m.%Y','day':'%d.%m.%Y'}[spec['major']['unit']]))
+            if 'minor' in spec:ax.xaxis.set_minor_locator(locator(spec['minor']['unit'],spec['minor']['n']))
+        elif not date_axis and not spec.get('dates'):numeric(spec,ax.get_xlim,ax.set_xlim,ax.xaxis)
+    if any('minor' in axes.get(k,{}) for k in ('x','y')):
+        ax.grid(True,which='minor',color='#f0f2f5',linewidth=.5);ax.tick_params(which='minor',length=2)
+    if secondary is not None and 'minor' in axes.get('y2',{}):secondary.tick_params(which='minor',length=2)
+
+
 def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default'):
     """``font`` / ``font_size`` — шрифт (``app.core.fonts.FONTS``) и основной размер в пт; заголовок и легенда масштабируются вместе с ним.
     ``look='excel'`` — вид диаграммы Excel (Office: Calibri, палитра, тонкие серые горизонтальные линии сетки, легенда внизу); шрифт по умолчанию — Calibri.
@@ -224,8 +262,6 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     from matplotlib.ticker import FixedLocator
                     target.yaxis.set_major_locator(FixedLocator([layout.tick0+i*layout.dtick for i in range(int(round(abs(b-a)/layout.dtick))+1)]))
             if secondary is not None and fig.layout.yaxis2.range is not None:secondary.set_ylim(*fig.layout.yaxis2.range)
-            if secondary is not None and fig.layout.yaxis2.range is not None and min(fig.layout.yaxis2.range)<0:
-                from matplotlib.ticker import FuncFormatter;secondary.yaxis.set_major_formatter(FuncFormatter(lambda v,_:'' if v<-1e-9 else f'{v:g}'))     # уровень не бывает отрицательным: метки в запасе шкалы скрыты
             ax.set_axisbelow(True);ax.spines[['top','right']].set_visible(False)
             if excel:excel_finish(f,ax,secondary,title,k,date_axis,bool(bars or boxes) and not numeric_bars)     # до легенды: её значки копируют цвета рядов
             if fo.get('angle') not in (None,'auto'):
@@ -248,6 +284,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 if not excel:ax.grid(True,color='#c9ced6',linewidth=.5,linestyle='--');ax.tick_params(length=2.5,pad=2)
             if date_axis:
                 ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=5 if compact else 7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))
+            if fo.get('axes'):manual_axes(ax,secondary,fo['axes'],date_axis,bool(bars or boxes) and not numeric_bars)
             buf=io.BytesIO();f.savefig(buf,format=fmt,dpi=dpi)
             return buf.getvalue()
         finally:plt.close(f)
