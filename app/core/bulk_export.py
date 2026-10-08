@@ -36,7 +36,7 @@ def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metada
     directory=store.path(pid)/'exports';directory.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='pending_export_',dir=str(directory)) as tmp:
         for module,jobs,tables in _modules(plan):
-            label=MODULES.get(module,'Результаты');current=Path(tmp)/'module.zip';local_errors=[];records=[];good_count=0
+            label=getattr(plan,'labels',{}).get(module) or MODULES.get(module,'Результаты');current=Path(tmp)/'module.zip';local_errors=[];records=[];good_count=0
             with zipfile.ZipFile(current,'w',zipfile.ZIP_DEFLATED,allowZip64=True) as z:
                 for i,job in jobs:
                     good=False;fig=None

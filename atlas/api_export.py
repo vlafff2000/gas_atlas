@@ -39,14 +39,19 @@ from .projects import Conflict, Projects
 log = logging.getLogger(__name__)
 
 ORDER = ('production', 'histograms', 'gdi', 'response', 'object_pressure', 'well_dashboard',
-         'operations', 'water', 'bottom', 'construction', 'pressure_match')
+         'operations', 'water', 'bottom', 'construction', 'pressure_match', 'water_carry')
+# Вкладки, которых нет в 5.8 (строятся модулями Атласа 6, а не ``reporting.plan``) и их подписи.
+WATER_CARRY = 'water_carry'
+LABELS = {**MODULES, WATER_CARRY: 'Вынос воды и водный фактор'}
+CAPTIONS = {**DEFAULT_CAPTIONS, WATER_CARRY: {'section': '11', 'start': 1, 'template': 'Рисунок {раздел}.{номер} - Вынос воды и водный фактор'}}
+WATER_FIELDS = ('start', 'metric', 'inverse', 'xaxis')     # параметры модуля «Вынос воды», которые есть и на вкладке экспорта
 DEFAULT_MODULES = ('production', 'gdi', 'response', 'object_pressure')
 STYLE_FIELDS = (('points', 'Экспорт: точки'), ('legend', 'Экспорт: легенда'), ('grid', 'Экспорт: сетка'))
 GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'), ('db', 'db_curves'),
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
 PRESET_FIELDS = ('look', 'modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
-PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_')
+PRESET_PREFIXES = ('ggh_', 'water_carry_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_')
 
 
 # Пакет графиков по фонду («Приложение»): режим → (раздел, слово в подписи).
@@ -83,7 +88,18 @@ def frames_of(data: Data, apply_exclusions: bool = True) -> tuple[dict, dict]:
 def available(raw: Mapping[str, pd.DataFrame]) -> list[str]:
     """Вкладки модулей экспорта — тот же отбор, что в 5.8."""
     return [m for m in ORDER if (m == 'histograms' and 'production' in raw)
-            or (m == 'well_dashboard' and any(k != 'object_pressure' for k in raw)) or m in raw]
+            or (m == 'well_dashboard' and any(k != 'object_pressure' for k in raw))
+            or (m == WATER_CARRY and has_water(raw)) or (m != WATER_CARRY and m in raw)]
+
+
+def has_water(raw: Mapping[str, pd.DataFrame]) -> bool:
+    """«Вынос воды и водный фактор»: готовая таблица по объекту либо отбор и закачка вместе с водой."""
+    if len(raw.get('water_factor', ())):
+        return True
+    if 'production' not in raw:
+        return False
+    ops = raw.get('operations')
+    return len(raw.get('water', ())) > 0 or (ops is not None and 'water_volume_m3' in ops and bool(ops.water_volume_m3.notna().any()))
 
 
 def group_of(mapping, well) -> str:
@@ -126,11 +142,11 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
     source, raw = frames_of(data, apply_exclusions)
     settings, mapping = data.settings, data.mapping
     mods = available(raw)
-    out: dict[str, Any] = {'modules': [{'id': m, 'label': MODULES[m]} for m in mods],
+    out: dict[str, Any] = {'modules': [{'id': m, 'label': LABELS[m]} for m in mods],
                            'default_modules': [m for m in DEFAULT_MODULES if m in raw],
                            'wells': {}, 'groups': {}, 'mapping': {w: group_of(mapping, w) for w in well_choices('well_dashboard', raw)}}
     for m in mods:
-        if m in ('object_pressure', 'pressure_match'):
+        if m in ('object_pressure', 'pressure_match', WATER_CARRY):
             continue
         wells = well_choices(m, raw)
         out['wells'][m] = wells
@@ -156,9 +172,11 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
         g = raw['ggh']
         out['ggh'] = {'wells': wells_of(g, None, 1), 'horizon_of': {w: well_horizon(p) for w, p in g.assign(well=g.well.astype(str)).groupby('well')},
                       'points': {w: int(n) for w, n in g.well.astype(str).value_counts().items()}}
+    if WATER_CARRY in mods:
+        out[WATER_CARRY] = water_choices(data)
     panels = settings.get('panels', {})
     out['two_panels'] = {'production': bool(panels.get('prod_1')), 'histograms': bool(panels.get('hist_1'))}
-    out['captions'] = {m: DEFAULT_CAPTIONS.get(m, DEFAULT_CAPTIONS['well_dashboard']) for m in mods}
+    out['captions'] = {m: CAPTIONS.get(m, CAPTIONS['well_dashboard']) for m in mods}
     out['presets'] = {name: migrate_preset(v) for name, v in (settings.get('export_presets') or {}).items()}
     out['style'] = {f: settings.get('chart_style', {}).get(f, True) for f, _ in STYLE_FIELDS}
     return out
@@ -194,6 +212,9 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
         mods.append(module)
         if module == 'object_pressure':
             options[module] = {}
+            continue
+        if module == WATER_CARRY:
+            options[module] = water_cfg(form, data)
             continue
         if module == 'pressure_match':
             options[module] = cfg = pressure_cfg(form, data)
@@ -277,6 +298,64 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
     return options, source, raw
 
 
+def water_module():
+    from .modules.water import WaterModule
+    return WaterModule()
+
+
+def water_choices(data: Data) -> dict[str, Any]:
+    """Сезоны отбора и (если модуль их знает) варианты оси X для вкладки «Вынос воды и водный фактор»."""
+    module = water_module()
+    out: dict[str, Any] = {'periods': module.options('periods', data, {})}
+    for p in module.spec.params:
+        if p.name == 'xaxis':
+            out['xaxis'] = [{'value': o.value, 'label': o.label} for o in p.options]
+            out['xaxis_default'] = p.default
+    return out
+
+
+def water_cfg(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
+    """Параметры модуля «Вынос воды» из полей ``water_carry_*``; сезоны по умолчанию — последние пять, как на экране."""
+    module = water_module()
+    seasons = module.options('periods', data, {})
+    chosen = form.get('water_carry_periods')
+    chosen = seasons[-5:] if chosen is None else [p for p in map(str, chosen) if p in seasons]
+    names = {p.name for p in module.spec.params}
+    raw = {k: form['water_carry_' + k] for k in WATER_FIELDS if k in names and form.get('water_carry_' + k) is not None}
+    return {**module.spec.coerce({**raw, 'periods': chosen}), 'seasons': seasons}
+
+
+def water_plan(data: Data, cfg: Mapping[str, Any], style: Mapping[str, Any]):
+    """Графики и таблицы модуля «Вынос воды» как задания выгрузки (фигуры строит ``render.to_plotly``)."""
+    from functools import partial
+    from app.core.reporting import FigureJob
+    from .render import table_frame, to_plotly
+    params = {k: v for k, v in cfg.items() if k != 'seasons'}
+    result = water_module().run(data, params)
+
+    def figure(chart):
+        fig = to_plotly(chart)
+        fig.update_layout(meta={'module': WATER_CARRY, 'wells': [], 'periods': list(params['periods'])})
+        return fig
+    jobs = [FigureJob('Вынос воды · ' + c.title, partial(figure, c), dict(style), WATER_CARRY) for c in result.charts if c.series]
+    tables = {'Вынос_воды_' + t.title.replace(' ', '_'): table_frame(t) for t in result.tables if len(t.frame)}
+    return jobs, tables
+
+
+def plan_of(source, data: Data, options, raw):
+    """``reporting.plan`` для вкладок 5.8 плюс графики вкладок Атласа 6 (сейчас — «Вынос воды и водный фактор»)."""
+    from dataclasses import replace
+    plan = reporting.plan(source, data.mapping, data.settings, options, raw)
+    if WATER_CARRY not in options['modules']:
+        return plan
+    style = options.get('style', data.settings.get('chart_style', {}))
+    jobs, tables = water_plan(data, options[WATER_CARRY], style)
+    new = tables
+    tables = {**plan.tables, **{(k if k not in plan.tables else WATER_CARRY + '_' + k): v for k, v in tables.items()}}
+    return replace(plan, jobs=[*plan.jobs, *jobs], tables=tables, module_tables={**plan.module_tables, WATER_CARRY: new},
+                   labels={**plan.labels, WATER_CARRY: LABELS[WATER_CARRY]})
+
+
 def pressure_cfg(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
     """Кроссплот давлений: параметры сохранённого вида раздела (формат 5.8) и «Построение при экспорте»."""
     from .domain import DatasetKind
@@ -334,7 +413,7 @@ def years_of(d: pd.DataFrame, kind: str, periods) -> str:
 def captions_from(form: Mapping[str, Any], modules) -> dict[str, dict]:
     out = {}
     for m in modules:
-        default = DEFAULT_CAPTIONS.get(m, DEFAULT_CAPTIONS['well_dashboard'])
+        default = CAPTIONS.get(m, CAPTIONS['well_dashboard'])
         out[m] = {'section': str(form.get('caption_section_' + m, default['section'])),
                   'start': int(form.get('caption_start_' + m, default['start'])),
                   'template': str(form.get('caption_template_' + m, default['template']))[:500]}
@@ -498,9 +577,9 @@ def routes(projects: Projects) -> list[Route]:
 
         def build():
             options, source, raw = options_from(form, data)
-            if not options['modules'] or (not options['wells'] and 'object_pressure' not in options['modules']):
+            if not options['modules'] or (not options['wells'] and not {'object_pressure', WATER_CARRY} & set(options['modules'])):
                 return options, None, data
-            return options, reporting.plan(source, data.mapping, data.settings, options, raw), data
+            return options, plan_of(source, data, options, raw), data
         return plans.get(key, build)
 
     def need_plan(pid, form):
@@ -612,13 +691,12 @@ def routes(projects: Projects) -> list[Route]:
 
     def word_groups(plan, layout):
         """Графики по модулям (один документ на модуль) или все вместе, если выбран один документ."""
-        from app.core.config import MODULES
         if layout.merge:
             return [('all', 'Графики', list(plan.jobs))]
         groups: dict = {}
         for job in plan.jobs:
             groups.setdefault(getattr(job, 'module', '') or 'results', []).append(job)
-        return [(m, MODULES.get(m, 'Результаты'), jobs) for m, jobs in groups.items()]
+        return [(m, LABELS.get(m, 'Результаты'), jobs) for m, jobs in groups.items()]
 
     def word_caption(figure, captions, counters, template_default=None):
         """(текст до номера, номер, текст после): номер вставляется полем Word, поэтому он выделен меткой."""

@@ -29,6 +29,7 @@ class ReportPlan:
     jobs: list
     tables: dict
     module_tables: dict = field(default_factory=dict)
+    labels: dict = field(default_factory=dict)       # подписи модулей, которых нет в MODULES (вкладки Атласа 6)
     def figures(self):return FigureMap(self.jobs)
 
 class WellProvider:

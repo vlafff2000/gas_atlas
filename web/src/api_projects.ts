@@ -36,6 +36,8 @@ export interface ExportChoices {
   periods?: Record<'withdrawal' | 'injection', string[]>
   gdi_seasons?: string[]
   gdi_methods?: string[]
+  /** «Вынос воды и водный фактор»: сезоны отбора и (если есть) варианты оси X. */
+  water_carry?: { periods: string[]; xaxis?: { value: string; label: string }[]; xaxis_default?: string }
   horizons?: string[]
   working?: string[]
   response_dates?: string[]

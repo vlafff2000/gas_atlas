@@ -495,3 +495,36 @@ def test_chart_format_single_chart_override(env):
     assert shot({**base, 'fmt_overrides': '{'}).status_code == 400
     names = client.post(f'/api/projects/{pid}/export/series', json={'form': base, 'chart': name}).json()
     assert names['chart'] and 'уровень' in ' '.join(names['chart']).lower()
+
+
+def test_water_carry_tab_plans_previews_and_exports(tmp_path):
+    """«Вынос воды и водный фактор» — вкладка экспорта: три графика, предпросмотр, архив, свои сезоны и подпись."""
+    from tests.atlas._wells_data import make_project
+    projects = Projects(tmp_path / 'storage')
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    form_url = f'/api/projects/{pid}/export'
+    choice = client.get(form_url + '/form').json()
+    assert 'water_carry' in [m['id'] for m in choice['modules']] and choice['water_carry']['periods']
+    assert 'water_carry' not in choice['wells']
+    seasons = choice['water_carry']['periods']
+    form = {'modules': ['water_carry'], 'water_carry_periods': seasons[-1:], 'formats': ['svg'], 'dpi': 300, 'width': 160}
+    plan = client.post(form_url + '/plan', json={'form': form}).json()
+    assert [c['module'] for c in plan['charts']] == ['water_carry'] * 3
+    assert any('Вынос_воды' in t for t in plan['tables'])
+    png = client.post(form_url + '/preview', json={'form': form, 'chart': plan['charts'][0]['name']})
+    assert png.status_code == 200 and png.content[:4] == b'\x89PNG'
+    one = {**form, 'water_carry_metric': 'daily', 'water_carry_inverse': False, 'label_water_carry_title': 'Мой заголовок'}
+    plan = client.post(form_url + '/plan', json={'form': one}).json()
+    assert len(plan['charts']) == 1
+    chart = client.post(form_url + '/chart', json={'form': one, 'chart': plan['charts'][0]['name']}).json()
+    assert chart['title'] == 'Мой заголовок' and not chart['x']['inverse']
+    body = client.post(form_url + '/archive', json={'form': form}).json()
+    assert body['planned'] == body['completed'] == 3 and body['errors'] == []
+    with zipfile.ZipFile(projects.store.path(pid) / 'exports' / body['files'][0]) as z:
+        names = z.namelist()
+        assert sum(n.endswith('.svg') for n in names) == 3 and any(n.startswith('tables/') for n in names)
+    word = client.post(form_url + '/word', json={'form': {**form, 'caption_template_water_carry': 'Рис. {номер} - Вода'}}).json()
+    assert word['completed'] == 3 and word['files'][0].endswith('Вынос воды и водный фактор.docx')
+    with zipfile.ZipFile(projects.store.path(pid) / 'exports' / word['files'][0]) as z:
+        assert ' - Вода' in z.read('word/document.xml').decode('utf8')
