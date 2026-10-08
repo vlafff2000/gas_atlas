@@ -25,6 +25,8 @@ const SIZES: [string, string, number | null][] = [
 ]
 const SIZE_WIDTH: Record<string, number> = { auto: 220, 'a4-width': 170, 'a4-half': 170, 'a4-page': 190, 'a4-land': 270, '16x9': 254, '4x3': 240, column: 85, square: 150 }
 const KINDS = [['withdrawal', 'Отбор'], ['injection', 'Закачка']] as const
+/** Вкладки экспорта, которые строят готовые документы, а не перечень графиков: включаются в выгрузку так же, как модули. */
+const EXTRAS = ['pack', 'ggh']
 
 /** Без локального хранилища черновика: форма живёт, пока открыт раздел; для повтора — шаблоны. */
 export function ExportPage({ project, onProject, view = 'export' }: PageProps & { view?: 'export' | 'pack' | 'ggh' }) {
@@ -61,7 +63,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const key = JSON.stringify([project.revision, form])
   // Перечень графиков от размера не зависит: растягивание в предпросмотре не должно его сбрасывать.
   const planned = useMemo(() => { const { width: _w, height: _h, look: _l, ...rest0 } = form; const rest = Object.fromEntries(Object.entries(rest0).filter(([k]) => !k.startsWith('word_') && !k.startsWith('label_') && !k.startsWith('fmt_'))); return JSON.stringify([project.revision, rest]) }, [form, project.revision])
-  const ready = modules.length > 0
+  const planModules = modules.filter(m => !EXTRAS.includes(m))
+  const ready = modules.length > 0                       // что-то включено в выгрузку
+  const readyPlan = planModules.length > 0               // есть модули с перечнем графиков (предпросмотр, архив, Word)
   const labelsKey = JSON.stringify(Object.entries(form).filter(([k]) => k.startsWith('label_') || k.startsWith('fmt_')))
 
   const prepare = async () => {
@@ -75,32 +79,29 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     try { await work() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
   }
   const preview = () => run('preview', async () => { await prepare(); setShowPreview(true) })
+  // Пакет по фонду и ГГХ строятся теми же кнопками «Сформировать архив» и «Создать отчет Word»; повторно с теми же параметрами не создаются.
+  const makeExtras = async () => {
+    if (modules.includes('pack') && pack?.key !== key) { setBusy('pack'); setPack({ key, result: await exportApi.pack(project.id, form) }) }
+    if (modules.includes('ggh') && ggh?.key !== key) { setBusy('ggh'); setGgh({ key, result: await exportApi.ggh(project.id, form) }) }
+  }
   const makeArchive = () => run('archive', async () => {
-    await prepare()
-    setArchive({ key, result: await exportApi.archive(project.id, form) })
+    if (readyPlan) { await prepare(); setArchive({ key, result: await exportApi.archive(project.id, form) }) }
+    await makeExtras()
   })
   const makeWord = () => run('word', async () => {
-    await prepare()
-    setWord({ key, result: await exportApi.word(project.id, form) })
+    if (readyPlan) { await prepare(); setWord({ key, result: await exportApi.word(project.id, form) }) }
+    await makeExtras()
   })
 
-  const packNoSeasons = KINDS.some(([k]) => ((form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']).includes(k)
+  const packNoSeasons = modules.includes('pack') && KINDS.some(([k]) => ((form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']).includes(k)
     && Array.isArray(form[`pack_periods_${k}`]) && (form[`pack_periods_${k}`] as string[]).length === 0)
-
-  const makePack = () => run('pack', async () => {
-    setPack({ key, result: await exportApi.pack(project.id, form) })
-  })
-
-  const makeGgh = () => run('ggh', async () => {
-    setGgh({ key, result: await exportApi.ggh(project.id, form) })
-  })
 
   // Автоматическое обновление предпросмотра (как флажок 5.8).
   useEffect(() => {
-    if (!form.auto || !ready) return
+    if (!form.auto || !readyPlan) return
     const timer = setTimeout(() => { exportApi.plan(project.id, form).then(p => { setPlan(p); setPlanKey(planned); setShowPreview(true) }).catch(() => undefined) }, 400)
     return () => clearTimeout(timer)
-  }, [form, key, planned, project.id, ready])
+  }, [form, key, planned, project.id, readyPlan])
 
   // Картинка выбранного графика (макет файла, 150 DPI при выбранной ширине).
   const shownPlan = plan && planKey === planned ? plan : null
@@ -117,7 +118,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
 
   // Открытый предпросмотр обновляется сам, когда меняется проект (исключили точку).
   useEffect(() => {
-    if (!showPreview || !ready || !plan || planKey === key) return
+    if (!showPreview || !readyPlan || !plan || planKey === key) return
     let alive = true
     exportApi.plan(project.id, form).then(p => { if (alive) { setPlan(p); setPlanKey(planned) } }).catch(() => undefined)
     return () => { alive = false }
@@ -183,7 +184,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     setToast('Параметры просмотра перенесены.')
   })
 
-  const ready_files = [...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : [])]
+  const ready_files = [...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : []),
+    ...(pack?.key === key ? pack.result.files : []), ...(ggh?.key === key ? ggh.result.files : [])]
   const bundle = () => run('bundle', async () => {
     const { file } = await exportApi.bundle(project.id, ready_files)
     saveLink(projectsApi.exportUrl(project.id, file))
@@ -198,6 +200,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     )
   }
   const F = { form, set, choices }
+  const allTabs = [...choices.modules.map(m => m.id), ...EXTRAS]
+  const setEnabled = (id: string, on: boolean) => set('modules', allTabs.filter(m => m === id ? on : modules.includes(m)))
   const packAvailable = choices.modules.some(m => m.id === 'production')
   const gghAvailable = !!choices.ggh
   const extraTabs: [string, string][] = [...(packAvailable ? [['pack', 'Пакет по фонду'] as [string, string]] : []), ...(gghAvailable ? [['ggh', 'ГГХ (Word)'] as [string, string]] : [])]
@@ -205,8 +209,14 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     <>
       <p className="lede">Приложения к отчету: график «Производительность» каждой скважины фонда, по 2, 4 или 6 на лист A4. Шрифт, вид графиков, подписи и оформление берутся из общих настроек ниже.</p>
         <section className="table-block">
-<p className="muted pad">Одним нажатием: график «Производительность» каждой скважины фонда по выбранным сезонам, по 2, 4 или 6 на лист A4,
+<p className="muted pad">График «Производительность» каждой скважины фонда по выбранным сезонам, по 2, 4 или 6 на лист A4,
             отдельный файл на отбор и на закачку. Графики легкие: палитровый PNG 200 DPI, легенда в одну строку под осями. Поля подписи: {'{раздел}, {номер}, {скважина}, {режим}, {годы}'}.</p>
+          <div className="param-bar flat">
+            <Section title="Выгрузка">
+              <label className="toggle"><input type="checkbox" checked={modules.includes('pack')} onChange={e => setEnabled('pack', e.target.checked)} /><span>Включить пакет по фонду в выгрузку</span></label>
+            </Section>
+          </div>
+          {!modules.includes('pack') ? <p className="muted pad">Включите, чтобы выбрать параметры. Файлы создаются кнопками «Сформировать архив» и «Создать отчет Word» внизу страницы вместе с остальными модулями.</p> : <>
           <div className="param-bar flat">
             <Section title="Состав">
               {KINDS.map(([k, l]) => {
@@ -245,16 +255,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
                 def="Рисунок {раздел}.{номер} - Производительность скважины №{скважина} при {режим} газа за {годы} гг." />
             </Section>
           </div>
-          <div className="toolbar">
-            <button type="button" className="primary" disabled={busy !== null || packNoSeasons} onClick={makePack}>Создать пакет по всем скважинам</button>
-            {packNoSeasons && <span className="muted">Выберите хотя бы один сезон.</span>}
-          </div>
-
+          {packNoSeasons && <div className="note warning pad-x">Для пакета по фонду выберите хотя бы один сезон.</div>}
+          </>}
         </section>
-        {busy && <span className="pulse">{{ pack: 'Построение графиков всех скважин, это может занять несколько минут…' }[busy] ?? 'Выполняется…'}</span>}
-        {error && <div className="note warning" role="alert">{error}</div>}
-        {pack?.key === key && <Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack />}
-        {pack?.key === key && <div className="muted">Файлы также сохранены в разделе «Проекты».</div>}
     </>
   )
   const gghPanel = !gghAvailable ? null : (
@@ -264,6 +267,12 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
 <p className="muted pad">Страница на скважину: график (слева содержание, %, справа газонасыщенность, см³/л), под ним таблица значений по датам отбора
             и подпись «Рисунок В.N – Результаты ГГХИ по скважине № … горизонта». А4 альбомная; шрифт по умолчанию Times New Roman, как в образце отчета (меняется в общих настройках).
             Горизонт берется из данных скважины; скважины с одним замером пропускаются.</p>
+          <div className="param-bar flat">
+            <Section title="Выгрузка">
+              <label className="toggle"><input type="checkbox" checked={modules.includes('ggh')} onChange={e => setEnabled('ggh', e.target.checked)} /><span>Включить ГГХ (Word) в выгрузку</span></label>
+            </Section>
+          </div>
+          {!modules.includes('ggh') ? <p className="muted pad">Включите, чтобы выбрать параметры. Файлы создаются кнопками «Сформировать архив» и «Создать отчет Word» внизу страницы вместе с остальными модулями.</p> : <>
           <div className="param-bar flat">
             <Section title="Скважины">
               <Multi {...F} field="ggh_horizons" label="Горизонты" options={[...new Set(Object.values(choices.ggh!.horizon_of).filter(Boolean))].sort()} empty="все" />
@@ -278,14 +287,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
                 options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
             </Section>
           </div>
-          <div className="toolbar">
-            <button type="button" className="primary" disabled={busy !== null} onClick={makeGgh}>Создать Word с графиками ГГХ</button>
-          </div>
-
+          </>}
         </section>
-        {busy && <span className="pulse">{{ ggh: 'Построение графиков и страниц ГГХ…' }[busy] ?? 'Выполняется…'}</span>}
-        {error && <div className="note warning" role="alert">{error}</div>}
-        {ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
     </>
   )
   if (!choices.modules.length && !gghAvailable) {
@@ -362,30 +365,27 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
             className={modules.includes(m.id) ? 'on' : undefined}>{m.label}</button>
         ))}
         {extraTabs.map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => setTab(id)}>{label}</button>
+          <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => setTab(id)}
+            className={modules.includes(id) ? 'on' : undefined}>{label}</button>
         ))}
       </div>
       {current === 'pack' || current === 'ggh' ? (
         <>
           {current === 'pack' ? packPanel : gghPanel}
-          {busy && <span className="pulse">{{ pack: 'Построение графиков всех скважин, это может занять несколько минут…', ggh: 'Построение графиков и страниц ГГХ…' }[busy] ?? 'Выполняется…'}</span>}
-          {error && <div className="note warning" role="alert">{error}</div>}
-          {current === 'pack' && pack?.key === key && <><Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack /><div className="muted">Файлы также сохранены в разделе «Проекты».</div></>}
-          {current === 'ggh' && ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
         </>
       ) : (
         <div className="param-bar">
           <ModuleTab key={current} module={current} label={choices.modules.find(m => m.id === current)!.label}
             enabled={modules.includes(current)} adoptPanels={adoptPanels} {...F}
-            onEnable={on => set('modules', choices.modules.map(m => m.id).filter(m => m === current ? on : modules.includes(m)))} />
+            onEnable={on => setEnabled(current, on)} />
         </div>
       )}
 
-      <ChartFormat {...F} modules={modules} projectId={project.id} ready={ready} />
+      <ChartFormat {...F} modules={modules} projectId={project.id} ready={readyPlan} />
 
       <ChartLabels {...F} modules={modules} />
 
-      <WordLayout {...F} projectId={project.id} ready={ready} revision={project.revision} />
+      <WordLayout {...F} projectId={project.id} ready={readyPlan} revision={project.revision} />
 
       <details className="table-block">
         <summary className="block-head"><h3>Word: подписи под графиками</h3></summary>
@@ -410,9 +410,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         <Check {...F} field="auto" label="Автоматически обновлять предпросмотр" def={false} />
         <span className="spacer" />
         {busy && <span className="pulse">{{ preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', pack: 'Построение графиков всех скважин, это может занять несколько минут…', ggh: 'Построение графиков и страниц ГГХ…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
-        <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={preview}>Предпросмотр</button>
-        <button type="button" className="primary" disabled={!ready || busy !== null} onClick={makeArchive}>Сформировать архив</button>
-        <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={makeWord}>Создать отчет Word</button>
+        <button type="button" className="quiet" disabled={!readyPlan || busy !== null} onClick={preview}>Предпросмотр</button>
+        <button type="button" className="primary" disabled={!ready || busy !== null || packNoSeasons} onClick={makeArchive}>Сформировать архив</button>
+        <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={makeWord}>Создать отчет Word</button>
       </div>
       {!ready && <div className="note info">Включите хотя бы один модуль в выгрузку.</div>}
       {error && <div className="note warning" role="alert">{error}</div>}
@@ -474,6 +474,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
 
       {word?.key === key && <Outcome title="Отчет Word" result={word.result} pid={project.id} word />}
       {archive?.key === key && <Outcome title="Архив результатов" result={archive.result} pid={project.id} />}
+      {pack?.key === key && <Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack />}
+      {ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
       {ready_files.length > 0 && (
         <div className="toolbar">
           <button type="button" className="primary" disabled={busy !== null} onClick={bundle}>Скачать все созданные файлы одним ZIP</button>

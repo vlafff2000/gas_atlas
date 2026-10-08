@@ -426,3 +426,11 @@ def test_pack_and_ggh_use_export_settings(env):
     styled = ggh_report.figure_png(frame, '1', 100, 'times', {'look': 'excel', 'title': 'hide', 'angle': '90', 'font_size': 14,
                                                               'series': [{'match': 'he', 'hide': True}, {'match': 'сумма', 'width': 3, 'marker': 0}]})
     assert base[:4] == styled[:4] == b'\x89PNG' and base != styled
+
+
+def test_pack_and_ggh_ids_in_modules_are_ignored_by_plan(env):
+    """«Пакет по фонду» и «ГГХ» включаются в список модулей формы, но перечень графиков строится по остальным."""
+    client, pid, _, _ = env
+    base = client.post(f'/api/projects/{pid}/export/plan', json={'form': {'modules': ['production']}}).json()
+    mixed = client.post(f'/api/projects/{pid}/export/plan', json={'form': {'modules': ['production', 'pack', 'ggh']}}).json()
+    assert mixed['modules'] == ['production'] and mixed['charts'] == base['charts']
