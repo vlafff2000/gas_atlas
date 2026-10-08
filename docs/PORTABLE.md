@@ -5,8 +5,8 @@
 
 | Архив | Python внутри | Где работает | Запуск |
 |---|---|---|---|
-| `Gas_Atlas_portable_windows_x64.zip` | CPython 3.8.10 с python.org (пакет nuget.org, подпись PSF) | Windows 7 SP1 – 11, 64-bit | `Gas_Atlas_6.bat` |
-| `Gas_Atlas_portable_linux_x64.tar.gz` | CPython 3.8.20 (python-build-standalone) | Linux x86_64 с glibc 2.17+: РЕД ОС 7.3 и новее, Astra, ALT, CentOS 7+ | `gas_atlas_6.sh` |
+| `Gas_Atlas_portable_windows_x64.zip` | CPython 3.8.10 с python.org (пакет nuget.org, подпись PSF) | Windows 7 SP1 – 11, 64-bit | `Gas_Atlas_6.bat`, `Sozdat_yarlyki.bat` (ярлыки со значками на рабочий стол) |
+| `Gas_Atlas_portable_linux_x64.tar.gz` | CPython 3.8.20 (python-build-standalone) | Linux x86_64 с glibc 2.17+: РЕД ОС 7.3 и новее, Astra, ALT, CentOS 7+ | `gas_atlas_6.sh`, `sozdat_yarlyki.sh` |
 
 Архив весит около 175 МБ, в распакованном виде около 700 МБ. Данные (`storage/`) хранятся рядом
 с программой; при обновлении папку `storage` переносят в новую распаковку. Можно задать другую папку
