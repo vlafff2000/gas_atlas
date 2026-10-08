@@ -144,11 +144,14 @@ def labelled(plan, form: Mapping[str, Any]):
     """План выгрузки, в котором графики модулей с настроенными подписями строятся уже с ними."""
     from dataclasses import replace
     cfgs, formats = configs(form), chart_format.configs(form)
-    if not cfgs and not formats:
+    own = chart_format.parse_overrides(form.get('fmt_overrides'))
+    if not cfgs and not formats and not own:
         return plan
     jobs = []
     for job in plan.jobs:
         module = getattr(job, 'module', '') or ''
         look = chart_format.for_module(formats, module)
+        if getattr(job, 'name', None) in own:
+            look = chart_format.merge(look or chart_format.common(form), own[job.name])
         jobs.append(LabelledJob(job, cfgs.get(module, {}), look) if module in cfgs or look else job)
     return replace(plan, jobs=jobs)
