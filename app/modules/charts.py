@@ -170,20 +170,30 @@ def auto_band(pressure,level):
     if p.size<2 or p.max()<=p.min():return 'below'
     return 'below' if float(p.mean())>=(float(p.max())+float(p.min()))/2 else 'above'
 
-def nice_axis(lo,hi,low,high,n=TICKS):
+def nice_axis(lo,hi,low,high,n=TICKS,lower=None,upper=None):
     """Шкала из ``n`` равных делений с «круглым» шагом (1, 2, 2.5, 5 · 10^k) и началом на сетке шага или полушага, в которую
-    данные ``lo…hi`` ложатся в доле ``low…high`` высоты. Возвращает ``(начало, конец)`` или ``None``, если не нашлось."""
+    данные ``lo…hi`` ложатся в доле ``low…high`` высоты. ``lower`` / ``upper`` — границы, за которые шкала не заходит (давление
+    не бывает отрицательным: ``lower=0``); когда полоса не помещается в них, шкала прижимается к границе. ``None``, если не нашлось."""
     width=hi-lo if hi>lo else max(1.,abs(hi)*.1)
     if hi<=lo:lo,hi=lo-width/2,hi+width/2
     raw=width/(high-low)/n
     base=10.0**np.floor(np.log10(raw))
-    for step in sorted(m*base*10**e for e in (0,1) for m in (1,2,2.5,4,5)):
+    steps=sorted(m*base*10**e for e in (0,1) for m in (1,2,2.5,4,5))
+    for step in steps:
         if step<raw*(1-1e-9) or step>raw*4:continue
         length=step*n
         first,last=hi-high*length,lo-low*length             # допустимое начало шкалы
+        if lower is not None:first=max(first,lower)
+        if upper is not None:last=min(last,upper-length)
         for grid in (step,step/2):
             k=np.ceil(first/grid-1e-9)
             if k*grid<=last+1e-9:return float(k*grid),float(k*grid+length)
+    if lower is not None:                                   # прижато к границе: самый мелкий круглый шаг, в который помещаются данные
+        for step in sorted(m*base*10**e for e in (-1,0,1,2) for m in (1,2,2.5,4,5)):
+            if lower+n*step>=hi-1e-9:return float(lower),float(lower+n*step)
+    if upper is not None:
+        for step in sorted(m*base*10**e for e in (-1,0,1,2) for m in (1,2,2.5,4,5)):
+            if upper-n*step<=lo+1e-9:return float(upper-n*step),float(upper)
     return None
 
 def separated_ranges(pressure,level,band='below'):
@@ -202,8 +212,8 @@ def separated_ranges(pressure,level,band='below'):
     sp,pmin,pmax=span(p,p_hi-p_lo);p_bottom=(pmin if pmax>pmin else pmin-(sp*(p_hi-p_lo))/2)-sp*p_lo
     sl,lmin,lmax=span(l,l_hi-l_lo);l_bottom=(lmax if lmax>lmin else lmax+(sl*(l_hi-l_lo))/2)+sl*l_lo
     exact_p,exact_l=(p_bottom,p_bottom+sp),(l_bottom-sl,l_bottom)
-    nice_p=nice_axis(float(p.min()),float(p.max()),pl,ph)
-    nice_l=nice_axis(-float(l.max()),-float(l.min()),ll,lh)         # уровень растёт вниз: считаем по обратным значениям
+    nice_p=nice_axis(float(p.min()),float(p.max()),pl,ph,lower=0 if p.min()>=0 else None)       # давление не бывает отрицательным
+    nice_l=nice_axis(-float(l.max()),-float(l.min()),ll,lh)         # уровень растёт вниз: считаем по обратным значениям; запас шкалы за нулём подписан, как в образце
     return nice_p or exact_p,(-nice_l[1],-nice_l[0]) if nice_l else exact_l
 
 @cached_chart
@@ -260,7 +270,9 @@ def response_chart(df,working,metric='level',title=None,interactive=True,color_m
                                [v for t in fig.data if t.yaxis=='y2' for v in np.asarray(t.y,dtype=float)],level_band)
         if apart:
             (p0,p1),(l_top,l_bottom)=apart
-            fig.update_layout(yaxis={'autorange':False,'range':[p0,p1]},yaxis2={'autorange':False,'range':[l_bottom,l_top]})
+            # равные деления: у обеих осей по TICKS интервалов, метки каждой оси — строго напротив друг друга
+            fig.update_layout(yaxis={'autorange':False,'range':[p0,p1],'tick0':p0,'dtick':(p1-p0)/TICKS},
+                              yaxis2={'autorange':False,'range':[l_bottom,l_top],'tick0':l_top,'dtick':(l_bottom-l_top)/TICKS})
     return fig
 
 

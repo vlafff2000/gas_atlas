@@ -382,6 +382,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       )}
 
       <ChartFormat {...F} modules={modules} projectId={project.id} ready={ready} />
+      <AxisSettings {...F} modules={modules} />
 
       <ChartLabels {...F} modules={modules} />
 
@@ -937,6 +938,81 @@ function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: st
 interface SeriesRule { match: string; color?: string; width?: number | string; marker?: number | string; hide?: boolean }
 
 const ANGLE_OPTIONS: Opt[] = [['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]
+
+interface AxisSpec { min?: string; max?: string; major?: string; minor?: string; dates?: boolean; majorUnit?: string; minorUnit?: string }
+type AxesSpec = Partial<Record<'x' | 'y' | 'y2', AxisSpec>>
+const UNIT_OPTIONS: [string, string][] = [['year', 'год'], ['month', 'месяц'], ['day', 'день']]
+
+/** Поле формы ``fmt_<модуль>_axes`` (JSON, см. atlas/chart_format.py): пустые поля не передаются. */
+function axesPayload(spec: AxesSpec): string {
+  const out: Record<string, unknown> = {}
+  for (const [key, a] of Object.entries(spec)) {
+    if (!a) continue
+    const item: Record<string, unknown> = { dates: !!a.dates }
+    if (a.min) item.min = a.min
+    if (a.max) item.max = a.max
+    for (const part of ['major', 'minor'] as const) {
+      if (!a[part]) continue
+      item[part] = a.dates ? { unit: a[part === 'major' ? 'majorUnit' : 'minorUnit'] || 'year', n: a[part] } : a[part]
+    }
+    if (Object.keys(item).length > 1) out[key] = item
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : ''
+}
+
+/** Ручные границы и деления осей X, Y и дополнительной Y — отдельно по типам графиков. Состояние — в ``fmt_<модуль>_ui`` (черновик полей). */
+function AxisSettings({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
+  const rows = modules.filter(m => choices.modules.some(x => x.id === m))
+  const label = (m: string) => choices.modules.find(x => x.id === m)?.label ?? m
+  return (
+    <details className="table-block">
+      <summary className="block-head"><h3>Оси: границы и деления</h3></summary>
+      <p className="muted pad">Для каждого типа графиков можно задать минимум, максимум, основное и дополнительное деление осей X, Y и дополнительной Y (справа).
+        Пустое поле — автоматически. Сетка делений начинается с минимума. Для оси X с датами включите «Даты»: границы вводятся датами (дд.мм.гггг),
+        деления — единицей (год, месяц, день) и количеством. Работает в предпросмотре, архиве, Word и пакете по фонду; сохраняется в шаблоне.</p>
+      <div className="param-bar flat">
+        {rows.map(m => {
+          const f = 'fmt_' + m + '_axes', ui = f + '_ui'
+          let spec: AxesSpec = {}
+          try { spec = JSON.parse((form[ui] as string | undefined) || '{}') } catch { spec = {} }
+          const edit = (axis: 'x' | 'y' | 'y2', patch: AxisSpec) => {
+            const next = { ...spec, [axis]: { ...spec[axis], ...patch } }
+            set(ui, JSON.stringify(next)); set(f, axesPayload(next))
+          }
+          return (
+            <Section key={m} title={label(m)}>
+              <div className="field wide">
+                {(['y', 'y2', 'x'] as const).map(axis => {
+                  const a = spec[axis] ?? {}
+                  const dates = axis === 'x' && !!a.dates
+                  const input = (key: 'min' | 'max' | 'major' | 'minor', placeholder: string) => (
+                    <input value={a[key] ?? ''} placeholder={placeholder} aria-label={placeholder} size={dates && (key === 'min' || key === 'max') ? 11 : 7}
+                      inputMode={dates && (key === 'min' || key === 'max') ? 'text' : 'decimal'} onChange={e => edit(axis, { [key]: e.target.value })} />
+                  )
+                  const unit = (key: 'majorUnit' | 'minorUnit') => (
+                    <select value={a[key] ?? 'year'} aria-label="Единица деления" onChange={e => edit(axis, { [key]: e.target.value })}>
+                      {UNIT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  )
+                  return (
+                    <div key={axis} className="series-rule">
+                      <strong>{axis === 'x' ? 'Ось X' : axis === 'y' ? 'Ось Y' : 'Доп. ось Y'}</strong>
+                      {axis === 'x' && <label className="toggle"><input type="checkbox" checked={dates} onChange={e => edit(axis, { dates: e.target.checked, min: '', max: '', major: '', minor: '' })} /><span>Даты</span></label>}
+                      {input('min', dates ? 'с (дд.мм.гггг)' : 'минимум')}
+                      {input('max', dates ? 'по (дд.мм.гггг)' : 'максимум')}
+                      {dates && unit('majorUnit')}{input('major', dates ? 'осн. — кол-во' : 'основное')}
+                      {dates && unit('minorUnit')}{input('minor', dates ? 'доп. — кол-во' : 'дополнительное')}
+                    </div>
+                  )
+                })}
+              </div>
+            </Section>
+          )
+        })}
+      </div>
+    </details>
+  )
+}
 
 /** Толщина линии, размер маркеров, цвет и скрытие для каждого набора данных (кривой) — отдельно по типам графиков. */
 function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldProps & { modules: string[]; projectId: string; ready: boolean }) {
