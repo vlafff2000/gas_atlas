@@ -17,7 +17,7 @@ from app.modules import group_analysis
 
 from ..contract import Column, Data, Module, ModuleSpec, Note, Param, Result, Table
 from ..domain import DatasetKind
-from ._production import KINDS, PRODUCTION, periods_of
+from ._production import KINDS, PRODUCTION, periods_of, visible_periods
 
 GDI, RESPONSE = DatasetKind.GDI, DatasetKind.RESPONSE
 SECTION_RANK, SECTION_PROGRAM = 'Рейтинг динамики', 'Проверка выполнения программы ГДИ'
@@ -63,7 +63,7 @@ class FundModule(Module):
         if name == 'periods':
             if PRODUCTION not in data or data[PRODUCTION].empty:
                 return []
-            return periods_of(data[PRODUCTION], params.get('kind') or 'withdrawal')
+            return visible_periods(periods_of(data[PRODUCTION], params.get('kind') or 'withdrawal'), data.settings)
         return super().options(name, data, params)
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:

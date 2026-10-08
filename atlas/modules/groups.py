@@ -15,7 +15,7 @@ from app.modules import production as legacy
 
 from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Table, TableAction
 from .fund import program_wells
-from ._production import KINDS, PRODUCTION, group_of, histogram_charts, periods_of
+from ._production import KINDS, PRODUCTION, group_of, histogram_charts, periods_of, visible_periods
 
 SECTION_AUTO = 'Автоматические подгруппы'
 SECTION_BULK = 'Массовое назначение'
@@ -57,7 +57,7 @@ class GroupsModule(Module):
         if name == 'periods':
             if PRODUCTION not in data or data[PRODUCTION].empty:
                 return []
-            return periods_of(data[PRODUCTION], params.get('kind') or 'withdrawal')
+            return visible_periods(periods_of(data[PRODUCTION], params.get('kind') or 'withdrawal'), data.settings)
         return super().options(name, data, params)
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:

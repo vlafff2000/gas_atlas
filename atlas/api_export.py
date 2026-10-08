@@ -28,6 +28,7 @@ from starlette.routing import Route
 from app.core import reporting
 from app.core.bulk_export import bundle_exports, export_plan, migrate_preset
 from app.core.config import MODULES, VERSION as VERSION_58, ordered
+from .modules._production import visible_periods
 from app.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
 from app.core.export import figure_bytes
 
@@ -116,7 +117,7 @@ def dashboard_periods(source, settings, mapping) -> dict[str, list[str]]:
         return {'withdrawal': [], 'injection': []}
     if daily.empty:
         return {'withdrawal': [], 'injection': []}
-    return {kind: ordered(daily.loc[daily.kind.eq(kind), 'period']) for kind in ('withdrawal', 'injection')}
+    return {kind: visible_periods(ordered(daily.loc[daily.kind.eq(kind), 'period']), settings) for kind in ('withdrawal', 'injection')}
 
 
 def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
@@ -136,7 +137,7 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
         out['groups'][m] = ordered(group_of(mapping, w) for w in wells)
     if 'production' in source:
         d = source['production']
-        out['periods'] = {k: ordered(d.loc[d.kind.eq(k), 'period']) for k in ('withdrawal', 'injection')}
+        out['periods'] = {k: visible_periods(ordered(d.loc[d.kind.eq(k), 'period']), settings) for k in ('withdrawal', 'injection')}
     if 'gdi' in source:
         g = source['gdi']
         out['gdi_seasons'] = ordered(g.season[g.season.ne('')]) if 'season' in g else []
@@ -209,12 +210,12 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             d = source['production']
             periods = {}
             for kind in ('withdrawal', 'injection'):
-                values = ordered(d.loc[d.kind.eq(kind), 'period'])
+                values = visible_periods(ordered(d.loc[d.kind.eq(kind), 'period']), settings)
                 periods[kind] = pick(f'{module}_periods_{kind}', values)
             view = 'hist' if module == 'histograms' else form.get('production_view', 'curve')
             split = form.get(module + '_split', 'well')
             direction = form.get(module + '_direction', 'number')
-            cfg.update(periods=periods, view=view, split=split, direction=direction)
+            cfg.update(periods=periods, view=view, split=split, direction=direction, season_titles=True)
             prefix = 'hist' if module == 'histograms' else 'prod'
             if form.get(module + '_panels') and current.get(prefix + '_1'):
                 cfg['panels'] = [{**cfg, 'panels': None, 'wells': v.get('wells', ws), 'periods': {v['kind']: v['periods']},
@@ -559,7 +560,7 @@ def routes(projects: Projects) -> list[Route]:
     def series(request, body):
         """Названия наборов данных в графиках каждого модуля — подсказки для правил оформления (по первым графикам модуля)."""
         import re
-        form = {k: v for k, v in form_of(body).items() if not k.startswith('fmt_')}
+        form = {k: v for k, v in form_of(body).items() if not k.startswith(('fmt_', 'label_'))}
         try:
             _, plan, _ = need_plan(request.path_params['pid'], form)
             jobs = plan.jobs
@@ -567,6 +568,7 @@ def routes(projects: Projects) -> list[Route]:
             jobs = []
         found: dict = {}
         seen: dict = {}
+        labels: dict = {}      # названия графика и осей первого графика каждого модуля — шаблон для полей «Подписи»
         for job in jobs:
             module = getattr(job, 'module', '') or ''
             if seen.get(module, 0) >= 2:
@@ -576,6 +578,14 @@ def routes(projects: Projects) -> list[Route]:
                 figure = job.render()
             except Exception:
                 continue
+            if module not in labels:
+                lay = figure.layout
+                wells = ', '.join(map(str, (lay.meta or {}).get('wells', []))) if isinstance(lay.meta, dict) else ''
+                title = str(lay.title.text or '')
+                labels[module] = {
+                    'title': title.replace(wells, '{скважина}') if wells and wells in title else title,
+                    'x': str(lay.xaxis.title.text or ''), 'y': str(lay.yaxis.title.text or ''),
+                    'y2': str(lay.yaxis2.title.text or '') if 'yaxis2' in lay else ''}
             names = found.setdefault(module, [])
             for trace in figure.data:
                 text = re.sub(r'^(№\s*\d+[^\s]*\s*·\s*|№\s*\d+\s*$)', '', str(trace.name or '')).strip()
@@ -583,7 +593,7 @@ def routes(projects: Projects) -> list[Route]:
                     names.append(text)
         from .modules._ggh import GAS, PARAMS
         found['ggh'] = [label for label, _, _ in PARAMS.values()] + [GAS[1]]
-        return {'series': {m: v[:40] for m, v in found.items() if v}}
+        return {'series': {m: v[:40] for m, v in found.items() if v}, 'labels': labels}
 
     def archive(request, body):
         pid, form = request.path_params['pid'], form_of(body)

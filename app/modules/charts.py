@@ -128,6 +128,13 @@ def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves
         fig.update_layout(hoverdistance=30,spikedistance=-1)
     return fig
 
+def season_title(well,kind,periods):
+    """«Производительность скважины № 540 в сезон отбора 2025-2026» (закачка — «в сезон закачки 2025»)."""
+    base=f'Производительность скважины № {well}'
+    if not periods:return base
+    word='закачки' if kind=='injection' else 'отбора'
+    return f'{base} в {"сезон" if len(periods)==1 else "сезоны"} {word} '+', '.join(map(str,periods))
+
 def well_title(wells,group=None):
     if len(wells)==1:return 'Скважина №'+str(wells[0])
     if group:return 'Группа '+str(group)

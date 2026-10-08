@@ -383,7 +383,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
 
       <ChartFormat {...F} modules={modules} projectId={project.id} ready={ready} />
 
-      <ChartLabels {...F} modules={modules} />
+      <ChartLabels {...F} modules={modules} projectId={project.id} ready={ready} />
 
       <WordLayout {...F} projectId={project.id} ready={ready} revision={project.revision} />
 
@@ -903,10 +903,19 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
 }
 
 /** Свои названия графика, осей и записей легенды для каждого типа выгружаемых графиков (Word, архив, предпросмотр). */
-function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
+function ChartLabels({ form, set, choices, modules, projectId, ready }: FieldProps & { modules: string[]; projectId: string; ready: boolean }) {
   const rows = modules.filter(m => choices.modules.some(x => x.id === m))
+  const [defaults, setDefaults] = useState<Record<string, Record<string, string>>>({})
+  const [open, setOpen] = useState(false)
+  useEffect(() => {      // названия графика и осей, как они сейчас в графиках, — шаблон для полей
+    if (!open) return
+    let alive = true
+    exportApi.series(projectId, form).then(r => alive && setDefaults(r.labels ?? {})).catch(() => undefined)
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ready, JSON.stringify(form.modules), projectId])
   return (
-    <details className="table-block">
+    <details className="table-block" onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary className="block-head"><h3>Подписи осей и легенд по типам графиков</h3></summary>
       <p className="muted pad">Пустое поле — как в графике. Названия графика можно писать с {'{скважина}'}.
         Легенда: по строке «что=на что» — фрагмент названия заменится; «что=» без замены убирает запись из легенды.
@@ -916,10 +925,10 @@ function ChartLabels({ form, set, choices, modules }: FieldProps & { modules: st
           const f = (name: string) => 'label_' + m + '_' + name
           return (
             <Section key={m} title={choices.modules.find(x => x.id === m)?.label ?? m}>
-              <Text {...{ form, set, choices }} field={f('title')} label="Название графика" def="" />
-              <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def="" />
-              <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def="" />
-              <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def="" />
+              <Text {...{ form, set, choices }} field={f('title')} label="Название графика" def={defaults[m]?.title ?? ''} />
+              <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def={defaults[m]?.x ?? ''} />
+              <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def={defaults[m]?.y ?? ''} />
+              <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def={defaults[m]?.y2 ?? ''} />
               {m === 'gdi' && <Text {...{ form, set, choices }} field={f('template')} label="Запись легенды: {дата}, {метод}, {исследование} (пусто — полная)" def="{дата}" wide />}
               <label className="field wide">
                 <span className="field-label">Замены в легенде (по строке «что=на что»)</span>
@@ -954,8 +963,8 @@ function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldPro
   return (
     <details className="table-block" onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary className="block-head"><h3>Наборы данных: линии, маркеры и цвета</h3></summary>
-      <p className="muted pad">Для каждого типа графиков можно настроить отдельные кривые: введите часть названия из легенды (подсказки появляются при вводе),
-        затем цвет, толщину линии и размер маркеров в пунктах (0 — без маркеров) или «скрыть». Пустое поле — как в графике.
+      <p className="muted pad">Для каждого типа графиков можно настроить отдельные кривые: выберите набор данных из списка (названия считываются из графиков),
+        затем цвет, толщину линии (0 — без линии, остаются только маркеры), размер маркеров в пунктах (0 — без маркеров) или «скрыть». Пустое поле — как в графике.
         Правило действует на все кривые, в названии которых есть эта часть. Работает в предпросмотре, архиве, Word, пакете по фонду и ГГХ; сохраняется в шаблоне.</p>
       <div className="param-bar flat">
         {rows.map(m => {
@@ -967,14 +976,15 @@ function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldPro
           return (
             <Section key={m} title={label(m)}>
               <div className="field wide">
-                <datalist id={'series-' + m}>{(names[m] ?? []).map(n => <option key={n} value={n} />)}</datalist>
                 {rules.map((r, i) => (
                   <div key={i} className="series-rule">
-                    <input value={r.match} placeholder="часть названия" aria-label="Часть названия набора" maxLength={200} list={'series-' + m}
-                      onChange={e => edit(i, { match: e.target.value })} />
+                    <select value={r.match} aria-label="Набор данных" onChange={e => edit(i, { match: e.target.value })}>
+                      <option value="">— набор данных —</option>
+                      {[...(names[m] ?? []), ...(r.match && !(names[m] ?? []).includes(r.match) ? [r.match] : [])].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
                     <input type="color" value={r.color || '#2563eb'} aria-label="Цвет" onChange={e => edit(i, { color: e.target.value })} />
                     <button type="button" title="Цвет как в графике" onClick={() => edit(i, { color: '' })} disabled={!r.color}>цвет ✕</button>
-                    <input value={r.width ?? ''} placeholder="линия, пт" aria-label="Толщина линии, пт" size={8} inputMode="decimal"
+                    <input value={r.width ?? ''} placeholder="линия, пт" aria-label="Толщина линии, пт (0 — без линии, только маркеры)" title="0 — линии отключены, остаются только маркеры" size={8} inputMode="decimal"
                       onChange={e => edit(i, { width: e.target.value })} />
                     <input value={r.marker ?? ''} placeholder="маркер, пт" aria-label="Размер маркеров, пт (0 — без маркеров)" size={8} inputMode="decimal"
                       onChange={e => edit(i, { marker: e.target.value })} />

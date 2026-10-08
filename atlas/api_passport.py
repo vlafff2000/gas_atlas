@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import quote
 
 from starlette.concurrency import run_in_threadpool
+from .modules._production import visible_periods
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
@@ -80,7 +81,7 @@ class Passport:
             return {}
         from app.modules import production
         d = production.periods_for(self.frames['production'], self.settings)
-        return {kind: [str(p) for p in ordered(d.loc[d.kind.eq(kind), 'period'])] for kind, _ in KINDS}
+        return {kind: [str(p) for p in visible_periods(ordered(d.loc[d.kind.eq(kind), 'period']), self.settings)] for kind, _ in KINDS}
 
     def well(self, value: Any) -> str:
         wells = self.wells()

@@ -56,7 +56,7 @@ def parse_series(text: Any) -> List[Dict[str, Any]]:
                 raise FormatError('Цвет набора данных: вид #rrggbb')
             item['color'] = color
         if rule.get('width') not in (None, ''):
-            item['width'] = number(rule['width'], 'Толщина линии набора', .2, 10)
+            item['width'] = number(rule['width'], 'Толщина линии набора', 0, 10)
         if rule.get('marker') not in (None, ''):
             item['marker'] = number(rule['marker'], 'Размер маркеров набора', 0, 20)
         if rule.get('hide'):
@@ -122,17 +122,22 @@ def apply(figure, cfg: Mapping[str, Any]):
             if rule.get('hide'):
                 trace.visible = False
             color = rule.get('color', color)
-            if 'width' in rule and 'lines' in mode:
+            if 'width' in rule and ('lines' in mode or rule['width'] <= 0):
                 width = rule['width']
             if 'marker' in rule and 'markers' in mode:
                 size = rule['marker']
         own = set()
         if line:
-            if width is not None:
+            if width is not None and width <= 0:      # толщина 0 — линия выключена, остаются маркеры
+                trace.mode = 'markers'
+                own.add('width')
+            elif width is not None:
                 trace.line.width = width
                 own.add('width')
             if size is not None:
-                if size <= 0 and 'lines' in mode:
+                if size <= 0 and trace.mode == 'markers' and width is not None and width <= 0:
+                    pass
+                elif size <= 0 and 'lines' in mode:
                     trace.mode = 'lines'
                 elif size > 0:
                     trace.marker.size = size * 2
