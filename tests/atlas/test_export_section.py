@@ -429,6 +429,14 @@ def test_pack_and_ggh_use_export_settings(env):
     assert base[:4] == styled[:4] == b'\x89PNG' and base != styled
 
 
+def test_pack_and_ggh_ids_in_modules_are_ignored_by_plan(env):
+    """«Пакет по фонду» и «ГГХ» включаются в список модулей формы, но перечень графиков строится по остальным."""
+    client, pid, _, _ = env
+    base = client.post(f'/api/projects/{pid}/export/plan', json={'form': {'modules': ['production']}}).json()
+    mixed = client.post(f'/api/projects/{pid}/export/plan', json={'form': {'modules': ['production', 'pack', 'ggh']}}).json()
+    assert mixed['modules'] == ['production'] and mixed['charts'] == base['charts']
+
+
 def test_zero_width_keeps_markers_and_season_titles(env):
     """Толщина 0 выключает линию, маркеры остаются; подписи поскважинных графиков и скрытие нейтральных периодов."""
     import plotly.graph_objects as go
@@ -443,3 +451,17 @@ def test_zero_width_keeps_markers_and_season_titles(env):
     periods = ['2024-2025', 'Нейтральный период Весна 2025', 'Вне сезона 2025']
     assert visible_periods(periods, {}) == ['2024-2025']
     assert visible_periods(periods, {'show_neutral_periods': True}) == periods
+
+
+def test_extras_preview_lists_and_renders_pack_charts(env):
+    """Предпросмотр пакета по фонду: перечень графиков и картинка одного из них."""
+    client, pid, _, _ = env
+    url = f'/api/projects/{pid}/export'
+    none = client.post(url + '/extras', json={'form': {'modules': ['production']}}).json()
+    assert none['charts'] == []
+    listed = client.post(url + '/extras', json={'form': {'modules': ['pack'], 'pack_kinds': ['withdrawal']}}).json()['charts']
+    assert listed and all(c['module'] == 'pack' for c in listed)
+    png = client.post(url + '/extras-preview', json={'form': {'modules': ['pack']}, 'chart': listed[0]['name']})
+    assert listed[0]['name'].startswith('Пакет · ')
+    assert png.status_code == 200 and png.content[:4] == b'\x89PNG'
+    assert client.post(url + '/extras-preview', json={'form': {'modules': ['pack']}, 'chart': 'нет'}).status_code == 404
