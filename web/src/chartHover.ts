@@ -47,17 +47,23 @@ export function buildTracks(series: Series[], x: Axis, y2: boolean, marked: (s: 
     if (s.kind === 'box') return
     const n = s.x.length
     const xs = new Float64Array(n), ys = new Float64Array(n), src = new Uint32Array(n)
-    let m = 0, monotonic = true, last = -Infinity
+    let m = 0, monotonic = true, last = -Infinity, falling = true, prev = Infinity
     for (let j = 0; j < n; j++) {
       const xv = toNumber(s.x[j], x.scale)
       if (!Number.isFinite(xv)) continue
       const yv = typeof s.y[j] === 'number' ? (s.y[j] as number) : toNumber(s.y[j], 'value')
       if (s.kind !== 'line' && !Number.isFinite(yv)) continue
       if (xv < last) monotonic = false
-      last = xv
+      if (xv > prev) falling = false
+      last = xv; prev = xv
       xs[m] = xv; ys[m] = yv; src[m] = j; m++
     }
     if (!m) return
+    // x только убывает (например, объём газа в пласте за сезон отбора): разворачиваем, чтобы значения брались строго по вертикали
+    if (!monotonic && falling) {
+      xs.subarray(0, m).reverse(); ys.subarray(0, m).reverse(); src.subarray(0, m).reverse()
+      monotonic = true
+    }
     const track: Track = {
       index, series: s, axis: s.axis === 'y2' && y2 ? 1 : 0,
       xs: xs.subarray(0, m), ys: ys.subarray(0, m), src: src.subarray(0, m), monotonic,

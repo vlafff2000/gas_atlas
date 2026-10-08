@@ -85,3 +85,26 @@ def test_new_table_import_and_chart(tmp_path):
     carry, daily, cumulative = body['charts']
     assert carry['series'][0]['y'] == [0.0, 15.0, 30.0] and cumulative['series'][0]['y'] == [0.0, 0.5, 0.6]
     assert carry['series'][0]['x'][0] == 21971.1144
+
+
+def test_x_axis_by_season_take(env):
+    client, pid, _ = env
+    opts = client.post('/api/modules/water/options', json={'project': pid, 'param': 'periods', 'params': {}}).json()
+    base = run(client, pid, periods=opts, metric='carry')
+    by_take = run(client, pid, periods=opts, metric='carry', xaxis='cumulative')
+    assert by_take['charts'][0]['x']['label'].startswith('Накопленный отбор')
+    for s in by_take['charts'][0]['series']:
+        assert s['x'][0] == 0 and s['x'] == sorted(s['x'])
+    assert base['charts'][0]['x']['label'].startswith('Объём газа')
+
+
+def test_export_includes_water(env):
+    from atlas.api_export import WATERFACTOR, options_from, with_water
+    from app.core import reporting
+    client, pid, projects = env
+    data = projects.data(pid)
+    opts = client.post('/api/modules/water/options', json={'project': pid, 'param': 'periods', 'params': {}}).json()
+    options, source, raw = options_from({'modules': [WATERFACTOR], 'waterfactor_periods': opts, 'waterfactor_xaxis': 'cumulative'}, data)
+    plan = with_water(reporting.plan(source, data.mapping, data.settings, options, raw), data, options)
+    assert plan.jobs and all(j.module == WATERFACTOR for j in plan.jobs)
+    assert plan.jobs[0].render().layout.xaxis.title.text.startswith('Накопленный отбор')
