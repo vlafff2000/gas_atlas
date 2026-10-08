@@ -591,9 +591,16 @@ def routes(projects: Projects) -> list[Route]:
                 text = re.sub(r'^(№\s*\d+[^\s]*\s*·\s*|№\s*\d+\s*$)', '', str(trace.name or '')).strip()
                 if text and text not in names and trace.visible is not False:
                     names.append(text)
+        own = []         # наборы данных выбранного графика (для вкладки «Отдельные графики»)
+        job = next((j for j in jobs if j.name == body.get('chart')), None) if body.get('chart') else None
+        if job is not None:
+            for trace in job.render().data:
+                text = re.sub(r'^(№\s*\d+[^\s]*\s*·\s*|№\s*\d+\s*$)', '', str(trace.name or '')).strip()
+                if text and text not in own and trace.visible is not False:
+                    own.append(text)
         from .modules._ggh import GAS, PARAMS
         found['ggh'] = [label for label, _, _ in PARAMS.values()] + [GAS[1]]
-        return {'series': {m: v[:40] for m, v in found.items() if v}, 'labels': labels}
+        return {'series': {m: v[:40] for m, v in found.items() if v}, 'labels': labels, 'chart': own[:40]}
 
     def archive(request, body):
         pid, form = request.path_params['pid'], form_of(body)

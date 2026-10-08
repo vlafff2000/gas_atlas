@@ -307,7 +307,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   }
 
   const first = view === 'pack' && packAvailable ? 'pack' : view === 'ggh' && gghAvailable ? 'ggh' : (choices.modules[0]?.id ?? extraTabs[0][0])
-  const current = tab && (choices.modules.some(m => m.id === tab) || extraTabs.some(([id]) => id === tab)) ? tab : first
+  const current = tab && (choices.modules.some(m => m.id === tab) || extraTabs.some(([id]) => id === tab) || (tab === 'custom' && readyPlan)) ? tab : first
   const formats = (form.formats as string[] | undefined) ?? ['svg', 'pdf']
   const style = choices.style
 
@@ -379,8 +379,11 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => setTab(id)}
             className={modules.includes(id) ? 'on' : undefined}>{label}</button>
         ))}
+        {readyPlan && <button type="button" role="tab" aria-selected={current === 'custom'} onClick={() => setTab('custom')}>Отдельные графики</button>}
       </div>
-      {current === 'pack' || current === 'ggh' ? (
+      {current === 'custom' ? (
+        <CustomCharts {...F} projectId={project.id} loadPlan={prepare} planned={planned} />
+      ) : current === 'pack' || current === 'ggh' ? (
         <>
           {current === 'pack' ? packPanel : gghPanel}
         </>
@@ -983,6 +986,38 @@ function axesPayload(spec: AxesSpec): string {
   return Object.keys(out).length ? JSON.stringify(out) : ''
 }
 
+/** Поля границ и делений трёх осей: общие для типа графиков и для отдельного графика. */
+function AxesEditor({ spec, onEdit }: { spec: AxesSpec; onEdit: (axis: 'x' | 'y' | 'y2', patch: AxisSpec) => void }) {
+  const edit = onEdit
+  return (
+  <div className="field wide">
+    {(['y', 'y2', 'x'] as const).map(axis => {
+      const a = spec[axis] ?? {}
+      const dates = axis === 'x' && !!a.dates
+      const input = (key: 'min' | 'max' | 'major' | 'minor', placeholder: string) => (
+        <input value={a[key] ?? ''} placeholder={placeholder} aria-label={placeholder} size={dates && (key === 'min' || key === 'max') ? 11 : 7}
+          inputMode={dates && (key === 'min' || key === 'max') ? 'text' : 'decimal'} onChange={e => edit(axis, { [key]: e.target.value })} />
+      )
+      const unit = (key: 'majorUnit' | 'minorUnit') => (
+        <select value={a[key] ?? 'year'} aria-label="Единица деления" onChange={e => edit(axis, { [key]: e.target.value })}>
+          {UNIT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      )
+      return (
+        <div key={axis} className="series-rule">
+          <strong>{axis === 'x' ? 'Ось X' : axis === 'y' ? 'Ось Y' : 'Доп. ось Y'}</strong>
+          {axis === 'x' && <label className="toggle"><input type="checkbox" checked={dates} onChange={e => edit(axis, { dates: e.target.checked, min: '', max: '', major: '', minor: '' })} /><span>Даты</span></label>}
+          {input('min', dates ? 'с (дд.мм.гггг)' : 'минимум')}
+          {input('max', dates ? 'по (дд.мм.гггг)' : 'максимум')}
+          {dates && unit('majorUnit')}{input('major', dates ? 'осн. — кол-во' : 'основное')}
+          {dates && unit('minorUnit')}{input('minor', dates ? 'доп. — кол-во' : 'дополнительное')}
+        </div>
+      )
+    })}
+  </div>
+  )
+}
+
 /** Ручные границы и деления осей X, Y и дополнительной Y — отдельно по типам графиков. Состояние — в ``fmt_<модуль>_ui`` (черновик полей). */
 function AxisSettings({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
   const rows = modules.filter(m => choices.modules.some(x => x.id === m))
@@ -1004,36 +1039,129 @@ function AxisSettings({ form, set, choices, modules }: FieldProps & { modules: s
           }
           return (
             <Section key={m} title={label(m)}>
-              <div className="field wide">
-                {(['y', 'y2', 'x'] as const).map(axis => {
-                  const a = spec[axis] ?? {}
-                  const dates = axis === 'x' && !!a.dates
-                  const input = (key: 'min' | 'max' | 'major' | 'minor', placeholder: string) => (
-                    <input value={a[key] ?? ''} placeholder={placeholder} aria-label={placeholder} size={dates && (key === 'min' || key === 'max') ? 11 : 7}
-                      inputMode={dates && (key === 'min' || key === 'max') ? 'text' : 'decimal'} onChange={e => edit(axis, { [key]: e.target.value })} />
-                  )
-                  const unit = (key: 'majorUnit' | 'minorUnit') => (
-                    <select value={a[key] ?? 'year'} aria-label="Единица деления" onChange={e => edit(axis, { [key]: e.target.value })}>
-                      {UNIT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                  )
-                  return (
-                    <div key={axis} className="series-rule">
-                      <strong>{axis === 'x' ? 'Ось X' : axis === 'y' ? 'Ось Y' : 'Доп. ось Y'}</strong>
-                      {axis === 'x' && <label className="toggle"><input type="checkbox" checked={dates} onChange={e => edit(axis, { dates: e.target.checked, min: '', max: '', major: '', minor: '' })} /><span>Даты</span></label>}
-                      {input('min', dates ? 'с (дд.мм.гггг)' : 'минимум')}
-                      {input('max', dates ? 'по (дд.мм.гггг)' : 'максимум')}
-                      {dates && unit('majorUnit')}{input('major', dates ? 'осн. — кол-во' : 'основное')}
-                      {dates && unit('minorUnit')}{input('minor', dates ? 'доп. — кол-во' : 'дополнительное')}
-                    </div>
-                  )
-                })}
-              </div>
+              <AxesEditor spec={spec} onEdit={edit} />
             </Section>
           )
         })}
       </div>
     </details>
+  )
+}
+
+/** Вкладка «Отдельные графики»: у одного графика из семейства свои цвета и наборы данных, пределы и деления осей (поле ``fmt_overrides``,
+ *  черновик — ``fmt_overrides_ui``). Типовое оформление остаётся у остальных графиков. */
+interface OwnFormat { series?: SeriesRule[]; axes?: AxesSpec }
+function CustomCharts({ form, set, choices, projectId, loadPlan, planned }: FieldProps & { projectId: string; loadPlan: () => Promise<ExportPlan>; planned: string }) {
+  const [charts, setCharts] = useState<{ name: string; module: string }[] | null>(null)
+  const [name, setName] = useState('')
+  const [names, setNames] = useState<string[]>([])
+  const [image, setImage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const label = (m: string) => choices.modules.find(x => x.id === m)?.label ?? m
+  let all: Record<string, OwnFormat> = {}
+  try { all = JSON.parse((form.fmt_overrides_ui as string | undefined) || '{}') } catch { all = {} }
+  const own = all[name] ?? {}
+  const changed = Object.keys(all).filter(k => (all[k].series?.length ?? 0) > 0 || Object.keys(all[k].axes ?? {}).length > 0)
+  const write = (next: Record<string, OwnFormat>) => {
+    const payload: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(next)) {
+      const series = (v.series ?? []).filter(r => r.match)
+      const axes = v.axes ? axesPayload(v.axes) : ''
+      if (series.length || axes) payload[k] = { ...(series.length ? { series } : {}), ...(axes ? { axes: JSON.parse(axes) } : {}) }
+    }
+    set('fmt_overrides_ui', JSON.stringify(next)); set('fmt_overrides', Object.keys(payload).length ? JSON.stringify(payload) : '')
+  }
+  const update = (patch: OwnFormat) => write({ ...all, [name]: { ...own, ...patch } })
+  const reset = (k: string) => { const { [k]: _gone, ...rest } = all; write(rest) }
+  useEffect(() => {
+    let alive = true
+    setError(null)
+    loadPlan().then(p => {
+      if (!alive) return
+      const list = p.charts.filter(c => !EXTRAS.includes(c.module))
+      setCharts(list); setName(old => list.some(c => c.name === old) ? old : (list[0]?.name ?? ''))
+    }).catch(e => alive && setError((e as Error).message))
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planned, projectId])
+  useEffect(() => {      // названия наборов данных выбранного графика — для списка правил
+    if (!name) { setNames([]); return }
+    let alive = true
+    exportApi.series(projectId, form, name).then(r => alive && setNames(r.chart)).catch(() => undefined)
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, projectId])
+  const fmtKey = JSON.stringify(Object.entries(form).filter(([k]) => k.startsWith('fmt_') && !k.endsWith('_ui') || k.startsWith('label_') || k === 'look' || k === 'font' || k === 'font_size'))
+  useEffect(() => {      // картинка графика с учётом его настроек
+    if (!name || !charts?.some(c => c.name === name)) return
+    let alive = true
+    const timer = setTimeout(() => {
+      exportApi.preview(projectId, form, name).then(u => { if (alive) { setError(null); setImage(old => { if (old) URL.revokeObjectURL(old); return u }) } else URL.revokeObjectURL(u) })
+        .catch(e => alive && setError((e as Error).message))
+    }, 400)
+    return () => { alive = false; clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, charts, fmtKey])
+  const groups = Array.from(new Set((charts ?? []).map(c => c.module)))
+  return (
+    <div className="param-bar">
+      <p className="muted pad">Выберите график из семейства и поменяйте у него цвета наборов данных или пределы и деления осей: у остальных графиков останется общее оформление
+        (вкладки модулей и блоки ниже). «Сбросить» возвращает график к общему оформлению. Работает в предпросмотре, архиве и Word; сохраняется в шаблоне.</p>
+      {error && <p className="error">{error}</p>}
+      {charts && !charts.length && <p className="muted pad">Нет графиков: включите на вкладках модулей нужные и выберите скважины.</p>}
+      {!charts && !error && <p className="muted pad">Загрузка перечня графиков…</p>}
+      {!!charts?.length && <>
+        <Section title="График">
+          <label className="field wide">
+            <span className="field-label">График</span>
+            <select value={name} onChange={e => setName(e.target.value)}>
+              {groups.map(g => (
+                <optgroup key={g} label={label(g)}>
+                  {charts.filter(c => c.module === g).map(c => <option key={c.name} value={c.name}>{c.name}{changed.includes(c.name) ? ' ●' : ''}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          <button type="button" disabled={!changed.includes(name)} onClick={() => reset(name)}>Сбросить этот график к общему оформлению</button>
+          {!!changed.length && <p className="muted">Графиков со своими настройками: {changed.length}. <button type="button" onClick={() => write({})}>Сбросить все</button></p>}
+        </Section>
+        <Section title="Наборы данных">
+          <div className="field wide">
+            <RulesEditor rules={own.series ?? []} names={names} save={next => update({ series: next })} />
+          </div>
+        </Section>
+        <Section title="Оси">
+          <AxesEditor spec={own.axes ?? {}} onEdit={(axis, patch) => update({ axes: { ...own.axes, [axis]: { ...own.axes?.[axis], ...patch } } })} />
+        </Section>
+        {image && <div className="field wide"><img src={image} alt={name} style={{ maxWidth: '100%' }} /></div>}
+      </>}
+    </div>
+  )
+}
+
+/** Правила наборов данных: набор из списка, цвет, линия, маркер, «скрыть». */
+function RulesEditor({ rules, names, save }: { rules: SeriesRule[]; names: string[]; save: (next: SeriesRule[]) => void }) {
+  const edit = (i: number, patch: Partial<SeriesRule>) => save(rules.map((r, j) => j === i ? { ...r, ...patch } : r))
+  return (
+    <>
+                {rules.map((r, i) => (
+                  <div key={i} className="series-rule">
+                    <select value={r.match} aria-label="Набор данных" onChange={e => edit(i, { match: e.target.value })}>
+                      <option value="">— набор данных —</option>
+                      {[...(names), ...(r.match && !(names).includes(r.match) ? [r.match] : [])].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                    <input type="color" value={r.color || '#2563eb'} aria-label="Цвет" onChange={e => edit(i, { color: e.target.value })} />
+                    <button type="button" title="Цвет как в графике" onClick={() => edit(i, { color: '' })} disabled={!r.color}>цвет ✕</button>
+                    <input value={r.width ?? ''} placeholder="линия, пт" aria-label="Толщина линии, пт (0 — без линии, только маркеры)" title="0 — линии отключены, остаются только маркеры" size={8} inputMode="decimal"
+                      onChange={e => edit(i, { width: e.target.value })} />
+                    <input value={r.marker ?? ''} placeholder="маркер, пт" aria-label="Размер маркеров, пт (0 — без маркеров)" size={8} inputMode="decimal"
+                      onChange={e => edit(i, { marker: e.target.value })} />
+                    <label className="toggle"><input type="checkbox" checked={!!r.hide} onChange={e => edit(i, { hide: e.target.checked })} /><span>скрыть</span></label>
+                    <button type="button" aria-label="Удалить правило" onClick={() => save(rules.filter((_, j) => j !== i))}>✕</button>
+                  </div>
+                ))}
+                <button type="button" disabled={rules.length >= 50} onClick={() => save([...rules, { match: '' }])}>+ набор данных</button>
+    </>
   )
 }
 
@@ -1062,27 +1190,10 @@ function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldPro
           let rules: SeriesRule[] = []
           try { rules = JSON.parse((form[f] as string | undefined) || '[]') } catch { rules = [] }
           const save = (next: SeriesRule[]) => set(f, next.length ? JSON.stringify(next) : '')
-          const edit = (i: number, patch: Partial<SeriesRule>) => save(rules.map((r, j) => j === i ? { ...r, ...patch } : r))
           return (
             <Section key={m} title={label(m)}>
               <div className="field wide">
-                {rules.map((r, i) => (
-                  <div key={i} className="series-rule">
-                    <select value={r.match} aria-label="Набор данных" onChange={e => edit(i, { match: e.target.value })}>
-                      <option value="">— набор данных —</option>
-                      {[...(names[m] ?? []), ...(r.match && !(names[m] ?? []).includes(r.match) ? [r.match] : [])].map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
-                    <input type="color" value={r.color || '#2563eb'} aria-label="Цвет" onChange={e => edit(i, { color: e.target.value })} />
-                    <button type="button" title="Цвет как в графике" onClick={() => edit(i, { color: '' })} disabled={!r.color}>цвет ✕</button>
-                    <input value={r.width ?? ''} placeholder="линия, пт" aria-label="Толщина линии, пт (0 — без линии, только маркеры)" title="0 — линии отключены, остаются только маркеры" size={8} inputMode="decimal"
-                      onChange={e => edit(i, { width: e.target.value })} />
-                    <input value={r.marker ?? ''} placeholder="маркер, пт" aria-label="Размер маркеров, пт (0 — без маркеров)" size={8} inputMode="decimal"
-                      onChange={e => edit(i, { marker: e.target.value })} />
-                    <label className="toggle"><input type="checkbox" checked={!!r.hide} onChange={e => edit(i, { hide: e.target.checked })} /><span>скрыть</span></label>
-                    <button type="button" aria-label="Удалить правило" onClick={() => save(rules.filter((_, j) => j !== i))}>✕</button>
-                  </div>
-                ))}
-                <button type="button" disabled={rules.length >= 50} onClick={() => save([...rules, { match: '' }])}>+ набор данных</button>
+                <RulesEditor rules={rules} names={names[m] ?? []} save={save} />
               </div>
             </Section>
           )

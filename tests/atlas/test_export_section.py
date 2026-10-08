@@ -465,3 +465,33 @@ def test_extras_preview_lists_and_renders_pack_charts(env):
     assert listed[0]['name'].startswith('Пакет · ')
     assert png.status_code == 200 and png.content[:4] == b'\x89PNG'
     assert client.post(url + '/extras-preview', json={'form': {'modules': ['pack']}, 'chart': 'нет'}).status_code == 404
+
+
+def test_chart_format_single_chart_override(env):
+    """Свои цвет и оси одного графика из семейства: перекрывают настройки типа, остальные графики не меняются."""
+    import plotly.graph_objects as go
+    from atlas import chart_format
+    client, pid, _, _ = env
+    fig = go.Figure([go.Scatter(x=[1, 2], y=[1, 2], mode='lines', name='№ 31')])
+    form = {'fmt_response_series': '[{"match": "№ 31", "color": "#00ff00", "width": 2}]', 'fmt_response_axes': '{"y": {"min": 0, "max": 10}}',
+            'fmt_overrides': '{"график А": {"series": [{"match": "№ 31", "color": "#ff0000"}], "axes": {"y": {"max": 50}}}, "пустой": {}}'}
+    own = chart_format.parse_overrides(form['fmt_overrides'])
+    assert list(own) == ['график А']
+    cfg = chart_format.merge(chart_format.for_module(chart_format.configs(form), 'response'), own['график А'])
+    assert cfg['axes']['y'] == {'max': 50.0, 'dates': False} and len(cfg['series']) == 2
+    out = chart_format.apply(fig, cfg)
+    assert out.data[0].line.color == '#ff0000' and out.data[0].line.width == 2
+    for bad in ('{', '[1]', '{"a": {"series": [{"match": "x", "color": "red"}]}}'):
+        with pytest.raises(chart_format.FormatError):
+            chart_format.parse_overrides(bad)
+    base = {**FORM, 'modules': ['response'], 'response_wells': ['31']}
+    name = client.post(f'/api/projects/{pid}/export/plan', json={'form': base}).json()['charts'][0]['name']
+    shot = lambda f, n=name: client.post(f'/api/projects/{pid}/export/preview', json={'form': f, 'chart': n})
+    plain = shot(base)
+    mine = {**base, 'fmt_overrides': json.dumps({name: {'axes': {'y': {'min': 0, 'max': 500}}}})}
+    assert shot(mine).content != plain.content
+    other = {**base, 'fmt_overrides': json.dumps({'другой': {'axes': {'y': {'min': 0, 'max': 500}}}})}
+    assert shot(other).content == plain.content
+    assert shot({**base, 'fmt_overrides': '{'}).status_code == 400
+    names = client.post(f'/api/projects/{pid}/export/series', json={'form': base, 'chart': name}).json()
+    assert names['chart'] and 'уровень' in ' '.join(names['chart']).lower()

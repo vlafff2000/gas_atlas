@@ -11,6 +11,8 @@
 для оси X-дат границы — даты (``"2006-07-01"`` или ``"01.07.2006"``), деления — ``{"unit": "year"|"month"|"day", "n": 1}``:
 ``{"x": {"min": "2006-01-01", "max": "2026-01-01", "major": {"unit": "year", "n": 1}, "minor": {"unit": "month", "n": 3}}}``.
 Пустое значение — автоматически. Рисует ``app.core.export.figure_bytes`` (сетка делений начинается с нижней границы).
+Отдельные графики (поле ``fmt_overrides``): JSON ``{"<имя графика>": {"series": [правила], "axes": {...}}}`` — то же, что выше, но для одного
+графика из семейства; правила наборов данных идут после правил типа (перекрывают их), оси заменяют оси типа по каждой оси отдельно.
 Оформление накладывается на уже построенный график (как подписи, ``chart_labels``), пересчёта не требует.
 """
 
@@ -125,6 +127,41 @@ def parse_axes(text: Any) -> Dict[str, Dict[str, Any]]:
         if item:
             item['dates'] = dates
             out[axis] = item
+    return out
+
+
+def parse_overrides(text: Any) -> Dict[str, Dict[str, Any]]:
+    """Свои настройки отдельных графиков: ``{имя графика: {'series': [...], 'axes': {...}}}``; пустые пропускаются."""
+    if not str(text or '').strip():
+        return {}
+    try:
+        raw = json.loads(text) if isinstance(text, str) else dict(text)
+    except ValueError:
+        raise FormatError('Отдельные графики: неверный формат') from None
+    if not isinstance(raw, dict) or len(raw) > 500:
+        raise FormatError('Отдельные графики: неверный формат или больше 500 графиков')
+    out: Dict[str, Dict[str, Any]] = {}
+    for name, spec in raw.items():
+        if not isinstance(spec, dict):
+            continue
+        item: Dict[str, Any] = {}
+        series, axes = parse_series(spec.get('series')), parse_axes(spec.get('axes'))
+        if series:
+            item['series'] = series
+        if axes:
+            item['axes'] = axes
+        if item:
+            out[str(name)] = item
+    return out
+
+
+def merge(cfg: Mapping[str, Any], own: Mapping[str, Any]) -> Dict[str, Any]:
+    """Настройки типа графиков + свои настройки одного графика (они сильнее)."""
+    out = dict(cfg)
+    if own.get('series'):
+        out['series'] = list(cfg.get('series', [])) + list(own['series'])
+    if own.get('axes'):
+        out['axes'] = {**cfg.get('axes', {}), **own['axes']}
     return out
 
 
