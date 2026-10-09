@@ -35,7 +35,9 @@ def test_balance_and_factors_by_hand():
     s = season_frame(balance, seasons, water, '2024-2025')
     assert s.cum_water.tolist() == [4.0, 4.0, 7.0]
     assert s.daily.round(6).tolist()[0] == 4.0 and np.isnan(s.daily.iloc[1])     # 4 м³ / 1 млн м³
-    assert s.cumulative.round(6).tolist() == [4.0, round(4 / 3, 6), round(7 / 4, 6)]
+    # накопленный фактор: вода / газ тех же суток (2-е сутки без замера воды в газ не входят): 4/1, 4/1, 7/2
+    assert s.cumulative.round(6).tolist() == [4.0, 4.0, 3.5]
+    assert s.cum_gas.tolist() == [1e6, 3e6, 4e6]       # ось «по накопленному отбору» не изменилась
 
 
 def test_module_charts_and_export(env):

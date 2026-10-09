@@ -249,7 +249,7 @@ class WellsModule(Module):
             if not daily.empty and daily.water_factor.notna().any():
                 factor = daily[['date', 'gas_volume_m3', 'water_volume_m3', 'water_factor']].rename(columns={
                     'date': 'Дата', 'gas_volume_m3': 'Газ, м³', 'water_volume_m3': 'Вода, м³',
-                    'water_factor': 'Вода, м³ / млн м³ газа'})
+                    'water_factor': 'Водный фактор, л/тыс. м³'})
                 result.tables.append(Table(f'water-factor-{key}', head + 'Водогазовый фактор', factor.reset_index(drop=True)))
             if K.RESPONSE in data:
                 r = select_wells(data[K.RESPONSE], [well])
