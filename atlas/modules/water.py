@@ -93,8 +93,11 @@ def season_frame(balance: pd.DataFrame, seasons: pd.Series, water: pd.Series, pe
     s['gas'] = s.withdrawal.clip(lower=0)
     s['cum_water'] = s.water.fillna(0).cumsum()
     s['cum_gas'] = s.gas.cumsum()
+    # Вода измерена не в каждые сутки: накопленный фактор сравнивает воду с газом тех же суток, иначе при редких
+    # замерах он занижается (30 сут по 1 млн м³ и один замер 5 м³ дали бы 0,17 вместо 5 л/тыс. м³).
+    s['cum_gas_measured'] = s.gas.where(s.water.notna(), 0).cumsum()
     s['daily'] = s.water / s.gas.where(s.gas > 0) * 1e6
-    s['cumulative'] = s.cum_water / s.cum_gas.where(s.cum_gas > 0) * 1e6
+    s['cumulative'] = s.cum_water / s.cum_gas_measured.where(s.cum_gas_measured > 0) * 1e6
     s.loc[~s.water.notna().cummax(), 'cumulative'] = np.nan     # до первого замера воды фактора нет, а не ноль
     return s.rename_axis('date').reset_index()
 
@@ -224,16 +227,19 @@ class WaterModule(Module):
         for period, f in frames.items():
             water = float(f.cum_water.dropna().iloc[-1]) if f.cum_water.notna().any() and 'cum_gas' in f and f.cum_gas.notna().any() else float(f.water.sum())
             gas = float(f.gas.sum())
+            gas_measured = float(f.gas.where(f.water.notna(), 0).sum())      # отбор в сутки с замером воды
             rows.append({'period': period, 'start': f.date.min(), 'end': f.date.max(), 'days': int(f.water.notna().sum()),
-                         'gas': gas / 1e6, 'water': water if f.water.notna().any() else np.nan,
+                         'gas': gas / 1e6, 'gas_measured': gas_measured / 1e6, 'water': water if f.water.notna().any() else np.nan,
                          'factor': (float(f.cumulative.dropna().iloc[-1]) if f.cumulative.notna().any() else
-                                    water / gas * 1e6 if gas > 0 and f.water.notna().any() else np.nan),
+                                    water / gas_measured * 1e6 if gas_measured > 0 and f.water.notna().any() else np.nan),
                          'v_start': float(f.v.iloc[0]), 'v_end': float(f.v.iloc[-1])})
         t = pd.DataFrame(rows)
         return Table('seasons', 'Вынос воды по сезонам', t, [
             Column('period', 'Сезон'), Column('start', 'Начало', kind='date'), Column('end', 'Конец', kind='date'),
-            Column('days', 'Дат с замером воды', kind='number'), Column('gas', 'Отбор газа', 'млн м³', 2, 'number'),
+            Column('days', 'Дат с замером воды', kind='number'), Column('gas', 'Отбор газа за сезон', 'млн м³', 2, 'number'),
+            Column('gas_measured', 'Отбор газа в дни замера', 'млн м³', 2, 'number'),
             Column('water', 'Вода', 'м³', 1, 'number'), Column('factor', 'Водный фактор', WF_UNIT, 2, 'number'),
             Column('v_start', 'Газ в пласте, начало', 'млн м³', 1, 'number'),
             Column('v_end', 'Газ в пласте, конец', 'млн м³', 1, 'number')],
-            note='Водный фактор сезона = вода за сезон / отбор газа за сезон; по измеренной воде.')
+            note='Водный фактор сезона = измеренная вода / отбор газа за те же сутки (в дни без замера воды газ не учитывается); '
+                 'л воды на 1000 м³ газа. «Вода» — только измеренная, поэтому при редких замерах занижена.')
