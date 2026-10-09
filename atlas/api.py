@@ -288,6 +288,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/groups', E(groups), methods=['POST']),
         Route('/api/projects/{pid}/object-categories', E(object_categories), methods=['POST']),
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
+        *__import__('atlas.fs_browse', fromlist=['routes']).routes(),   # проводник: список папок, последняя папка
         *api_exclusions.routes(projects),
         *api_projects.routes(projects), *api_export.routes(projects),   # «Проекты», «Настройки», «Экспорт»
         *__import__('atlas.api_passport', fromlist=['routes']).routes(projects),   # «Паспорт скважины»

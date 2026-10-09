@@ -1,0 +1,37 @@
+/* Проводник (FilePicker.tsx): общие стили, цвета из base.css */
+.fp-back { position: fixed; inset: 0; z-index: 1000; background: var(--shadow-strong); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.fp-win { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 40px var(--shadow-strong);
+  width: min(980px, 100%); height: min(640px, 100%); display: flex; flex-direction: column; overflow: hidden; }
+.fp-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.fp-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+.fp-bar { display: flex; gap: 8px; padding: 8px 14px 4px; }
+.fp-bar button { padding: 4px 10px; }
+.fp-path { flex: 1; display: flex; }
+.fp-path input { flex: 1; }
+.fp-search { width: 200px; }
+.fp-bar input { border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 5px 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.fp-crumbs { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px 14px 6px; font-size: 13px; }
+.fp-crumbs button { border: 0; background: none; color: var(--accent-strong); cursor: pointer; padding: 1px 4px; border-radius: 4px; font: inherit; }
+.fp-crumbs button + button::before { content: '›'; color: var(--muted); margin-right: 6px; }
+.fp-crumbs button:hover { background: var(--accent-soft); }
+.fp-main { flex: 1; display: flex; min-height: 0; border-top: 1px solid var(--line); }
+.fp-side { width: 210px; flex: none; overflow: auto; border-right: 1px solid var(--line); background: var(--head-bg); padding: 6px; display: flex; flex-direction: column; gap: 1px; }
+.fp-side button { text-align: left; border: 0; background: none; color: var(--ink); padding: 5px 8px; border-radius: 4px; cursor: pointer; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-side button:hover { background: var(--row-hover); }
+.fp-side button.on { background: var(--accent-soft); color: var(--info-ink); }
+.fp-cap { font-size: 12px; color: var(--muted); padding: 8px 8px 2px; text-transform: uppercase; letter-spacing: .04em; }
+.fp-list { flex: 1; overflow: auto; outline: none; }
+.fp-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: default; border-bottom: 1px solid var(--line-soft); }
+.fp-row:not(.fp-th):hover { background: var(--row-hover); }
+.fp-row.sel { background: var(--accent-soft); }
+.fp-row.locked { color: var(--muted); }
+.fp-th { position: sticky; top: 0; background: var(--head-bg); font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; z-index: 1; }
+.fp-n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-d { width: 130px; flex: none; color: var(--muted); font-size: 13px; }
+.fp-s { width: 80px; flex: none; text-align: right; color: var(--muted); font-size: 13px; }
+.fp-note { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+.fp-note.bad { color: var(--bad); }
+.fp-foot { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.fp-sp { flex: 1; }
+.fp-pick { color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .fp-side { display: none; } .fp-d { display: none; } .fp-search { width: 120px; } }

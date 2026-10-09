@@ -1,5 +1,6 @@
 // Раздел «Настройки» (5.8: страница «Настройки» в app/main.py и «Оформление графиков» боковой панели).
 import { useCallback, useEffect, useState } from 'react'
+import { pickLocalFiles } from './FilePicker'
 import { projectsApi, saveLink } from './api_projects'
 import { theme, usePref, type Theme } from './chartPrefs'
 import { RestoreBox, Toast, useDetails, type PageProps } from './ProjectPage'
@@ -134,8 +135,7 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
           «Сезон»/«Год» и автоопределения; даты до первой строки считаются по обычному правилу.</p>
         <label className="field wide">
           <span className="field-label">Текстовый файл (.txt) или текст</span>
-          <input type="file" accept=".txt,.csv,text/plain"
-            onChange={async e => { const f = e.target.files?.[0]; if (f) setSchedule(await f.text()); e.target.value = '' }} />
+          <button type="button" className="quiet" onClick={async () => { const f = (await pickLocalFiles(false, 'txt csv'))?.[0]; if (f) setSchedule(await f.text()) }}>Выбрать файл…</button>
         </label>
         <textarea className="wide" rows={8} value={schedule} placeholder={'28.06.2021 inj\n25.10.2021 none\n01.11.2021 prod'}
           onChange={e => setSchedule(e.target.value)} />

@@ -1,5 +1,6 @@
 // Раздел «Проекты» (5.8: app/ui/extras.py) и общий вход для страниц «Экспорт», «Проекты», «Настройки».
 import { useCallback, useEffect, useState } from 'react'
+import { pickLocalFiles } from './FilePicker'
 import { api, LARGE_DEMO_HINT, type Project } from './api'
 import { bytes, projectsApi, saveLink, type DataVersion, type ProjectDetails, type RestorePreview } from './api_projects'
 import { ExportPage } from './ExportPage'
@@ -247,7 +248,9 @@ export function RestoreBox({ onOpen, label = 'Открыть резервную 
     <div className="restore">
       <label className="field wide">
         <span className="field-label">{label}</span>
-        <input type="file" accept=".zip,.json" onChange={e => choose(e.target.files?.[0] ?? null)} />
+        <button type="button" className="quiet" onClick={async () => {
+          try { const f = (await pickLocalFiles(false, 'zip json'))?.[0]; if (f) await choose(f) } catch (e) { setError((e as Error).message) }
+        }}>{file ? file.name : 'Выбрать файл…'}</button>
       </label>
       {preview && (
         <div className="restore-preview">
