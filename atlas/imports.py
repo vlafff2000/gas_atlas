@@ -601,11 +601,17 @@ class Imports:
         m = self.projects.manifest(pid)
         updated, groups, duplicates = rules.merge_import(self._raw_frames(pid, m), m.get('groups', {}), p['frames'], policy)
         originals = m.get('imports', []) + self._keep_originals(pid, p['originals'])
+        lost = rules.lost_exclusions(m.get('settings', {}).get('excluded_points', {}), updated, p['frames'])
         saved = self._commit(pid, updated, p['revision'], 'Импорт данных', groups=groups, imports=originals)
-        self.projects.store.event(pid, 'Результат импорта', {'removed_duplicates': duplicates, 'rejected': p['rejected']})
+        self.projects.store.event(pid, 'Результат импорта', {'removed_duplicates': duplicates, 'rejected': p['rejected'],
+                                                             'lost_exclusions': lost})
         self._forget(p)
-        return {'message': 'Данные сохранены', 'duplicates': duplicates, 'project': self.projects.summary(saved),
-                'undo': self._undo(pid)}
+        message = 'Данные сохранены'
+        if lost:
+            message += (f'. Внимание: {lost} исключённых точек больше не найдены в данных (значение или единица изменились '
+                        'при повторной загрузке); проверьте журнал исключений и исключите их заново.')
+        return {'message': message, 'duplicates': duplicates, 'lost_exclusions': lost,
+                'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     def _forget(self, p: dict):
         with self.lock:

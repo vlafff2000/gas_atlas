@@ -11,6 +11,7 @@ from itertools import islice
 import numpy as np
 import pandas as pd
 import openpyxl
+from .config import NODATA
 from .well_import import ALIASES as WELL_ALIASES, REQUIRED as WELL_REQUIRED, detect as detect_well, normalize as normalize_well
 
 ALIASES = {
@@ -128,14 +129,27 @@ def plan_matrix_months(labels,cols,title):
         previous=month;out[j]=pd.Timestamp(year=year,month=month,day=1)
     return out
 
-def numeric(s, level=False):
+def numeric(s, level=False, keep_nodata=False):
+    """Число из ячейки; условное «нет данных» (−999,25 и подобные) — пропуск, если не ``keep_nodata``."""
     s = s.astype('string').str.strip().str.replace(r'[\s\u00a0\u202f]', '', regex=True).str.replace(',', '.', regex=False)
     if level:
         # A single number and an optional unit. Ranges and prose are not concatenated.
         s = s.str.extract(r'^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:м|m|метр(?:а|ов)?)?$', expand=False)
-    return pd.to_numeric(s, errors='coerce').astype(float).replace([np.inf,-np.inf],np.nan)
+    out = pd.to_numeric(s, errors='coerce').astype(float).replace([np.inf,-np.inf],np.nan)
+    return out if keep_nodata else out.mask(out.isin(NODATA))
 
-def dates(s):
+def nodata(s):
+    """Ячейки с условным «нет данных»."""
+    return numeric(s, keep_nodata=True).isin(NODATA)
+
+def date_order(s):
+    """Порядок «д.м.г» в колонке: dmy (есть день > 12 первым), mdy (есть день > 12 вторым), mixed, ambiguous (не определить)."""
+    parts = s.astype('string').str.strip().str.extract(r'^(\d{1,2})[./-](\d{1,2})[./-]\d{2,4}')
+    first, second = (pd.to_numeric(parts[i], errors='coerce') for i in (0, 1))
+    a, b = bool((first > 12).any()), bool((second > 12).any())
+    return 'mixed' if a and b else 'dmy' if a else 'mdy' if b else 'ambiguous'
+
+def dates(s, order=None):
     text = s.astype('string').str.strip()
     result = pd.Series(pd.NaT, index=s.index, dtype='datetime64[ns]')
     serial = text.str.fullmatch(r'\d{5}(?:\.\d+)?', na=False)
@@ -145,7 +159,7 @@ def dates(s):
     iso = text.str.match(r'^\d{4}-\d{1,2}-\d{1,2}', na=False) & ~serial
     result.loc[iso] = pd.to_datetime(text[iso], errors='coerce', format='mixed')
     other = ~(serial | iso)
-    result.loc[other] = pd.to_datetime(text[other], errors='coerce', dayfirst=True, format='mixed')
+    result.loc[other] = pd.to_datetime(text[other], errors='coerce', dayfirst=order!='mdy', format='mixed')
     return result.dt.normalize()
 
 def well_ids(s):
@@ -183,6 +197,7 @@ class ImportResult:
     issues: list = field(default_factory=list)
     rejected: int = 0
     warnings: int = 0
+    omitted: int = 0      # замечаний сверх лимита журнала
     by_header: dict = field(default_factory=dict)      # модуль -> колонки давления, уже пересчитанные по единице из заголовка
 
     def issue(self, file, sheet, row, reason, level='ошибка'):
@@ -190,6 +205,7 @@ class ImportResult:
         else: self.warnings += 1
         if len(self.issues) < 2000:
             self.issues.append({'Файл':file,'Лист':sheet,'Строка':int(row),'Уровень':level,'Причина':reason})
+        else: self.omitted += 1
 
 def iter_sheets(path, chunk_size=50000, encoding='auto', delimiter='auto'):
     from .tabular import iter_tables
@@ -298,16 +314,23 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df['well']=well_ids(df.well)
                 reasons.loc[df.well.eq('')]='Не указан номер скважины'
             if detected!='groups':
-                df['date']=dates(df.date); reasons.loc[df.date.isna()]='Некорректная или пустая дата'
-            supplied_level=df['level'].notna() & df['level'].astype(str).str.strip().ne('') if 'level' in df else pd.Series(False,index=df.index)
-            supplied_pressure=df['pressure'].notna() & df['pressure'].astype(str).str.strip().ne('') if 'pressure' in df else pd.Series(False,index=df.index)
+                order=date_order(df.date); df['date']=dates(df.date,order); reasons.loc[df.date.isna()]='Некорректная или пустая дата'
+                if order=='mdy': result.issue(filename,sheet,max(header,0)+1,'Даты прочитаны как месяц/день/год: в колонке есть значения вида 12/31/2024.','предупреждение')
+                elif order=='mixed': result.issue(filename,sheet,max(header,0)+1,'В колонке дат смешаны порядки день/месяц и месяц/день: проверьте даты вручную.','предупреждение')
+            supplied_level=df['level'].notna() & df['level'].astype(str).str.strip().ne('') & ~nodata(df['level']) if 'level' in df else pd.Series(False,index=df.index)
+            supplied_pressure=df['pressure'].notna() & df['pressure'].astype(str).str.strip().ne('') & ~nodata(df['pressure']) if 'pressure' in df else pd.Series(False,index=df.index)
             if detected in WELL_REQUIRED:
                 for col in ('p_res','p_bh'):
                     if col in df:
-                        supplied=df[col].notna()&df[col].astype(str).str.strip().ne('')
+                        supplied=df[col].notna()&df[col].astype(str).str.strip().ne('')&~nodata(df[col])
                         reasons.loc[supplied&numeric(df[col]).isna()]='Некорректное давление в поле '+col
             for col in ('q','p_res','p_bh','dp2','a_db','b_db','pressure','level','plan_volume')+WATER_FACTOR_NEW+('water_day',):
-                if col in df: df[col]=numeric(df[col],level=col=='level')
+                if col in df:
+                    hit=nodata(df[col])
+                    if hit.any():
+                        label=str(head[header][mapping[col]]) if col in mapping and not wide and header>=0 else col
+                        result.issue(filename,sheet,max(header,0)+1,f'В колонке «{label}» {int(hit.sum())} знач. «нет данных» (−999,25 и подобные) заменены пустыми.','предупреждение')
+                    df[col]=numeric(df[col],level=col=='level')
             if detected in WELL_REQUIRED:
                 df=normalize_well(df,detected,reasons,numeric)
                 for col in ('gas_volume_m3','water_volume_m3','water_rate'):
@@ -399,6 +422,8 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
         result.frames[name]=pd.concat(frames,ignore_index=True); result.counts[name]=len(result.frames[name])
     if not result.frames and not result.issues:
         raise ValueError('Файл не содержит строк данных.')
+    if result.omitted:
+        result.issues.append({'Файл':filename,'Лист':'','Строка':0,'Уровень':'предупреждение','Причина':f'Ещё {result.omitted} замечаний не показаны: в журнале первые 2000.'})
     return result
 
 def merge_frames(old, new, module, policy='new'):
@@ -411,7 +436,16 @@ def merge_frames(old, new, module, policy='new'):
             if c not in old: old[c]=''
             if c not in new: new[c]=''
         okeys=pd.MultiIndex.from_frame(old[keys]); nkeys=pd.MultiIndex.from_frame(new[keys])
-        base=pd.concat([old[~okeys.isin(nkeys)],new],ignore_index=True) if policy=='new' else pd.concat([old,new[~nkeys.isin(okeys)]],ignore_index=True)
+        old_hit=okeys.isin(nkeys); new_hit=nkeys.isin(okeys)
+        if module=='gdi':
+            # Исследование, загруженное без «Метода» и «Исследования», совпадает с таким же по скважине и дате:
+            # иначе повторная загрузка с новыми колонками удвоит точки.
+            od=pd.MultiIndex.from_frame(old[['well','date']]); nd=pd.MultiIndex.from_frame(new[['well','date']])
+            blank_old=(old.method.astype(str).eq('')&old.study.astype(str).eq('')).to_numpy()
+            blank_new=(new.method.astype(str).eq('')&new.study.astype(str).eq('')).to_numpy()
+            old_hit=old_hit|(od.isin(nd)&(blank_old|od.isin(nd[blank_new])))
+            new_hit=new_hit|(nd.isin(od)&(blank_new|nd.isin(od[blank_old])))
+        base=pd.concat([old[~old_hit],new],ignore_index=True) if policy=='new' else pd.concat([old,new[~new_hit]],ignore_index=True)
     else: base=pd.concat([old,new] if policy=='new' else [new,old],ignore_index=True)
     keys={'production':['kind','well','date'],'response':['well','date','horizon'],
           'pressure_match':['object','scenario','well','date'],'groups':['well'],'object_pressure':['date'],'water_factor':['date'],'plan':['kind','group','date'],'gdi':['well','date','method','study','q','dp2'],
