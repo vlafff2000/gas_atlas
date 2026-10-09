@@ -129,18 +129,26 @@ def response(d: pd.DataFrame, limits: Limits) -> list[pd.DataFrame]:
 
 
 def units(frames: dict[str, pd.DataFrame]) -> list[pd.DataFrame]:
-    """Давление в других единицах: кгс/см² для ПХГ — десятки и сотни, МПа — единицы."""
+    """Давление в других единицах: кгс/см² для ПХГ — десятки и сотни, МПа — единицы.
+
+    Медиана считается по каждому файлу отдельно: файл в МПа внутри набора в кгс/см² иначе не виден."""
     rows = []
-    for name, column in (('gdi', 'p_res'), ('response', 'pressure')):
+    for name, column in (('gdi', 'p_res'), ('response', 'pressure'), ('pressure_match', 'fact')):
         d = frames.get(name)
         if d is None or column not in d or d[column].dropna().empty:
             continue
-        median = float(d[column].dropna().median())
-        if median < 15:
-            rows.append((name, f'медиана {median:.1f}'.replace('.', ','), 'Давление похоже на МПа, а проект работает в кгс/см²: '
-                         'при загрузке выберите единицы давления «МПа».'))
-        elif median > 1000:
-            rows.append((name, f'медиана {median:.0f}', 'Давление слишком велико для кгс/см²: возможно, указано в других единицах.'))
+        keys = d['file'].fillna('').astype(str) if 'file' in d else pd.Series('', index=d.index)
+        for file, part in d.groupby(keys, sort=False):
+            values = part[column].dropna()
+            if values.empty:
+                continue
+            median = float(values.median())
+            where = f' (файл «{file}»)' if file and keys.nunique() > 1 else ''
+            if median < 15:
+                rows.append((name, f'медиана {median:.1f}'.replace('.', ','), 'Давление похоже на МПа, а проект работает в кгс/см²: '
+                             'при загрузке выберите единицы давления «МПа» или укажите единицу в заголовке колонки' + where + '.'))
+            elif median > 1000:
+                rows.append((name, f'медиана {median:.0f}', 'Давление слишком велико для кгс/см²: возможно, указано в других единицах' + where + '.'))
     return [pd.DataFrame({'dataset': n, 'id': '', 'well': '', 'date': pd.NaT, 'check': 'Единицы давления', 'level': 'внимание',
                           'value': v, 'details': t} for n, v, t in rows)] if rows else []
 

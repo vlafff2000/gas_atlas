@@ -87,9 +87,10 @@ class PressureModule(Module):
             Param('exclude_zeros', 'Без нулевых давлений', 'boolean', default=True, section=SECTION_DATA),
             Param('recent', 'Последние 3 года', 'boolean', default=False, section=SECTION_DATA,
                   help='По правилу исходного скрипта: с 1 апреля (последний год данных − 3).'),
-            Param('unit', 'Единицы', 'choice', default='бар', section=SECTION_CALC,
-                  options=tuple(Option(u, u) for u in ('бар', 'кгс/см²', 'МПа')),
-                  help='Меняет подписи. Числа факта и модели должны быть уже в одинаковых единицах.'),
+            Param('unit', 'Единицы', 'choice', default='кгс/см²', section=SECTION_CALC,
+                  options=tuple(Option(u, u) for u in ('кгс/см²', 'бар', 'МПа')),
+                  help='Меняет только подписи, числа не пересчитываются. Факт и модель должны быть в одинаковых единицах; '
+                       'проект хранит давления в кгс/см² (при импорте можно выбрать «МПа» или указать единицу в заголовке колонки).'),
             Param('threshold_mode', 'Порог совпадения', 'choice', default='absolute', section=SECTION_CALC,
                   options=(Option('absolute', 'Абсолютный'), Option('relative', 'Относительный, %'))),
             Param('threshold', 'Значение порога', 'number', default=10.0, minimum=0, section=SECTION_CALC,
@@ -389,7 +390,7 @@ def object_summary(d: pd.DataFrame, cfg: Mapping[str, Any], collapsed: bool = Fa
     """Итоговая таблица по объектам (как «Сводная_транспон2.xlsx»): отклонение |модель − факт| на процентилях
     по фондам и периодам. Окно адаптации — первый процентиль по всему фонду и всей истории / максимальное давление
     объекта. Максимальное давление — наибольший факт в выборке. Процентили — ``np.percentile``, как ``legacy.statistics``."""
-    unit = '%' if cfg.get('threshold_mode') == 'relative' else cfg.get('unit', 'бар')
+    unit = '%' if cfg.get('threshold_mode') == 'relative' else cfg.get('unit', 'кгс/см²')
     ps = list(cfg.get('percentiles') or [80, 85, 90])
     fonds = [WHOLE_FUND] + [f for f in ordered(d.fond) if f != WHOLE_FUND]
     several = d.scenario.nunique() > 1
@@ -411,7 +412,7 @@ def object_summary(d: pd.DataFrame, cfg: Mapping[str, Any], collapsed: bool = Fa
     fixed = [Column('n', '№ п/п', kind='number'), Column('object', 'Объект')]
     if several:
         fixed.append(Column('scenario', 'Сценарий'))
-    fixed += [Column('pmax', 'Макс. пластовое давление', cfg.get('unit', 'бар'), 2, 'number'),
+    fixed += [Column('pmax', 'Макс. пластовое давление', cfg.get('unit', 'кгс/см²'), 2, 'number'),
               Column('window', 'Окно адаптации, % от макс. давления (по P{:g})'.format(ps[0]), '%', 1, 'number')]
     columns = fixed + [Column(name(k), 'P{:g}'.format(k[2]), unit, 2, 'number') for k in keys]
     top = [('', len(fixed)), ('Отклонение ({})'.format(unit), len(keys))]
@@ -509,7 +510,7 @@ def build(name: str, d: pd.DataFrame, cfg: Mapping[str, Any]) -> Chart:
 
 
 def _build(name: str, d: pd.DataFrame, cfg: Mapping[str, Any]) -> Chart:
-    unit = cfg.get('unit', 'бар')
+    unit = cfg.get('unit', 'кгс/см²')
     title = chart_title(d, name)
     if name == 'cross':
         return cross_chart(d, cfg, title, unit)
