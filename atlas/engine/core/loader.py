@@ -338,6 +338,15 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             elif detected=='object_pressure':
                 reasons.loc[df.pressure.isna() | df.pressure.lt(0)]='Некорректное или отрицательное давление объекта'
             elif detected=='water_factor':
+                # Газ хранится в млн м³, вода в м³: приставка в заголовке («тыс.», «млн», «млрд») пересчитывается.
+                for col in ('gas_cum','gas_in_place'):
+                    if col in mapping and col in df:
+                        lab=str(head[header][mapping[col]]).lower().replace('³','3')
+                        df[col]=df[col]*(1000 if 'млрд' in lab else 1 if 'млн' in lab else 0.001 if 'тыс' in lab else 1e-6 if re.search(r'м\s*3',lab) else 1)
+                for col in ('water_cum','water_day'):
+                    if col in mapping and col in df:
+                        lab=str(head[header][mapping[col]]).lower().replace('³','3')
+                        df[col]=df[col]*(10**9 if 'млрд' in lab else 10**6 if 'млн' in lab else 1000 if 'тыс' in lab else 1)
                 reasons.loc[df.gas_in_place.isna()|~np.isfinite(df.gas_in_place)|df.gas_in_place.lt(0)]='Нет объёма газа в пласте (неотрицательное число, млн м³)'
                 for col in ('gas_cum','wf_cum','water_cum','water_day','wf'):
                     if col not in df:df[col]=np.nan

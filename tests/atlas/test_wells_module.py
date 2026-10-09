@@ -198,7 +198,7 @@ def test_other_sections_match_58(env, section):
         d = analysis['daily']
         factor = d[['date', 'gas_volume_m3', 'water_volume_m3', 'water_factor']].rename(columns={
             'date': 'Дата', 'gas_volume_m3': 'Газ, м³', 'water_volume_m3': 'Вода, м³',
-            'water_factor': 'Вода, м³ / млн м³ газа'})
+            'water_factor': 'Водный фактор, л/тыс. м³'})
         assert_table(table(body, f'water-factor-{WELL}'), factor)
     elif section == 'Забой и шаблонировка':
         assert ids == [f'wells-{WELL}-bottom']
