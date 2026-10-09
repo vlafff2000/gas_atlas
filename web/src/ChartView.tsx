@@ -106,6 +106,9 @@ function alignedRange(lo: number, hi: number, minimum?: number | null, maximum?:
   }
 }
 
+/** На оси есть столбцы: их длина читается от нуля, шкала «не от нуля» вводила бы в заблуждение. */
+const hasBars = (chart: Chart, key: 'y' | 'y2') => chart.series.some(s => s.kind === 'bar' && (s.axis ?? 'y') === key)
+
 function alignedYAxes(chart: Chart, base: Chart): Record<'y' | 'y2', { min: number; max: number; step: number }> | null {
   if (!chart.y2 || chart.y.scale !== 'value' || chart.y2.scale !== 'value') return null
   const out = {} as Record<'y' | 'y2', { min: number; max: number; step: number }>
@@ -114,12 +117,19 @@ function alignedYAxes(chart: Chart, base: Chart): Record<'y' | 'y2', { min: numb
   for (const key of ['y', 'y2'] as const) {
     const spec = key === 'y' ? chart.y : chart.y2
     let lo = Infinity, hi = -Infinity
+    const stacks = new Map<string, number[]>()      // стопка складывается по номеру точки: шкала по сумме, а не по одной серии
     for (const s of base.series) {
       if ((s.axis ?? 'y') !== key || s.kind === 'box') continue
       for (const v of s.y) if (typeof v === 'number' && Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v) }
+      if (s.stack && s.kind !== 'points') {
+        const sum = stacks.get(s.stack) ?? []
+        s.y.forEach((v, i) => { if (typeof v === 'number' && Number.isFinite(v)) sum[i] = (sum[i] ?? 0) + v })
+        stacks.set(s.stack, sum)
+      }
     }
+    for (const sum of stacks.values()) for (const v of sum) if (v !== undefined) { lo = Math.min(lo, v); hi = Math.max(hi, v) }
     if (lo > hi) { lo = 0; hi = 1 }      // у оси без данных всё равно те же 5 делений
-    if (spec.from_zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0) }
+    if (spec.from_zero || hasBars(base, key)) { lo = Math.min(lo, 0); hi = Math.max(hi, 0) }
     const { start, step } = alignedRange(lo, hi, spec.minimum, spec.maximum)
     out[key] = { min: start, max: start + TICK_INTERVALS * step, step }
   }
@@ -165,9 +175,10 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   }
   const axisBase = (a: Axis, position: 'x' | 'y' | 'y2') => {
     const y = position !== 'x'
+    const zero = a.from_zero || (y && hasBars(chart, position))
     return {
-      type: a.scale, inverse: a.inverse, scale: !a.from_zero,
-      min: a.scale === 'category' ? undefined : a.minimum ?? (a.from_zero ? 0 : undefined),
+      type: a.scale, inverse: a.inverse, scale: !zero,
+      min: a.scale === 'category' ? undefined : a.minimum ?? (zero ? 0 : undefined),
       max: a.scale === 'category' ? undefined : a.maximum ?? undefined,
       interval: a.step && a.scale === 'value' ? a.step : undefined,
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
