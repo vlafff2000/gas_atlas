@@ -64,6 +64,19 @@ def to_kgf(frames,factor=PSI_TO_KGF,skip=None):
     for col in ('fact','model'):scale('pressure_match',col,factor)
     return frames
 
+def lost_exclusions(excluded,updated,parsed):
+    """Сколько исключённых точек пропало после слияния: их нет среди точек обновлённых таблиц (идентификатор от значений)."""
+    from . import exclusions
+    if not excluded:return 0
+    lost=0
+    for module in parsed:
+        if module not in updated or module not in exclusions.KEYS:continue
+        mine=[k for k,v in excluded.items() if v.get('module')==module]
+        if not mine:continue
+        ids=set(exclusions.identify(updated[module],module)['_point_id'])
+        lost+=sum(1 for k in mine if (k.rsplit(':',1)[0] if module=='response' else k) not in ids)
+    return lost
+
 def merge_import(raw_frames,groups,parsed,policy):
     """Checked import merged into the project tables and group assignments: (frames, groups, removed duplicates)."""
     updated=dict(raw_frames);groups=dict(groups);duplicates=0

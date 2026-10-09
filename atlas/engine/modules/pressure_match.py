@@ -73,7 +73,8 @@ def numeric(values):
     fast=pd.to_numeric(values,errors='coerce')
     text=fast.isna()&values.notna()
     if text.any():fast=fast.copy();fast[text]=numeric_slow(values[text])
-    return fast
+    from atlas.engine.core.config import NODATA
+    return fast.mask(fast.isin(NODATA))      # −999,25 и подобное — «нет данных»
 
 def read_tables(content,name):
     from atlas.engine.core.tabular import read_content,headed

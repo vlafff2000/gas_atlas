@@ -13,6 +13,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .config import NODATA
+
 # каноническое имя → (подпись, единица)
 COLUMNS = {
     'well': 'Скважина', 'date': 'Дата отбора', 'horizon': 'Водоносный горизонт', 'level': 'Уровень, м',
@@ -62,12 +64,20 @@ def find_header(raw: pd.DataFrame) -> int | None:
     return None
 
 
+def nodata_cells(series: pd.Series) -> pd.Series:
+    """Ячейки с условным «нет данных»: не считаются нечитаемым текстом."""
+    text = series.astype(str).str.replace(',', '.', regex=False).str.replace(r'[\s ]+', '', regex=True)
+    return pd.to_numeric(text.where(series.notna()), errors='coerce').isin(NODATA)
+
+
 def clean_number(series: pd.Series) -> pd.Series:
     """Число с запятой и пробелами → число; нечитаемое → NaN (как в скрипте построения)."""
     if pd.api.types.is_numeric_dtype(series):
-        return series.astype(float)
-    text = series.astype(str).str.replace(',', '.', regex=False).str.replace(r'[\s ]+', '', regex=True)
-    return pd.to_numeric(text.where(series.notna()), errors='coerce')
+        out = series.astype(float)
+    else:
+        text = series.astype(str).str.replace(',', '.', regex=False).str.replace(r'[\s ]+', '', regex=True)
+        out = pd.to_numeric(text.where(series.notna()), errors='coerce')
+    return out.mask(out.isin(NODATA))      # −999,25 и подобное — «нет данных», а не измерение
 
 
 def normalize(raw: pd.DataFrame, header: int | None = None) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
@@ -113,7 +123,7 @@ def normalize(raw: pd.DataFrame, header: int | None = None) -> tuple[pd.DataFram
             continue
         before = data[name]
         data[name] = clean_number(before)
-        bad = before.notna() & data[name].isna() & before.astype(str).str.strip().ne('')
+        bad = before.notna() & data[name].isna() & before.astype(str).str.strip().ne('') & ~nodata_cells(before)
         for idx in data.index[bad & ~(empty | unused | no_well | no_date)]:
             notes.append({'Строка': excel_row(idx), 'Уровень': 'Предупреждение',
                           'Причина': f'«{COLUMNS[name]}»: не число «{before[idx]}», значение не загружено'})
