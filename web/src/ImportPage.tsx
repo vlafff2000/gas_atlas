@@ -1,5 +1,6 @@
 // Раздел «Импорт данных»: таблицы (простой и подробный режим) и данные давлений для кроссплота.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { pickLocalFiles } from './FilePicker'
 import type { Project } from './api'
 import {
   importApi, type Applied, type Book, type CheckFile, type FileInfo, type FileOptions, type ImportOptions, type IssueSource, type Pending,
@@ -11,7 +12,7 @@ import { SheetEditor } from './SheetEditor'
 import { TableView } from './TableView'
 import './import.css'
 
-const ACCEPT = '.xlsx,.xls,.xlsm,.ods,.csv,.tsv,.txt,.dat'
+const ACCEPT = 'xlsx xls xlsm ods csv tsv txt dat'
 const ENCODINGS = [['auto', 'Автоопределение'], ['utf-8-sig', 'utf-8-sig'], ['cp1251', 'cp1251'], ['utf-16', 'utf-16'],
   ['utf-16-le', 'utf-16-le'], ['utf-16-be', 'utf-16-be']]
 const DELIMITERS = [['auto', 'Автоопределение'], ['\t', 'Табуляция'], [',', 'Запятая'], [';', 'Точка с запятой'],
@@ -165,8 +166,8 @@ function useUploads() {
 }
 
 function FilePicker({ uploads, paste, help }: { uploads: ReturnType<typeof useUploads>; paste?: boolean; help: string }) {
-  const input = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
+  const [pickError, setPickError] = useState('')
   const [text, setText] = useState('')
   const pick = (list: FileList | null) => { if (list?.length) uploads.add([...list].map(f => ({ blob: f, name: f.name }))) }
   return (
@@ -175,8 +176,11 @@ function FilePicker({ uploads, paste, help }: { uploads: ReturnType<typeof useUp
            onDragOver={e => { e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)}
            onDrop={e => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files) }}>
         <span>{help}</span>
-        <button type="button" className="quiet" onClick={() => input.current?.click()}>Выбрать файлы</button>
-        <input ref={input} type="file" multiple accept={ACCEPT} hidden onChange={e => { pick(e.target.files); e.target.value = '' }} />
+        <button type="button" className="quiet" onClick={async () => {
+          setPickError('')
+          try { const list = await pickLocalFiles(true, ACCEPT); if (list?.length) uploads.add(list.map(f => ({ blob: f, name: f.name }))) }
+          catch (e) { setPickError((e as Error).message) }
+        }}>Выбрать файлы</button>
       </div>
       {paste && (
         <details>
@@ -188,6 +192,7 @@ function FilePicker({ uploads, paste, help }: { uploads: ReturnType<typeof useUp
         </details>
       )}
       {uploads.busy && <span className="pulse">{uploads.busy}</span>}
+      {pickError && <div className="note warning">{pickError}</div>}
       {uploads.failure && <div className="note warning">{uploads.failure}</div>}
       {uploads.files.length > 0 && (
         <ul className="file-list">
