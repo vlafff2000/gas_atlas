@@ -151,11 +151,30 @@ def dates(s):
 def well_ids(s):
     return s.fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
+RATE_TO_M3={'м³/сут':1,'тыс. м³/сут':1000,'млн м³/сут':10**6,'млрд м³/сут':10**9}
+MPA_TO_KGF=10.197162129779
+BAR_TO_KGF=1.0197162129779
+
 def rate_unit(label,fallback):
+    """Единица расхода из заголовка колонки («Q, млн м³/сут»); нет в заголовке — ``fallback``."""
     label=str(label).lower().replace('³','3').replace('^','')
+    if 'млрд' in label: return 'млрд м³/сут'
+    if 'млн' in label: return 'млн м³/сут'
     if 'тыс' in label: return 'тыс. м³/сут'
     if re.search(r'(м|m)\s*3\s*/\s*(сут|day|d)',label): return 'м³/сут'
     return fallback
+
+def volume_factor(label):
+    """Множитель объёма (в м³) по заголовку: «тыс.» → 1000, «млн» → 10⁶, «млрд» → 10⁹; без приставки — 1."""
+    label=str(label).lower().replace('³','3')
+    return 10**9 if 'млрд' in label else 10**6 if 'млн' in label else 1000 if 'тыс' in label else 1
+
+def pressure_factor(label):
+    """Множитель в кгс/см² по единице в заголовке колонки давления («Рпл, МПа», «Рзаб, бар»); None — единицы нет."""
+    label=str(label).lower()
+    if re.search(r'мпа|mpa',label): return MPA_TO_KGF
+    if re.search(r'(?<![а-яa-z])(бар|bar)(?![а-яa-z])',label): return BAR_TO_KGF
+    return None
 
 @dataclass
 class ImportResult:
@@ -164,6 +183,7 @@ class ImportResult:
     issues: list = field(default_factory=list)
     rejected: int = 0
     warnings: int = 0
+    by_header: dict = field(default_factory=dict)      # модуль -> колонки давления, уже пересчитанные по единице из заголовка
 
     def issue(self, file, sheet, row, reason, level='ошибка'):
         if level == 'ошибка': self.rejected += 1
@@ -291,18 +311,29 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             if detected in WELL_REQUIRED:
                 df=normalize_well(df,detected,reasons,numeric)
                 for col in ('gas_volume_m3','water_volume_m3','water_rate'):
-                    if col in mapping and col in df and 'тыс' in str(head[header][mapping[col]]).lower():df[col]*=1000
+                    if col in mapping and col in df:df[col]*=volume_factor(head[header][mapping[col]])
                 if detected=='operations':
                     kinds=df.get('kind',pd.Series(production_kind,index=df.index)).fillna(production_kind).astype(str).str.strip()
                     reasons.loc[~kinds.str.contains('отбор|withdraw|закач|inject|^$',case=False,regex=True)]='Тип эксплуатации: отбор или закачка'
                     df['kind']=kinds.apply(lambda x:'injection' if re.search('закач|inject',x,re.I) else production_kind if not x else 'withdrawal')
                     for col in ('p_res','p_bh'):
                         reasons.loc[df[col].lt(0)]='Давление не может быть отрицательным'
+            if not wide and header>=0:
+                done=set()
+                for col in ('p_res','p_bh','pressure','p_wellhead','p_line','dp2'):
+                    if col not in df or col not in mapping: continue
+                    label=str(head[header][mapping[col]])
+                    factor=pressure_factor(label)
+                    if factor is None: continue
+                    df[col]=df[col]*(factor**2 if col=='dp2' else factor); done.add(col)
+                    result.issue(filename,sheet,header+1,f'Единица давления взята из заголовка «{label}»: значения пересчитаны в кгс/см² (×{factor**(2 if col=="dp2" else 1):.4g}).','предупреждение')
+                if done: result.by_header.setdefault(detected,set()).update(done)
             if detected=='production':
                 unit=production_unit
                 label=str(head[header][mapping['q']]) if not wide else ''
                 unit=rate_unit(label,unit)
-                df['q']=df.q*(1000 if unit=='тыс. м³/сут' else 1)
+                if unit!=production_unit and label: result.issue(filename,sheet,max(header,0)+1,f'Единица расхода взята из заголовка «{label}»: {unit} (выбрано: {production_unit}).','предупреждение')
+                df['q']=df.q*RATE_TO_M3[unit]
                 reasons.loc[~np.isfinite(df.q)|df.q.lt(0)]='Расход должен быть конечным неотрицательным числом'
                 named='injection' if re.search('закач|inject',sheet,re.I) else 'withdrawal' if re.search('отбор|withdraw',sheet,re.I) else production_kind
                 df['kind']=df.get('kind',pd.Series('',index=df.index)).fillna('').astype(str).apply(lambda x:'injection' if re.search('закач|inject',x,re.I) else 'withdrawal' if re.search('отбор|withdraw',x,re.I) else named)
@@ -310,10 +341,12 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 unit=gdi_unit
                 label=str(head[header][mapping['q']])
                 unit=rate_unit(label,unit)
-                df['q']=df.q/(1000 if unit=='м³/сут' else 1)
-                if unit=='м³/сут':
-                    if 'a_db' in df: df['a_db']*=1000
-                    if 'b_db' in df: df['b_db']*=1_000_000
+                if unit!=gdi_unit and label: result.issue(filename,sheet,max(header,0)+1,f'Единица Q взята из заголовка «{label}»: {unit} (выбрано: {gdi_unit}).','предупреждение')
+                k=RATE_TO_M3[unit]/1000      # хранится в тыс. м³/сут; коэффициенты a, b пересчитываются вместе с Q
+                df['q']=df.q*k
+                if k!=1:
+                    if 'a_db' in df: df['a_db']=df['a_db']/k
+                    if 'b_db' in df: df['b_db']=df['b_db']/k**2
                 reasons.loc[~np.isfinite(df.q)|df.q.lt(0)]='Q должен быть конечным неотрицательным числом'
                 if {'p_res','p_bh'}<=set(df):
                     calculated=df.p_res**2-df.p_bh**2
@@ -345,7 +378,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             elif detected=='plan':
                 # План хранится в млн м³; единицу берём из заголовка колонки («млрд», «тыс.» — пересчёт).
                 label=(' '.join(str(c) for r in head[:max(0,header)] for c in r if c is not None) if wide else str(head[header][mapping['plan_volume']])).lower().replace('³','3')
-                df['plan_volume']=df.plan_volume*(1000 if 'млрд' in label else 0.001 if 'тыс' in label else 1)
+                df['plan_volume']=df.plan_volume*(1000 if 'млрд' in label else 1 if 'млн' in label else 0.001 if 'тыс' in label else 1e-6 if re.search(r'м\s*3',label) else 1)
                 reasons.loc[df.plan_volume.isna()|~np.isfinite(df.plan_volume)|df.plan_volume.lt(0)]='План должен быть конечным неотрицательным числом'
                 df['group']=df.group.fillna('').astype(str).str.strip()
                 reasons.loc[df.group.eq('')]='Не указана группа'

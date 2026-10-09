@@ -469,7 +469,7 @@ class Imports:
                         r = load_file(path, mode, kind, punit, gunit, sheet_options=opts['sheets'],
                                       encoding=opts['encoding'], delimiter=opts['delimiter'])
                     if pressure_unit == 'МПа':
-                        rules.to_kgf(r.frames)
+                        rules.to_kgf(r.frames, skip=r.by_header)
                     for module, frame in r.frames.items():
                         parsed[module] = pd.concat([parsed[module], frame], ignore_index=True) if module in parsed else frame
                     issues.extend(r.issues)

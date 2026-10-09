@@ -49,19 +49,19 @@ def describe(raw,module):
     fields=', '.join(FIELDS.get(f,f) for f in layout['mapping']) if not layout['wide'] else 'матрица: группы × месяцы' if layout['module']=='plan' else 'матрица: даты × скважины'
     return layout['module'],fields
 
-def to_kgf(frames,factor=PSI_TO_KGF):
-    """Pressures given in MPa -> kgf/cm2, in place (pressures, ΔP² and DB coefficients)."""
-    if 'gdi' in frames:
-        g=frames['gdi']
-        for col in ('p_res','p_bh'):
-            if col in g:g[col]*=factor
-        for col in ('dp2','a_db','b_db'):
-            if col in g:g[col]*=factor**2
-    if 'response' in frames and 'pressure' in frames['response']:frames['response']['pressure']*=factor
-    if 'object_pressure' in frames:frames['object_pressure']['pressure']*=factor
-    if 'operations' in frames:
-        for col in ('p_res','p_bh','p_wellhead','p_line'):
-            if col in frames['operations']:frames['operations'][col]*=factor
+def to_kgf(frames,factor=PSI_TO_KGF,skip=None):
+    """Pressures given in MPa -> kgf/cm2, in place (pressures, ΔP² and DB coefficients, plan/fact pressure book).
+
+    ``skip``: {модуль: колонки}, уже пересчитанные по единице из заголовка (loader.pressure_factor)."""
+    skip=skip or {}
+    def scale(module,col,k):
+        if module in frames and col in frames[module] and col not in skip.get(module,()):frames[module][col]*=k
+    for col in ('p_res','p_bh'):scale('gdi',col,factor)
+    for col in ('dp2','a_db','b_db'):scale('gdi',col,factor**2)
+    scale('response','pressure',factor)
+    scale('object_pressure','pressure',factor)
+    for col in ('p_res','p_bh','p_wellhead','p_line'):scale('operations',col,factor)
+    for col in ('fact','model'):scale('pressure_match',col,factor)
     return frames
 
 def merge_import(raw_frames,groups,parsed,policy):
