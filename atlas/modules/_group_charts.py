@@ -70,11 +70,19 @@ def hybrid_chart(sel, d: pd.DataFrame, daily: pd.DataFrame, group: str) -> Chart
                   y2=Axis('Суммарный расход', Q_UNIT, from_zero=True))
     palette = well_colors(sorted(d.well.unique()))
     d = d.assign(month=d.date.dt.to_period('M').dt.to_timestamp())
-    month = d.pivot_table(index='month', columns='well', values='v', aggfunc='sum') / 1e6
+    # Стопка столбцов в интерфейсе складывается по номеру точки, а не по дате: у всех скважин один список месяцев,
+    # месяц без записей — пропуск (не 0), месяц, где все записи исключены, тоже пропуск.
+    grouped = d.groupby(['month', 'well'])
+    month = grouped.v.sum(min_count=1).unstack('well') / 1e6
+    seen = grouped.v.count().unstack('well')
+    months = pd.date_range(month.index.min(), month.index.max(), freq='MS') if len(month) else month.index
+    month, seen = month.reindex(months), seen.reindex(months).fillna(0)
+    days = months.days_in_month.to_numpy()
     for well in _wells_order(d):
-        m = month[well].dropna()
+        m = month[well]
+        labels = [f'записей: {int(n)} из {int(t)} сут' for n, t in zip(seen[well].to_numpy(), days)]
         chart.series.append(Series(f'№ {well}', m.index.to_numpy(), m.to_numpy(), 'bar', color=palette[well],
-                                   stack='month', facets={'Скважина': f'№ {well}'}))
+                                   stack='month', labels=labels, facets={'Скважина': f'№ {well}'}))
     for period, g in daily.groupby('period', sort=False) if not daily.empty else []:
         part = screen_decimate(g.assign(value=g.total / 1000), 'value')
         chart.series.append(Series(f'Суточный расход · {period}', part.date.to_numpy(), part.value.to_numpy(), 'line',

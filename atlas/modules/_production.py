@@ -131,8 +131,10 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
     # Несколько скважин: цвет — скважина, стиль линии — период (легенда двумя рядами «Скважина» и «Период»).
     # Одна скважина — цвета периодов, как в 5.8; один период — цвета скважин.
     by_well = len(ws) > 1
+    gaps: list[pd.DataFrame] = []      # сутки без записи: на линии они 0, на графике отмечены отдельными маркерами
     for (well, period), g in groups:
         points = len(g)
+        gaps.append(g[g.missing].assign(_well=well, _period=period))
         g = screen_decimate(g, 'q', limit)
         single = len(sel.periods) == 1
         ids = g['_point_id'].where(~g.missing, '')
@@ -146,6 +148,13 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
             dash='solid' if single or not by_well else DASH[sel.periods.index(period) % len(DASH)], width=2.0,
             labels=labels.tolist(), ids=ids.tolist(), dataset=PRODUCTION, total=points,
             facets={'Скважина': f'№ {well}', 'Период': str(period)} if by_well and not single else None))
+    gap = pd.concat(gaps) if gaps else pd.DataFrame()
+    if len(gap):
+        names = 'Нет записи: показан 0 · № ' + gap._well.astype(str) + ' · ' + gap._period.astype(str)
+        info = gap.date.dt.strftime('%d.%m.%Y') + ' · ' + names + ' · ' + gap.file.astype(str) + ' / ' + gap.sheet.astype(str) + ' / строка ' + gap['_row'].astype(str)
+        chart.series.append(Series(f'Нет записи (показан 0): {len(gap)} сут', gap.cumulative.to_numpy() if by_cumulative else gap.date.to_numpy(),
+                                   gap.q.to_numpy(), 'points', color='#7a7a7a', hollow=True, symbol='diamond',
+                                   labels=info.tolist()))
     start, end = data.date.min(), data.date.max()
     if by_cumulative:   # сезоны начинаются с нуля, отметки начала режима слились бы в одну точку: только ГДИ
         chart.events = on_cumulative(gdi_events(sel.gdi, ws, start, end), data)

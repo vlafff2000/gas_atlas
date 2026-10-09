@@ -77,13 +77,26 @@ def aligned_range(lo: float, hi: float, minimum=None, maximum=None, n: int = TIC
 
 def axis_extent(chart: Chart, key: str):
     lo, hi = math.inf, -math.inf
+    stacks: dict[str, list[float]] = {}      # стопка складывается по номеру точки: шкала по сумме, а не по одной серии
     for s in chart.series:
         if (s.axis or 'y') != key or s.kind == 'box':
             continue
-        for v in s.y:
+        for i, v in enumerate(s.y):
             if isinstance(v, (int, float)) and math.isfinite(v):
                 lo, hi = min(lo, v), max(hi, v)
+                if s.stack and s.kind != 'points':
+                    total = stacks.setdefault(s.stack, [])
+                    total.extend([0.0] * (i + 1 - len(total)))
+                    total[i] += v
+    for total in stacks.values():
+        if total:
+            lo, hi = min(lo, min(total)), max(hi, max(total))
     return (lo, hi) if lo <= hi else None
+
+
+def has_bars(chart: Chart) -> bool:
+    """На левой оси есть столбцы (в выгрузке столбцы всегда на ней): шкала включает 0."""
+    return any(s.kind == 'bar' for s in chart.series)
 
 
 def align_y_axes(fig, chart: Chart) -> None:
@@ -96,7 +109,7 @@ def align_y_axes(fig, chart: Chart) -> None:
         return
     for key, spec in specs.items():
         lo, hi = extents[key] or (0.0, 1.0)      # у оси без данных всё равно те же 5 делений
-        if spec.from_zero:
+        if spec.from_zero or (key == 'y' and has_bars(chart)):
             lo, hi = min(lo, 0.0), max(hi, 0.0)
         start, step = aligned_range(lo, hi, spec.minimum, spec.maximum)
         end = start + TICK_INTERVALS * step
@@ -111,6 +124,7 @@ def to_plotly(chart: Chart):
     import plotly.graph_objects as go
     palette = group_colors(chart)
     fig = go.Figure()
+    stacked_bars = any(s.kind == 'bar' and s.stack for s in chart.series)
     for s in chart.series:
         color = series_color(s.color) if s.color else palette[s.group or s.name]
         if s.kind == 'box':
@@ -123,14 +137,16 @@ def to_plotly(chart: Chart):
                                      showlegend=s.legend and first, marker_color=color, boxpoints=False))
                 first = False
         elif s.kind == 'bar':
-            fig.add_trace(go.Bar(x=[str(v) for v in s.x], y=list(s.y), name=s.name, showlegend=s.legend,
-                                 marker_color=color))
+            fig.add_trace(go.Bar(x=list(s.x) if stacked_bars else [str(v) for v in s.x], y=list(s.y), name=s.name,
+                                 showlegend=s.legend, marker_color=color))
         elif s.kind == 'line':
             dash = s.dash or ('dash' if s.dashed else 'solid')
             extra = {}
             if s.markers:
                 extra['marker'] = {'color': 'white' if s.hollow else color, 'symbol': SYMBOLS[s.symbol], 'size': 6,
                                    'line': {'color': color, 'width': 1.8 if s.hollow else 0}}
+            if s.stack:      # линии одной стопки складываются по значению X (дате), как на экране
+                extra['stackgroup'] = s.stack
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='lines+markers' if s.markers else 'lines',
                                      name=s.name, showlegend=s.legend, yaxis='y2' if s.axis == 'y2' else 'y',
                                      connectgaps=False, opacity=s.opacity, line={'color': color, 'dash': dash, 'width': s.width or 2},
@@ -143,18 +159,18 @@ def to_plotly(chart: Chart):
                                              'opacity': s.opacity,
                                              'line': {'color': color, 'width': 2 if s.hollow else 0}}))
     module = chart.id.split('-', 1)[0]
-    fig.update_layout(title={'text': chart.title}, meta={'module': module}, barmode='group')
+    fig.update_layout(title={'text': chart.title}, meta={'module': module}, barmode='stack' if stacked_bars else 'group')
     axes = [(fig.layout.xaxis, chart.x), (fig.layout.yaxis, chart.y)]
     if chart.y2 is not None:
         fig.update_layout(yaxis2={'overlaying': 'y', 'side': 'right', 'showgrid': False})
         axes.append((fig.layout.yaxis2, chart.y2))
-    for axis, spec in axes:
+    for n, (axis, spec) in enumerate(axes):
         axis.title = {'text': axis_title(spec.label, spec.unit)}
         axis.type = {'time': 'date', 'log': 'log', 'category': 'category'}.get(spec.scale, 'linear')
         if spec.scale == 'category' and spec.categories:
             axis.categoryorder = 'array'
             axis.categoryarray = list(spec.categories)
-        if spec.from_zero and spec.scale != 'category':
+        if (spec.from_zero or (n == 1 and has_bars(chart))) and spec.scale != 'category':
             axis.rangemode = 'tozero'
         if spec.step and spec.scale in ('value', 'log'):
             axis.dtick = spec.step
