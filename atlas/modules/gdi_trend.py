@@ -55,17 +55,23 @@ def rating(history: pd.DataFrame, threshold: float) -> pd.DataFrame:
         change = (last.q_reference - first.q_reference) / first.q_reference * 100 if first.q_reference else np.nan
         verdict = (VERDICTS['down'] if change <= -threshold else VERDICTS['up'] if change >= threshold else VERDICTS['same']) \
             if np.isfinite(change) else VERDICTS['few']
+        fit = [int(v) if pd.notna(v) else 0 for v in (first.get('fit_points'), last.get('fit_points'))]
+        enough = min(fit) >= AB_MIN_POINTS      # a и b по трём точкам шумят: разброс 2 % даёт «изменение ≥ 10 %» в большинстве пар
         rows.append({**row, 'first': first.date, 'last': last.date, 'q_first': first.q_reference, 'q_last': last.q_reference,
-                     'change': change, 'a_change': _pct(first.a, last.a), 'b_change': _pct(first.b, last.b),
+                     'change': change, 'a_change': _pct(first.a, last.a) if enough else np.nan,
+                     'b_change': _pct(first.b, last.b) if enough else np.nan, 'fit_first': fit[0], 'fit_last': fit[1],
                      'dp2': last.reference_dp2, 'verdict': verdict})
     out = pd.DataFrame(rows)
-    for col in ('first', 'last', 'q_first', 'q_last', 'change', 'a_change', 'b_change', 'dp2'):
+    for col in ('first', 'last', 'q_first', 'q_last', 'change', 'a_change', 'b_change', 'dp2', 'fit_first', 'fit_last'):
         if col not in out:
             out[col] = np.nan
     out['_k'] = out.well.map(well_key)
     out = out.sort_values(['change', '_k'], na_position='last', kind='stable').drop(columns='_k').reset_index(drop=True)
     out.insert(0, 'rank', [i + 1 if pd.notna(c) else np.nan for i, c in enumerate(out.change)])
     return out
+
+
+AB_MIN_POINTS = 5      # меньше точек подбора — изменения коэффициентов a и b не показываем
 
 
 def _pct(old, new) -> float:
@@ -118,9 +124,14 @@ class GdiTrendModule(Module):
             Column('reliable', 'Надёжных исследований', kind='number', decimals=0),
             Column('dp2', 'Общий ΔP²', UNITS['dp2'], 0, 'number'),
             Column('q_first', 'Q было', UNITS['q_gdi'], 1, 'number'), Column('q_last', 'Q стало', UNITS['q_gdi'], 1, 'number'),
-            Column('change', 'Изменение Q', '%', 1, 'number'), Column('a_change', 'Изменение a', '%', 1, 'number'),
+            Column('change', 'Изменение Q', '%', 1, 'number'),
+            Column('fit_first', 'Точек подбора, первое', kind='number', decimals=0),
+            Column('fit_last', 'Точек подбора, последнее', kind='number', decimals=0),
+            Column('a_change', 'Изменение a', '%', 1, 'number'),
             Column('b_change', 'Изменение b', '%', 1, 'number'), Column('verdict', 'Вывод')],
-            note='Выше в списке — сильнее снизилась отдача. a и b — коэффициенты ΔP² = aQ + bQ² (рост a и b при том же ΔP² даёт меньший расход).'))
+            note='Выше в списке — сильнее снизилась отдача. a и b — коэффициенты ΔP² = aQ + bQ² (рост a и b при том же ΔP² даёт меньший расход). '
+                 f'Изменение a и b показано только если в обоих исследованиях не меньше {AB_MIN_POINTS} точек подбора: по трём-четырём точкам они шумят. '
+                 'Порог изменения Q сравним с погрешностью давлений: проверьте условия исследований.'))
         for tid, title, field, label, unit in (
                 ('q', 'Расход при общем ΔP²', 'q_reference', 'Q', UNITS['q_gdi']),
                 ('a', 'Коэффициент a', 'a', 'a', ''), ('b', 'Коэффициент b', 'b', 'b', '')):

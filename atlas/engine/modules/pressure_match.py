@@ -185,6 +185,7 @@ def statistics(d,percentiles=(80,85,90)):
     result={'Точек':len(d),'Среднее отклонение':float(np.mean(error)),'Медиана':float(np.median(error)),
      'Минимум':float(np.min(error)),'Максимум':float(np.max(error)),'Стандартное отклонение':float(np.std(error)),
      'Смещение модели':float(np.mean(signed)),'RMSE':float(np.sqrt(np.mean(signed**2))),
+     'Разброс ошибки (σ, со знаком, n−1)':float(np.std(signed,ddof=1)) if len(signed)>1 else np.nan,
      'MAPE, %':float(d.relative_error.mean()),'В пределах порога, %':float(within.mean()*100) if len(within) else np.nan,
      'Точек для порога':int(valid.sum()),'Q1':float(q1),'Q3':float(q3),
      'Нижний ус':float(max(error.min(),q1-1.5*iqr)),'Верхний ус':float(min(error.max(),q3+1.5*iqr)),

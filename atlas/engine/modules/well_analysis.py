@@ -150,11 +150,15 @@ def signals(d,stats,history,water,bottom,construction,threshold=10):
             relative=(shares[1]/shares[0]-1)*100 if shares[0]>0 else np.nan
             hours=first.work_hours.median(),last.work_hours.median()
             stable_hours=all(pd.notna(v) for v in hours) and hours[0]>0 and abs(hours[1]/hours[0]-1)<=.15
+            # Доля в группе падает и когда в группу добавили скважину, хотя эта скважина работает как прежде.
+            wells=(first.group_wells.median(),last.group_wells.median()) if 'group_wells' in d else (np.nan,np.nan)
+            same_group=not all(pd.notna(v) for v in wells) or abs(wells[1]-wells[0])<.5
             if change<=-threshold:
                 fact=f'{period}: медианный суточный объем последних 14 дней ниже первых на {abs(change):.1f}%; выборки {len(first)} и {len(last)} активных дней.'
                 if np.isfinite(relative):fact+=f' Изменение доли в группе: {relative:+.1f}%.'
-                inference='Косвенный сигнал относительного ухудшения отдачи скважины.' if relative<=-threshold and stable_hours else 'Снижение наблюдаемого объема. Изменение продуктивности пока не подтверждено.'
+                inference='Косвенный сигнал относительного ухудшения отдачи скважины.' if relative<=-threshold and stable_hours and same_group else 'Снижение наблюдаемого объема. Изменение продуктивности пока не подтверждено.'
                 if not stable_hours:inference+=' Часы работы отсутствуют или изменились более чем на 15%.'
+                if not same_group:inference+=f' Число работающих скважин группы изменилось ({wells[0]:g} → {wells[1]:g}): доля в группе по ним не сравнима.'
                 add('Эксплуатация',fact,inference,'Сопоставить часы, давления, ограничения шлейфа, воду и последние ГДИ.')
         low=stats[stats.coverage.lt(80)] if not stats.empty else stats
         for _,r in low.iterrows():add('Покрытие',f'{r.period}: данные газа есть за {r.gas_days:.0f} из {r.object_days:.0f} наблюдаемых дней объекта ({r.coverage:.1f}%).','Сезонные итоги неполные; пропуски не считаются простоем.','Проверить пропуски, исключенные точки и полноту импорта.')
@@ -212,7 +216,8 @@ def _analyze(frames,settings,mapping,well,kind='withdrawal',periods=None,delta=N
             group=mapping.get(well,{}).get('group','Без группы')
             ref=base[['date','period','period_start','object_volume']].drop_duplicates('date')
             gv=base[base.group.eq(group)].groupby('date').gas_volume_m3.sum(min_count=1).rename('group_volume')
-            ref=ref.join(gv,on='date').sort_values('date')
+            gw=base[base.group.eq(group)&base.gas_volume_m3.gt(0)].groupby('date').well.nunique().rename('group_wells')
+            ref=ref.join(gv,on='date').join(gw,on='date').sort_values('date')
             ref['object_cumulative']=ref.groupby('period',sort=False).object_volume.cumsum()/1e6
             ref['group_cumulative']=ref.groupby('period',sort=False).group_volume.cumsum()/1e6
             d=ref.merge(d.drop(columns=['period','period_start','object_volume','group_volume','share_group','share_object']),on='date',how='outer')
