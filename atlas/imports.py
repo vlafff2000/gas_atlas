@@ -172,7 +172,7 @@ class Imports:
         if header != detected_header:
             try:
                 layout = (rules.pressure_layout(raw.iloc[header:].reset_index(drop=True)) if pressure and header >= 0
-                          else {'mapping': column_map(list(raw.iloc[header])) if header >= 0 else {}, 'wide': False})
+                          else {'mapping': column_map(list(raw.iloc[header]), raw.iloc[header + 1:header + 31].values.tolist()) if header >= 0 else {}, 'wide': False})
             except ValueError:
                 layout = {'mapping': {}, 'wide': False}
         labels = list(raw.iloc[header]) if header >= 0 else ['Колонка ' + str(i + 1) for i in range(raw.shape[1])]
@@ -338,7 +338,7 @@ class Imports:
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
                              'status': 'Это книга факта и моделей давлений: загрузите ее в разделе «Данные давлений» ниже'})
                 continue
-            sheets, any_rows = {}, False
+            sheets, any_rows, auto_use = {}, False, False
             for sheet, raw in tables.items():
                 if sheet == 'Инструкция':
                     continue
@@ -372,6 +372,8 @@ class Imports:
                 module = c.get('module') or found
                 if not use:
                     sheets[sheet] = {'enabled': False}
+                elif spec is None and not (module and module != found):
+                    auto_use = True            # лист распознан и берётся автоматически: в параметры не записывается
                 elif spec is not None:
                     sheets[sheet] = spec
                 elif module and module != found:
@@ -380,13 +382,14 @@ class Imports:
                     except ValueError as e:
                         errors.append(f'{item.name} / {sheet}: {e}')
             if any_rows:
-                options[item.token] = {'sheets': sheets, 'encoding': enc, 'delimiter': delim}
+                options[item.token] = {'sheets': sheets, 'encoding': enc, 'delimiter': delim, 'auto': auto_use}
         return rows, problems, options, errors
 
     @staticmethod
     def _blocked(options, problems, errors) -> bool:
         return bool(problems or errors) or not any(
-            any(s.get('enabled', True) for s in o['sheets'].values()) or not o['sheets'] for o in options.values())
+            any(s.get('enabled', True) for s in o['sheets'].values()) or o.get('auto') or not o['sheets']
+            for o in options.values())
 
     def _detailed_options(self, files: list[dict], mode: str):
         options, errors = {}, []
