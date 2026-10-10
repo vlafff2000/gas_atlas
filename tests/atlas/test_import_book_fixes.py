@@ -142,3 +142,21 @@ def test_duplicate_day_both_zero_or_both_flow_keeps_last():
                         'kind': ['withdrawal'] * 4, 'q': [100.0, 120.0, 0.0, 0.0]})
     merged, removed = merge_frames(None, new, 'production')
     assert merged.set_index('well')['q'].to_dict() == {'1': 120.0, '2': 0.0} and removed == 2
+
+
+def test_production_group_wins_over_gdi_group(client, tmp_path):
+    prod = pd.DataFrame({'Скважина': ['11', '12'], 'Дата': pd.to_datetime(['2025-01-01'] * 2),
+                         'Суточный расход газа': [100.0, 200.0], 'Источник': ['ГСП 1', 'ГСП 1']})
+    gdi = pd.DataFrame({'№скв': ['11', '11', '12'], 'дата': pd.to_datetime(['2024-01-01', '2025-01-01', '2025-01-01']),
+                        'ГСП': [1, 2, 1], 'Qгаза тыс.м3/сут': [60.0, 70.0, 80.0],
+                        'Рпл, кгс/см2': [90.0, 90.0, 90.0], 'Рзаб, кгс/см2': [80.0, 80.0, 80.0]})
+    p1, p2 = tmp_path / 'prod.xlsx', tmp_path / 'gdi.xlsx'
+    prod.to_excel(p1, index=False, sheet_name='Отбор')
+    gdi.to_excel(p2, index=False, sheet_name='ГДИ')
+    pid = client.post('/api/projects', json={'name': 'g'}).json()['id']
+    toks = [upload(client, p) for p in (p1, p2)]
+    pend = client.post(f'/api/projects/{pid}/import/check', json={'view': 'simple', 'mode': 'auto',
+                                                                   'files': [{'token': t} for t in toks]}).json()
+    client.post(f'/api/projects/{pid}/import/apply', json={'pending': pend['id'], 'policy': 'new', 'accept': True})
+    data = Projects(tmp_path).data(pid)
+    assert data.mapping['11']['group'] == 'ГСП 1' and data.mapping['12']['group'] == 'ГСП 1'
