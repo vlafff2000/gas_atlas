@@ -107,3 +107,21 @@ def test_object_pressure_horizons_on_same_date_kept(tmp_path):
     rows.to_excel(path, index=False, sheet_name='Sheet1')
     r = load_file(path, 'object_pressure', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
     assert len(r.frames['object_pressure']) == 2 and not any('усреднены' in i['Причина'] for i in r.issues)
+
+
+def test_gsp_column_gives_group_name(tmp_path):
+    rows = pd.DataFrame({'№скв': ['31', '32'], 'дата': pd.to_datetime(['2025-01-01'] * 2), 'ГСП': [1, 2],
+                         'Qгаза тыс.м3/сут': [100.0, 120.0], 'Рпл, кгс/см2': [90.0, 91.0], 'Рзаб, кгс/см2': [80.0, 81.0]})
+    path = tmp_path / 'gdi.xlsx'
+    rows.to_excel(path, index=False, sheet_name='ГДИ')
+    r = load_file(path, 'gdi', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
+    assert r.frames['gdi']['group'].tolist() == ['ГСП 1', 'ГСП 2']
+
+
+def test_group_column_wins_over_gsp(tmp_path):
+    rows = pd.DataFrame({'Скважина': ['1'], 'Дата': pd.to_datetime(['2025-01-01']), 'Суточный расход газа': [100.0],
+                         'Источник': ['ГСП 5'], 'ГСП': [7]})
+    path = tmp_path / 'both.xlsx'
+    rows.to_excel(path, index=False, sheet_name='Sheet1')
+    r = load_file(path, 'auto', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
+    assert r.frames['production']['group'].tolist() == ['ГСП 5']

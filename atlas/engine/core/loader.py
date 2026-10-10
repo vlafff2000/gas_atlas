@@ -66,6 +66,8 @@ ALIASES['method']+=['Метод замера']
 def norm(v):
     return re.sub(r'[^\wδ]', '', str(v or '').lower().replace('ё', 'е').replace('²', '2').replace('³', '3')).replace('_', '')
 
+GSP_LABELS=('гсп','номергсп')
+
 def column_map(labels, rows=None):
     """Колонки полей по заголовкам. ``rows`` — строки под заголовком: пустые дубли колонки (служебные «date» и т. п.) отбрасываются."""
     result = {}
@@ -94,6 +96,11 @@ def column_map(labels, rows=None):
         month = [i for i, n in enumerate(normalized) if n == 'месяц']
         if len(month) == 1:
             result['date'] = month[0]
+    if 'group' not in result:
+        # Колонка «ГСП» / «Номер ГСП» — группа, если нет колонки «Группа» или «Источник».
+        gsp = [i for i, n in enumerate(normalized) if n in GSP_LABELS]
+        if len(gsp) == 1:
+            result['group'] = gsp[0]
     if 'q' in result and result.get('water_rate')==result['q']:
         # The legacy broad "Расход..." alias must not turn water into gas.
         result.pop('q')
@@ -473,6 +480,9 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df['date']=df.date.dt.to_period('M').dt.to_timestamp()
             for ix in df.index[reasons.ne('')]: result.issue(filename,sheet,df.loc[ix,'_row'],reasons.loc[ix])
             df=df[reasons.eq('')].copy()
+            if 'group' in df and 'group' in mapping and not wide and header>=0 and norm(head[header][mapping['group']]) in GSP_LABELS:
+                g=df['group'].fillna('').astype(str).str.strip().str.replace(r'\.0$','',regex=True)
+                df['group']=g.where(~g.str.fullmatch(r'\d+'),'ГСП '+g)       # «1» в колонке «ГСП» — группа «ГСП 1», как в добыче
             for col in ('group','subgroup','season','year','method','study'):
                 if col not in df: df[col]=''
                 df[col]=df[col].fillna('').astype(str).str.strip()
