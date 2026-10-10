@@ -222,6 +222,17 @@ def average_object_pressure(frame,result):
                  f'{int(out.shape[0]-(size.eq(1)).sum())} значений (по одному на дату и горизонт).','предупреждение')
     return out.reset_index(drop=True)
 
+GSP_NAME=re.compile(r'^\s*гсп[\s_\-.№]*0*(\d+)\s*$',re.I)
+
+def canonical_gsp(groups):
+    """«ГСП_4», «гсп-4», «ГСП  4» — одна группа «ГСП 4»: разные файлы базы пишут название по-разному."""
+    g=groups.astype(str)
+    hit=g.str.match(GSP_NAME)
+    if not hit.any(): return groups
+    out=g.copy()
+    out[hit]='ГСП '+g[hit].str.extract(GSP_NAME)[0]
+    return out
+
 def well_ids(s):
     return s.fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
@@ -486,7 +497,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             for col in ('group','subgroup','season','year','method','study'):
                 if col not in df: df[col]=''
                 df[col]=df[col].fillna('').astype(str).str.strip()
-            df['group']=df['group'].replace('','Без группы')
+            df['group']=canonical_gsp(df['group']).replace('','Без группы')
             df['file']=filename; df['sheet']=sheet
             if not df.empty: collected.setdefault(detected,[]).append(df)
             row_offset+=len(rows)

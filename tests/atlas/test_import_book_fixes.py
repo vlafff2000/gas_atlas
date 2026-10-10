@@ -160,3 +160,22 @@ def test_production_group_wins_over_gdi_group(client, tmp_path):
     client.post(f'/api/projects/{pid}/import/apply', json={'pending': pend['id'], 'policy': 'new', 'accept': True})
     data = Projects(tmp_path).data(pid)
     assert data.mapping['11']['group'] == 'ГСП 1' and data.mapping['12']['group'] == 'ГСП 1'
+
+
+def test_gsp_spellings_are_one_group(tmp_path):
+    rows = pd.DataFrame({'Скважина': ['1', '2', '3', '4'], 'Дата': pd.to_datetime(['2025-01-01'] * 4),
+                         'Суточный расход газа': [1.0, 2.0, 3.0, 4.0],
+                         'Источник': ['ГСП 4', 'ГСП_4', 'гсп-4', 'ГСП  4']})
+    path = tmp_path / 'sp.xlsx'
+    rows.to_excel(path, index=False, sheet_name='Sheet1')
+    r = load_file(path, 'auto', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
+    assert set(r.frames['production']['group']) == {'ГСП 4'}
+
+
+def test_other_group_names_are_untouched(tmp_path):
+    rows = pd.DataFrame({'Скважина': ['1', '2'], 'Дата': pd.to_datetime(['2025-01-01'] * 2),
+                         'Суточный расход газа': [1.0, 2.0], 'Источник': ['Куст 4', 'ГСП_4Б']})
+    path = tmp_path / 'sp2.xlsx'
+    rows.to_excel(path, index=False, sheet_name='Sheet1')
+    r = load_file(path, 'auto', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
+    assert set(r.frames['production']['group']) == {'Куст 4', 'ГСП_4Б'}
