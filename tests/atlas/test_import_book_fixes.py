@@ -125,3 +125,20 @@ def test_group_column_wins_over_gsp(tmp_path):
     rows.to_excel(path, index=False, sheet_name='Sheet1')
     r = load_file(path, 'auto', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
     assert r.frames['production']['group'].tolist() == ['ГСП 5']
+
+
+def test_duplicate_day_keeps_the_row_with_flow():
+    from atlas.engine.core.loader import merge_frames
+    new = pd.DataFrame({'well': ['195', '195', '196'], 'date': pd.to_datetime(['2024-04-01'] * 3),
+                        'kind': ['withdrawal'] * 3, 'q': [191958.0, 0.0, 0.0]})
+    merged, removed = merge_frames(None, new, 'production')
+    got = merged.set_index('well')['q']
+    assert got['195'] == 191958.0 and got['196'] == 0.0 and removed == 1
+
+
+def test_duplicate_day_both_zero_or_both_flow_keeps_last():
+    from atlas.engine.core.loader import merge_frames
+    new = pd.DataFrame({'well': ['1', '1', '2', '2'], 'date': pd.to_datetime(['2024-04-01'] * 4),
+                        'kind': ['withdrawal'] * 4, 'q': [100.0, 120.0, 0.0, 0.0]})
+    merged, removed = merge_frames(None, new, 'production')
+    assert merged.set_index('well')['q'].to_dict() == {'1': 120.0, '2': 0.0} and removed == 2

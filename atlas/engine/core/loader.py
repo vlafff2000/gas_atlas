@@ -502,8 +502,20 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
         result.issues.append({'Файл':filename,'Лист':'','Строка':0,'Уровень':'предупреждение','Причина':f'Ещё {result.omitted} замечаний не показаны: в журнале первые 2000.'})
     return result
 
+def prefer_flow(frame):
+    """Дубли суток одной скважины внутри загрузки: строка с расходом важнее строки с нулём (иначе нулевая «затирает» замер).
+
+    Среди равных по смыслу остаётся последняя. Возвращает таблицу и число убранных строк."""
+    keys=[k for k in ('kind','well','date') if k in frame]
+    if 'q' not in frame or len(keys)<3 or not frame.duplicated(keys).any(): return frame,0
+    ordered=frame.assign(_o=np.arange(len(frame)),_nz=frame['q'].fillna(0).gt(0))
+    ordered=ordered.sort_values(['_nz','_o'],kind='stable').drop_duplicates(keys,keep='last').sort_values('_o')
+    return ordered.drop(columns=['_o','_nz']).reset_index(drop=True),len(frame)-len(ordered)
+
 def merge_frames(old, new, module, policy='new'):
     """No summing of duplicate daily values. GDI replacement is whole-study atomic."""
+    early=0
+    if module=='production': new,early=prefer_flow(new)
     if old is None or old.empty or policy=='replace': base=new.copy()
     elif module in ('gdi','construction'):
         keys=['well','date','method','study'] if module=='gdi' else ['well','date']
@@ -530,4 +542,4 @@ def merge_frames(old, new, module, policy='new'):
     keys=[k for k in keys if k in base]
     if module=='gdi': keys += [c for c in ('p_res','p_bh','a_db','b_db') if c in base]
     before=len(base); base=base.drop_duplicates(keys,keep='last').reset_index(drop=True)
-    return base,before-len(base)
+    return base,before-len(base)+early
