@@ -488,12 +488,17 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df[col]=df[col].fillna('').astype(str).str.strip()
             df['group']=df['group'].replace('','Без группы')
             df['file']=filename; df['sheet']=sheet
-            if detected in ('production','gdi','response'): df=split_combined_wells(df,detected,result,filename,sheet)
             if not df.empty: collected.setdefault(detected,[]).append(df)
             row_offset+=len(rows)
             if progress: progress(sheet,row_offset-2)
     for name,frames in collected.items():
         frame=pd.concat(frames,ignore_index=True)
+        if name=='production':
+            frame,dropped=prefer_flow(frame)
+            if dropped:
+                result.issue(frame['file'].iloc[0],frame['sheet'].iloc[0],1,f'Дубли суток одной скважины: {dropped} строк убрано, оставлена строка с расходом (нулевая не затирает замер).','предупреждение')
+        if name in ('production','gdi','response') and 'well' in frame:
+            frame=split_combined_wells(frame,name,result,frame['file'].iloc[0] if 'file' in frame else '',frame['sheet'].iloc[0] if 'sheet' in frame else '')
         if name=='object_pressure': frame=average_object_pressure(frame,result)
         result.frames[name]=frame; result.counts[name]=len(result.frames[name])
     if not result.frames and not result.issues:

@@ -133,3 +133,19 @@ def test_zero_rows_are_kept_in_project_and_reported(tmp_path, monkeypatch):
     keys = [c['key'] for c in t['columns']]
     assert t['rows'][keys.index('zero_days')][0] == 2
     assert any(s['label'] == 'Открыта, расхода нет' for s in j['summary'])
+
+
+def test_split_works_across_read_chunks(tmp_path):
+    """Своя строка скважины и строка пары попадают в разные куски файла: расходы всё равно складываются."""
+    path = book(tmp_path, prod_rows([('54', '2025-01-01', 300, 24), ('12', '2025-01-01', 10, 24),
+                                     ('54/80', '2025-01-01', 1000, 24)]))
+    r = load_file(path, 'auto', 'withdrawal', 'м³/сут', 'тыс. м³/сут', chunk_size=1)
+    p = r.frames['production'].set_index('well')['q']
+    assert p['54'] == 800 and p['80'] == 500 and p['12'] == 10
+
+
+def test_duplicate_zero_row_does_not_erase_flow_in_file(tmp_path):
+    path = book(tmp_path, prod_rows([('195', '2024-04-01', 191958, 19.5), ('195', '2024-04-01', 0, 0)]))
+    r = load(path)
+    assert r.frames['production']['q'].tolist() == [191958.0]
+    assert any('Дубли суток' in i['Причина'] for i in r.issues)
