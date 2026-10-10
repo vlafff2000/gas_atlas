@@ -1,2 +1,4 @@
-# Собранный интерфейс: CI собирает его с LF, поэтому в репозитории тоже LF (иначе проверка «Built interface is committed» красная)
-atlas/web/dist/** text eol=lf
+# Собранный интерфейс: CI собирает index.html с LF (проверка «Built interface is committed»); шрифты — бинарные
+atlas/web/dist/index.html text eol=lf
+atlas/web/dist/assets/*.woff binary
+atlas/web/dist/assets/*.woff2 binary
