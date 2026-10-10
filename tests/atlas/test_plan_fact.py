@@ -24,7 +24,7 @@ def test_plan_file_is_recognised_and_normalised(tmp_path):
                     ';01.06.2025;закачка;5\nГСП-2;01.06.2025;отбор;-1\n', encoding='utf-8')
     res = load_file(str(path), delimiter=';')
     plan = res.frames['plan']
-    assert list(plan.group) == ['ГСП-1', 'ГСП-1']
+    assert list(plan.group) == ['ГСП 1', 'ГСП 1']                      # «ГСП-1» и «ГСП 1» — одна группа, как в добыче
     assert list(plan.plan_volume) == [150.0, 220.0]                    # тыс. м³ → млн м³
     assert list(plan.date) == [pd.Timestamp('2025-05-01'), pd.Timestamp('2025-06-01')]
     assert set(plan.kind) == {'injection'}
