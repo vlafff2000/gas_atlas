@@ -1,0 +1,2 @@
+# Собранный интерфейс: CI собирает его с LF, поэтому в репозитории тоже LF (иначе проверка «Built interface is committed» красная)
+atlas/web/dist/** text eol=lf
