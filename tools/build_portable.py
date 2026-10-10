@@ -53,6 +53,13 @@ SKIP_TOOLS = {'tools/build_portable.py', 'tools/install.py', 'tools/make_pressur
 WINDOWS_LAUNCHERS = {
     'Gas_Atlas_6.bat': 'rem Газовый атлас 6: окно приложения (или браузер, если окно недоступно).\r\n'
                        '"%~dp0python\\python.exe" -s -X utf8 -m atlas %*',
+    'Proverka_dannyh.bat': 'rem Самопроверка на данных объекта: перетащите папку с файлами на этот файл.\r\n'
+                           'if "%~1"=="" (echo Перетащите папку с файлами объекта на Proverka_dannyh.bat & pause & exit /b 1)\r\n'
+                           '"%~dp0python\\python.exe" -s -X utf8 -m atlas.selfcheck %* --out "%~dp0selfcheck_result"\r\n'
+                           'echo.\r\necho Отчёт: %~dp0selfcheck_result\\selfcheck_report.md\r\n'
+                           'echo Файл selfcheck_report.json можно отправить на разбор.\r\n'
+                           'if exist "%~dp0selfcheck_result\\selfcheck_report.md" start "" notepad "%~dp0selfcheck_result\\selfcheck_report.md"\r\n'
+                           'pause >nul\r\nexit /b 0',
     'Sozdat_yarlyki.bat': 'rem Создаёт ярлыки со значками на рабочем столе (убрать: --remove).\r\n'
                           '"%~dp0python\\python.exe" -s -X utf8 tools\\desktop_shortcuts.py %*\r\n'
                           'echo.\r\necho Нажмите любую клавишу, чтобы закрыть окно.\r\npause >nul\r\nexit /b 0',
@@ -63,6 +70,10 @@ WINDOWS_SUFFIX = '\r\nif errorlevel 1 pause\r\n'
 
 LINUX_LAUNCHERS = {
     'gas_atlas_6.sh': '# Газовый атлас 6 в браузере.\nexec "$PY" -s -X utf8 -m atlas --browser "$@"',
+    'proverka_dannyh.sh': '# Самопроверка на данных объекта: bash proverka_dannyh.sh /путь/к/папке/с/файлами\n'
+                          'if [ "$#" -eq 0 ]; then echo "Укажите папку с файлами объекта: bash proverka_dannyh.sh /путь/к/папке"; exit 1; fi\n'
+                          '"$PY" -s -X utf8 -m atlas.selfcheck "$@" --out selfcheck_result\n'
+                          'echo; echo "Отчёт: $(pwd)/selfcheck_result/selfcheck_report.md"',
     'sozdat_yarlyki.sh': '# Ярлыки со значками на рабочем столе: bash sozdat_yarlyki.sh (убрать: bash sozdat_yarlyki.sh --remove).\n'
                          '"$PY" -s -X utf8 tools/desktop_shortcuts.py "$@"\n'
                          'echo; read -r -p "Нажмите Enter, чтобы закрыть окно..." _ || true',
@@ -79,7 +90,9 @@ README = '''Газовый атлас — переносная версия ({ta
 1. Распакуйте архив в любую папку, куда у вас есть права на запись
    (например, {example}).
 2. Запустите {six} — Газовый атлас 6.
-3. {shortcuts} — один раз создаёт на рабочем столе ярлыки со значками (Газовый атлас 6).
+3. {check} — самопроверка на ваших данных: укажите папку с файлами объекта (на Windows перетащите её на файл).
+   Результат — папка selfcheck_result: selfcheck_report.md для чтения, selfcheck_report.json для разбора.
+4. {shortcuts} — один раз создаёт на рабочем столе ярлыки со значками (Газовый атлас 6).
    Папку программы после этого не переносите; перенесли — запустите {shortcuts} ещё раз.
    Убрать ярлыки: {shortcuts} --remove.
 
@@ -189,7 +202,7 @@ def write_launchers(target, folder):
     if target == 'windows':
         for name, body in WINDOWS_LAUNCHERS.items():
             (folder / name).write_bytes((WINDOWS_PREFIX + body + WINDOWS_SUFFIX).encode('utf-8'))
-        text = README.format(target='Windows', example='C:\\GasAtlas', six='Gas_Atlas_6.bat', shortcuts='Sozdat_yarlyki.bat', note=WINDOWS_NOTE)
+        text = README.format(target='Windows', example='C:\\GasAtlas', six='Gas_Atlas_6.bat', shortcuts='Sozdat_yarlyki.bat', check='Proverka_dannyh.bat', note=WINDOWS_NOTE)
         (folder / 'ПРОЧТИТЕ.txt').write_bytes(text.replace('\n', '\r\n').encode('utf-8-sig'))
     else:
         for name, body in LINUX_LAUNCHERS.items():
@@ -197,7 +210,7 @@ def write_launchers(target, folder):
             path.write_text(LINUX_PREFIX + body + '\n', encoding='utf-8')
             path.chmod(0o755)
         text = README.format(target='Linux x86_64, glibc 2.17+ (РЕД ОС 7.3 и новее)', example='~/GasAtlas',
-                             six='gas_atlas_6.sh', shortcuts='sozdat_yarlyki.sh', note=LINUX_NOTE)
+                             six='gas_atlas_6.sh', shortcuts='sozdat_yarlyki.sh', check='proverka_dannyh.sh', note=LINUX_NOTE)
         (folder / 'ПРОЧТИТЕ.txt').write_text(text, encoding='utf-8')
 
 

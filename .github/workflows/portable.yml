@@ -57,6 +57,26 @@ jobs:
           test -f tools/icons/gas_atlas_6.ico
           mkdir -p ../desk && "$PY" -s tools/desktop_shortcuts.py --dir ../desk
           test "$(ls ../desk | wc -l)" = 1
+      - name: Self-check from the unpacked archive (own Python, demo data)
+        run: |
+          cd t/Gas_Atlas
+          PY=python/bin/python3.8; [ -f python/python.exe ] && PY=python/python.exe
+          export PYTHONNOUSERSITE=1 PYTHONUTF8=1
+          mkdir -p ../demo
+          "$PY" -s -c "import pandas as pd; d=pd.DataFrame({'Скважина':['1','2','54/80'],'Дата':pd.to_datetime(['2025-01-01']*3),'Суточный расход газа':[100.0,0.0,240.0],'Время работы':[24,24,24],'Тип данных':['отбор']*3,'Источник':['ГСП 1','ГСП 1','ГСП 2'],'Сезон':['2024-2025']*3}); d.to_excel('../demo/otbor.xlsx',index=False,sheet_name='Отборы')"
+          "$PY" -s -m atlas.selfcheck ../demo --out ../demo_result
+          test -f ../demo_result/selfcheck_report.md
+          head -c 400 ../demo_result/selfcheck_report.md
+          test -f Proverka_dannyh.bat -o -f proverka_dannyh.sh
+      - name: Linux archive on old glibc systems (CentOS 7 = glibc 2.17, AlmaLinux 8 = glibc 2.28; RED OS 7.3 is in this range)
+        if: matrix.target == 'linux'
+        run: |
+          for image in centos:7 almalinux:8; do
+            echo "== $image"
+            docker run --rm -v "$PWD/t/Gas_Atlas:/app" -v "$PWD/t/demo:/demo" -v "$PWD/t/out_$(echo $image | tr ':' '_'):/out" "$image" \
+              bash -c 'ldd --version | head -1; cd /app && PYTHONNOUSERSITE=1 python/bin/python3.8 -s -c "import atlas, pandas, numpy, openpyxl, uvicorn, starlette, plotly; print(\"imports ok\")" && PYTHONNOUSERSITE=1 python/bin/python3.8 -s -m atlas.selfcheck /demo --out /out --quick | tail -3'
+            test -f "t/out_$(echo $image | tr ':' '_')/selfcheck_report.md"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: Gas_Atlas_portable_${{ matrix.target }}
