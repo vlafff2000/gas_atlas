@@ -31,6 +31,7 @@ ALIASES = {
     'method': ['метод', 'методисследования', 'method'],
     'study': ['исследование', 'номерисследования', 'study', 'studyid'],
     'a_db': ['a', 'а', 'a_db'], 'b_db': ['b', 'в', 'b_db'],
+    'hours': ['времяработы', 'времяработычас', 'часыработы', 'времяработысут', 'hours'],
     'plan_volume': ['план', 'плановыйобъем', 'объемпоплану', 'планмлнм3', 'планмлнм', 'planvolume', 'plan'],
 }
 ALIASES.update(WELL_ALIASES)
@@ -65,7 +66,8 @@ ALIASES['method']+=['Метод замера']
 def norm(v):
     return re.sub(r'[^\wδ]', '', str(v or '').lower().replace('ё', 'е').replace('²', '2').replace('³', '3')).replace('_', '')
 
-def column_map(labels):
+def column_map(labels, rows=None):
+    """Колонки полей по заголовкам. ``rows`` — строки под заголовком: пустые дубли колонки (служебные «date» и т. п.) отбрасываются."""
     result = {}
     normalized = [norm(v) for v in labels]
     for field, aliases in ALIASES.items():
@@ -79,6 +81,10 @@ def column_map(labels):
                     matches.append(i)
             if not matches and field in ('q','level'):
                 matches = [i for i,n in enumerate(normalized) if any(n.startswith(a) for a in aliases if len(a)>4)]
+        if len(matches) > 1 and rows:
+            filled = [i for i in matches if any(i < len(r) and r[i] is not None and str(r[i]).strip().lower() not in ('', 'nan', 'none', 'nat') for r in rows)]
+            if filled and len(filled) < len(matches):
+                matches = filled
         if len(matches) > 1:
             raise ValueError(f'Несколько колонок для поля «{field}»: {[labels[i] for i in matches]}. Оставьте одну.')
         if matches:
@@ -162,6 +168,53 @@ def dates(s, order=None):
     result.loc[other] = pd.to_datetime(text[other], errors='coerce', dayfirst=order!='mdy', format='mixed')
     return result.dt.normalize()
 
+COMBINED_WELL=re.compile(r'^\s*\d+(?:\s*[/;]\s*\d+)+\s*$')
+
+def split_combined_wells(df, detected, result, filename, sheet):
+    """«54/80» — общий замер двух скважин: строка записывается на каждую скважину пары.
+
+    Расход газа (добыча/закачка) делится поровну, остальные величины (давление, ГДИ, уровни) дублируются.
+    Если на ту же дату у скважины уже есть собственная строка, расходы складываются, а не затираются."""
+    if 'well' not in df or df.empty: return df
+    w=df['well'].astype(str)
+    mask=w.str.match(COMBINED_WELL)
+    if not mask.any(): return df
+    keys=[k for k in ('well','date','kind') if k in df.columns]
+    part=df[mask].copy()
+    part['_parts']=w[mask].str.findall(r'\d+')
+    part['_n']=part['_parts'].str.len()
+    part=part.explode('_parts')
+    part['well']=part['_parts'].astype(str)
+    if detected=='production' and 'q' in part:
+        part['q']=part['q']/part['_n']
+    names=sorted(set(w[mask]))
+    part=part.drop(columns=['_parts','_n'])
+    rest=df[~mask]
+    out=pd.concat([rest,part],ignore_index=True)
+    if detected=='production' and 'q' in out and out.duplicated(keys,keep=False).any():
+        dup=out.duplicated(keys,keep=False)
+        merged=out[dup].groupby(keys,as_index=False,sort=False).agg({**{c:'first' for c in out.columns if c not in keys},'q':'sum'})
+        out=pd.concat([out[~dup],merged[out.columns]],ignore_index=True)
+    first=df.loc[mask,'_row'].iloc[0] if '_row' in df else 1
+    what='расход газа разделён поровну между скважинами пары' if detected=='production' else 'строка записана на каждую скважину пары'
+    result.issue(filename,sheet,first,f"Составная запись «{', '.join(names[:5])}»{' и др.' if len(names)>5 else ''} ({int(mask.sum())} строк): {what}.",'предупреждение')
+    return out
+
+def average_object_pressure(frame,result):
+    """Несколько замеров одного горизонта за одну дату (по скважинам) усредняются: одно давление объекта на дату.
+
+    Раньше при импорте оставалась произвольная строка. Число объединённых замеров сообщается в журнале."""
+    if frame.empty or 'pressure' not in frame: return frame
+    keys=['date','horizon'] if 'horizon' in frame else ['date']
+    size=frame.groupby(keys,sort=False)['pressure'].transform('size')
+    if not (size>1).any(): return frame
+    out=frame.drop_duplicates(keys).copy()
+    out['pressure']=out.set_index(keys).index.map(frame.groupby(keys,sort=False)['pressure'].mean()).to_numpy()
+    f0=frame['file'].iloc[0] if 'file' in frame else ''; s0=frame['sheet'].iloc[0] if 'sheet' in frame else ''
+    result.issue(f0,s0,1,f'Давление объекта: {int((size>1).sum())} замеров за одну дату и горизонт усреднены в '
+                 f'{int(out.shape[0]-(size.eq(1)).sum())} значений (по одному на дату и горизонт).','предупреждение')
+    return out.reset_index(drop=True)
+
 def well_ids(s):
     return s.fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
@@ -213,10 +266,11 @@ def iter_sheets(path, chunk_size=50000, encoding='auto', delimiter='auto'):
 
 
 def detect_layout(head,module='auto'):
-    detected=None;mapping={};wide=False;header=-1
+    detected=None;mapping={};wide=False;header=-1;well_header=False
     for i,row in enumerate(head):
         if not any(v is not None and str(v).strip() for v in row): continue
-        mapping=column_map(row)
+        mapping=column_map(row,head[i+1:])
+        if {'well','date'}<=mapping.keys() and i<3: well_header=True
         if {'well','date'}<=mapping.keys() and (module in WELL_REQUIRED or module=='auto' and detect_well(mapping)):
             detected=module if module in WELL_REQUIRED else detect_well(mapping);header=i;break
         if module in ('groups','subgroups') and 'well' not in mapping and i==0 and len(row)>=2:
@@ -227,7 +281,7 @@ def detect_layout(head,module='auto'):
             wf_map=water_factor_map(row)
             if wf_map:
                 mapping=wf_map;detected='water_factor';header=i;break
-        if module in ('auto','plan') and sum(month_cell(v) is not None for v in row[1:])>=2 \
+        if module in ('auto','plan') and not well_header and sum(month_cell(v) is not None for v in row[1:])>=2 \
                 and any(str(r[0] or '').strip() and any(is_number(v) for v in r[1:]) for r in head[i+1:i+4]):
             detected='plan';wide=True;mapping={'date':0};header=i;break       # матрица: группы в строках, месяцы в столбцах
         if module in ('auto','plan') and 'well' not in mapping and {'group','date','plan_volume'}<=mapping.keys():
@@ -324,7 +378,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                     if col in df:
                         supplied=df[col].notna()&df[col].astype(str).str.strip().ne('')&~nodata(df[col])
                         reasons.loc[supplied&numeric(df[col]).isna()]='Некорректное давление в поле '+col
-            for col in ('q','p_res','p_bh','dp2','a_db','b_db','pressure','level','plan_volume')+WATER_FACTOR_NEW+('water_day',):
+            for col in ('q','hours','p_res','p_bh','dp2','a_db','b_db','pressure','level','plan_volume')+WATER_FACTOR_NEW+('water_day',):
                 if col in df:
                     hit=nodata(df[col])
                     if hit.any():
@@ -424,11 +478,14 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df[col]=df[col].fillna('').astype(str).str.strip()
             df['group']=df['group'].replace('','Без группы')
             df['file']=filename; df['sheet']=sheet
+            if detected in ('production','gdi','response'): df=split_combined_wells(df,detected,result,filename,sheet)
             if not df.empty: collected.setdefault(detected,[]).append(df)
             row_offset+=len(rows)
             if progress: progress(sheet,row_offset-2)
     for name,frames in collected.items():
-        result.frames[name]=pd.concat(frames,ignore_index=True); result.counts[name]=len(result.frames[name])
+        frame=pd.concat(frames,ignore_index=True)
+        if name=='object_pressure': frame=average_object_pressure(frame,result)
+        result.frames[name]=frame; result.counts[name]=len(result.frames[name])
     if not result.frames and not result.issues:
         raise ValueError('Файл не содержит строк данных.')
     if result.omitted:
@@ -457,9 +514,10 @@ def merge_frames(old, new, module, policy='new'):
         base=pd.concat([old[~old_hit],new],ignore_index=True) if policy=='new' else pd.concat([old,new[~new_hit]],ignore_index=True)
     else: base=pd.concat([old,new] if policy=='new' else [new,old],ignore_index=True)
     keys={'production':['kind','well','date'],'response':['well','date','horizon'],
-          'pressure_match':['object','scenario','well','date'],'groups':['well'],'object_pressure':['date'],'water_factor':['date'],'plan':['kind','group','date'],'gdi':['well','date','method','study','q','dp2'],
+          'pressure_match':['object','scenario','well','date'],'groups':['well'],'object_pressure':['date','horizon'],'water_factor':['date'],'plan':['kind','group','date'],'gdi':['well','date','method','study','q','dp2'],
           'operations':['well','date','kind'],'water':['well','date'],'bottom':['well','date'],
           'construction':['well','date','element','top_m','bottom_m','diameter_mm']}[module]
+    keys=[k for k in keys if k in base]
     if module=='gdi': keys += [c for c in ('p_res','p_bh','a_db','b_db') if c in base]
     before=len(base); base=base.drop_duplicates(keys,keep='last').reset_index(drop=True)
     return base,before-len(base)

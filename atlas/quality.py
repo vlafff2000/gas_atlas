@@ -182,3 +182,76 @@ def summary(found: pd.DataFrame) -> pd.DataFrame:
     out = found.groupby(['dataset', 'check', 'level'], sort=False).size().reset_index(name='count')
     out['_o'] = out['level'].map({'ошибка': 0, 'внимание': 1})
     return out.sort_values(['_o', 'count'], ascending=[True, False], kind='stable').drop(columns='_o').reset_index(drop=True)
+
+
+def _runs(frame: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """Серии подряд идущих суток: на ключ — число серий, самая длинная, начало и конец последней."""
+    if frame.empty:
+        return pd.DataFrame(columns=keys + ['episodes', 'longest', 'last_start', 'last_end'])
+    f = frame[keys + ['date']].drop_duplicates().sort_values(keys + ['date']).reset_index(drop=True)
+    step = f.groupby(keys, sort=False)['date'].diff().dt.days
+    f['run'] = (step.ne(1)).cumsum()
+    runs = f.groupby(keys + ['run'], sort=False)['date'].agg(['min', 'max', 'size']).reset_index()
+    runs = runs.sort_values(keys + ['max'])
+    out = runs.groupby(keys, sort=False).agg(episodes=('size', 'size'), longest=('size', 'max'),
+                                              last_start=('min', 'last'), last_end=('max', 'last')).reset_index()
+    return out
+
+
+def open_without_flow(production: pd.DataFrame, mass_share: float = 0.5, mass_min_wells: int = 3):
+    """Сутки, когда скважина открыта (время работы > 0), а расход равен нулю.
+
+    Такие строки не ошибка и не удаляются: это сигнал о скважине (гидратная пробка, обводнение, закрытая арматура)
+    или о замерном узле. Возвращает ``None``, если в данных нет времени работы, иначе словарь таблиц:
+    ``wells`` — по скважинам, ``groups`` — по группам (сутки, когда без расхода сразу многие скважины группы),
+    ``months`` — по месяцам. Расход равен нулю — именно ``q == 0``; пропуск расхода сюда не входит."""
+    if production is None or production.empty or 'hours' not in production.columns:
+        return None
+    f = production.copy()
+    f['hours'] = pd.to_numeric(f['hours'], errors='coerce')
+    f['date'] = pd.to_datetime(f['date'], errors='coerce')
+    f = f.dropna(subset=['hours', 'date', 'q'])
+    if f.empty:
+        return None
+    if 'kind' not in f:
+        f['kind'] = 'withdrawal'
+    if 'group' not in f:
+        f['group'] = ''
+    f['well'] = f['well'].astype(str)
+    opened = f[f['hours'] > 0].copy()
+    if opened.empty:
+        return {'wells': pd.DataFrame(), 'groups': pd.DataFrame(), 'months': pd.DataFrame(), 'open_days': 0, 'zero_days': 0}
+    opened['zero'] = opened['q'].eq(0)
+    zero = opened[opened['zero']]
+    keys = ['well', 'kind']
+    wells = opened.groupby(keys, sort=False).agg(open_days=('zero', 'size'), zero_days=('zero', 'sum')).reset_index()
+    wells = wells[wells['zero_days'] > 0]
+    runs = _runs(zero, keys)
+    wells = wells.merge(runs, on=keys, how='left')
+    last_group = f.sort_values('date').groupby('well')['group'].last()
+    wells['group'] = wells['well'].map(last_group)
+    wells['share'] = wells['zero_days'] / wells['open_days'] * 100
+    first = zero.groupby(keys)['date'].min().rename('first').reset_index()
+    wells = wells.merge(first, on=keys, how='left')
+    wells = wells.sort_values(['zero_days', 'share'], ascending=False).reset_index(drop=True)
+    wells = wells[['well', 'group', 'kind', 'open_days', 'zero_days', 'share', 'episodes', 'longest', 'first',
+                   'last_end']].rename(columns={'last_end': 'last'})
+
+    gday = opened.groupby(['group', 'kind', 'date'], sort=False).agg(open_wells=('zero', 'size'),
+                                                                      zero_wells=('zero', 'sum')).reset_index()
+    gday['share'] = gday['zero_wells'] / gday['open_wells']
+    gday['mass'] = (gday['open_wells'] >= mass_min_wells) & (gday['share'] >= mass_share)
+    mass = gday[gday['mass']]
+    g = gday.groupby(['group', 'kind'], sort=False).agg(days=('date', 'size'), max_share=('share', 'max')).reset_index()
+    gm = mass.groupby(['group', 'kind'], sort=False).agg(mass_days=('date', 'size'), last=('date', 'max')).reset_index()
+    gr = _runs(mass, ['group', 'kind'])[['group', 'kind', 'longest']].rename(columns={'longest': 'mass_longest'})
+    groups = g.merge(gm, on=['group', 'kind'], how='left').merge(gr, on=['group', 'kind'], how='left')
+    groups['mass_days'] = pd.to_numeric(groups['mass_days'], errors='coerce').fillna(0).astype(int)
+    groups['mass_longest'] = pd.to_numeric(groups['mass_longest'], errors='coerce').fillna(0).astype(int)
+    groups['max_share'] = groups['max_share'] * 100
+    groups = groups.sort_values('mass_days', ascending=False).reset_index(drop=True)
+
+    opened['month'] = opened['date'].dt.to_period('M').dt.to_timestamp()
+    months = opened.groupby(['month', 'kind'], sort=True).agg(open_days=('zero', 'size'), zero_days=('zero', 'sum')).reset_index()
+    months['share'] = months['zero_days'] / months['open_days'] * 100
+    return {'wells': wells, 'groups': groups, 'months': months, 'open_days': int(len(opened)), 'zero_days': int(len(zero))}

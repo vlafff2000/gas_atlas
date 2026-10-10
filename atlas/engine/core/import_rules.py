@@ -12,6 +12,7 @@ from atlas.engine.core.well_import import REQUIRED
 
 FIELDS={'well':'Скважина','date':'Дата','q':'Расход газа','p_res':'Пластовое давление','p_bh':'Забойное давление','dp2':'ΔP²','level':'Уровень жидкости','pressure':'Приведенное давление','horizon':'Горизонт','group':'Группа','subgroup':'Подгруппа','value':'Давление','fond':'Тип / фонд'}
 FIELDS.update({f:aliases[0] for f,aliases in ALIASES.items() if f not in FIELDS})
+FIELDS['hours']='Время работы'
 MODULE_CHOICES=['auto','production','gdi','response','object_pressure','operations','water','water_factor','bottom','construction','plan','groups','subgroups']
 
 TYPES={'auto':'Автоопределение','groups':'Группы (в том числе без заголовков)','subgroups':'Подгруппы (в том числе без заголовков)'}
