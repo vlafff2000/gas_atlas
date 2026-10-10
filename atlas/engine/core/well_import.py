@@ -31,6 +31,8 @@ def detect(mapping):
     if 'bottom_m' in mapping:return 'bottom'
     if ('work_hours' in mapping or 'gas_volume_m3' in mapping or 'water_volume_m3' in mapping) and 'q' not in mapping:return 'operations'
     if ('water_rate' in mapping or 'water_flag' in mapping) and 'q' not in mapping and 'work_hours' not in mapping:return 'water'
+    # История давлений скважины (устьевое/пластовое/забойное/шлейф) без расхода, горизонта и уровня — суточная эксплуатация.
+    if {'p_wellhead','p_line','p_res','p_bh'}&mapping.keys() and not {'q','horizon','level','pressure','dp2'}&mapping.keys():return 'operations'
     return None
 
 def normalize(df,module,reasons,numeric):

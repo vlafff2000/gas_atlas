@@ -222,6 +222,28 @@ def average_object_pressure(frame,result):
                  f'{int(out.shape[0]-(size.eq(1)).sum())} значений (по одному на дату и горизонт).','предупреждение')
     return out.reset_index(drop=True)
 
+def group_key(value):
+    """Ключ сравнения названий групп: регистр, пробелы, «_» и «-» не различают группы («ГСП_4» = «гсп 4» = «ГСП4»)."""
+    t=re.sub(r'(?<=[^\W\d_])(?=\d)',' ',str(value).strip())
+    return re.sub(r'[\s_\-]+',' ',t).strip().casefold()
+
+def unify_groups(groups,reference=None):
+    """Варианты написания одной группы приводятся к одному: как в уже загруженных данных (``reference``),
+    иначе к самому частому в этой загрузке."""
+    values=groups.fillna('').astype(str).str.strip()
+    if not values.ne('').any(): return groups
+    known={}
+    if reference is not None:
+        for v,n in reference.fillna('').astype(str).str.strip().value_counts().items():
+            if v and v!='Без группы': known.setdefault(group_key(v),v)
+    counts=values[values.ne('')&values.ne('Без группы')].value_counts()
+    spell=dict(known)
+    for v,n in counts.items():
+        spell.setdefault(group_key(v),v)
+    keys=values.map(group_key)
+    mapped=keys.map(spell)
+    return values.where(mapped.isna()|values.eq('')|values.eq('Без группы'),mapped)
+
 GSP_NAME=re.compile(r'^\s*гсп[\s_\-.№]*0*(\d+)\s*$',re.I)
 
 def canonical_gsp(groups):
@@ -497,7 +519,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             for col in ('group','subgroup','season','year','method','study'):
                 if col not in df: df[col]=''
                 df[col]=df[col].fillna('').astype(str).str.strip()
-            df['group']=canonical_gsp(df['group']).replace('','Без группы')
+            df['group']=unify_groups(canonical_gsp(df['group'])).replace('','Без группы')
             df['file']=filename; df['sheet']=sheet
             if not df.empty: collected.setdefault(detected,[]).append(df)
             row_offset+=len(rows)
@@ -532,6 +554,8 @@ def merge_frames(old, new, module, policy='new'):
     """No summing of duplicate daily values. GDI replacement is whole-study atomic."""
     early=0
     if module=='production': new,early=prefer_flow(new)
+    if old is not None and not old.empty and 'group' in old and 'group' in new and len(new):
+        new=new.copy(); new['group']=unify_groups(new['group'],old['group']).replace('','Без группы')
     if old is None or old.empty or policy=='replace': base=new.copy()
     elif module in ('gdi','construction'):
         keys=['well','date','method','study'] if module=='gdi' else ['well','date']

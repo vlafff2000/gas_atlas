@@ -179,3 +179,52 @@ def test_other_group_names_are_untouched(tmp_path):
     rows.to_excel(path, index=False, sheet_name='Sheet1')
     r = load_file(path, 'auto', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
     assert set(r.frames['production']['group']) == {'Куст 4', 'ГСП_4Б'}
+
+
+def test_well_pressure_history_is_recognised(client, tmp_path):
+    rows = pd.DataFrame({'Скважина': [83, 84], 'Номер ГСП': [2, 2],
+                         'Дата': pd.to_datetime(['2006-08-02', '2006-08-03']), 'Месяц': ['Август', 'Август'],
+                         'Год': [2006, 2006], 'Устьевое давление': [89.1, 88.0], 'Пластовое давление': [94.7, 93.1],
+                         'Среднее давление': [94.7, 93.1]})
+    path = tmp_path / 'wp.xlsx'
+    rows.to_excel(path, index=False, sheet_name='Sheet1')
+    j = inspect(client, path)
+    assert j['rows'][0]['found'] == 'operations' and j['blocked'] is False
+    r = load_file(path, 'auto', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
+    o = r.frames['operations']
+    assert o['well'].tolist() == ['83', '84']
+    assert o['p_wellhead'].tolist() == [89.1, 88.0] and o['p_res'].tolist() == [94.7, 93.1]
+    assert o['group'].tolist() == ['ГСП 2', 'ГСП 2']
+
+
+def test_gdi_with_pressures_is_still_gdi_and_response_still_response(client, tmp_path):
+    gdi = pd.DataFrame({'№скв': ['31'], 'дата': pd.to_datetime(['2025-01-01']), 'Qгаза тыс.м3/сут': [100.0],
+                        'Рпл, кгс/см2': [90.0], 'Рзаб, кгс/см2': [80.0]})
+    p1 = tmp_path / 'g.xlsx'
+    gdi.to_excel(p1, index=False, sheet_name='ГДИ')
+    assert inspect(client, p1)['rows'][0]['found'] == 'gdi'
+    resp = pd.DataFrame({'Скважина': ['1'], 'Дата': pd.to_datetime(['2025-01-01']), 'Горизонт': ['Щ'],
+                         'Уровень жидкости': [100.0], 'Пластовое давление': [90.0]})
+    p2 = tmp_path / 'r.xlsx'
+    resp.to_excel(p2, index=False, sheet_name='Данные')
+    assert inspect(client, p2)['rows'][0]['found'] == 'response'
+
+
+def test_group_spellings_are_unified_within_file(tmp_path):
+    rows = pd.DataFrame({'Скважина': ['1', '2', '3', '4', '5'], 'Дата': pd.to_datetime(['2025-01-01'] * 5),
+                         'Суточный расход газа': [1.0] * 5,
+                         'Источник': ['Куст Северный', 'куст  северный', 'Куст_Северный', 'Куст Северный', 'Куст Южный']})
+    path = tmp_path / 'u.xlsx'
+    rows.to_excel(path, index=False, sheet_name='Sheet1')
+    r = load_file(path, 'auto', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
+    assert sorted(set(r.frames['production']['group'])) == ['Куст Северный', 'Куст Южный']
+
+
+def test_group_spelling_follows_already_loaded_data():
+    from atlas.engine.core.loader import merge_frames
+    old = pd.DataFrame({'well': ['1'], 'date': pd.to_datetime(['2025-01-01']), 'kind': ['withdrawal'], 'q': [1.0],
+                        'group': ['Куст Северный']})
+    new = pd.DataFrame({'well': ['2'], 'date': pd.to_datetime(['2025-01-02']), 'kind': ['withdrawal'], 'q': [2.0],
+                        'group': ['куст_северный']})
+    merged, _ = merge_frames(old, new, 'production')
+    assert set(merged['group']) == {'Куст Северный'}
