@@ -184,7 +184,7 @@ class Project:
             if self._catalog is not None:return self._catalog
             import pyarrow.parquet as pq
             entries={};mapping={};allw=set()
-            for module in self.names:
+            for module in sorted(self.names,key=lambda m:m=='production'):      # группа из эксплуатации — главная: обрабатывается последней
                 path=self.path/(module+'.parquet');columns=pq.ParquetFile(path).schema.names
                 d=self._raw[module] if module in self._raw else pd.read_parquet(path,columns=[c for c in ('well','group','subgroup','date') if c in columns])
                 wells=d.well.drop_duplicates().tolist() if 'well' in d else []

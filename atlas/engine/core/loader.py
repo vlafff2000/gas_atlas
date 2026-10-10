@@ -66,6 +66,8 @@ ALIASES['method']+=['Метод замера']
 def norm(v):
     return re.sub(r'[^\wδ]', '', str(v or '').lower().replace('ё', 'е').replace('²', '2').replace('³', '3')).replace('_', '')
 
+GSP_LABELS=('гсп','номергсп')
+
 def column_map(labels, rows=None):
     """Колонки полей по заголовкам. ``rows`` — строки под заголовком: пустые дубли колонки (служебные «date» и т. п.) отбрасываются."""
     result = {}
@@ -94,6 +96,11 @@ def column_map(labels, rows=None):
         month = [i for i, n in enumerate(normalized) if n == 'месяц']
         if len(month) == 1:
             result['date'] = month[0]
+    if 'group' not in result:
+        # Колонка «ГСП» / «Номер ГСП» — группа, если нет колонки «Группа» или «Источник».
+        gsp = [i for i, n in enumerate(normalized) if n in GSP_LABELS]
+        if len(gsp) == 1:
+            result['group'] = gsp[0]
     if 'q' in result and result.get('water_rate')==result['q']:
         # The legacy broad "Расход..." alias must not turn water into gas.
         result.pop('q')
@@ -473,17 +480,25 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df['date']=df.date.dt.to_period('M').dt.to_timestamp()
             for ix in df.index[reasons.ne('')]: result.issue(filename,sheet,df.loc[ix,'_row'],reasons.loc[ix])
             df=df[reasons.eq('')].copy()
+            if 'group' in df and 'group' in mapping and not wide and header>=0 and norm(head[header][mapping['group']]) in GSP_LABELS:
+                g=df['group'].fillna('').astype(str).str.strip().str.replace(r'\.0$','',regex=True)
+                df['group']=g.where(~g.str.fullmatch(r'\d+'),'ГСП '+g)       # «1» в колонке «ГСП» — группа «ГСП 1», как в добыче
             for col in ('group','subgroup','season','year','method','study'):
                 if col not in df: df[col]=''
                 df[col]=df[col].fillna('').astype(str).str.strip()
             df['group']=df['group'].replace('','Без группы')
             df['file']=filename; df['sheet']=sheet
-            if detected in ('production','gdi','response'): df=split_combined_wells(df,detected,result,filename,sheet)
             if not df.empty: collected.setdefault(detected,[]).append(df)
             row_offset+=len(rows)
             if progress: progress(sheet,row_offset-2)
     for name,frames in collected.items():
         frame=pd.concat(frames,ignore_index=True)
+        if name=='production':
+            frame,dropped=prefer_flow(frame)
+            if dropped:
+                result.issue(frame['file'].iloc[0],frame['sheet'].iloc[0],1,f'Дубли суток одной скважины: {dropped} строк убрано, оставлена строка с расходом (нулевая не затирает замер).','предупреждение')
+        if name in ('production','gdi','response') and 'well' in frame:
+            frame=split_combined_wells(frame,name,result,frame['file'].iloc[0] if 'file' in frame else '',frame['sheet'].iloc[0] if 'sheet' in frame else '')
         if name=='object_pressure': frame=average_object_pressure(frame,result)
         result.frames[name]=frame; result.counts[name]=len(result.frames[name])
     if not result.frames and not result.issues:
@@ -492,8 +507,20 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
         result.issues.append({'Файл':filename,'Лист':'','Строка':0,'Уровень':'предупреждение','Причина':f'Ещё {result.omitted} замечаний не показаны: в журнале первые 2000.'})
     return result
 
+def prefer_flow(frame):
+    """Дубли суток одной скважины внутри загрузки: строка с расходом важнее строки с нулём (иначе нулевая «затирает» замер).
+
+    Среди равных по смыслу остаётся последняя. Возвращает таблицу и число убранных строк."""
+    keys=[k for k in ('kind','well','date') if k in frame]
+    if 'q' not in frame or len(keys)<3 or not frame.duplicated(keys).any(): return frame,0
+    ordered=frame.assign(_o=np.arange(len(frame)),_nz=frame['q'].fillna(0).gt(0))
+    ordered=ordered.sort_values(['_nz','_o'],kind='stable').drop_duplicates(keys,keep='last').sort_values('_o')
+    return ordered.drop(columns=['_o','_nz']).reset_index(drop=True),len(frame)-len(ordered)
+
 def merge_frames(old, new, module, policy='new'):
     """No summing of duplicate daily values. GDI replacement is whole-study atomic."""
+    early=0
+    if module=='production': new,early=prefer_flow(new)
     if old is None or old.empty or policy=='replace': base=new.copy()
     elif module in ('gdi','construction'):
         keys=['well','date','method','study'] if module=='gdi' else ['well','date']
@@ -520,4 +547,4 @@ def merge_frames(old, new, module, policy='new'):
     keys=[k for k in keys if k in base]
     if module=='gdi': keys += [c for c in ('p_res','p_bh','a_db','b_db') if c in base]
     before=len(base); base=base.drop_duplicates(keys,keep='last').reset_index(drop=True)
-    return base,before-len(base)
+    return base,before-len(base)+early

@@ -125,7 +125,7 @@ def rank_wells(df,kind,selected_periods,wells,direction='desc'):
 
 def group_mapping(frames,saved):
     result={}
-    for df in frames.values():
+    for name,df in sorted(frames.items(),key=lambda kv:str(getattr(kv[0],'value',kv[0]))=='production'):      # группа из эксплуатации главнее ГДИ и др.
         if 'group' in df and 'well' in df:
             for row in df[['well','group','subgroup']].drop_duplicates('well',keep='last').itertuples(index=False):
                 if row.group!='Без группы' or row.well not in result:
