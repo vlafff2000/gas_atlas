@@ -255,6 +255,17 @@ def canonical_gsp(groups):
     out[hit]='ГСП '+g[hit].str.extract(GSP_NAME)[0]
     return out
 
+def filled_rows(raw):
+    """Строки, где есть хотя бы одна непустая ячейка (пробелы и пустые строки — пусто); по колонкам, без копии всей таблицы."""
+    out=pd.Series(False,index=raw.index)
+    for column in raw.columns:
+        col=raw[column]
+        known=col.notna()
+        if col.dtype==object:
+            known&=~col.map(lambda v:isinstance(v,str) and not v.strip())
+        out|=known
+    return out
+
 def well_ids(s):
     return s.fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
@@ -374,7 +385,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             rows=list(islice(remaining,chunk_size))
             if not rows: break
             width=len(head[max(0,header)]); rows=[list(r[:width])+[None]*max(0,width-len(r)) for r in rows]
-            raw=pd.DataFrame(rows); nonempty=raw.notna().any(axis=1)&raw.fillna('').astype(str).apply(lambda c:c.str.strip()).ne('').any(axis=1)
+            raw=pd.DataFrame(rows); nonempty=filled_rows(raw)
             raw=raw[nonempty]
             if raw.empty: row_offset+=len(rows); continue
             if wide and detected=='plan':
@@ -521,7 +532,9 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df[col]=df[col].fillna('').astype(str).str.strip()
             df['group']=unify_groups(canonical_gsp(df['group'])).replace('','Без группы')
             df['file']=filename; df['sheet']=sheet
-            if not df.empty: collected.setdefault(detected,[]).append(df)
+            if not df.empty:
+                from .performance import compact_strings
+                collected.setdefault(detected,[]).append(compact_strings(df,min_rows=1000))      # повторяющиеся строки — один объект: память в разы меньше
             row_offset+=len(rows)
             if progress: progress(sheet,row_offset-2)
     for name,frames in collected.items():

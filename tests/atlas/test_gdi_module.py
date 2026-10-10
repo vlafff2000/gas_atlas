@@ -54,7 +54,7 @@ def test_selection_matches_legacy(frame, last_n):
 
 @pytest.mark.parametrize('last_n', [0, 1, 3])
 def test_coefficients_bit_identical(frame, last_n):
-    ours = table(run(frame, last_n=last_n, threshold=.97), 'studies').frame
+    ours = table(run(frame, wells=sorted(frame.well.unique()), last_n=last_n, threshold=.97), 'studies').frame
     theirs = legacy.analyze(legacy.select_studies(frame, sorted(frame.well.unique()), last_n), .97)
     key = ['well', 'date', 'method', 'study']
     ours = ours.sort_values(key).reset_index(drop=True); theirs = theirs.sort_values(key).reset_index(drop=True)
@@ -67,7 +67,7 @@ def test_coefficients_bit_identical(frame, last_n):
 
 
 def test_comparisons_match_legacy(frame):
-    result = run(frame, last_n=3)
+    result = run(frame, wells=sorted(frame.well.unique()), last_n=3)
     chosen = legacy.select_studies(frame, sorted(frame.well.unique()), 3)
     ours = table(result, 'comparison').frame.rename(columns={'well': 'Скважина'})
     theirs = legacy.comparisons(chosen)
@@ -139,7 +139,7 @@ def test_exclusion_changes_fit_and_shows_hollow_point(frame):
 
 def test_empty_selection_is_a_note_not_an_error(frame):
     result = run(frame, seasons=['1999-2000'])
-    assert isinstance(result, Result) and not result.charts and result.notes[0].level == 'warning'
+    assert isinstance(result, Result) and not result.charts and any(n.level == 'warning' for n in result.notes)
 
 
 def test_state_roundtrip_in_58_format(frame):
@@ -171,3 +171,14 @@ def test_productivity_dynamics_without_methods(frame):
     assert one.q_ref.notna().all() and np.isnan(one.to_previous.iloc[0]) and np.isnan(one.to_first.iloc[0])
     expected = (one.q_ref.iloc[-1] / one.q_ref.iloc[0] - 1) * 100
     assert one.to_first.iloc[-1] == pytest.approx(expected)
+
+
+def test_no_wells_selected_shows_first_five_with_note(frame):
+    wells = sorted(frame.well.astype(str).unique(), key=lambda w: (len(w), w))
+    assert len(wells) > 5
+    result = run(frame, last_n=1)
+    shown = {c.title for c in result.charts}
+    assert len(result.charts) == 5
+    assert any('первые 5' in n.text for n in result.notes)
+    explicit = run(frame, wells=wells[:8], last_n=1)
+    assert len(explicit.charts) == 8 and not any('первые 5' in n.text for n in explicit.notes)
