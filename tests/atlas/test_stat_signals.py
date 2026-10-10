@@ -46,10 +46,10 @@ def history(fit_first, fit_last):
 
 
 def test_a_and_b_change_hidden_for_few_fit_points():
-    few = gdi_trend.rating(history(3, 4), 10).iloc[0]
+    few = gdi_trend.rating(history(2, 4), 10).iloc[0]
     assert np.isnan(few.a_change) and np.isnan(few.b_change)
-    assert few.change == pytest.approx(-20.0) and few.fit_first == 3 and few.fit_last == 4      # расход по-прежнему
-    enough = gdi_trend.rating(history(5, 6), 10).iloc[0]
+    assert few.change == pytest.approx(-20.0) and few.fit_first == 2 and few.fit_last == 4      # расход по-прежнему
+    enough = gdi_trend.rating(history(3, 6), 10).iloc[0]
     assert enough.a_change == pytest.approx(30.0) and enough.b_change == pytest.approx(20.0)
 
 
