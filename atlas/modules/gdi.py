@@ -118,6 +118,9 @@ def coefficient_columns() -> list[Column]:
     ]
 
 
+DEFAULT_WELLS = 5          # сколько скважин показывать, если не выбрана ни одна
+
+
 class GdiModule(Module):
     history_action = 'Расчет ГДИ'
     spec = ModuleSpec(
@@ -129,7 +132,9 @@ class GdiModule(Module):
         order=30,
         save_label='Сохранить расчет в историю',
         params=(
-            Param('wells', 'Скважины', 'multi', default=[], source=Source(GDI, 'well'), section='Выбор данных'),
+            Param('wells', 'Скважины', 'multi', default=[], source=Source(GDI, 'well'), section='Выбор данных',
+                  empty='первые 5', help='Не выбрано ничего — показаны первые пять скважин по номеру: график на каждую '
+                  'скважину тяжёлый, сотни графиков браузер не показывает быстро. Выберите нужные скважины в списке.'),
             Param('last_n', 'Последние даты исследований', 'choice', default=3, section='Выбор данных',
                   options=(Option(1, '1'), Option(2, '2'), Option(3, '3'), Option(0, 'Все'))),
             Param('seasons', 'Сезоны из исходного файла', 'multi', default=[], source=Source(GDI, 'season'),
@@ -159,9 +164,15 @@ class GdiModule(Module):
     # --- расчёт ---
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         wells, seasons, n = params['wells'], params['seasons'], int(params['last_n'])
+        result = Result()
+        if not wells:
+            known = sorted(data[GDI].well.astype(str).unique(), key=well_key)
+            wells = known[:DEFAULT_WELLS]
+            if len(known) > DEFAULT_WELLS:
+                result.notes.append(Note(f'Скважины не выбраны: показаны первые {DEFAULT_WELLS} из {len(known)} по номеру. '
+                                         'Выберите нужные скважины в списке «Скважины».'))
         chosen = select(data[GDI], wells, seasons, n)
         original = select(data.raw[GDI], wells, seasons, n)
-        result = Result()
         if chosen.empty:
             result.notes.append(Note('Под выбранные условия не попало ни одного исследования. Выберите скважины с данными.',
                                      'warning'))
