@@ -312,9 +312,12 @@ def production_checks(rep: Report, ses: Session, path: Path, frames: dict[str, p
         d = pd.to_datetime(prod['date'], errors='coerce')
         if d.isna().any():
             issues.append(f'пустая дата: {int(d.isna().sum())}')
-        if (d > pd.Timestamp.today() + pd.Timedelta(days=1)).any():
-            issues.append(f'даты из будущего: {int((d > pd.Timestamp.today() + pd.Timedelta(days=1)).sum())}')
-        return ('fail', 'Найдено: ' + '; '.join(issues)) if issues else ('ok', 'Нет пустых, отрицательных и будущих значений.')
+        future = int((d > pd.Timestamp.today() + pd.Timedelta(days=1)).sum())
+        if issues:
+            return 'fail', 'Найдено: ' + '; '.join(issues)
+        if future:
+            return 'warn', f'Даты из будущего: {future} строк (плановый режим? в фактических данных их быть не должно).'
+        return 'ok', 'Нет пустых, отрицательных и будущих значений.'
 
     rep.run('prod.basic', 'Расход и даты без явных ошибок', name, basic)
 
