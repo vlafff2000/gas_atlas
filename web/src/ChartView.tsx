@@ -8,7 +8,7 @@ import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { axisAt, formatBound, parseBound, shiftRange, wheelFactor, zoomRange, type AxisName, type Range } from './chartAxes'
-import { hiddenEvents, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
 
@@ -21,6 +21,8 @@ const DASH: Record<string, string | number[]> = {
   solid: 'solid', dash: [6, 4], dot: [1.5, 3.5], dashdot: [8, 3, 2, 3], longdash: [12, 4],
 }
 const LARGE = 5000          // точек в серии: дальше облако рисуется пакетно, линия — с прореживанием LTTB
+const DENSE = 400           // точек в серии: плотнее — белые обводки отметок закрывают линию, поэтому рисуется сплошная линия без отметок
+const SMOOTH_BINS = 500     // точек сглаженной линии (среднее по подряд идущим замерам) в режиме «Сплошная кривая»
 const BLUR_LIMIT = 200_000  // при наведении остальные кривые приглушаются, пока точек на графике не больше этого
 const NAVIGATOR_SPAN = 180 * 86400e3   // ползунок времени под графиком, если ряды длиннее полугода
 const MAX_PINS = 3                     // закреплённых подсказок на графике
@@ -57,6 +59,21 @@ const key = (s: Series) => s.group || s.name
  *  Расчётные линии (аппроксимация, модель) без ids — не замеры, их отметки не показываются. */
 const hasMarkers = (s: Series, excludeMode: boolean, mode: HoverMode) =>
   s.markers || (!!s.ids && (excludeMode || (mode === 'facts' && s.x.length <= LARGE)))
+/** Плотный ряд: на экране отметки сливаются (их белая обводка стирает линию). */
+const isDense = (s: Series, n: number) => !!s.markers && n > DENSE
+
+/** Сплошная кривая: среднее по подряд идущим точкам (время и значение), пропуски остаются разрывами. Исходные точки и подсказка не меняются. */
+function binned(rows: unknown[][], bins: number) {
+  const size = Math.ceil(rows.length / bins), out: unknown[][] = []
+  for (let i = 0; i < rows.length; i += size) {
+    let sx = 0, sy = 0, n = 0
+    for (const r of rows.slice(i, i + size)) {
+      if (typeof r[0] === 'number' && typeof r[1] === 'number') { sx += r[0]; sy += r[1]; n++ }
+    }
+    out.push(n ? [sx / n, sy / n] : [rows[i][0], null])
+  }
+  return out
+}
 const dashOf = (s: Series) => DASH[s.dash || (s.dashed ? 'dash' : 'solid')]
 
 function colorOf(chart: Chart) {
@@ -277,7 +294,8 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       const data = rich
         ? xs.map((x, j) => [x, s.y[j], s.ids?.[j] ?? '', s.labels?.[j] ?? ''])
         : xs.map((x, j) => [x, s.y[j]])
-      const rows = s.kind === 'points' ? data.filter(([x, y]) => x !== null && y !== null) : data
+      let rows = s.kind === 'points' ? data.filter(([x, y]) => x !== null && y !== null) : data
+      if (s.kind === 'line' && time && !excludeMode && isDense(s, rows.length) && smoothLines.get()) rows = binned(rows, SMOOTH_BINS) as typeof rows
       const common = { name: key(s), data: rows, color: c, yAxisIndex: s.axis === 'y2' && chart.y2 ? 1 : 0,
         silent: custom, emphasis, blur: blurred, ...(s.stack ? { stack: s.stack } : {}) }
       if (s.kind === 'bar') {
@@ -287,9 +305,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       const width = s.width || 2
       if (s.kind === 'line') {
         // в режиме «Только замеры» на линиях видны сами замеры (перекрывающиеся ECharts скрывает)
-        const markers = hasMarkers(s, excludeMode, mode)
+        const markers = hasMarkers(s, excludeMode, mode) && (excludeMode || !isDense(s, rows.length))
         return { ...common, type: 'line', z: s.markers ? 3 : 2, connectNulls: false,
-          sampling: rows.length > LARGE && !markers ? 'lttb' : undefined,
+          sampling: rows.length > LARGE && !markers && thinCharts.get() ? 'lttb' : undefined,
           showSymbol: markers, showAllSymbol: 'auto', symbol: markers ? SYMBOL[s.symbol] : 'none', symbolSize: rows.length > 150 ? 4 : s.markers ? 7 : 5,
           itemStyle: s.hollow ? { color: tk.surface, borderColor: c, borderWidth: 1.8 } : { color: c, borderColor: tk.surface, borderWidth: 1.5 },
           lineStyle: { color: c, width, type: dashOf(s), cap: 'round', join: 'round', ...(s.opacity < 1 ? { opacity: s.opacity } : {}) },
@@ -364,6 +382,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     renderPins: (() => {}) as () => void, reconcile: (() => {}) as () => void,
   })
   const mode = useHoverMode()
+  const smooth = usePref(smoothLines)
   const theme = useAppliedTheme()
   const offEvents = usePref(hiddenEvents)
   const [boxZoom, setBoxZoom] = useState(false)
@@ -1104,7 +1123,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     const later = window.setTimeout(st.ensure, 0)
     return () => window.clearTimeout(later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart, excludeMode, mode, theme, ranges])
+  }, [chart, excludeMode, mode, theme, ranges, smooth])
 
   // новый расчёт (другие параметры, исключение точки) — подгруженное окно относится к прежнему графику
   useEffect(() => { state.current.patch = null; state.current.pin = null; setPatch(null) }, [given])

@@ -28,6 +28,12 @@ export const hoverMode = pref<HoverMode>('atlas.chart.hover', 'smooth', raw => (
 export const setHoverMode = (next: HoverMode) => hoverMode.set(next)
 export const useHoverMode = () => usePref(hoverMode)
 
+/** Прореживание линий на экране (М4 на сервере, LTTB в ECharts). Выключено — все точки: графики целостнее, но на больших данных медленнее. */
+export const thinCharts = pref<boolean>('atlas.chart.thin', true, raw => raw !== 'false')
+
+/** Сплошная кривая: плотные ряды замеров (давление, уровень) рисуются сглаженной линией — среднее по подряд идущим замерам. */
+export const smoothLines = pref<boolean>('atlas.chart.smooth', false, raw => raw === 'true')
+
 /** Виды событий, скрытые на всех графиках (щелчок по пункту «События» в легенде). */
 export const hiddenEvents = pref<string[]>('atlas.chart.hiddenEvents', [])
 

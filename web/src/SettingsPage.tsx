@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { pickLocalFiles } from './FilePicker'
 import { projectsApi, saveLink } from './api_projects'
-import { theme, usePref, type Theme } from './chartPrefs'
+import { smoothLines, theme, thinCharts, usePref, type Theme } from './chartPrefs'
 import { RestoreBox, Toast, useDetails, type PageProps } from './ProjectPage'
 
 const STYLE = [['points', 'Показывать точки'], ['legend', 'Легенда'], ['grid', 'Сетка']] as const
@@ -31,6 +31,8 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const [style, setStyle] = useState<Record<string, boolean>>({})
   const [originals, setOriginals] = useState(true)
   const currentTheme = usePref(theme)
+  const thin = usePref(thinCharts)
+  const smooth = usePref(smoothLines)
   const [toast, setToast] = useState<string | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
 
@@ -176,6 +178,20 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
           ))}
         </div>
         <p className="muted small-text">«Авто» следует теме системы. Выбор запоминается в этом браузере.</p>
+      </section>
+
+      <section className="form-block">
+        <h2>Большие данные на графиках</h2>
+        <label className="toggle">
+          <input type="checkbox" checked={thin} onChange={e => thinCharts.set(e.target.checked)} />
+          <span>Прореживать точки линий</span>
+        </label>
+        <p className="muted small-text">Включено (по умолчанию): на экран отдаются не все точки длинных рядов (пики и провалы сохраняются), остальные подгружаются при увеличении. Выключите, чтобы линии рисовались по всем точкам: графики цельнее, но на очень больших данных открываются дольше. Таблицы и выгрузки всегда содержат все данные.</p>
+        <label className="toggle">
+          <input type="checkbox" checked={smooth} onChange={e => smoothLines.set(e.target.checked)} />
+          <span>Сплошная кривая для плотных рядов замеров</span>
+        </label>
+        <p className="muted small-text">Давление и уровень со множеством замеров рисуются гладкой линией (среднее по подряд идущим замерам); при увеличении и в подсказках остаются настоящие замеры. Выбор запоминается в этом браузере.</p>
       </section>
 
       <section className="form-block">

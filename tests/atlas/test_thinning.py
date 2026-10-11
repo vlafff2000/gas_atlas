@@ -120,6 +120,15 @@ def test_screen_is_thinned_but_keeps_peaks_dips_and_totals(env):
         assert len(series['ids']) == len(series['x']) == len(series['labels'])
 
 
+def test_thin_off_sends_every_point(env):
+    """Настройка «Прореживать точки» выключена: на экран идут все точки (thin=false)."""
+    client, pid, _ = env
+    r = client.post('/api/modules/response/run', json={'project': pid, 'params': PARAMS, 'thin': False})
+    assert r.status_code == 200, r.text
+    for series in level_chart(r.json())['series']:
+        assert series['total'] == len(series['x']) == N
+
+
 def test_result_keeps_every_point(env):
     """Прореживается только JSON: из результата делаются выгрузки и щелчки по точкам."""
     client, pid, projects = env

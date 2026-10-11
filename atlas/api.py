@@ -188,8 +188,9 @@ def create_app(projects: Projects | None = None) -> Starlette:
     # --- расчёт и экспорт ---
     def run(request, body):
         module = module_of(request)
-        (result, elapsed), _, data = compute(module, body.get('project'), body.get('params'))
-        return {**result.to_json(), 'elapsed_ms': elapsed, 'revision': data.revision}
+        thin = body.get('thin') is not False       # настройка «Прореживать точки» выключена — все точки
+        (result, elapsed), _, data = compute(module, body.get('project'), body.get('params'), full=not thin)
+        return {**result.to_json(thin=thin, defer=True), 'elapsed_ms': elapsed, 'revision': data.revision}
 
     def chart_of(module, body, full):
         (result, _), _, data = compute(module, body.get('project'), body.get('params'), full)

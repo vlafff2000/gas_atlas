@@ -148,8 +148,8 @@ export const api = {
   createDemo: (large = false) => request<{ id: string }>('/api/projects/demo', json('POST', { large })),
   options: (project: string, dataset: string, column: string) =>
     request<string[]>(`/api/projects/${project}/options?dataset=${encodeURIComponent(dataset)}&column=${encodeURIComponent(column)}`),
-  run: (module: string, project: string, params: Params, signal?: AbortSignal) =>
-    request<Result>(`/api/modules/${module}/run`, json('POST', { project, params }, signal)),
+  run: (module: string, project: string, params: Params, signal?: AbortSignal, thin = true) =>
+    request<Result>(`/api/modules/${module}/run`, json('POST', { project, params, thin }, signal)),
   project: (id: string) => request<Project>(`/api/projects/${id}`),
   saveSettings: (id: string, values: Record<string, unknown>) =>
     request<Project>(`/api/projects/${id}/settings`, json('PATCH', { values })),
