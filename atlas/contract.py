@@ -313,11 +313,11 @@ class Result:
     commands: list[Command] = field(default_factory=list)
     summary: list[Stat] = field(default_factory=list)     # строка итогов над графиками
 
-    def to_json(self, thin: bool = True) -> dict[str, Any]:
+    def to_json(self, thin: bool = True, defer: bool = True) -> dict[str, Any]:
         """JSON для интерфейса. ``thin`` — экранное прореживание линий (atlas.thinning), большие таблицы — по запросу;
         сам ``Result`` не меняется: выгрузки берут из него все точки."""
         return {
-            'tables': [_table_json(t, defer=thin) for t in self.tables],
+            'tables': [_table_json(t, defer=defer) for t in self.tables],
             'charts': [_chart_json(c, thin) for c in self.charts],
             'notes': [asdict(n) for n in self.notes],
             'commands': [asdict(c) for c in self.commands],

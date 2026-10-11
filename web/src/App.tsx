@@ -12,7 +12,7 @@ import { ImportPage } from './ImportPage'
 import { EmptyProjectSteps, hasData, NewProjectSteps } from './FirstSteps'
 import { HelpPage } from './HelpPage'
 import { SectionSearch, type Section } from './SectionSearch'
-import { sidebarCollapsed, theme, usePref, type Theme } from './chartPrefs'
+import { sidebarCollapsed, theme, thinCharts, usePref, type Theme } from './chartPrefs'
 
 const remembered = {
   get: <T,>(key: string, fallback: T): T => {
@@ -265,11 +265,12 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec, project.id, storeKey])
 
+  const thin = usePref(thinCharts)
   const run = useCallback((values: Params) => {
     controller.current?.abort()
     const ctrl = new AbortController(); controller.current = ctrl
     setStatus({ kind: 'running' })
-    api.run(spec.id, project.id, values, ctrl.signal)
+    api.run(spec.id, project.id, values, ctrl.signal, thin)
       .then(r => { setResult(r); setStatus({ kind: 'done' }) })
       .catch(e => {
         if ((e as Error).name === 'AbortError') return
@@ -278,7 +279,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
         setStatus({ kind: 'error', message: err.message, missing: err.status === 409 })
         if (err.status === 409) setResult(null)
       })
-  }, [spec.id, project.id, storeKey])
+  }, [spec.id, project.id, storeKey, thin])
 
   // Пересчёт при изменении параметров или ревизии проекта (исключения, настройки — в т. ч. из 5.8).
   useEffect(() => {
