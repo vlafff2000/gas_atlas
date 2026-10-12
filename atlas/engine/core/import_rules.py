@@ -92,6 +92,31 @@ def merge_import(raw_frames,groups,parsed,policy):
             updated[module],count=merge_frames(updated.get(module),frame,module,policy);duplicates+=count
     return updated,groups,duplicates
 
+def exclude_rejected(updated,settings):
+    """Строки с колонкой ``_reject`` (отклонённые при разборе) попадают в журнал исключений с причиной: расчёты их не берут,
+    а в таблицах они остаются. Колонка ``_reject`` удаляется из таблиц. Возвращает (настройки, число исключённых)."""
+    import copy,datetime as dt,uuid
+    from . import exclusions
+    cfg=copy.deepcopy(settings);items=cfg.setdefault('excluded_points',{});batch=uuid.uuid4().hex
+    stamp=dt.datetime.now(dt.timezone.utc).isoformat();count=0
+    for module in list(updated):
+        frame=updated[module]
+        if '_reject' not in frame:continue
+        reasons=frame['_reject'].fillna('').astype(str)
+        frame=frame.drop(columns='_reject');updated[module]=frame
+        if module not in exclusions.KEYS or not reasons.ne('').any():continue
+        ident=exclusions.identify(frame.drop(columns='_point_id',errors='ignore'),module)
+        frames={module:ident}
+        for pid_,reason in zip(ident['_point_id'][reasons.ne('')],reasons[reasons.ne('')]):
+            metrics=[m for m in ('level','pressure') if m in ident.columns] if module=='response' else [None]
+            for metric in metrics:
+                identifier=exclusions.point_id(module,pid_,metric)
+                if identifier in items:continue
+                row=exclusions.entry(frames,module,identifier,metric,'Отклонено при импорте: '+reason)
+                if row is None:continue
+                items[identifier]={**row,'batch':batch,'excluded_utc':stamp};count+=1
+    return cfg,count
+
 def pressure_layout(raw):
     from atlas.engine.modules import pressure_match as pm
     for i in range(min(30,len(raw))):

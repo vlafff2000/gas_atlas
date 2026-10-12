@@ -252,6 +252,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const [pending, setPending] = useState<Pending | null>(null)
   const [policy, setPolicy] = useState('new')
   const [accept, setAccept] = useState(false)
+  const [keepRejected, setKeepRejected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<Message | null>(null)
   const [fixing, setFixing] = useState<IssueSource | null>(null)
@@ -259,7 +260,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const opts = (token: string) => fileOpts[token] ?? AUTO
 
   // Любое изменение входа делает прежнюю проверку недействительной (как подпись в 5.8).
-  useEffect(() => { setPending(null); setAccept(false); setFixing(null) }, [files, view, mode, kind, punit, gunit, pressureUnit, fileOpts, choices, detailed, books])
+  useEffect(() => { setPending(null); setAccept(false); setKeepRejected(false); setFixing(null) }, [files, view, mode, kind, punit, gunit, pressureUnit, fileOpts, choices, detailed, books])
 
   useEffect(() => {
     if (!files.length) { setSimple(null); setInfos(null); return }
@@ -316,7 +317,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
     if (!pending) return
     setBusy(true)
     try {
-      const r: Applied = await importApi.apply(project.id, pending.id, policy, accept)
+      const r: Applied = await importApi.apply(project.id, pending.id, policy, accept, keepRejected)
       onProject(r.project)
       setPending(null); uploads.clear(); setChoices({}); setDetailed({}); setFileOpts({}); setFine('')
       setMessage({ text: r.message, ok: true, undo: r.undo?.snapshot })
@@ -482,7 +483,12 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
             <label className="toggle"><input type="checkbox" checked={accept} onChange={e => setAccept(e.target.checked)} />
               <span>Загрузить корректные строки, исключив перечисленные ошибки</span></label>
           )}
-          <button type="button" className="primary" disabled={busy || !pending.counts.length || (pending.rejected > 0 && !accept)} onClick={apply}>
+          {pending.kept > 0 && (
+            <label className="toggle"><input type="checkbox" checked={keepRejected} onChange={e => setKeepRejected(e.target.checked)} />
+              <span>Загрузить и отклонённые строки ({pending.kept}): они попадут в проект как исключённые точки, расчёты их не берут,
+                вернуть можно в разделе «Исключенные точки»</span></label>
+          )}
+          <button type="button" className="primary" disabled={busy || !pending.counts.length || (pending.rejected > 0 && !accept && !keepRejected)} onClick={apply}>
             Применить загрузку</button>
         </div>
       )}

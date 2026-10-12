@@ -302,6 +302,7 @@ class ImportResult:
     rejected: int = 0
     warnings: int = 0
     omitted: int = 0      # замечаний сверх лимита журнала
+    kept: dict = field(default_factory=dict)      # модуль -> отклонённые строки с датой и скважиной; колонка «_reject» — причина
     by_header: dict = field(default_factory=dict)      # модуль -> колонки давления, уже пересчитанные по единице из заголовка
 
     def issue(self, file, sheet, row, reason, level='ошибка'):
@@ -523,7 +524,12 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df['kind']=df.get('kind',pd.Series('',index=df.index)).fillna('').astype(str).apply(lambda x:'injection' if re.search('закач|inject',x,re.I) else 'withdrawal' if re.search('отбор|withdraw',x,re.I) else named)
                 df['date']=df.date.dt.to_period('M').dt.to_timestamp()
             for ix in df.index[reasons.ne('')]: result.issue(filename,sheet,df.loc[ix,'_row'],reasons.loc[ix])
-            df=df[reasons.eq('')].copy()
+            # Отклонённые строки с понятной датой и скважиной запоминаются: их можно загрузить как исключённые точки.
+            identifiable=pd.Series(True,index=df.index)
+            if 'date' in df: identifiable&=df['date'].notna()
+            if 'well' in df: identifiable&=df['well'].fillna('').astype(str).str.strip().ne('')
+            df['_reject']=reasons.where(identifiable,'')
+            df=df[reasons.eq('')|identifiable].copy()
             if 'group' in df and 'group' in mapping and not wide and header>=0 and norm(head[header][mapping['group']]) in GSP_LABELS:
                 g=df['group'].fillna('').astype(str).str.strip().str.replace(r'\.0$','',regex=True)
                 df['group']=g.where(~g.str.fullmatch(r'\d+'),'ГСП '+g)       # «1» в колонке «ГСП» — группа «ГСП 1», как в добыче
@@ -539,6 +545,11 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             if progress: progress(sheet,row_offset-2)
     for name,frames in collected.items():
         frame=pd.concat(frames,ignore_index=True)
+        if '_reject' in frame:
+            flagged=frame['_reject'].astype(str).ne('')
+            if flagged.any(): result.kept[name]=frame[flagged].reset_index(drop=True)
+            frame=frame[~flagged].drop(columns='_reject').reset_index(drop=True)
+        if frame.empty: continue
         if name=='production':
             frame,dropped=prefer_flow(frame)
             if dropped:

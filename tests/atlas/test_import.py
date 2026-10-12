@@ -337,3 +337,17 @@ def test_fix_problem_rows_in_csv_and_xlsx(env, tmp_path):
     assert client.post(f'/api/projects/{pid}/import/fix', json=edit).status_code == 200
     r = client.post(f'/api/projects/{pid}/import/check', json={'files': [{'token': token}]}).json()
     assert r['rejected'] == 0 and r['counts'][0]['rows'] == 2
+
+
+def test_keep_rejected_rows_as_exclusions(env):
+    client, store = env
+    pid = store.create('П')
+    token = upload(client, 'плохой.csv', 'Скважина;Дата;Расход\n73;01.11.2025;2000\n73;02.11.2025;-1\n73;не дата;5\n'.encode())
+    r = client.post(f'/api/projects/{pid}/import/check', json={'files': [{'token': token}]}).json()
+    assert r['rejected'] == 2 and r['kept'] == 1          # строку без даты держать нечем
+    res = client.post(f'/api/projects/{pid}/import/apply', json={'pending': r['id'], 'keep_rejected': True})
+    assert res.status_code == 200 and 'исключены' in res.json()['message']
+    m = store.manifest(pid)
+    assert m['tables'] == {'production': 2}
+    reasons = [v['reason'] for v in m['settings']['excluded_points'].values()]
+    assert len(reasons) == 1 and reasons[0].startswith('Отклонено при импорте')
