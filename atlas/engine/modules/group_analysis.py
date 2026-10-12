@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from atlas.engine.core.config import ordered
+from atlas.engine.core.config import ordered,bounded_dates
 from atlas.engine.core.performance import select_wells,cached_chart
 from atlas.engine.modules import charts,production
 
@@ -12,7 +12,8 @@ def daily(df,mapping,group,kind,periods):
     d=select_wells(df,wells);d=d[d.kind.eq(kind)&d.period.isin(periods)]
     parts=[]
     for period,g in d.groupby('period',sort=False):
-        if (g.date.max()-g.date.min()).days>3660:raise ValueError('Период группы охватывает более 10 лет. Проверьте сезоны.')
+        g=bounded_dates(g,f'Группа «{group}», период {period}')
+        if g.empty:continue
         calendar=pd.date_range(g.date.min(),g.date.max())
         # Explicit exclusions remain NaN; only observed measurements contribute.
         valid=g.q.notna()&~g.get('_excluded',pd.Series(False,index=g.index)).fillna(False)

@@ -20,6 +20,7 @@ from atlas.engine.core.history import filter_details
 
 from .contract import ParamError
 from .modules._journal import filter_records
+from .api_projects import internal_error_text
 from .projects import Conflict, Projects
 
 log = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ def routes(projects: Projects) -> list[Route]:
                 return JSONResponse({'error': str(e.args[0]) if e.args else 'Не найдено'}, status_code=404)
             except Exception:
                 log.exception('Сбой запроса %s', request.url.path)
-                return JSONResponse({'error': 'Внутренняя ошибка. Подробности в журнале.'}, status_code=500)
+                return JSONResponse({'error': internal_error_text()}, status_code=500)
         return handler
 
     def state(request, body):

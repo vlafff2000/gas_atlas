@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 import numpy as np
 import pandas as pd
-from atlas.engine.core.config import COLORS, ordered, natural_key
+from atlas.engine.core.config import COLORS, ordered, natural_key, bounded_dates
 
 def period_rule(settings):
     """Правило сезонов из настроек проекта; ключ кэша представлений.
@@ -78,8 +78,8 @@ def curve_data(df,kind,selected_periods,wells):
     out=[]
     base=df[df.kind.eq(kind)&df.period.isin(selected_periods)]
     for period,bucket in base.groupby('period',sort=False):
-        if (bucket.date.max()-bucket.date.min()).days>3660:
-            raise ValueError(f'Период {period} охватывает более 10 лет. Проверьте поле Сезон.')
+        bucket=bounded_dates(bucket,f'Период {period}')
+        if bucket.empty:continue
         calendar=pd.date_range(bucket.date.min(),bucket.date.max())
         cumulative=bucket.groupby('date').q.sum().reindex(calendar,fill_value=0).cumsum()/1e6
         for well,g in bucket[bucket.well.isin(wells)].groupby('well',sort=False):
@@ -151,7 +151,7 @@ def _indexed_curves(df,index,kind,selected_periods,wells):
     for period in index.periods.get(kind,[]):
         if period not in selected_periods:continue
         bucket=index.buckets[(kind,period)]
-        if bucket is None:raise ValueError(f'Период {period} охватывает более 10 лет. Проверьте поле Сезон.')
+        if isinstance(bucket,Exception):raise bucket
         calendar,cumulative,available=bucket
         for well in available:
             if well not in chosen:continue
