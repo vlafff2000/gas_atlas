@@ -19,6 +19,9 @@ from .domain import DatasetKind
 ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text', 'map']
 
 
+from atlas.engine.core.config import DataRangeError  # noqa: E402,F401  (перевыпуск для api)
+
+
 class ParamError(ValueError):
     """Неверное значение параметра; текст показывается пользователю как есть."""
 

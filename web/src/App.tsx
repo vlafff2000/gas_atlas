@@ -6,7 +6,7 @@ import { ParamBar } from './ParamBar'
 import { PassportPage } from './PassportPage'
 import { TableView } from './TableView'
 import { formatDate } from './format'
-import { inMenu, PROJECT_PAGES } from './api_projects'
+import { inMenu, PROJECT_PAGES, projectsApi, saveLink } from './api_projects'
 import { ProjectPages } from './ProjectPage'
 import { ImportPage } from './ImportPage'
 import { EmptyProjectSteps, hasData, NewProjectSteps } from './FirstSteps'
@@ -22,7 +22,7 @@ const remembered = {
   set: (key: string, value: unknown) => { try { localStorage.setItem('atlas:' + key, JSON.stringify(value)) } catch { /* без памяти */ } },
 }
 
-type Status = { kind: 'idle' } | { kind: 'running' } | { kind: 'error'; message: string; missing: boolean } | { kind: 'done' }
+type Status = { kind: 'idle' } | { kind: 'running' } | { kind: 'error'; message: string; missing: boolean; code?: number } | { kind: 'done' }
 
 export function App() {
   const [modules, setModules] = useState<ModuleSpec[] | null>(null)
@@ -276,8 +276,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
         if ((e as Error).name === 'AbortError') return
         const err = e as ApiError
         if (err.status === 400) remembered.set(storeKey, {})     // сохранённые параметры устарели
-        setStatus({ kind: 'error', message: err.message, missing: err.status === 409 })
-        if (err.status === 409) setResult(null)
+        setStatus({ kind: 'error', message: err.message, missing: err.status === 409, code: err.status })
+        if (err.status === 409 || err.status === 422) setResult(null)
       })
   }, [spec.id, project.id, storeKey, thin])
 
@@ -402,6 +402,12 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
         <div className={'note ' + (status.missing ? 'info' : 'warning')} role="alert">
           {status.message}
           {status.missing && <> <a href={spec.needs.includes('pressure_match') ? '#/@import/pressure' : '#/@import'}>Открыть импорт</a></>}
+          {status.code === 500 && (
+            <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+              <button type="button" className="quiet" onClick={() => saveLink(projectsApi.logUrl)}>Скачать журнал</button>
+              <button type="button" className="quiet" onClick={() => { navigator.clipboard?.writeText(status.message).catch(() => undefined) }}>Копировать текст ошибки</button>
+            </div>
+          )}
         </div>
       )}
 

@@ -26,15 +26,19 @@ class FrameIndex:
         if module!='production':return
         self.groups=df.groupby(['kind','period','well'],sort=False).indices
         self.buckets={};self.colors={};self.periods={}
-        from .config import COLORS
+        from .config import COLORS,bounded_dates,DataRangeError
         for kind,part in df.groupby('kind',sort=False):
             self.periods[kind]=part.period.drop_duplicates().tolist()
             self.colors[kind]={p:COLORS[i%len(COLORS)] for i,p in enumerate(part.groupby('period').date.max().sort_values(ascending=False).index)}
             for period,bucket in part.groupby('period',sort=False):
-                lo,hi=bucket.date.min(),bucket.date.max()
-                if (hi-lo).days>3660:
-                    self.buckets[(kind,period)]=None
+                try:bucket=bounded_dates(bucket,f'Период {period}')
+                except DataRangeError as e:
+                    self.buckets[(kind,period)]=e
                     continue
+                if bucket.empty:
+                    self.buckets[(kind,period)]=(pd.DatetimeIndex([]),np.array([]),[])
+                    continue
+                lo,hi=bucket.date.min(),bucket.date.max()
                 calendar=pd.date_range(lo,hi)
                 cumulative=bucket.groupby('date').q.sum().reindex(calendar,fill_value=0).cumsum()/1e6
                 self.buckets[(kind,period)]=(calendar,cumulative.to_numpy(),bucket.well.drop_duplicates().tolist())

@@ -35,3 +35,30 @@ def histogram_size(value, count):
 
 # Условные «нет данных» из LAS и выгрузок приборов: число, а не пустая ячейка, поэтому читаются как пропуск.
 NODATA=(-999.25,-999.0,-9999.0,-99999.0)
+
+
+class DataRangeError(ValueError):
+    """Даты в данных не укладываются в допустимый период; текст (какая группа, какие даты) показывается как есть."""
+
+
+MAX_SPAN_DAYS = 3660
+
+
+def bounded_dates(frame, label):
+    """Строки периода без дат из будущего (шаблоны на ещё не наступившие дни).
+    Если и после этого период длиннее 10 лет, это опечатка в дате: ошибка с перечнем подозрительных лет."""
+    import pandas as pd
+    future = frame.date.gt(pd.Timestamp.today().normalize())
+    if future.any():
+        frame = frame[~future]
+    if frame.empty:
+        return frame
+    lo, hi = frame.date.min(), frame.date.max()
+    if (hi - lo).days > MAX_SPAN_DAYS:
+        years = frame.date.dt.year.value_counts().sort_index()
+        rare = [f'{y} ({n} стр.)' for y, n in years.items() if n <= max(1, len(frame) // 200)][:6]
+        hint = ' Подозрительные годы: ' + ', '.join(rare) + '.' if rare else ''
+        raise DataRangeError(
+            f'{label}: даты с {lo:%d.%m.%Y} по {hi:%d.%m.%Y}, это больше 10 лет.{hint} '
+            'Проверьте опечатки в датах (в «Проверке данных» или в разделе «Исключённые точки») и поле «Сезон».')
+    return frame

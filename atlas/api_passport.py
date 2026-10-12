@@ -22,6 +22,7 @@ from starlette.routing import Route
 from atlas.engine.core.config import DEFAULT_SETTINGS, MODULES, ordered
 
 from .contract import MissingData, ParamError
+from .api_projects import internal_error_text
 from .projects import Conflict, Projects
 
 log = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ def _endpoint(work):
             return _error(404, str(e.args[0]) if e.args else 'Не найдено')
         except Exception:
             log.exception('Сбой запроса %s', request.url.path)
-            return _error(500, 'Внутренняя ошибка. Подробности в журнале.')
+            return _error(500, internal_error_text())
         return out if isinstance(out, Response) else JSONResponse(out)
     return handler
 
