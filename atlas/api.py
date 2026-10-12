@@ -21,7 +21,7 @@ from starlette.staticfiles import StaticFiles
 
 from . import VERSION, api_exclusions, registry, render, thinning
 from . import api_export, api_projects
-from .contract import MissingData, ParamError, Result, _chart_json, _series_json, _table_json
+from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
 from .projects import Conflict, Projects
 
@@ -78,6 +78,8 @@ def create_app(projects: Projects | None = None) -> Starlette:
                 return error(e.status, str(e))
             except ParamError as e:
                 return error(400, str(e))
+            except DataRangeError as e:
+                return error(422, str(e))
             except MissingData as e:
                 return error(409, str(e))
             except Conflict as e:
@@ -86,7 +88,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
                 return error(404, str(e.args[0]) if e.args else 'Не найдено')
             except Exception:
                 log.exception('Сбой запроса %s', request.url.path)
-                return error(500, 'Внутренняя ошибка. Подробности в журнале.')
+                return error(500, api_projects.internal_error_text())
             return out if isinstance(out, Response) else JSONResponse(out)
         return handler
 

@@ -32,6 +32,13 @@ LOG_DIR = Path(os.environ.get('GAS_ATLAS_LOGS', ROOT / 'logs'))
 MAX_UPLOAD = 3 * 1024 ** 3          # как предел распаковки резервной копии в 5.8
 
 
+def internal_error_text() -> str:
+    """Текст для пользователя при сбое 500: где лежит журнал и как его взять."""
+    path = (LOG_DIR / 'atlas.log').resolve()
+    return ('Внутренняя ошибка. Подробности в журнале: ' + str(path) +
+            '. Его можно скачать кнопкой «Скачать журнал ошибок» (Настройки или Проекты) и прислать разработчику.')
+
+
 def error(status: int, message: str) -> JSONResponse:
     return JSONResponse({'error': message}, status_code=status)
 
@@ -167,7 +174,7 @@ def routes(projects: Projects) -> list[Route]:
                 return error(400, str(e) if not isinstance(e, zipfile.BadZipFile) else 'Файл не является ZIP-архивом')
             except Exception:
                 log.exception('Сбой запроса %s', request.url.path)
-                return error(500, 'Внутренняя ошибка. Подробности в журнале.')
+                return error(500, internal_error_text())
             return out if isinstance(out, Response) else JSONResponse(out)
         return handler
 

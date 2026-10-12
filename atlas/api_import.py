@@ -35,6 +35,7 @@ from . import render
 from .api import Failure, error
 from .contract import MissingData, ParamError
 from .imports import Imports
+from .api_projects import internal_error_text
 from .projects import Conflict
 
 log = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def _wrap(work, raw_body=False):
             return error(404, str(e.args[0]) if e.args else 'Не найдено')
         except Exception:
             log.exception('Сбой запроса %s', request.url.path)
-            return error(500, 'Внутренняя ошибка. Подробности в журнале.')
+            return error(500, internal_error_text())
         return out if isinstance(out, Response) else JSONResponse(out)
     return handler
 
