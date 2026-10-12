@@ -454,6 +454,7 @@ class Imports:
             if self._blocked(options, problems, errors):
                 raise ParamError(' '.join(problems + errors) or 'Нет листов для загрузки: отметьте хотя бы один.')
         parsed, issues, originals, rejected, warnings = {}, [], [], 0, 0
+        kept = {}                     # отклонённые строки с датой и скважиной: их можно загрузить исключёнными
         sources = []                  # к каждому замечанию: из какого загруженного файла (для правки строки)
         with tempfile.TemporaryDirectory(prefix='gas_atlas_import_') as staging:
             for i, f in enumerate(files):
@@ -475,18 +476,20 @@ class Imports:
                         rules.to_kgf(r.frames, skip=r.by_header)
                     for module, frame in r.frames.items():
                         parsed[module] = pd.concat([parsed[module], frame], ignore_index=True) if module in parsed else frame
+                    for module, frame in r.kept.items():
+                        kept[module] = pd.concat([kept[module], frame], ignore_index=True) if module in kept else frame
                     issues.extend(r.issues)
                     sources.extend([item.token] * len(r.issues))
                     rejected += r.rejected
                     warnings += r.warnings
-                    if r.frames:
+                    if r.frames or r.kept:
                         originals.append((item.name, item.content))
                 except Exception as e:
                     issues.append({'Файл': item.name, 'Лист': '', 'Строка': 0, 'Уровень': 'ошибка', 'Причина': str(e)})
                     sources.append(item.token)
                     rejected += 1
         pending = {'id': uuid.uuid4().hex, 'kind': 'general', 'pid': pid, 'revision': m.get('revision'),
-                   'frames': parsed, 'issues': pd.DataFrame(issues, columns=ISSUE_COLUMNS), 'rejected': rejected,
+                   'frames': parsed, 'kept': kept, 'issues': pd.DataFrame(issues, columns=ISSUE_COLUMNS), 'rejected': rejected,
                    'warnings': warnings, 'originals': originals, 'tokens': [f.get('token') for f in files],
                    'sources': sources, 'file_options': {f.get('token'): {'encoding': f.get('encoding') or 'auto',
                                                                          'delimiter': f.get('delimiter') or 'auto'} for f in files}}
@@ -496,7 +499,8 @@ class Imports:
 
     def _pending_json(self, p: dict) -> dict[str, Any]:
         counts = [{'module': k, 'label': module_label(k), 'rows': len(v)} for k, v in p['frames'].items()]
-        out = {'id': p['id'], 'counts': counts, 'rejected': p['rejected'], 'warnings': p['warnings'],
+        out = {'id': p['id'], 'counts': counts, 'rejected': p['rejected'],
+               'kept': sum(len(v) for v in p.get('kept', {}).values()), 'warnings': p['warnings'],
                'policies': [{'value': k, 'label': v} for k, v in POLICIES.items()]}
         out['issues'] = frame_table('issues', 'Журнал проверки', p['issues'].head(200),
                                     note=f'Показаны первые 200 из {len(p["issues"])}. Полный журнал — в выгрузке.'
@@ -597,19 +601,34 @@ class Imports:
         policy = body.get('policy') or 'new'
         if policy not in POLICIES:
             raise ParamError('Неизвестное правило повторов')
-        if not p['frames']:
+        keep = bool(body.get('keep_rejected')) and bool(p.get('kept'))
+        if not p['frames'] and not keep:
             raise ParamError('Нет строк для загрузки')
-        if p['rejected'] and not body.get('accept'):
+        if p['rejected'] and not (body.get('accept') or keep):
             raise ParamError('Есть отклонённые строки: подтвердите загрузку корректных строк.')
         m = self.projects.manifest(pid)
-        updated, groups, duplicates = rules.merge_import(self._raw_frames(pid, m), m.get('groups', {}), p['frames'], policy)
+        parsed = dict(p['frames'])
+        if keep:
+            for module, bad in p['kept'].items():
+                good = parsed.get(module)
+                if good is not None:
+                    good = good.assign(_reject='')
+                parsed[module] = pd.concat([good, bad], ignore_index=True) if good is not None else bad
+        updated, groups, duplicates = rules.merge_import(self._raw_frames(pid, m), m.get('groups', {}), parsed, policy)
+        settings, kept_rows = m.get('settings', {}), 0
+        if keep:
+            settings, kept_rows = rules.exclude_rejected(updated, settings)
         originals = m.get('imports', []) + self._keep_originals(pid, p['originals'])
         lost = rules.lost_exclusions(m.get('settings', {}).get('excluded_points', {}), updated, p['frames'])
-        saved = self._commit(pid, updated, p['revision'], 'Импорт данных', groups=groups, imports=originals)
+        saved = self._commit(pid, updated, p['revision'], 'Импорт данных', groups=groups, imports=originals,
+                             settings=settings if kept_rows else None)
         self.projects.store.event(pid, 'Результат импорта', {'removed_duplicates': duplicates, 'rejected': p['rejected'],
-                                                             'lost_exclusions': lost})
+                                                             'lost_exclusions': lost, 'kept_rejected': kept_rows})
         self._forget(p)
         message = 'Данные сохранены'
+        if kept_rows:
+            message += (f'. Отклонённые строки ({kept_rows}) загружены и исключены из расчётов: они видны в разделе '
+                        '«Исключенные точки», оттуда их можно вернуть после исправления.')
         if lost:
             message += (f'. Внимание: {lost} исключённых точек больше не найдены в данных (значение или единица изменились '
                         'при повторной загрузке); проверьте журнал исключений и исключите их заново.')

@@ -83,3 +83,15 @@ def test_headerless_groups(tmp_path):
     r=load_file(p,module='groups');assert r.frames['groups'].well.tolist()==['540','541']
     p=put(tmp_path,'540\t2\n541\t3\n',name='subgroups.txt')
     r=load_file(p,module='subgroups');assert r.frames['groups'].subgroup.tolist()==['2','3']
+
+def test_rejected_rows_can_be_kept_as_exclusions(tmp_path):
+    from atlas.engine.core import import_rules as rules
+    p=put(tmp_path,'Скважина;Дата;Расход\n73;01.11.2025;2000\n73;не дата;2000\n73;02.11.2025;-1\n')
+    r=load_file(p)
+    assert len(r.frames['production'])==1 and r.rejected==2
+    bad=r.kept['production']; assert len(bad)==1 and bad._reject.iloc[0].startswith('Расход')   # без даты строку держать нечем
+    frame=pd.concat([r.frames['production'].assign(_reject=''),bad],ignore_index=True)
+    updated={'production':frame}
+    cfg,count=rules.exclude_rejected(updated,{})
+    assert count==1 and '_reject' not in updated['production'] and len(updated['production'])==2
+    entry=next(iter(cfg['excluded_points'].values())); assert entry['reason'].startswith('Отклонено при импорте') and entry['q']==-1

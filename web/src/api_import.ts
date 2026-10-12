@@ -53,7 +53,7 @@ export interface RowsWindow {
 export interface CellEdit { row: number; col: number; value: string }
 export interface Fixed { message: string; name: string; bytes: number; changed: number; backup: string }
 export interface Pending {
-  id: string; counts: { module: string; label: string; rows: number }[]; rejected: number; warnings: number
+  id: string; counts: { module: string; label: string; rows: number }[]; rejected: number; kept: number; warnings: number
   issues: Table | null; issues_count: number; issue_rows: (IssueSource | null)[]; previews: Table[]; policies: Choice[]
   quality: { errors: number; attention: number; by_check: { dataset: string; check: string; level: string; count: number }[]; table: Table | null }
 }
@@ -123,8 +123,8 @@ export const importApi = {
   templates: async () => (await send('/api/import/templates')).json() as Promise<{ name: string; kind: string }[]>,
   template: async (name: string) => save(await send(`/api/import/templates/${encodeURIComponent(name)}`), name),
   check: (project: string, body: CheckBody) => post<Pending>(`/api/projects/${project}/import/check`, body),
-  apply: (project: string, pending: string, policy: string, accept: boolean) =>
-    post<Applied>(`/api/projects/${project}/import/apply`, { pending, policy, accept }),
+  apply: (project: string, pending: string, policy: string, accept: boolean, keepRejected = false) =>
+    post<Applied>(`/api/projects/${project}/import/apply`, { pending, policy, accept, keep_rejected: keepRejected }),
   rows: (body: { token: string; sheet: string; row: number; encoding?: string; delimiter?: string; radius?: number }) =>
     post<RowsWindow>('/api/import/rows', body),
   fix: (project: string, body: { token: string; sheet: string; edits: CellEdit[]; confirm: boolean; encoding?: string; delimiter?: string }) =>
