@@ -388,6 +388,22 @@ def captions_from(form: Mapping[str, Any], modules) -> dict[str, dict]:
     return out
 
 
+def pack_form(form: Mapping[str, Any]) -> dict[str, Any]:
+    """Форма для пакета по фонду: свои оформление и подписи пакета (``fmt_pack_*``, ``label_pack_*``) заменяют настройки «Производительности»."""
+    out = dict(form)
+    for key, value in form.items():
+        for prefix in ('fmt_', 'label_'):
+            if key.startswith(prefix + 'pack_') and value not in (None, ''):
+                out[prefix + 'production_' + key[len(prefix) + 5:]] = value
+    return out
+
+
+def ggh_style(form: Mapping[str, Any], font_size) -> dict[str, Any]:
+    """Оформление графика ГГХ: наборы данных и оси (``fmt_ggh_*``), подписи (``label_ggh_*``), шрифт и вид."""
+    return {**chart_format.for_module(chart_format.configs(form), 'ggh'), 'labels': chart_labels.configs(form).get('ggh', {}),
+            'font_size': font_size, 'look': look_from(form)}
+
+
 def font_from(form: Mapping[str, Any]) -> tuple[str, Any]:
     """Шрифт и его размер (пт) из формы выгрузки; без них — стандартный шрифт и размер по умолчанию."""
     from atlas.engine.core.fonts import check
@@ -787,7 +803,7 @@ def routes(projects: Projects) -> list[Route]:
         options, source, raw = options_from(pack_options(form, data), data)
         if not options['wells']:
             raise Failure(400, 'В проекте нет скважин с эксплуатацией для пакета графиков.')
-        plan = chart_labels.labelled(reporting.plan(source, data.mapping, data.settings, options, raw), form)     # подписи и оформление, как у остальных графиков
+        plan = chart_labels.labelled(reporting.plan(source, data.mapping, data.settings, options, raw), pack_form(form))     # подписи и оформление, как у остальных графиков
         d = production.periods(source['production'], data.settings['season_start'], data.settings['season_end'])
         meta = metadata(pid, data, options, {})
         pack_font, pack_font_size = font_from(form)
@@ -872,7 +888,7 @@ def routes(projects: Projects) -> list[Route]:
         if not items:
             raise Failure(400, 'У выбранных скважин меньше двух замеров ГГХ: графики не строятся.')
         font, font_size = font_from(form)
-        style = {**chart_format.for_module(chart_format.configs(form), 'ggh'), 'font_size': font_size, 'look': look_from(form)}
+        style = ggh_style(form, font_size)
         content = ggh_report.build_docx(items, start=start, section=section, dpi=dpi, font=font if font != 'default' else 'times', style=style)
         exports = projects.store.path(pid) / 'exports'
         exports.mkdir(exist_ok=True)
@@ -916,7 +932,7 @@ def routes(projects: Projects) -> list[Route]:
         options, source, raw = options_from(pack_options(form, data), data)
         if not options['wells']:
             raise Failure(400, 'В проекте нет скважин с эксплуатацией для пакета графиков.')
-        return chart_labels.labelled(reporting.plan(source, data.mapping, data.settings, options, raw), form)
+        return chart_labels.labelled(reporting.plan(source, data.mapping, data.settings, options, raw), pack_form(form))
 
     def ggh_items(pid, form):
         from .modules._ggh import MIN_POINTS, well_horizon, wells_of
@@ -951,7 +967,7 @@ def routes(projects: Projects) -> list[Route]:
             well = name.split(' · ', 1)[1]
             if well not in frames:
                 raise Failure(404, 'График не найден. Обновите предпросмотр.')
-            style = {**chart_format.for_module(chart_format.configs(form), 'ggh'), 'font_size': font_size, 'look': look_from(form)}
+            style = ggh_style(form, font_size)
             return Response(ggh_report.figure_png(frames[well], well, 150, font if font != 'default' else 'times', style), media_type='image/png')
         job = next((j for j in pack_plan(pid, form).jobs if 'Пакет · ' + j.name == name), None)
         if job is None:
