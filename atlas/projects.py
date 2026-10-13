@@ -39,6 +39,7 @@ EDITABLE_SETTINGS = {
     'r2_threshold': lambda v: 0 <= float(v) <= 1,
     'season_start': _month,
     'season_end': _month,
+    'season_format': lambda v: v in ('dash', 'slash'),
     'auto_seasons': lambda v: isinstance(v, bool),
     'show_neutral_periods': lambda v: isinstance(v, bool),
     'season_gap_days': lambda v: not isinstance(v, bool) and float(v) == int(v) and 1 <= int(v) <= 365,
@@ -54,7 +55,7 @@ EDITABLE_SETTINGS = {
     'chart_style': lambda v: isinstance(v, dict) and all(k in ('points', 'legend', 'grid', 'autoscale') and isinstance(x, bool)
                                                          for k, x in v.items()),
 }
-SETTING_LABELS = {'r2_threshold': 'Порог R²', 'season_start': 'Первый месяц сезона отбора (1–12)',
+SETTING_LABELS = {'season_format': 'Вид названий сезонов', 'r2_threshold': 'Порог R²', 'season_start': 'Первый месяц сезона отбора (1–12)',
                   'season_end': 'Последний месяц сезона отбора (1–12)', 'manometer_wells': 'Скважины с глубинными манометрами',
                   'auto_seasons': 'Определять сезоны по накопленному расходу', 'show_neutral_periods': 'Показывать нейтральные периоды в списках сезонов', 'season_gap_days': 'Минимальная пауза (нейтральный период), сут',
                   'season_rate_share': 'Порог расхода, % от типичного', 'season_schedule': 'Расписание периодов', 'peak_windows': 'Пиковые окна',
