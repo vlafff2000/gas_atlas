@@ -27,14 +27,16 @@ def text(value: str, fmt: str = DEFAULT) -> str:
 
 def relabel(value: Any, fmt: str = DEFAULT) -> Any:
     """Копия ``value`` (результат модуля, список, словарь, строка…) с названиями сезонов в выбранном виде."""
-    if isinstance(value, str):
+    if type(value) is str:
         return text(value, fmt)
     if isinstance(value, pd.DataFrame):
         frame = value.copy()
-        frame.columns = [text(c, fmt) if isinstance(c, str) else c for c in frame.columns]
-        for name in frame.columns:
-            if not pd.api.types.is_numeric_dtype(frame[name]) and not pd.api.types.is_datetime64_any_dtype(frame[name]):
-                frame[name] = frame[name].map(lambda v: text(v, fmt) if isinstance(v, str) else v)
+        if not isinstance(frame.columns, pd.MultiIndex):
+            frame.columns = [text(c, fmt) if isinstance(c, str) else c for c in frame.columns]
+        for i in range(frame.shape[1]):
+            col = frame.iloc[:, i]
+            if not pd.api.types.is_numeric_dtype(col) and not pd.api.types.is_datetime64_any_dtype(col):
+                frame.isetitem(i, col.map(lambda v: text(v, fmt) if type(v) is str else v))
         return frame
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return dataclasses.replace(value, **{f.name: relabel(getattr(value, f.name), fmt)

@@ -19,3 +19,12 @@ def test_result():
     assert '2024/2025' in r.tables[0].frame.columns
     assert r.charts[0].series[0].name == '2025/2026' and r.charts[0].series[0].facets == {'Период': '2025/2026'}
     assert t.title == 'Сезон 2025-2026'
+
+
+def test_enum_kept():
+    from atlas.domain import DatasetKind
+    from atlas.contract import TableAction
+    t = Table('t', 'x', pd.DataFrame({'a': [1]}), action=TableAction(label='L', endpoint='e', dataset=DatasetKind.PRODUCTION)) \
+        if False else None
+    k = relabel({'k': DatasetKind.PRODUCTION}, 'slash')
+    assert k['k'] is DatasetKind.PRODUCTION
