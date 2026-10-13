@@ -95,3 +95,26 @@ def test_rejected_rows_can_be_kept_as_exclusions(tmp_path):
     cfg,count=rules.exclude_rejected(updated,{})
     assert count==1 and '_reject' not in updated['production'] and len(updated['production'])==2
     entry=next(iter(cfg['excluded_points'].values())); assert entry['reason'].startswith('Отклонено при импорте') and entry['q']==-1
+
+def test_database_sheets_with_mixed_state_column_are_saved(tmp_path):
+    """База «Шахматка»: «Состояние» на листе закачки — и числа, и слова. Раньше сохранение падало на ArrowTypeError."""
+    import datetime as dt
+    cols=['Скважина','Группа','Дата','Состояние','Qгаз.пром (пересчёт)']
+    day=lambda n:dt.datetime(2024,4,n)
+    withdrawal=pd.DataFrame([['101','ГСП-1',day(1),'работает',5.0],['101','ГСП-1',day(2),'работает',6.0]],columns=cols)
+    injection=pd.DataFrame([['101','ГСП-1',day(1),'закачка',5.0],['101','ГСП-1',day(2),1,6.0],['101','ГСП-1',day(3),None,7.0]],columns=cols)
+    book=tmp_path/'База.xlsx'
+    with pd.ExcelWriter(book) as xl:
+        withdrawal.to_excel(xl,sheet_name='Отбор_по_скважинам',index=False)
+        injection.to_excel(xl,sheet_name='Закачка_по_скважинам',index=False)
+    r=load_file(book)
+    prod=r.frames['production']
+    assert prod.groupby('kind').size().to_dict()=={'injection':3,'withdrawal':2}
+    store=Store(tmp_path/'store'); pid=store.create('Тест')
+    store.commit(pid,{'production':prod})
+    saved=store.load(pid)[1]['production']
+    assert len(saved)==5 and set(saved.status)-{''}=={'закачка','1','работает'}
+    # и если смесь типов пришла не из загрузчика
+    mixed=prod.copy();mixed['status']=[1,'x',None,2.5,'y']
+    store.commit(pid,{'production':mixed})
+    assert len(store.load(pid)[1]['production'])==5

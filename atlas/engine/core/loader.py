@@ -17,7 +17,7 @@ from .well_import import ALIASES as WELL_ALIASES, REQUIRED as WELL_REQUIRED, det
 ALIASES = {
     'well': ['скважина', 'скв', '№скважины', 'номерскважины', '№скв', 'well', 'wellid', 'номер'],
     'date': ['дата', 'датагди', 'датаисследования', 'датазамера', 'date', 'datetime'],
-    'q': ['q', 'qгаза', 'qгазатысм3сут', 'расходгаза', 'расход', 'дебит', 'суточныйрасходгаза', 'суточныйрасход', 'flow'],
+    'q': ['q', 'qгаза', 'qгазатысм3сут', 'расходгаза', 'расход', 'дебит', 'суточныйрасходгаза', 'суточныйрасход', 'flow', 'qгазпромпересчет'],
     'p_res': ['рпл', 'pпл', 'ppl', 'p_res', 'пластовоедавление','пластовоедавлениеобъекта','давлениеобъекта', 'рпласт', 'рплатм'],
     'p_bh': ['рзаб', 'pзаб', 'рз', 'pз', 'pzab', 'p_bh', 'забойноедавление'],
     'dp2': ['рпл2рз2', 'рпл2рзаб2', 'δp2', 'δр2', 'dp2', 'deltap2', 'дельтар2'],
@@ -276,6 +276,7 @@ BAR_TO_KGF=1.0197162129779
 def rate_unit(label,fallback):
     """Единица расхода из заголовка колонки («Q, млн м³/сут»); нет в заголовке — ``fallback``."""
     label=str(label).lower().replace('³','3').replace('^','')
+    if label.startswith('qгаз.пром'): return 'тыс. м³/сут'      # итог базы «Шахматка» (pxg_core/шахматка.py): тыс. м³ за сутки
     if 'млрд' in label: return 'млрд м³/сут'
     if 'млн' in label: return 'млн м³/сут'
     if 'тыс' in label: return 'тыс. м³/сут'
@@ -415,6 +416,8 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df=raw.copy()
             else:
                 df=pd.DataFrame({k:raw[i] for k,i in mapping.items()}); df['_row']=raw.index+row_offset
+            if 'status' in df:      # в колонке «Состояние» бывают и числа, и слова: паркет не пишет смесь типов
+                df['status']=df.status.map(lambda v:v if pd.isna(v) else str(int(v)) if isinstance(v,float) and v==int(v) else str(v).strip())
             reasons=pd.Series('',index=df.index)
             if detected not in ('object_pressure','plan','water_factor'):
                 df['well']=well_ids(df.well)

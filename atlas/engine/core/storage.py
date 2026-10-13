@@ -13,6 +13,7 @@ import sqlite3
 import tempfile
 import uuid
 import zipfile
+import pyarrow as pa
 import pandas as pd
 import portalocker
 from .config import DEFAULT_SETTINGS, STORAGE, VERSION
@@ -104,7 +105,11 @@ class Store:
                     for name,frame in frames.items():
                         if name not in ('production','gdi','response','object_pressure','operations','water','bottom','construction','pressure_match','plan','ggh','water_factor'): raise ValueError('Неизвестный модуль')
                         clean=frame.copy(deep=False);clean.attrs={}
-                        clean.to_parquet(dest/(name+'.parquet'),index=False,compression='zstd')
+                        try:clean.to_parquet(dest/(name+'.parquet'),index=False,compression='zstd')
+                        except (pa.ArrowTypeError,pa.ArrowInvalid):       # столбец смешанных типов (числа и текст): текст, пропуски остаются пропусками
+                            for col in clean.columns[clean.dtypes.eq(object)]:
+                                clean[col]=clean[col].map(lambda v:v if v is None or (isinstance(v,float) and v!=v) else str(v))
+                            clean.to_parquet(dest/(name+'.parquet'),index=False,compression='zstd')
                 except Exception:
                     shutil.rmtree(dest); raise
                 m['snapshot']=snap; m['tables']={k:len(v) for k,v in frames.items()}
