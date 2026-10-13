@@ -19,7 +19,7 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, R
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import VERSION, api_exclusions, registry, render, thinning
+from . import VERSION, api_exclusions, registry, render, season_format, thinning
 from . import api_export, api_projects
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
@@ -104,7 +104,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         if cached is None:
             started = time.perf_counter()
             with thinning.full_resolution() if full else nullcontext():
-                result: Result = module.run(data, params)
+                result: Result = season_format.relabel(module.run(data, params), season_format.format_of(data.settings))
             cached = (result, round((time.perf_counter() - started) * 1000, 1))
             results.put(key, cached)
         return cached, params, data

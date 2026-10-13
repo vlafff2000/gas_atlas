@@ -131,6 +131,20 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
       </section>
 
       <section className="form-block">
+        <h2>Вид названий сезонов</h2>
+        <div className="form-row">
+          <label className="field">
+            <span className="field-label">Сезоны отбора на графиках, в таблицах и выгрузках</span>
+            <select value={s.season_format === 'slash' ? 'slash' : 'dash'}
+              onChange={e => save({ season_format: e.target.value }, 'Вид сезонов сохранён.')}>
+              <option value="dash">Через тире: 2025-2026</option>
+              <option value="slash">Через слэш: 2025/2026</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="form-block">
         <h2>Расписание периодов</h2>
         <p className="muted small-text">Точные даты начала периодов, по одной строке: «28.06.2021 inj» — закачка, «25.10.2021 none» — нейтральный период,
           «01.11.2021 prod» — отбор, «10.01.2022 15.01.2022 peak» — пиковое окно внутри сезона (первый и последний день; периоды не разбивает). Период длится до дня перед следующей строкой, последний — до конца данных. Расписание главнее колонок
