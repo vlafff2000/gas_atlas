@@ -35,7 +35,8 @@ FIRST_COLUMN_CM = 3.2
 def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'times', style: dict | None = None) -> bytes:
     """График скважины как в скрипте: слева содержание, %, справа газонасыщенность, по 11 меток на каждой оси.
     ``style`` — настройки выгрузки: ``font_size`` (пт, база 12), ``look`` (``excel`` — палитра Office), общие ``title`` / ``angle`` и
-    правила наборов данных ``series`` (``atlas/chart_format.py``): набор — параметр ГГХ или «Газонасыщенность»."""
+    правила наборов данных ``series`` и ручные ``axes`` (``atlas/chart_format.py``): набор — параметр ГГХ или «Газонасыщенность»;
+    ``labels`` — свои название графика (с ``{скважина}``) и подписи осей ``title``, ``x``, ``y``, ``y2`` (``atlas/chart_labels.py``)."""
     import matplotlib
     matplotlib.use('Agg')
     import numpy as np
@@ -49,6 +50,8 @@ def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'time
     style = style or {}
     k = float(style.get('font_size') or 12) / 12
     rules = style.get('series') or []
+    names = style.get('labels') or {}
+    ax2 = None
     from atlas.engine.core.export import XL_PALETTE
 
     def look(label: str, color: str, index: int) -> dict | None:
@@ -69,7 +72,7 @@ def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'time
         fig = Figure(figsize=FIG_INCHES, facecolor='white')
         FigureCanvasAgg(fig)
         ax = fig.add_subplot(111)
-        ax.set_ylabel('Содержание, %', fontsize=14 * k, fontweight='bold')
+        ax.set_ylabel(names.get('y') or 'Содержание, %', fontsize=14 * k, fontweight='bold')
         ax.set_ylim(0, 100)
         ax.set_yticks(np.linspace(0, 100, TICKS))
         ax.tick_params(axis='both', labelsize=12 * k)
@@ -86,7 +89,7 @@ def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'time
         shown = look(GAS[1], GAS[2], len(PARAMS))
         if ok.any() and shown:
             ax2 = ax.twinx()
-            ax2.set_ylabel('Газонасыщенность, см³/л', fontsize=14 * k, fontweight='bold')
+            ax2.set_ylabel(names.get('y2') or 'Газонасыщенность, см³/л', fontsize=14 * k, fontweight='bold')
             ax2.tick_params(axis='both', labelsize=12 * k)
             low, high = gas_axis(pd.Series(gas[ok]))
             ax2.set_ylim(low, high)
@@ -94,20 +97,23 @@ def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'time
             ax2.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{int(round(v))}' if abs(v) >= 0.5 else '0'))
             size = shown['size'] if shown['size'] is not None else SIZES['gas']
             ax2.plot(dates[ok], gas[ok], color=shown['color'], marker=MARKERS['gas'] if size > 0 else None, markersize=size, linewidth=shown['width'], linestyle='-')
-        ax.set_xlabel('Год', fontsize=14 * k, fontweight='bold', labelpad=10)
+        ax.set_xlabel(names.get('x') or 'Год', fontsize=14 * k, fontweight='bold', labelpad=10)
         first, last = pd.to_datetime(frame.date).min().year, pd.to_datetime(frame.date).max().year
         ticks = [mdates.date2num(pd.Timestamp(year=y, month=1, day=1).to_pydatetime()) for y in range(first, last + 1)]
         ax.set_xticks(ticks)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+        if len(dates) > 1:
+            ax.set_xlim(dates[0] - 180, dates[-1] + 180)
+        if style.get('axes'):
+            from atlas.engine.core.export import manual_axes
+            manual_axes(ax, ax2, style['axes'], True, False)
         angle = float(style['angle']) if style.get('angle') not in (None, 'auto') else 45 if len(ticks) > 10 else 0
         for label in ax.get_xticklabels():
             label.set_rotation(angle)
             label.set_ha('right' if 0 < angle < 90 else 'center')
             label.set_fontsize(12 * k)
-        if len(dates) > 1:
-            ax.set_xlim(dates[0] - 180, dates[-1] + 180)
         if style.get('title') != 'hide':
-            ax.set_title(f'Скважина №{well}', fontsize=16 * k, fontweight='bold', pad=20)
+            ax.set_title((names.get('title') or '').replace('{скважина}', well) or f'Скважина №{well}', fontsize=16 * k, fontweight='bold', pad=20)
         fig.tight_layout()
         buf = io.BytesIO()
         fig.savefig(buf, format='png', dpi=dpi, facecolor='white', bbox_inches='tight')   # как в скрипте: без пустых полей

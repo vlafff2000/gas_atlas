@@ -429,6 +429,20 @@ def test_pack_and_ggh_use_export_settings(env):
     assert base[:4] == styled[:4] == b'\x89PNG' and base != styled
 
 
+def test_pack_and_ggh_own_labels_and_axes(env):
+    """У пакета по фонду и ГГХ свои подписи и оси (как у остальных типов графиков); пакет наследует настройки «Производительности»."""
+    from atlas import api_export, ggh_report
+    form = api_export.pack_form({'fmt_production_series': 'A', 'fmt_pack_series': 'B', 'label_pack_title': 'T', 'fmt_pack_axes': ''})
+    assert form['fmt_production_series'] == 'B' and form['label_production_title'] == 'T' and 'fmt_production_axes' not in form
+    assert api_export.pack_form({'fmt_production_series': 'A'})['fmt_production_series'] == 'A'
+    style = api_export.ggh_style({'label_ggh_title': 'Скв {скважина}', 'label_ggh_y': 'Y', 'fmt_ggh_axes': '{"y": {"min": 0, "max": 50, "major": 10}}'}, None)
+    assert style['labels'] == {'title': 'Скв {скважина}', 'y': 'Y'} and style['axes']['y']['max'] == 50
+    frame = pd.DataFrame({'date': pd.to_datetime(['2020-01-01', '2021-01-01', '2022-01-01']), 'hc': [10, 20, 30], 'he': [1, 2, 3], 'gas': [5, 6, 7]})
+    plain = ggh_report.figure_png(frame, '1', 100)
+    own = ggh_report.figure_png(frame, '1', 100, 'times', style)
+    assert own[:4] == b'\x89PNG' and own != plain
+
+
 def test_pack_and_ggh_ids_in_modules_are_ignored_by_plan(env):
     """«Пакет по фонду» и «ГГХ» включаются в список модулей формы, но перечень графиков строится по остальным."""
     client, pid, _, _ = env
