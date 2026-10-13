@@ -45,7 +45,20 @@ def is_full() -> bool:
 def screen_decimate(frame: pd.DataFrame, column: str, limit: int = 5000) -> pd.DataFrame:
     """Прореживание 5.8 (``charts.decimate``) для экрана; в ``full_resolution`` — все точки."""
     from atlas.engine.modules.charts import decimate
-    return frame if is_full() else decimate(frame, column, limit)
+    if is_full() or len(frame) <= limit:
+        return frame
+    plain = frame.reset_index(drop=True)
+    thinned = decimate(plain, column, limit)
+    # Прореживание 5.8 берёт по корзине минимум и максимум, но не границы остановки: линия от последнего рабочего
+    # дня шла бы к нулю через много суток и выглядела оборванной на значении. Оставляем точки по обе стороны каждого
+    # перехода «работает / ноль»; на графике нулевые сутки идут подряд, поэтому переходов немного.
+    values = frame[column].to_numpy(dtype=float)
+    active = np.nan_to_num(values) != 0
+    edge = np.flatnonzero(active[1:] != active[:-1])
+    if not len(edge):
+        return frame.iloc[thinned.index.to_numpy()]
+    keep = np.unique(np.concatenate([thinned.index.to_numpy(), edge, edge + 1]))
+    return frame.iloc[keep] if len(keep) <= limit * 2 else frame.iloc[thinned.index.to_numpy()]
 
 
 # ---------- числовая ось ----------
