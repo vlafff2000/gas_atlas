@@ -941,7 +941,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
 
 /** Свои названия графика, осей и записей легенды для каждого типа выгружаемых графиков (Word, архив, предпросмотр). */
 function ChartLabels({ form, set, choices, modules, projectId, ready }: FieldProps & { modules: string[]; projectId: string; ready: boolean }) {
-  const rows = modules.filter(m => choices.modules.some(x => x.id === m))
+  const rows = styleRows(modules, choices)
   const [defaults, setDefaults] = useState<Record<string, Record<string, string>>>({})
   const [open, setOpen] = useState(false)
   useEffect(() => {      // названия графика и осей, как они сейчас в графиках, — шаблон для полей
@@ -951,6 +951,8 @@ function ChartLabels({ form, set, choices, modules, projectId, ready }: FieldPro
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, ready, JSON.stringify(form.modules), projectId])
+  const shown = (m: string): Record<string, string> =>      // у пакета те же названия, что у «Производительности»; у ГГХ свои
+    m === 'ggh' ? { title: 'Скважина №{скважина}', x: 'Год', y: 'Содержание, %', y2: 'Газонасыщенность, см³/л' } : defaults[m === 'pack' ? 'production' : m] ?? {}
   return (
     <details className="table-block" onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary className="block-head"><h3>Подписи осей и легенд по типам графиков</h3></summary>
@@ -961,11 +963,11 @@ function ChartLabels({ form, set, choices, modules, projectId, ready }: FieldPro
         {rows.map(m => {
           const f = (name: string) => 'label_' + m + '_' + name
           return (
-            <Section key={m} title={choices.modules.find(x => x.id === m)?.label ?? m}>
-              <Text {...{ form, set, choices }} field={f('title')} label="Название графика" def={defaults[m]?.title ?? ''} />
-              <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def={defaults[m]?.x ?? ''} />
-              <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def={defaults[m]?.y ?? ''} />
-              <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def={defaults[m]?.y2 ?? ''} />
+            <Section key={m} title={styleLabel(m, choices)}>
+              <Text {...{ form, set, choices }} field={f('title')} label="Название графика" def={shown(m).title ?? ''} />
+              <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def={shown(m).x ?? ''} />
+              <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def={shown(m).y ?? ''} />
+              <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def={shown(m).y2 ?? ''} />
               {m === 'gdi' && <Text {...{ form, set, choices }} field={f('template')} label="Запись легенды: {дата}, {метод}, {исследование} (пусто — полная)" def="{дата}" wide />}
               <label className="field wide">
                 <span className="field-label">Замены в легенде (по строке «что=на что»)</span>
@@ -1038,9 +1040,17 @@ function AxesEditor({ spec, onEdit }: { spec: AxesSpec; onEdit: (axis: 'x' | 'y'
 }
 
 /** Ручные границы и деления осей X, Y и дополнительной Y — отдельно по типам графиков. Состояние — в ``fmt_<модуль>_ui`` (черновик полей). */
+/** Типы графиков для настроек оформления: обычные модули, а также пакет по фонду и ГГХ, если они включены (ГГХ — если есть данные). */
+function styleRows(modules: string[], choices: ExportChoices): string[] {
+  return [...modules.filter(m => choices.modules.some(x => x.id === m)), ...(modules.includes('pack') ? ['pack'] : []), ...(choices.ggh && modules.includes('ggh') ? ['ggh'] : [])]
+}
+function styleLabel(m: string, choices: ExportChoices): string {
+  return m === 'ggh' ? 'ГГХ (Word)' : m === 'pack' ? 'Пакет по фонду' : choices.modules.find(x => x.id === m)?.label ?? m
+}
+
 function AxisSettings({ form, set, choices, modules }: FieldProps & { modules: string[] }) {
-  const rows = modules.filter(m => choices.modules.some(x => x.id === m))
-  const label = (m: string) => choices.modules.find(x => x.id === m)?.label ?? m
+  const rows = styleRows(modules, choices)
+  const label = (m: string) => styleLabel(m, choices)
   return (
     <details className="table-block">
       <summary className="block-head"><h3>Оси: границы и деления</h3></summary>
@@ -1188,8 +1198,8 @@ function RulesEditor({ rules, names, save }: { rules: SeriesRule[]; names: strin
 function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldProps & { modules: string[]; projectId: string; ready: boolean }) {
   const [names, setNames] = useState<Record<string, string[]>>({})
   const [open, setOpen] = useState(false)
-  const rows = [...modules.filter(m => choices.modules.some(x => x.id === m)), ...(choices.ggh ? ['ggh'] : [])]
-  const label = (m: string) => m === 'ggh' ? 'ГГХ (Word)' : choices.modules.find(x => x.id === m)?.label ?? m
+  const rows = styleRows(modules, choices)
+  const label = (m: string) => styleLabel(m, choices)
   useEffect(() => {      // подсказки: названия наборов данных в первых графиках каждого типа
     if (!open) return
     let alive = true
@@ -1212,7 +1222,7 @@ function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldPro
           return (
             <Section key={m} title={label(m)}>
               <div className="field wide">
-                <RulesEditor rules={rules} names={names[m] ?? []} save={save} />
+                <RulesEditor rules={rules} names={names[m === 'pack' ? 'production' : m] ?? []} save={save} />
               </div>
             </Section>
           )
