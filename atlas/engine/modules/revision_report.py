@@ -405,6 +405,8 @@ def docx_body(path: Path):
     except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
         raise InputError(f'Не удалось прочитать Word-файл {path.name}: {exc}') from exc
     body = root.find(W_NS + 'body')
+    if body is None:
+        raise InputError(f'Не удалось прочитать Word-файл {path.name}: нет тела документа.')
     for element in list(body):
         if element.tag == W_NS + 'p':
             yield 'p', _docx_text(element).strip()
