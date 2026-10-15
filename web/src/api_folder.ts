@@ -21,6 +21,24 @@ export interface FolderFile {
   normalized: boolean
   known: string
   qc: QcSummary | null
+  load: FolderLoad | null
+}
+
+/** Статус загрузки в проект: null — проект не выбран или файл не таблица. */
+export type FolderLoad = 'loaded' | 'changed' | 'not_loaded'
+
+export interface FolderLoadResult {
+  name: string
+  status: 'loaded' | 'attention' | 'error'
+  message: string
+}
+
+export interface FolderLoadReply {
+  results: FolderLoadResult[]
+  folder: FolderScan
+  project: string
+  revision: number | null
+  warning: string
 }
 
 export interface FolderScan {
@@ -45,7 +63,9 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const folderApi = {
-  scan: (folder: string) => post<FolderScan>('/api/folder/scan', { folder }),
-  saveManifest: (folder: string, files: Record<string, FolderEdit>) =>
-    post<FolderScan>('/api/folder/manifest', { folder, files }),
+  scan: (folder: string, project?: string) => post<FolderScan>('/api/folder/scan', project ? { folder, project } : { folder }),
+  load: (project: string, folder: string, files: string[], policy = 'new') =>
+    post<FolderLoadReply>(`/api/projects/${encodeURIComponent(project)}/folder/load`, { folder, files, policy }),
+  saveManifest: (folder: string, files: Record<string, FolderEdit>, project?: string) =>
+    post<FolderScan>('/api/folder/manifest', project ? { folder, files, project } : { folder, files }),
 }
