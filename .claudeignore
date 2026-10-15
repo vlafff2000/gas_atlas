@@ -1,0 +1,24 @@
+# Не читать: сборка, зависимости, кэши, данные пользователя. Исходники и тесты не исключены.
+node_modules/
+web/node_modules/
+atlas/web/dist/
+dist/
+build/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+storage/
+logs/
+exports/
+patch_backups/
+*.bak
+*.las
+*.xlsx
+*.xls
+*.sqlite
+*.ttf
+*.woff
+*.woff2
+package-lock.json
+BUILD_MANIFEST.json
