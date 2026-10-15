@@ -6,7 +6,7 @@ export interface Option { value: unknown; label: string }
 export interface Param {
   name: string
   label: string
-  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map'
+  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map' | 'file'
   default: unknown
   help: string
   formula: string
@@ -26,6 +26,7 @@ export interface Param {
   empty: string
   show_if: Record<string, unknown> | null
   chart_kind: boolean
+  extensions: string
 }
 export interface ModuleSpec {
   id: string
