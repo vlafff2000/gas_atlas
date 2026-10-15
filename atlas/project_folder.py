@@ -176,7 +176,7 @@ def scan(raw_folder: Any, loaded: dict[str, Any] | None = None) -> dict[str, Any
             'roles': [{'value': k, 'label': v} for k, v in ROLES.items()], 'files': files}
 
 
-def save_manifest(raw_folder: Any, files: Any) -> dict[str, Any]:
+def save_manifest(raw_folder: Any, files: Any, loaded: dict[str, Any] | None = None) -> dict[str, Any]:
     """Записать роли и признак нормировки. Только файлы этой папки; неизвестная роль — ошибка."""
     folder = _folder(raw_folder)
     if not isinstance(files, dict):
@@ -210,7 +210,7 @@ def save_manifest(raw_folder: Any, files: Any) -> dict[str, Any]:
     except OSError:
         log.exception('Не записан манифест %s', path)
         raise ParamError('Нет прав на запись в папку проекта: манифест не сохранён.') from None
-    return scan(str(folder))
+    return scan(str(folder), loaded)
 
 
 def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy: str) -> dict[str, Any]:
@@ -292,17 +292,19 @@ def routes(projects) -> list[Route]:
             return out if isinstance(out, Response) else JSONResponse(out)
         return handler
 
+    def _loads_of(pid_raw):
+        if not pid_raw:
+            return None
+        pid = str(pid_raw)
+        projects.manifest(pid)                  # нет проекта — KeyError → 404
+        return read_loads(projects.store.path(pid))
+
     def scan_route(request, body):
-        loaded = None
-        if body.get('project'):
-            pid = str(body['project'])
-            projects.manifest(pid)              # нет проекта — KeyError → 404
-            loaded = read_loads(projects.store.path(pid))
-        return scan(body.get('folder'), loaded)
+        return scan(body.get('folder'), _loads_of(body.get('project')))
 
     return [
         Route('/api/folder/scan', wrap(scan_route), methods=['POST']),
-        Route('/api/folder/manifest', wrap(lambda r, b: save_manifest(b.get('folder'), b.get('files'))), methods=['POST']),
+        Route('/api/folder/manifest', wrap(lambda r, b: save_manifest(b.get('folder'), b.get('files'), _loads_of(b.get('project')))), methods=['POST']),
         Route('/api/projects/{pid}/folder/load', wrap(lambda r, b: load_files(
             imports, projects, r.path_params['pid'], b.get('folder'), b.get('files'), b.get('policy') or 'new')), methods=['POST']),
     ]
