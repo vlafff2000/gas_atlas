@@ -71,7 +71,8 @@ def daily(prod: pd.DataFrame, elpro: pd.DataFrame, kind: str, well: str, start, 
     days = pd.date_range(start, end, freq='D')
     out = pd.DataFrame(index=days)
     out['q'] = np.where(days.isin(c.index), c['q'].reindex(days).to_numpy(), 0.0)
-    out['hours'] = c['hours'].reindex(days).to_numpy()
+    # день без записи — ноль, как у расхода; исключённая точка (строка есть, часы пусты) — разрыв
+    out['hours'] = np.where(days.isin(c.index), c['hours'].reindex(days).to_numpy(), 0.0)
     for col in ('elpro_q', 't', 'p', 'cru'):
         out[col] = e[col].reindex(days).to_numpy()
     return out
@@ -83,6 +84,19 @@ def median_by_day(e: pd.DataFrame) -> pd.Series:
     return grouped.median().where(grouped.count() >= 2)
 
 
+def others_median(e: pd.DataFrame) -> pd.Series:
+    """Медиана температуры по остальным скважинам ЭЛПРО в ту же сутку (сама скважина не входит).
+    Нужно не менее двух остальных скважин с температурой; иначе пусто."""
+    out = pd.Series(np.nan, index=e.index)
+    for _, grp in e.dropna(subset=['t']).groupby('date'):
+        if len(grp) < 3:
+            continue
+        t = grp.t.to_numpy()
+        for i, idx in enumerate(grp.index):
+            out.at[idx] = np.median(np.delete(t, i))
+    return out
+
+
 def sensitivity(prod: pd.DataFrame, elpro: pd.DataFrame, kind: str, threshold: float, tol: float,
                 start, end) -> pd.DataFrame:
     """По скважинам: сутки работы по БД расходов, сутки ниже порога ЭЛПРО, из них с температурой как у других."""
@@ -90,6 +104,7 @@ def sensitivity(prod: pd.DataFrame, elpro: pd.DataFrame, kind: str, threshold: f
     c = pd.DataFrame({'well': c['well'].astype(str).to_numpy(), 'date': _day(c['date']).to_numpy(),
                       'classic': (c['q'] / 1000).to_numpy()}).groupby(['well', 'date']).classic.sum(min_count=1).reset_index()
     e = elpro_by_day(elpro, kind)
+    e['t_others'] = others_median(e)
     both = c.merge(e, on=['well', 'date'], how='outer')
     if start is not None:
         both = both[both.date >= start]
@@ -98,14 +113,12 @@ def sensitivity(prod: pd.DataFrame, elpro: pd.DataFrame, kind: str, threshold: f
     columns = ['well', 'days_work', 'days_low', 'days_hidden', 'volume_hidden', 'cru_hidden', 'cru_normal']
     if both.empty:
         return pd.DataFrame(columns=columns)
-    median = median_by_day(e)
-    both['t_med'] = both.date.map(median)
-    seen = both.elpro_q.fillna(0) >= threshold
+    # пустой расход в ЭЛПРО (пропуск) — не ноль: такие сутки не относятся ни к «ниже порога», ни к «нормально»
+    has_q = both.elpro_q.notna()
     work = both.classic.fillna(0) > 0
-    has_record = both.t.notna()
-    low = work & has_record & ~seen
-    hidden = low & ((both.t - both.t_med).abs() <= tol)
-    normal = work & has_record & seen
+    low = work & has_q & (both.elpro_q < threshold)
+    hidden = low & ((both.t - both.t_others).abs() <= tol)
+    normal = work & has_q & (both.elpro_q >= threshold)
     g = both.groupby('well')
     out = pd.DataFrame({
         'days_work': g.apply(lambda d: int((work[d.index]).sum()), include_groups=False),
@@ -172,7 +185,7 @@ class ElproDailyModule(Module):
         result.charts += [self.flow_chart(frame, well, kind, threshold), self.cru_chart(frame, well),
                           self.temp_chart(frame, well, median.to_numpy())]
         result.summary += [Stat('Суток с расходом по БД', f'{int(frame.q.gt(0).sum())}'),
-                           Stat('Суток ЭЛПРО ниже порога', f'{int(((frame.elpro_q.fillna(0) < threshold) & frame.t.notna() & frame.q.gt(0)).sum())}')]
+                           Stat('Суток ЭЛПРО ниже порога', f'{int((frame.elpro_q.notna() & (frame.elpro_q < threshold) & frame.q.gt(0)).sum())}')]
         return result
 
     @staticmethod
