@@ -182,3 +182,22 @@ def test_no_wells_selected_shows_first_five_with_note(frame):
     assert any('первые 5' in n.text for n in result.notes)
     explicit = run(frame, wells=wells[:8], last_n=1)
     assert len(explicit.charts) == 8 and not any('первые 5' in n.text for n in explicit.notes)
+
+
+def test_season_wells_takes_last_studies_across_seasons(frame):
+    # 540 не исследовалась в сезоне 2024-2025: в выгрузку по этому сезону она не попадает.
+    d = frame[~(frame.well.eq('540') & frame.season.eq('2024-2025'))].copy()
+    res = run(d, seasons=['2024-2025'], season_wells=True, last_n=3)
+    studies = table(res, 'studies').frame
+    assert set(studies.well) == set(d[d.season.eq('2024-2025')].well) and '540' not in set(studies.well)
+    # Последние три даты по скважине включают свежайшее исследование вне выбранного сезона.
+    assert sorted(studies[studies.well.eq('31')].date.dt.year.unique()) == [2023, 2024, 2025]
+    assert any(n.text.startswith('Сезон 2024-2025') for n in res.notes)
+    plain = run(d, seasons=['2024-2025'], last_n=3)
+    assert set(table(plain, 'studies').frame.date.dt.year) == {2024}
+
+
+def test_season_wells_without_studies_in_season_is_a_note(frame):
+    res = run(frame, seasons=['2030-2031'], season_wells=True, last_n=3)
+    assert not any(t.id == 'studies' and len(t.frame) for t in res.tables)
+    assert any(n.level == 'warning' for n in res.notes)
