@@ -16,7 +16,7 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text', 'map']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text', 'map', 'file']
 
 
 from atlas.engine.core.config import DataRangeError  # noqa: E402,F401  (перевыпуск для api)
@@ -63,6 +63,7 @@ class Param:
     empty: str = 'все'                # что значит пустой выбор в списке: 'все' или 'ничего'
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
     chart_kind: bool = False          # переключатель вида графиков: выводится в верхнем тулбаре раздела
+    extensions: str = ''              # для file: расширения в проводнике, через пробел: 'xlsx docx'
 
     def coerce(self, value: Any) -> Any:
         if value is None or (self.kind == 'date' and value == ''):
@@ -96,6 +97,8 @@ class Param:
                 raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД') from None
         if self.kind == 'text':
             return str(value)[:5000]
+        if self.kind == 'file':    # путь к файлу, выбранному общим проводником; существование проверяет модуль
+            return str(value).strip().strip('"').strip()[:1000]
         if self.kind == 'choice':
             if self.options and value not in {o.value for o in self.options}:
                 raise ParamError(f'«{self.label}»: недопустимое значение {value!r}')

@@ -37,9 +37,11 @@ def test_every_registered_spec_serializes():
     assert {'gdi'} <= {s['id'] for s in specs}
     json.dumps(specs, ensure_ascii=False)
     for s in specs:
-        # «Группы», «Аналитика фонда» работают с любыми наборами; страницы группы «Проект» наборов не требуют
+        # «Группы», «Аналитика фонда» работают с любыми наборами; страницы группы «Проект» наборов не требуют.
+        # Модули, которые читают выбранные файлы (параметр «файл»), берут данные из параметров, а не из наборов проекта.
         kinds = s['needs'] + s['optional']
-        assert kinds or s['group'] == 'Проект'
+        from_files = any(p['kind'] == 'file' for p in s['params'])
+        assert kinds or s['group'] == 'Проект' or from_files
         assert all(k in {d.value for d in DatasetKind} for k in kinds)
 
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type ModuleSpec, type Param, type Params } from './api'
 import { MultiSelect } from './MultiSelect'
+import { openFilePicker } from './FilePicker'
 import { paramsCollapsed, usePref } from './chartPrefs'
 import { formatDate } from './format'
 
@@ -48,6 +49,8 @@ export function paramSummary(params: Param[], values: Params, options: Record<st
       if (v) out.push(`${p.label} ${formatDate(String(v))}`)
     } else if (p.kind === 'text') {
       if (v) out.push(p.label)
+    } else if (p.kind === 'file') {
+      if (v) out.push(`${p.label}: ${baseName(String(v))}`)
     } else if (p.kind === 'map') {
       const n = Object.keys((v as Record<string, number> | undefined) ?? {}).length
       if (n) out.push(`${p.label}: ${n}`)
@@ -258,7 +261,28 @@ function Field({ param: p, value, options, onChange }:
     )
   }
   if (p.kind === 'text') return <TextField param={p} value={(value as string) ?? ''} onChange={onChange} />
+  if (p.kind === 'file') return <FileField param={p} value={(value as string) ?? ''} onChange={onChange} />
   return <NumberField param={p} value={value as number} onChange={onChange} />
+}
+
+/** Файл: путь выбирается только общим проводником (openFilePicker); в поле показывается имя файла, полный путь — в подсказке. */
+function FileField({ param: p, value, onChange }: { param: Param; value: string; onChange: (v: unknown) => void }) {
+  const pick = async () => {
+    const chosen = await openFilePicker({ mode: 'file', start: value || undefined, filter: p.extensions || undefined, title: p.label })
+    if (chosen) onChange(chosen.split('\n')[0])
+  }
+  return (
+    <div className="field file" title={value || p.help}>
+      <span className="field-label">{p.label}<HelpMark param={p} /></span>
+      <span className="file-value">{value ? baseName(value) : 'не выбран'}</span>
+      <button type="button" onClick={pick}>Выбрать…</button>
+      {value && <button type="button" onClick={() => onChange('')}>Убрать</button>}
+    </div>
+  )
+}
+
+function baseName(path: string) {
+  return path.split(/[\\/]/).pop() || path
 }
 
 function TextField({ param: p, value, onChange }: { param: Param; value: string; onChange: (v: unknown) => void }) {
