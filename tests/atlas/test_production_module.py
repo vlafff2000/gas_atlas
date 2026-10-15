@@ -355,3 +355,34 @@ def test_groups_overlay_on_one_plane(env):
     # виды без наложения строятся по группам, с пояснением
     body = run(client, pid, mode='groups', metric='pareto', layout='overlay', **p)
     assert len(body['charts']) == len(p['groups'])
+
+
+@pytest.mark.parametrize('xmode', ['date', 'object'])
+def test_object_seasons_one_curve_per_season(env, xmode):
+    """Режим «Объект по сезонам»: одна кривая на сезон, сумма по всем скважинам объекта, без выбора групп."""
+    client, pid, projects = env
+    df = frame(projects, pid)
+    periods = sorted(set(df[df.kind == 'withdrawal'].period))[-2:]
+    body = run(client, pid, mode='object', kind='withdrawal', groups=[], periods=periods, seasonx=xmode)
+    chart = body['charts'][0]
+    assert chart['id'] == 'production-object-seasons'
+    assert [s['name'] for s in chart['series']] == periods
+    base = df[df.kind.eq('withdrawal')]
+    for series, period in zip(chart['series'], periods):
+        day_sum = base[base.period.eq(period)].groupby('date').q.sum(min_count=1).dropna() / 1000
+        assert len(series['y']) == len(day_sum)
+        assert np.allclose(series['y'], day_sum.to_numpy())
+        if xmode == 'object':
+            x = np.asarray(series['x'], dtype=float)
+            assert x[0] >= 0
+            assert np.all(np.diff(x) >= 0) and x.min() >= 0
+            total = base[base.period.eq(period)].groupby('date').q.sum(min_count=1).fillna(0).sum() / 1e6
+            assert x[-1] == pytest.approx(total)
+    assert any(s['label'] == 'Пиковый суточный расход' for s in body['summary'])
+
+
+def test_object_seasons_need_periods(env):
+    client, pid, _ = env
+    body = run(client, pid, mode='object', kind='withdrawal', groups=[], periods=[])
+    assert body['charts'] == []
+    assert any('Выберите' in n['text'] for n in body['notes'])
