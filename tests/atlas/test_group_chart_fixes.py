@@ -121,7 +121,7 @@ def env(tmp_path):
     return client, pid, projects
 
 
-def test_missing_days_are_marked_when_shown_as_zero(env):
+def test_missing_days_break_the_line_not_drop_to_zero(env):
     from atlas.domain import DatasetKind
     client, pid, projects = env
     df = projects.data(pid)[DatasetKind.PRODUCTION]
@@ -131,15 +131,14 @@ def test_missing_days_are_marked_when_shown_as_zero(env):
     missing = int(legacy.curve_data(df, kind, periods, wells).missing.sum())
     body = client.post('/api/modules/production/run', json={'project': pid, 'params': dict(
         kind=kind, view='time', periods=periods, wells=wells, groups=[])}).json()
-    names = [s['name'] for c in body['charts'] for s in c['series']]
-    marks = [n for n in names if n.startswith('Нет записи (показан 0)')]
-    assert len(marks) == (1 if missing else 0)
+    series = [s for c in body['charts'] for s in c['series']]
+    assert not [s['name'] for s in series if s['name'].startswith('Нет записи')]     # без отдельных нулевых маркеров
     if missing:
-        assert f'{missing} сут' in marks[0]
+        assert any(None in list(s['y']) for s in series)                         # пропуск — разрыв линии
 
 
-def test_curve_marks_days_without_record_but_keeps_zero():
-    """Сутки без записи на линии остаются нулём, но отмечены отдельными маркерами и подписаны."""
+def test_curve_breaks_line_on_days_without_record():
+    """Сутки без записи — разрыв линии, а не ноль: отдельных нулевых маркеров нет."""
     from atlas.modules import _production as production
     dates = pd.date_range('2025-01-01', periods=10)
     q = np.array([200, 210, np.nan, np.nan, 190, 195, np.nan, 180, 185, 175], dtype=float) * 1000
@@ -149,8 +148,7 @@ def test_curve_marks_days_without_record_but_keeps_zero():
     sel = production.Selection.__new__(production.Selection)
     sel.df, sel.kind, sel.periods, sel.gdi = df, 'withdrawal', ['2024-2025'], None
     chart = production.curve_chart(sel, ['7'], 'date')
-    marks = [s for s in chart.series if s.name.startswith('Нет записи (показан 0)')]
-    assert len(marks) == 1 and marks[0].name.endswith('3 сут')
-    assert list(marks[0].y) == [0, 0, 0] and marks[0].kind == 'points' and marks[0].hollow
+    assert not [s for s in chart.series if s.name.startswith('Нет записи')]
     line = chart.series[0]
-    assert line.kind == 'line' and sorted(set(np.asarray(line.y)[[2, 3, 6]])) == [0.0]       # на линии по-прежнему 0
+    assert line.kind == 'line' and np.isnan(np.asarray(line.y, dtype=float)[[2, 3, 6]]).all()   # разрыв на пропусках
+    assert np.asarray(line.y, dtype=float)[[0, 1, 4]].tolist() == [200, 210, 190]

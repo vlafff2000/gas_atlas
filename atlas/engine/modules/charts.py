@@ -56,7 +56,7 @@ def production_curve(df,kind,ps,wells,xmode='cumulative',title=None,interactive=
         if interactive:g=decimate(g,'q',limit)
         identifiers=g['_point_id'].where(~g.missing,'')
         custom=np.column_stack([identifiers,g.date.dt.strftime('%d.%m.%Y'),g.cumulative,
-            g.missing.map({True:'Нет записи: показан 0',False:'Измерение'}),g.file,g.sheet,g['_row']])
+            g.missing.map({True:'Нет записи: разрыв линии',False:'Измерение'}),g.file,g.sheet,g['_row']])
         trace=go.Scattergl if interactive and len(d)>10000 else go.Scatter
         fig.add_trace(trace(x=g.cumulative if xmode=='cumulative' else g.date,y=g.q,
             name=str(p) if len(wells)==1 else f'№ {well} · {p}',mode='lines+markers' if editable else 'lines',
