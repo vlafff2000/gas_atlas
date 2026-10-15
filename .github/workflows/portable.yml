@@ -122,10 +122,10 @@ jobs:
             curl -sf -X POST -H 'X-PXG: 1' http://127.0.0.1:8760/api/start/$a
             echo
           done
-          curl -sf http://127.0.0.1:8765/api/modules | head -c 120; echo
-          curl -sf http://127.0.0.1:8766/api/modules | head -c 120; echo
-          curl -sf http://127.0.0.1:8767/api/state | head -c 120; echo
-          curl -sf http://127.0.0.1:8768/api/state | head -c 120; echo
+          curl -sf http://127.0.0.1:8765/api/modules -o probe.json; head -c 120 probe.json; echo
+          curl -sf http://127.0.0.1:8766/api/modules -o probe.json; head -c 120 probe.json; echo
+          curl -sf http://127.0.0.1:8767/api/state -o probe.json; head -c 120 probe.json; echo
+          curl -sf http://127.0.0.1:8768/api/state -o probe.json; head -c 120 probe.json; echo
           curl -sf http://127.0.0.1:8760/api/status | grep -o '"running": true' | wc -l | grep -qx 4
           test -d Проект/Атлас -a -d Проект/Скедул
           curl -sf -X POST -H 'X-PXG: 1' http://127.0.0.1:8760/api/quit
