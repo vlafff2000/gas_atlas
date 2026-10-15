@@ -12,7 +12,7 @@ function kb(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} КБ` : `${(bytes / 1024 / 1024).toFixed(1)} МБ`
 }
 
-/** Раздел «Источники»: папка проекта, роли файлов и сводка по ролям. Загрузка — в разделе «Импорт данных» ниже. */
+/** Раздел «Источники»: папка проекта, роли файлов, статус загрузки в проект и кнопка загрузки через общий импорт. */
 export function FolderSources({ project }: { project: Project | null }) {
   const [folder, setFolder] = useState('')
   const [scan, setScan] = useState<FolderScan | null>(null)
@@ -58,10 +58,12 @@ export function FolderSources({ project }: { project: Project | null }) {
   const save = () => run(() => folderApi.saveManifest(scan!.folder, edits, project?.id), 'Роли сохранены в папке проекта.')
 
   // Грузим файлы с ролью, которые ещё не загружены или изменились; файлы без роли пропускаем.
-  const pending = scan?.files.filter(f => current(f).role && (f.load === 'not_loaded' || f.load === 'changed')).map(f => f.name) ?? []
+  // Берём сохранённые роли: сервер при загрузке роли не читает. Несохранённые правки блокируют кнопку.
+  const pending = scan?.files.filter(f => f.role && (f.load === 'not_loaded' || f.load === 'changed')).map(f => f.name) ?? []
+  const unknownLoad = !!project && !!scan && scan.files.some(f => f.role && f.load === null)
 
   const loadPending = async () => {
-    if (!project || !scan) return
+    if (!project || !scan || dirty) return
     setBusy(true); setError(''); setMessage('')
     try {
       const reply = await folderApi.load(project.id, scan.folder, pending)
@@ -110,13 +112,15 @@ export function FolderSources({ project }: { project: Project | null }) {
 
           {project && (
             <div className="folder-row">
-              <button type="button" onClick={loadPending} disabled={busy || pending.length === 0}>
+              <button type="button" onClick={loadPending} disabled={busy || dirty || pending.length === 0}>
                 Загрузить новые и изменённые ({pending.length})
               </button>
               <span className="muted">Грузятся только файлы с ролью. Загрузка идёт через общий импорт проекта «{project.name}».</span>
             </div>
           )}
           {!project && <div className="note">Выберите проект, чтобы видеть, что загружено, и загружать файлы.</div>}
+          {unknownLoad && <div className="note">Статус загрузки не показан для выбранного проекта: нажмите «Показать файлы» ещё раз.</div>}
+          {dirty && <div className="note">Сначала сохраните роли: загрузка идёт по сохранённым ролям.</div>}
           {warning && <div className="note warning">{warning}</div>}
           {results.length > 0 && (
             <ul className="folder-results">
