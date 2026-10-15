@@ -33,6 +33,7 @@ ALIASES = {
     'a_db': ['a', 'а', 'a_db'], 'b_db': ['b', 'в', 'b_db'],
     'hours': ['времяработы', 'времяработычас', 'часыработы', 'времяработысут', 'hours'],
     'plan_volume': ['план', 'плановыйобъем', 'объемпоплану', 'планмлнм3', 'планмлнм', 'planvolume', 'plan'],
+    'annulus_q': ['расходгазамксут'], 'annulus_p': ['давлениемк'],     # База межколонок: «расход_газа_МК_сут», «давление_МК»
 }
 ALIASES.update(WELL_ALIASES)
 # Вынос воды по объекту (таблица без скважин): «Дата | Накопленный расход газа | Водный фактор нарастающий |
@@ -81,7 +82,8 @@ def column_map(labels, rows=None):
                 base = re.split(r'[,\[(]', str(value))[0]
                 if norm(base) in aliases:
                     matches.append(i)
-            if not matches and field in ('q','level'):
+            # База межколонок: «расход_газа_МК_сут» и «расход_газа_МК_мес» не путаются — расход берётся из МКП.
+            if not matches and field in ('q','level') and 'расходгазамксут' not in normalized:
                 matches = [i for i,n in enumerate(normalized) if any(n.startswith(a) for a in aliases if len(a)>4)]
         if len(matches) > 1 and rows:
             filled = [i for i in matches if any(i < len(r) and r[i] is not None and str(r[i]).strip().lower() not in ('', 'nan', 'none', 'nat') for r in rows)]
@@ -342,6 +344,8 @@ def detect_layout(head,module='auto'):
         if module in ('auto','object_pressure') and 'well' not in mapping and 'date' in mapping and ('p_res' in mapping or 'pressure' in mapping):
             mapping['pressure']=mapping.pop('p_res') if 'p_res' in mapping else mapping['pressure']
             detected='object_pressure';header=i;break
+        if module in ('auto','annulus') and {'well','date','annulus_q','annulus_p'} <= mapping.keys():
+            detected='annulus';header=i;break
         if {'well','date'} <= mapping.keys():
             if module != 'auto': detected=module
             elif 'horizon' in mapping and ('level' in mapping or 'pressure' in mapping): detected='response'
@@ -376,7 +380,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             layout=detect_layout(head,module);detected=layout['module'];mapping=layout['mapping'];wide=layout['wide'];header=layout['header']
         if detected is None:
             result.issue(filename,sheet,1,'Таблица не распознана. Нужны заголовки из шаблона.', 'предупреждение'); continue
-        required={**WELL_REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'water_factor':{'date','gas_in_place'},'groups':{'well'}}[detected]
+        required={**WELL_REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'water_factor':{'date','gas_in_place'},'groups':{'well'},'annulus':{'well','date','annulus_q','annulus_p'}}[detected]
         if not wide and not required<=mapping.keys():
             raise ValueError(f'{sheet}: не найдены поля {", ".join(sorted(required-mapping.keys()))}.')
         if detected=='gdi' and not ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys()):
@@ -416,6 +420,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df=raw.copy()
             else:
                 df=pd.DataFrame({k:raw[i] for k,i in mapping.items()}); df['_row']=raw.index+row_offset
+                if detected=='annulus': df=df.rename(columns={'annulus_q':'q','annulus_p':'p'})
             if 'status' in df:      # в колонке «Состояние» бывают и числа, и слова: паркет не пишет смесь типов
                 df['status']=df.status.map(lambda v:v if pd.isna(v) else str(int(v)) if isinstance(v,float) and v==int(v) else str(v).strip())
             reasons=pd.Series('',index=df.index)
@@ -433,7 +438,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                     if col in df:
                         supplied=df[col].notna()&df[col].astype(str).str.strip().ne('')&~nodata(df[col])
                         reasons.loc[supplied&numeric(df[col]).isna()]='Некорректное давление в поле '+col
-            for col in ('q','hours','p_res','p_bh','dp2','a_db','b_db','pressure','level','plan_volume')+WATER_FACTOR_NEW+('water_day',):
+            for col in ('q','p','hours','p_res','p_bh','dp2','a_db','b_db','pressure','level','plan_volume')+WATER_FACTOR_NEW+('water_day',):
                 if col in df:
                     hit=nodata(df[col])
                     if hit.any():
@@ -502,6 +507,10 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 reasons.loc[df.pressure.lt(0)]='Давление не может быть отрицательным'
             elif detected=='object_pressure':
                 reasons.loc[df.pressure.isna() | df.pressure.lt(0)]='Некорректное или отрицательное давление объекта'
+            elif detected=='annulus':
+                # Межколонка: расход из МКП и давление МКД — неотрицательные числа, пустые значения — нули, как в базе.
+                df['q']=df.q.fillna(0.0); df['p']=df.p.fillna(0.0)
+                reasons.loc[df.q.lt(0)|df.p.lt(0)]='Расход или давление межколонки не может быть отрицательным'
             elif detected=='water_factor':
                 # Газ хранится в млн м³, вода в м³: приставка в заголовке («тыс.», «млн», «млрд») пересчитывается.
                 for col in ('gas_cum','gas_in_place'):

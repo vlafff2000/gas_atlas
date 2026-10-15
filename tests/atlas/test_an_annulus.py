@@ -5,8 +5,8 @@ from atlas.modules import an_annulus
 
 
 def rows(*items):
-    """(скважина, расход МКП м³/сут, давление МКД кгс/см²) за одну дату."""
-    return pd.DataFrame([{'номер_скважины': w, 'расход_газа_МК_сут': q, 'давление_МК': p} for w, q, p in items])
+    """(скважина, расход МКП м³/сут, давление МКД кгс/см²) за одну дату — в именах колонок Атласа."""
+    return pd.DataFrame([{'well': str(w), 'q': q, 'p': p} for w, q, p in items])
 
 
 def test_only_wells_with_flow_or_pressure_and_sorted_by_number():
@@ -63,3 +63,53 @@ def test_empty_period_gives_note_not_error():
     assert wells.empty
     assert an_annulus.classification_text(wells) == ['В выбранном периоде межколонные давления и расход из МКП не отмечены.']
     assert an_annulus.table_11_3(wells).empty
+
+
+# --- База межколонок: распознавание, импорт и табл. 11.3 в модуле «Авторский надзор: сезон» ---
+
+from pathlib import Path  # noqa: E402
+
+from atlas.contract import Data  # noqa: E402
+from atlas.domain import DatasetKind  # noqa: E402
+from atlas.engine.core.loader import detect_layout, load_file  # noqa: E402
+from atlas.modules import an_report  # noqa: E402
+
+PRODUCTION_STUB = pd.DataFrame([('1', pd.Timestamp('2025-01-01'), 100.0, 'withdrawal', '2024-2025')], columns=['well', 'date', 'q', 'kind', 'period'])
+DB_HEADER = 'дата;год;месяц;сезон;номер_скважины;расход_газа_МК_сут;расход_газа_МК_мес;давление_МК'
+
+
+def test_db_header_is_detected_as_annulus():
+    head = [[c for c in DB_HEADER.split(';')], ['2025-09-01', 2025, 'Сентябрь', 'Межсезонье 2025', 78, 50.4, 1512, 9]]
+    assert detect_layout(head)['module'] == 'annulus'
+
+
+def test_import_keeps_season_and_values(tmp_path):
+    path = tmp_path / 'mk.csv'
+    path.write_text(DB_HEADER + '\n2025-09-01;2025;Сентябрь;Межсезонье 2025;78;50,4;1512;9\n'
+                    '2025-09-01;2025;Сентябрь;Межсезонье 2025;344;2,88;86,4;\n', encoding='utf-8')
+    r = load_file(path, 'annulus', 'withdrawal', 'м³/сут', 'тыс. м³/сут')
+    frame = r.frames['annulus'].assign(well=lambda f: f['well'].astype(int)).sort_values('well').reset_index(drop=True)
+    assert frame['well'].tolist() == [78, 344]
+    assert frame['q'].tolist() == [50.4, 2.88]
+    assert frame['p'].tolist() == [9.0, 0.0]              # пустое давление — ноль, как в базе
+    assert set(frame['season']) == {'Межсезонье 2025'}
+
+
+def test_author_report_builds_table_11_3_for_chosen_season():
+    rows_ = pd.DataFrame([
+        {'well': '344', 'date': pd.Timestamp('2025-09-01'), 'season': 'Межсезонье 2025', 'q': 2.9, 'p': 0.0},
+        {'well': '37', 'date': pd.Timestamp('2025-09-01'), 'season': 'Межсезонье 2025', 'q': 37.4, 'p': 1.0},
+        {'well': '37', 'date': pd.Timestamp('2024-09-01'), 'season': 'Межсезонье 2024', 'q': 9.0, 'p': 5.0},
+    ])
+    data = Data({DatasetKind.ANNULUS: rows_, DatasetKind.PRODUCTION: PRODUCTION_STUB})
+    result = an_report.AuthorReportModule().run(data, {'kind': 'withdrawal', 'periods': [], 'annulus': ['Межсезонье 2025']})
+    table = next(t for t in result.tables if t.id == 'an-annulus-113')
+    assert table.frame['№ скв.'].tolist() == [37, 344]
+    assert table.frame['Qм/к, м³/сут'].tolist() == [37.4, 2.9]
+    assert any('близким к нулю' in n.text for n in result.notes)
+
+
+def test_author_report_without_annulus_is_a_note():
+    result = an_report.AuthorReportModule().run(Data({DatasetKind.PRODUCTION: PRODUCTION_STUB}), {'kind': 'withdrawal', 'periods': [], 'annulus': []})
+    assert not any(t.id == 'an-annulus-113' for t in result.tables)
+    assert any('Табл. 11.3 не построена' in n.text for n in result.notes)

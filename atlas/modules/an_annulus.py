@@ -19,7 +19,8 @@ P_LIMIT = 28.0      # кгс/см²: граница групп 2 и 3 (РБ-2023
 Q_SMALL = 10.0      # м³/сут: граница малого и среднего расхода из МКП
 Q_LARGE = 90.0      # м³/сут: граница среднего и большого расхода из МКП
 
-WELL, Q, P = 'номер_скважины', 'расход_газа_МК_сут', 'давление_МК'
+# Имена колонок набора «Межколонные давления» в Атласе (после импорта); в базе — «номер_скважины», «расход_газа_МК_сут», «давление_МК».
+WELL, Q, P = 'well', 'q', 'p'
 COLUMNS = ('№ скв.', 'Qм/к, м³/сут', 'Рм/к, кгс/см²', 'Группа')
 GROUP_NEAR_ZERO, GROUP_LOW, GROUP_HIGH = 'Р≈0', 'Р≤28', 'Р>28'
 
@@ -28,10 +29,10 @@ def annulus_wells(rows: pd.DataFrame) -> pd.DataFrame:
     """Скважины с расходом или давлением за период: максимумы Q и P, группа по давлению. Порядок — по номеру скважины."""
     if rows.empty:
         return pd.DataFrame(columns=['well', 'q_max', 'p_max', 'group'])
+    rows = rows.assign(**{WELL: pd.to_numeric(rows[WELL]).astype(int)})
     grouped = rows.groupby(WELL).agg(q_max=(Q, 'max'), p_max=(P, 'max')).reset_index()
     grouped = grouped[(grouped['q_max'] > 0) | (grouped['p_max'] > 0)]
     grouped = grouped.rename(columns={WELL: 'well'}).sort_values('well').reset_index(drop=True)
-    grouped['well'] = grouped['well'].astype(int)
     grouped['group'] = [pressure_group(q, p) for q, p in zip(grouped['q_max'], grouped['p_max'])]
     return grouped
 
