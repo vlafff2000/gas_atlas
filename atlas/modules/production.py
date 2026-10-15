@@ -100,9 +100,12 @@ class ProductionModule(ProductionBase):
         if not sel.periods:
             return ProductionBase.nothing_selected(result)
         result.notes.append(Note(OBJECT_NOTE))
-        result.charts.append(object_season_chart(sel, sel.params['seasonx']))
+        chart = object_season_chart(sel, sel.params.get('seasonx', 'date'))
+        result.charts.append(chart)
         days = object_days(sel).dropna(subset=['total'])
-        result.summary = [Stat('Режим', kind_label(sel.kind)), Stat('Сезонов', str(len(sel.periods))),
+        if days.empty:
+            result.notes.append(Note('За выбранные сезоны нет суточных данных по объекту.', 'warning'))
+        result.summary = [Stat('Режим', kind_label(sel.kind)), Stat('Сезонов', str(len(chart.series))),
                           period_stat(ordered_periods(sel))]
         if not days.empty:
             top = days.loc[days.total.idxmax()]
