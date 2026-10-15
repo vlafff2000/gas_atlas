@@ -232,3 +232,15 @@ def test_injection_season_run_builds_chapter2_items():
     assert stat.value.startswith('+20,0')                              # 60 (30.04, ближе к 01.05 — ничья, раньше) → 80 на 01.06
     assert not any(n.level == 'warning' and 'не загружен' in n.text for n in result.notes)
     assert any('Рис. 2.5' in n.text for n in result.notes)
+
+
+def test_plan_and_fact_groups_match_across_spellings():
+    # План написан «ГСП 9», в закачке скважины 1 и 3 — «ГСП-9» и «гсп_9»: факт ГСП 9 по месяцам — 0,30 (май) и 0,35 (июнь).
+    plan = pd.DataFrame({'group': ['ГСП 9', 'ГСП 9'], 'date': pd.to_datetime(['2024-05-01', '2024-06-01']),
+                         'plan_volume': [1.0, 1.0], 'kind': 'injection'})
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.PLAN: plan})
+    data.mapping = INJ_MAPPING
+    result = an_report.AuthorReportModule().run(data, {'kind': 'injection', 'periods': ['2024']})
+    table = next(t for t in result.tables if t.id == 'an-inj-plan-fact').frame.set_index('group')
+    assert table.loc['ГСП 9', 'fact'] == pytest.approx(0.65)
+    assert table.loc['ГСП 9', 'plan'] == 2.0

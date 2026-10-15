@@ -115,6 +115,11 @@ def water_summary(water: pd.DataFrame, start: Any, stop: Any, q_by_date: pd.Seri
     return out
 
 
+def unified_names(values: pd.Series) -> pd.Series:
+    """Названия групп в едином написании: регистр, пробелы, «_» и «-» не различают группы."""
+    return canonical_gsp(unify_groups(values.astype(str)))
+
+
 def well_scopes(mapping: Mapping[str, Mapping[str, str]], wells: list[str]) -> dict[str, str]:
     """Скважина → группа в едином написании: регистр, пробелы, «_» и «-» не различают группы."""
     raw = pd.Series([group_of(mapping, w) for w in wells], dtype=object)
@@ -403,11 +408,11 @@ class AuthorReportModule(Module):
         prod, pressure = data[PRODUCTION], (data[OBJECT] if OBJECT in data else None)
         plan_cmp = None
         if PLAN in data and not data[PLAN].empty:
-            plan_cmp = plan_compare(prod, data[PLAN], data.mapping, 'injection', data.settings)
-        if plan_cmp is None or plan_cmp.empty:
-            result.notes.append(Note('«План по группам» не загружен: рис. 2.2, 2.3 и табл. 2.1, 2.4 пропущены.', 'warning'))
-        if pressure is None:
-            result.notes.append(Note('Давление объекта не загружено: рис. 2.4 и пересчёт Рпл пропущены.', 'warning'))
+            # Имена групп плана и факта приводятся к единой схеме до сопоставления, иначе «ГСП-9» и «гсп_9» не совпадут.
+            plan = data[PLAN].assign(group=unified_names(data[PLAN].group))
+            mapping = {well: {**info, 'group': unified_names(pd.Series([info.get('group', '')])).iloc[0]}
+                       for well, info in data.mapping.items()}
+            plan_cmp = plan_compare(prod, plan, mapping, 'injection', data.settings)
         plan_rows, months_parts, classes, cards = [], [], [], []
         for summary in summaries:
             period = summary['period']
