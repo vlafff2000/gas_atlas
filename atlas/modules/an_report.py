@@ -9,7 +9,8 @@
 Группы — единая схема имён: регистр, пробелы, «_» и «-» не различают группы, «ГСП-1» = «ГСП 1»
 (``loader.unify_groups`` и ``canonical_gsp`` из импорта). Давления — абсолютные, кгс/см²: Атлас их не пересчитывает.
 
-Главы отчёта (1.1.2, 1.2, 2, 11.3) — разделы-заглушки в ``CHAPTERS``; каждая наполняется отдельным PR.
+Главы отчёта (1.1.2, 2, 11.3) — разделы-заглушки в ``CHAPTERS``; каждая наполняется отдельным PR.
+Табл. 1.10 (глава 1.2, режим закачки): объёмы закачки ГСП 9 по последним сезонам — план по группам против факта.
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Re
 from ..domain import DatasetKind
 from . import an_wells
 from ._production import KINDS, NEUTRAL_PREFIXES, group_of, periods_of, visible_periods
-from .plan_fact import UNIT, PlanFactModule, compare as plan_compare, month_label, summed as plan_summed
+from .plan_fact import UNIT, PlanFactModule, compare as plan_compare, month_label, plan_periods, summed as plan_summed
 
 PRODUCTION, OBJECT, FACTOR = DatasetKind.PRODUCTION, DatasetKind.OBJECT_PRESSURE, DatasetKind.WATER_FACTOR
 PLAN, WATER = DatasetKind.PLAN, DatasetKind.WATER
@@ -33,6 +34,9 @@ Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
 WATER_UNIT = 'м³/сут'
 WF_UNIT = 'л/тыс. м³'
+GSP9 = 'ГСП 9'            # группа табл. 1.10 в едином написании
+INJECTION_SEASONS = 7     # табл. 1.10: последние 7 сезонов закачки
+INJECTION_COLS = ('season', 'recommended', 'fact', 'percent')
 WATER_COLS = ('water_day', 'wf', 'wf_cum')
 WATER_KEYS = ('water_peak', 'water_peak_date', 'water_peak_q', 'water_peak_wells', 'water_peak_pressure',
               'wf_peak', 'wf_peak_date', 'wf_cum_peak', 'wf_cum_peak_date')
@@ -47,7 +51,6 @@ NOTE = ('Средние считаются по суткам с положите
 # Главы отчёта, для которых в Атласе будет свой раздел. Пока — только заметка о том, что раздел в работе.
 CHAPTERS = (
     ('1.1.2', 'Фонд скважин: таблица 1.8 и текст по таблицам 1.7–1.8'),
-    ('1.2', 'Режим закачки: таблица 1.10 (ГСП-9)'),
     ('2', 'Закачка: статистика сезона'),
     ('11.3', 'Межколонные давления: таблица 11.3'),
 )
@@ -117,6 +120,40 @@ def daily_rates(d: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
     out = out[out.q.gt(0)].copy()
     out['month'] = out.date.dt.to_period('M').dt.to_timestamp()
     return out
+
+
+def injection_group_table(prod: pd.DataFrame, plan: pd.DataFrame | None, mapping: Mapping[str, Mapping[str, str]],
+                          settings: Mapping[str, Any], group: str = GSP9, seasons: int = INJECTION_SEASONS) -> pd.DataFrame:
+    """Табл. 1.10: по последним сезонам закачки — рекомендованный объём группы (план по группам), фактический (сумма
+    суточных объёмов её скважин), оба в млрд м³, и доля группы в общем фактическом объёме сезона (%).
+
+    Пустая таблица, если в закачке нет скважин группы ``group``. Рекомендованный объём — NaN, если плана за сезон нет.
+    """
+    d = prod[prod.kind.eq('injection')][['well', 'period', 'q']].copy()
+    if d.empty:
+        return pd.DataFrame(columns=INJECTION_COLS)
+    d['well'] = d.well.astype(str)
+    d['group'] = d.well.map(well_scopes(mapping, ordered(d.well.unique())))
+    if not d.group.eq(group).any():
+        return pd.DataFrame(columns=INJECTION_COLS)
+    periods = visible_periods(ordered(d.period.astype(str).unique()), settings)[-seasons:]
+    total = d.groupby('period').q.sum(min_count=1)
+    fact = d[d.group.eq(group)].groupby('period').q.sum(min_count=1)
+    recommended = pd.Series(dtype=float)
+    if plan is not None and not plan.empty:
+        p = plan[plan.kind.eq('injection')]
+        if not p.empty:
+            p = p.assign(period=plan_periods(prod, p, settings),
+                         group=canonical_gsp(unify_groups(p.group.astype(str))))
+            recommended = p[p.group.eq(group)].groupby('period').plan_volume.sum(min_count=1)
+    rows = []
+    for season in periods:
+        volume, share = fact.get(season, 0.0), total.get(season, np.nan)
+        rows.append({'season': season,
+                     'recommended': recommended.get(season, np.nan) / 1000,       # млн м³ → млрд м³
+                     'fact': volume / 1e9,                                        # м³ → млрд м³
+                     'percent': volume / share * 100 if share and share > 0 else np.nan})
+    return pd.DataFrame(rows, columns=INJECTION_COLS)
 
 
 def season_report(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], pressure: pd.DataFrame | None,
@@ -222,6 +259,8 @@ class AuthorReportModule(Module):
                                Stat(f'Средний расход · {period}', f'{summary["mean"]:.1f} {Q_UNIT}'.replace('.', ','))]
             self.fund_details(result, data, kind, period, summary, fund, classes, wet)
             self.plan_details(result, data, kind, period)
+        if kind == 'injection':
+            self.injection_details(result, data)
         if summaries:
             result.tables.append(self.season_table(summaries))
             if water is not None and kind == 'withdrawal':
@@ -236,6 +275,27 @@ class AuthorReportModule(Module):
         for number, title in CHAPTERS:
             result.notes.append(Note(f'Глава {number} · {title}: раздел в разработке, появится отдельным изменением.'))
         return result
+
+    def injection_details(self, result: Result, data: Data) -> None:
+        """Табл. 1.10 (глава 1.2): объёмы закачки ГСП 9 по последним сезонам — рекомендованный и фактический."""
+        plan = data[PLAN] if PLAN in data else None
+        if plan is None or plan.empty:
+            result.notes.append(Note('«План по группам» не загружен: рекомендованный объём в табл. 1.10 пустой.', 'warning'))
+        frame = injection_group_table(data[PRODUCTION], plan, data.mapping, data.settings)
+        if frame.empty:
+            result.notes.append(Note(f'Табл. 1.10 пропущена: в закачке нет скважин группы {GSP9}.', 'warning'))
+            return
+        result.tables.append(self.injection_table(frame))
+
+    @staticmethod
+    def injection_table(frame: pd.DataFrame) -> Table:
+        columns = [Column('season', 'Сезон'),
+                   Column('recommended', 'Рекомендованный объём закачки, млрд м³', decimals=2, kind='number'),
+                   Column('fact', 'Фактический объём закачки, млрд м³', decimals=3, kind='number'),
+                   Column('percent', 'Доля в общем объёме закачки, %', decimals=1, kind='number')]
+        return Table('an-injection-gsp9', f'Табл. 1.10 · Объёмы закачки газа по {GSP9}', frame, columns,
+                     note=f'Рекомендованный — «План по группам» (закачка); фактический — сумма суточных объёмов скважин {GSP9}; '
+                          f'доля — от общего фактического объёма сезона. Последние {INJECTION_SEASONS} сезонов закачки.')
 
     @staticmethod
     def season_table(summaries: list[dict[str, Any]]) -> Table:
