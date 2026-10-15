@@ -12,6 +12,7 @@ import pandas as pd
 
 from atlas.engine.core.config import COLORS, natural_key
 from atlas.engine.modules import gdi as legacy
+from atlas.engine.modules import well_analysis
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)
@@ -33,6 +34,12 @@ PRODUCTIVITY_NOTE = ('Для каждого исследования берут�
                      'при одном опорном ΔP² — наибольшем, достигнутом во всех исследованиях скважины, поэтому без экстраполяции. '
                      'Рост Q при том же ΔP² означает рост продуктивности. Метод, номер исследования и число точек не требуются: '
                      'нужны только давления и расходы, достаточно двух разных расходов на исследование.')
+SECTION_PERIOD = 'Период сравнения'
+VERDICT_UP, VERDICT_SAME, VERDICT_DOWN, VERDICT_FEW = 'Улучшение', 'Без изменений', 'Ухудшение', 'Недостаточно надёжных'
+VERDICT_ORDER = (VERDICT_UP, VERDICT_SAME, VERDICT_DOWN, VERDICT_FEW)
+GROUPS_NOTE = ('Справка по надёжным исследованиям: R² не ниже порога, не менее трёх разных расходов, a и b не отрицательны. '
+               'Сравниваются первое и последнее надёжное исследование скважины в выбранном периоде при одном опорном ΔP². '
+               'Список скважин — по порогу изменения из раздела «Период сравнения». Причины изменения здесь не устанавливаются.')
 FILTER_NOTE = 'Отметьте «Исключить» и примените изменения. Исходные значения сохраняются; снятый флажок восстанавливает точку.'
 
 
@@ -121,6 +128,83 @@ def coefficient_columns() -> list[Column]:
 DEFAULT_WELLS = 5          # сколько скважин показывать, если не выбрана ни одна
 
 
+NO_SEASON = 'без сезона'
+
+
+def in_period(frame: pd.DataFrame, params) -> pd.DataFrame:
+    """Исследования внутри «Период с — по». Пустые границы — без ограничения."""
+    d = frame
+    if params.get('date_from'):
+        d = d[d.date >= pd.Timestamp(params['date_from'])]
+    if params.get('date_to'):
+        d = d[d.date <= pd.Timestamp(params['date_to'])]
+    return d
+
+
+def _productivity_rows(part: pd.DataFrame, studies: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    """Строки динамики: опорный ΔP² общий для скважины, расход при нем, изменения к предыдущему и первому исследованию."""
+    valid = part[part.q.gt(0) & part.dp2.gt(0) & np.isfinite(part.q) & np.isfinite(part.dp2)]
+    top = valid.groupby(legacy.KEYS, dropna=False).dp2.max().rename('dp2_max').reset_index()
+    reliable = well_analysis.gdi_history(part, threshold)[legacy.KEYS + ['reliable']] if not part.empty else None
+    t = studies.merge(top, on=legacy.KEYS, how='left')
+    if reliable is not None and len(reliable):
+        t = t.merge(reliable, on=legacy.KEYS, how='left')
+    t['reliable'] = t.get('reliable', pd.Series(False, index=t.index)).fillna(False).astype(bool)
+    t['fit'] = t.a.notna() & t.b.notna()
+    rows = []
+    for well in sorted(t.well.unique(), key=well_key):
+        g = t[t.well.eq(well)].sort_values(['date', 'method', 'study'], kind='stable')
+        usable = g[g.fit & g.dp2_max.notna()]
+        ref = float(usable.dp2_max.min()) if len(usable) else None
+        first = previous = None
+        for r in g.itertuples(index=False):
+            q = legacy.free_flow(r.a, r.b, np.sqrt(ref)) if ref and r.fit else None
+            change_prev = (q / previous - 1) * 100 if q is not None and previous else None
+            change_first = (q / first - 1) * 100 if q is not None and first else None
+            if q is not None:
+                previous = q
+                first = q if first is None else first
+            rows.append({'well': well, 'date': r.date, 'method': r.method, 'study': r.study, 'ref': ref, 'q_ref': q,
+                         'to_previous': change_prev, 'to_first': change_first, 'source': r.source,
+                         'reliable': 'да' if r.reliable else 'нет',
+                         'mode': 'нет коэффициентов' if not r.fit else ''})
+    return pd.DataFrame(rows, columns=['well', 'date', 'method', 'study', 'ref', 'q_ref', 'to_previous', 'to_first', 'source',
+                                       'reliable', 'mode'])
+
+
+def _verdicts(rows: pd.DataFrame, wells: list[str], limit: float, season) -> list[dict]:
+    """Вердикт по каждой скважине: первое и последнее надёжное исследование с расходом при опорном ΔP²."""
+    ok = rows[rows.reliable.eq('да') & rows.q_ref.notna()]
+    out = []
+    for well in wells:
+        g = ok[ok.well.eq(well)]
+        item = {'well': well, 'season': season, 'verdict': VERDICT_FEW, 'change': np.nan}
+        if len(g) >= 2 and g.q_ref.iloc[0]:
+            change = (g.q_ref.iloc[-1] / g.q_ref.iloc[0] - 1) * 100
+            item['change'] = change
+            item['verdict'] = VERDICT_UP if change > limit else VERDICT_DOWN if change < -limit else VERDICT_SAME
+        out.append(item)
+    return out
+
+
+def _groups_table(verdicts: list[dict], by_season: bool) -> pd.DataFrame:
+    """Разбивка скважин по группам (и по сезонам, если они выбраны отдельно): список номеров через запятую."""
+    if not verdicts:
+        return pd.DataFrame(columns=['season', 'verdict', 'count', 'wells'])
+    frame = pd.DataFrame(verdicts)
+    rows = []
+    for season, g in frame.groupby('season', sort=False, dropna=False):
+        for verdict in VERDICT_ORDER:
+            wells = [w for w in g[g.verdict.eq(verdict)].well]
+            if not wells:
+                continue
+            row = {'verdict': verdict, 'count': len(wells), 'wells': ', '.join(sorted(wells, key=well_key))}
+            if by_season:
+                row['season'] = season
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
 class GdiModule(Module):
     history_action = 'Расчет ГДИ'
     spec = ModuleSpec(
@@ -149,6 +233,20 @@ class GdiModule(Module):
                        'помечается как низкого качества, Qсв для него не определяется.',
                   formula='R² = 1 − Σ(ΔP² − aQ − bQ²)² / Σ(ΔP² − среднее ΔP²)²',
                   example='R² = 0,97 при пороге 0,95 — подбор принят; R² = 0,91 — исследование помечено «низкое качество».'),
+            Param('period', 'Сравнивать', 'choice', default='together', section=SECTION_PERIOD, options=(
+                Option('together', 'Все даты вместе'), Option('season', 'Отдельно по каждому сезону')),
+                  help='«Отдельно по сезонам»: первое и последнее надёжное исследование ищутся внутри каждого сезона, и каждый '
+                       'сезон получает свою справку. Так ремонт летом и замер осенью оцениваются самостоятельно. «Все даты вместе» — '
+                       'одна оценка за весь выбранный период.'),
+            Param('date_from', 'Период с', 'date', default=None, section=SECTION_PERIOD,
+                  help='Пусто — с первого исследования. Задает период, относительно которого смотрим изменение.'),
+            Param('date_to', 'по', 'date', default=None, section=SECTION_PERIOD, help='Пусто — до последнего исследования.'),
+            Param('change_threshold', 'Порог изменения', 'number', default=1.0, minimum=0, maximum=50, step=0.5, unit='%',
+                  section=SECTION_PERIOD,
+                  help='Изменение расхода при опорном ΔP² меньше порога — «без изменений». Значение 1 % совпадает с прежней '
+                       'сводкой раздела; при погрешности давлений порог стоит поднять.',
+                  formula='изменение = (Q последнего надёжного − Q первого надёжного) / Q первого × 100%',
+                  example='Q было 180, стало 153: −15% — при пороге 5% это «Ухудшение».'),
             Param('orientation', 'Оси', 'choice', default='standard', section='Вид', options=(
                 Option('standard', 'X = Q, Y = ΔP²'), Option('swapped', 'X = ΔP², Y = Q'))),
             Param('curves', 'Расчетные кривые', 'boolean', default=True, section='Вид'),
@@ -169,18 +267,19 @@ class GdiModule(Module):
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         wells, seasons, n = params['wells'], params['seasons'], int(params['last_n'])
         result = Result()
+        source = in_period(data[GDI], params)
         if seasons and params['season_wells']:
-            wells = self.season_wells(data[GDI], wells, seasons, n, result)
+            wells = self.season_wells(source, wells, seasons, n, result)
             seasons = []
         elif not wells:
-            known = sorted(data[GDI].well.astype(str).unique(), key=well_key)
+            known = sorted(source.well.astype(str).unique(), key=well_key)
             wells = known[:DEFAULT_WELLS]
             if len(known) > DEFAULT_WELLS:
                 result.notes.append(Note(f'Скважины не выбраны: показаны первые {DEFAULT_WELLS} из {len(known)} по номеру. '
                                          'Выберите нужные скважины в списке «Скважины».'))
         # Пустой список скважин в select означает «все», поэтому без скважин выборка пуста.
-        chosen = select(data[GDI], wells, seasons, n) if wells else data[GDI].iloc[:0]
-        original = select(data.raw[GDI], wells, seasons, n) if wells else data.raw[GDI].iloc[:0]
+        chosen = select(source, wells, seasons, n) if wells else source.iloc[:0]
+        original = select(in_period(data.raw[GDI], params), wells, seasons, n) if wells else data.raw[GDI].iloc[:0]
         if chosen.empty:
             result.notes.append(Note('Под выбранные условия не попало ни одного исследования. Выберите скважины с данными.',
                                      'warning'))
@@ -202,7 +301,7 @@ class GdiModule(Module):
             if weak:
                 result.notes.append(Note(f'Исследований с R² ниже {params["threshold"]:g} или без подбора: '
                                          f'{weak} из {len(table)}.', 'warning'))
-            self.productivity(result, chosen, table)
+            self.productivity(result, chosen, table, params)
             self.comparisons(result, chosen, int(params['last_n']), bool(params['seasons']))
             if params['outliers']:
                 self.outliers(result, chosen, params['outlier_threshold'])
@@ -227,47 +326,51 @@ class GdiModule(Module):
         return picked
 
     @staticmethod
-    def productivity(result: Result, chosen: pd.DataFrame, studies: pd.DataFrame) -> None:
+    def productivity(result: Result, chosen: pd.DataFrame, studies: pd.DataFrame, params) -> None:
         """Динамика продуктивности по зависимостям ΔP² = aQ + bQ² всех выбранных исследований скважины.
 
         Метод и номер исследования не нужны: исследования идут по датам. Без числа точек и общего диапазона —
         сравнивается расход при одном опорном ΔP² (наибольшем, достигнутом во всех исследованиях скважины).
+        Справка (вердикты) считается только по надёжным исследованиям, отдельно по каждому периоду сравнения.
         """
         d = legacy.prepare(chosen)
-        valid = d[d.q.gt(0) & d.dp2.gt(0) & np.isfinite(d.q) & np.isfinite(d.dp2)]
-        top = valid.groupby(legacy.KEYS, dropna=False).dp2.max().rename('dp2_max').reset_index()
-        t = studies.merge(top, on=legacy.KEYS, how='left')
-        t['fit'] = t.a.notna() & t.b.notna()
-        rows = []
-        for well in sorted(t.well.unique(), key=well_key):
-            g = t[t.well.eq(well)].sort_values(['date', 'method', 'study'], kind='stable')
-            usable = g[g.fit & g.dp2_max.notna()]
-            ref = float(usable.dp2_max.min()) if len(usable) else None
-            first = previous = None
-            for r in g.itertuples(index=False):
-                q = legacy.free_flow(r.a, r.b, np.sqrt(ref)) if ref and r.fit else None
-                change_prev = (q / previous - 1) * 100 if q is not None and previous else None
-                change_first = (q / first - 1) * 100 if q is not None and first else None
-                if q is not None:
-                    previous = q
-                    first = q if first is None else first
-                rows.append({'well': well, 'date': r.date, 'method': r.method, 'study': r.study, 'ref': ref, 'q_ref': q,
-                             'to_previous': change_prev, 'to_first': change_first, 'source': r.source,
-                             'mode': 'нет коэффициентов' if not r.fit else ''})
-        table = pd.DataFrame(rows)
-        result.tables.append(Table('productivity', 'Динамика продуктивности по исследованиям', table, [
-            Column('well', 'Скважина'), Column('date', 'Дата', kind='date'),
-            Column('method', 'Метод'), Column('study', 'Исследование'),
+        d['season'] = d.season.replace('', NO_SEASON)
+        keys = d[legacy.KEYS + ['season']].drop_duplicates(legacy.KEYS)
+        studies = studies.merge(keys, on=legacy.KEYS, how='left')
+        by_season = params['period'] == 'season'
+        periods = [(s, d[d.season.eq(s)], studies[studies.season.eq(s)]) for s in sorted(d.season.unique())] \
+            if by_season else [(None, d, studies)]
+        threshold, limit = params['threshold'], float(params['change_threshold'])
+        rows, verdicts = [], []
+        for season, part, part_studies in periods:
+            found = _productivity_rows(part, part_studies, threshold)
+            found['season'] = season
+            rows.append(found)
+            verdicts.extend(_verdicts(found, sorted(part_studies.well.unique(), key=well_key), limit, season))
+        table = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+        columns = [Column('well', 'Скважина'), Column('date', 'Дата', kind='date'),
+                   Column('method', 'Метод'), Column('study', 'Исследование')]
+        if by_season:
+            columns.append(Column('season', 'Сезон'))
+        columns += [
+            Column('reliable', 'Надёжное'),
             Column('ref', 'Опорный ΔP²', UNITS['dp2'], 1, 'number'),
             Column('q_ref', 'Q при опорном ΔP²', UNITS['q_gdi'], 1, 'number'),
             Column('to_previous', 'К предыдущему', '%', 1, 'number'), Column('to_first', 'К первому', '%', 1, 'number'),
-            Column('source', 'Коэффициенты'), Column('mode', 'Замечание'),
-        ], note=PRODUCTIVITY_NOTE))
-        last = table.dropna(subset=['to_first']).groupby('well').tail(1)
-        if len(last):
-            summary = [Stat('Продуктивность выросла', str(int(last.to_first.gt(1).sum())), 'Скважин: последнее исследование выше первого более чем на 1 %'),
-                       Stat('Продуктивность снизилась', str(int(last.to_first.lt(-1).sum())), 'Скважин: последнее исследование ниже первого более чем на 1 %')]
-            result.summary += summary
+            Column('source', 'Коэффициенты'), Column('mode', 'Замечание')]
+        result.tables.append(Table('productivity', 'Динамика продуктивности по исследованиям', table, columns,
+                                   note=PRODUCTIVITY_NOTE))
+        groups = _groups_table(verdicts, by_season)
+        result.tables.append(Table('groups', 'Справка: улучшение, без изменений, ухудшение', groups, [
+            *([Column('season', 'Сезон')] if by_season else []),
+            Column('verdict', 'Группа'), Column('count', 'Скважин', kind='number', decimals=0),
+            Column('wells', 'Скважины')], note=GROUPS_NOTE))
+        counts = pd.Series([v['verdict'] for v in verdicts], dtype=object).value_counts()
+        if verdicts:
+            scope = 'Скважин в каждом сезоне отдельно' if by_season else 'Скважин'
+            result.summary += [
+                Stat('Улучшение продуктивности', str(int(counts.get(VERDICT_UP, 0))), f'{scope}: надёжное исследование выше первого'),
+                Stat('Ухудшение продуктивности', str(int(counts.get(VERDICT_DOWN, 0))), f'{scope}: надёжное исследование ниже первого')]
 
     @staticmethod
     def comparisons(result: Result, chosen: pd.DataFrame, last_n: int = 0, by_seasons: bool = False) -> None:
