@@ -107,3 +107,22 @@ def test_api_scan_and_manifest(client, tmp_path):
     assert r.status_code == 200 and r.json()['files'][0]['role_source'] == 'manifest'
     assert client.post('/api/folder/scan', json={'folder': str(tmp_path / 'нет')}).status_code == 400
     assert client.post('/api/folder/scan', data='не json').status_code == 400
+
+
+def test_bad_inputs_do_not_crash(tmp_path):
+    touch(tmp_path, 'Подвод.xlsx', 'a.xlsx')
+    (tmp_path / 'a.qc.json').write_text('[1, 2]', encoding='utf-8')
+    (tmp_path / pf.MANIFEST).write_text(json.dumps({'files': {'a.xlsx': {'role': ['gdi']}}}), encoding='utf-8')
+    r = pf.scan(str(tmp_path))
+    assert roles(r)['a.xlsx'][:2] == (None, '')
+    assert r['files'][0]['qc']['error']
+    assert roles(r)['Подвод.xlsx'] == (None, '', False)
+    with pytest.raises(ParamError, match='неизвестная роль'):
+        pf.save_manifest(str(tmp_path), {'a.xlsx': {'role': {'x': 1}}})
+    with pytest.raises(ParamError, match='Файла'):
+        pf.save_manifest(str(tmp_path), {pf.MANIFEST: {'role': 'water'}})
+
+
+def test_empty_folder_gives_a_note(tmp_path):
+    r = pf.scan(str(tmp_path))
+    assert r['files'] == [] and 'нет таблиц' in r['warning']

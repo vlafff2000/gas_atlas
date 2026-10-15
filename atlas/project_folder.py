@@ -51,7 +51,7 @@ KNOWN_RESULTS = (
     ('бд межколонки', 'other', False, 'База межколонок (База ПХГ)'),
 )
 # Роль по словам в имени, если файл не известный результат и манифеста нет.
-NAME_HINTS = (('расход', 'production'), ('давлен', 'pressure'), ('гди', 'gdi'), ('вод', 'water'))
+NAME_HINTS = (('расход', 'production'), ('давлен', 'pressure'), ('гди', 'gdi'), ('вода', 'water'), ('воды', 'water'))
 
 
 def _norm(name: str) -> str:
@@ -69,7 +69,8 @@ def _known(name: str) -> dict[str, Any] | None:
 
 def _role_by_name(name: str) -> str | None:
     key = _norm(name)
-    return next((role for word, role in NAME_HINTS if word in key), None)
+    words = set(key.split())
+    return next((role for word, role in NAME_HINTS if any(w.startswith(word) for w in words)), None)
 
 
 def _folder(raw: Any) -> Path:
@@ -101,6 +102,8 @@ def _qc_summary(folder: Path, name: str) -> dict[str, Any] | None:
         data = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {'file': path.name, 'error': 'Отчёт проверки не читается'}
+    if not isinstance(data, dict):
+        return {'file': path.name, 'error': 'Отчёт проверки не читается'}
     return {'file': path.name, 'title': data.get('title', ''), 'summary': data.get('summary', ''),
             'counts': data.get('counts', {}), 'created': dt.datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec='minutes')}
 
@@ -116,7 +119,8 @@ def scan(raw_folder: Any) -> dict[str, Any]:
             continue
         known = _known(name)
         entry = manifest.get(name) if isinstance(manifest.get(name), dict) else {}
-        role, source = (entry.get('role'), 'manifest') if entry.get('role') in ROLES else \
+        mrole = entry.get('role')
+        role, source = (mrole, 'manifest') if isinstance(mrole, str) and mrole in ROLES else \
             (known['role'], 'name') if known else (_role_by_name(name), 'name')
         normalized = entry['normalized'] if isinstance(entry.get('normalized'), bool) else bool(known and known['normalized'])
         stat = path.stat()
@@ -125,6 +129,8 @@ def scan(raw_folder: Any) -> dict[str, Any]:
                       'role': role, 'role_label': ROLES.get(role, ''), 'role_source': source if role else '',
                       'normalized': normalized, 'known': known['label'] if known else '',
                       'qc': _qc_summary(folder, name)})
+    if not files and not warning:
+        warning = 'В папке нет таблиц Excel или CSV: положите файлы данных или выберите другую папку.'
     return {'folder': str(folder), 'manifest': bool(manifest) or (folder / MANIFEST).exists(), 'warning': warning,
             'roles': [{'value': k, 'label': v} for k, v in ROLES.items()], 'files': files}
 
@@ -139,12 +145,12 @@ def save_manifest(raw_folder: Any, files: Any) -> dict[str, Any]:
         raise ParamError(warning + ' Исправьте или удалите файл, затем сохраните роли.')
     names = {p.name for p in folder.iterdir() if p.is_file()}
     for name, value in files.items():
-        if name not in names or Path(name).name != name:
+        if name not in names or Path(name).name != name or Path(name).suffix.lower() not in EXTENSIONS:
             raise ParamError(f'Файла «{name}» нет в папке проекта')
         if not isinstance(value, dict):
             raise ParamError(f'«{name}»: ожидаются роль и признак нормировки')
         role = value.get('role')
-        if role is not None and role not in ROLES:
+        if role is not None and not (isinstance(role, str) and role in ROLES):
             raise ParamError(f'«{name}»: неизвестная роль {role!r}')
         if 'normalized' in value and not isinstance(value['normalized'], bool):
             raise ParamError(f'«{name}»: признак нормировки — да или нет')
