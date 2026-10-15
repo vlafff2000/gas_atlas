@@ -139,6 +139,10 @@ class GdiModule(Module):
                   options=(Option(1, '1'), Option(2, '2'), Option(3, '3'), Option(0, 'Все'))),
             Param('seasons', 'Сезоны из исходного файла', 'multi', default=[], source=Source(GDI, 'season'),
                   section='Выбор данных'),
+            Param('season_wells', 'Только скважины с исследованиями в сезоне', 'boolean', default=False,
+                  section='Выбор данных',
+                  help='Сезон задает только состав скважин: берутся скважины, исследованные в выбранных сезонах, и по каждой '
+                       'последние исследования по всем датам, включая свежайшее вне сезона. Работает, когда выбран хотя бы один сезон.'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01,
                   setting='r2_threshold', section='Выбор данных',
                   help='Общая настройка проекта: действует во всех разделах и в версии 5.8. Исследование с R² ниже порога '
@@ -165,14 +169,18 @@ class GdiModule(Module):
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         wells, seasons, n = params['wells'], params['seasons'], int(params['last_n'])
         result = Result()
-        if not wells:
+        if seasons and params['season_wells']:
+            wells = self.season_wells(data[GDI], wells, seasons, n, result)
+            seasons = []
+        elif not wells:
             known = sorted(data[GDI].well.astype(str).unique(), key=well_key)
             wells = known[:DEFAULT_WELLS]
             if len(known) > DEFAULT_WELLS:
                 result.notes.append(Note(f'Скважины не выбраны: показаны первые {DEFAULT_WELLS} из {len(known)} по номеру. '
                                          'Выберите нужные скважины в списке «Скважины».'))
-        chosen = select(data[GDI], wells, seasons, n)
-        original = select(data.raw[GDI], wells, seasons, n)
+        # Пустой список скважин в select означает «все», поэтому без скважин выборка пуста.
+        chosen = select(data[GDI], wells, seasons, n) if wells else data[GDI].iloc[:0]
+        original = select(data.raw[GDI], wells, seasons, n) if wells else data.raw[GDI].iloc[:0]
         if chosen.empty:
             result.notes.append(Note('Под выбранные условия не попало ни одного исследования. Выберите скважины с данными.',
                                      'warning'))
@@ -201,6 +209,22 @@ class GdiModule(Module):
         if not original.empty:
             result.tables.append(self.point_table(original, data.excluded))
         return result
+
+    @staticmethod
+    def season_wells(frame: pd.DataFrame, wells: list[str], seasons: list[str], n: int, result: Result) -> list[str]:
+        """Скважины с исследованием в выбранных сезонах (среди выбранных, если они заданы). Исследования по ним берутся
+        по датам без фильтра по сезону, поэтому «последние N» могут выйти за пределы сезона."""
+        d = legacy.prepare(frame)
+        in_season = sorted(d.loc[d.season.isin(seasons), 'well'].astype(str).unique(), key=well_key)
+        picked = [w for w in wells if w in in_season] if wells else in_season
+        label = ', '.join(seasons)
+        if picked:
+            result.notes.append(Note(f'Сезон {label}: скважин с исследованиями {len(in_season)}, в выборке {len(picked)}. '
+                                     f'По каждой взяты последние {n or "все"} исследований по всем датам, включая вне сезона.'))
+        else:
+            result.notes.append(Note(f'В сезоне {label} нет исследований по выбранным скважинам. '
+                                     'Снимите «Только скважины с исследованиями в сезоне» или выберите другой сезон.', 'warning'))
+        return picked
 
     @staticmethod
     def productivity(result: Result, chosen: pd.DataFrame, studies: pd.DataFrame) -> None:
@@ -360,10 +384,11 @@ class GdiModule(Module):
         wells = params['wells'] or sorted(data.raw[GDI].well.dropna().astype(str).unique(), key=natural_key)
         return {'wells': wells, 'n': int(params['last_n']), 'orientation': params['orientation'],
                 'curves': params['curves'], 'db_curves': params['db_curves'], 'crosshair': params['crosshair'],
-                'seasons': params['seasons'], 'show_excluded': params['show_excluded'], 'threshold': params['threshold']}
+                'seasons': params['seasons'], 'show_excluded': params['show_excluded'], 'threshold': params['threshold'],
+                'season_wells': params['season_wells']}
 
     def load_state(self, state: Mapping[str, Any]) -> dict[str, Any]:
         mapping = (('wells', 'wells'), ('n', 'last_n'), ('orientation', 'orientation'), ('curves', 'curves'),
                    ('db_curves', 'db_curves'), ('crosshair', 'crosshair'), ('seasons', 'seasons'),
-                   ('show_excluded', 'show_excluded'))
+                   ('show_excluded', 'show_excluded'), ('season_wells', 'season_wells'))
         return {new: state[old] for old, new in mapping if state.get(old) is not None}
