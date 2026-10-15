@@ -296,7 +296,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         *api_projects.routes(projects), *api_export.routes(projects),   # «Проекты», «Настройки», «Экспорт»
         *__import__('atlas.api_passport', fromlist=['routes']).routes(projects),   # «Паспорт скважины»
         *__import__('atlas.api_import', fromlist=['routes']).routes(projects),   # раздел «Импорт данных»
-        *__import__('atlas.project_folder', fromlist=['routes']).routes(),   # «Папка проекта»: файлы и роли
+        *__import__('atlas.project_folder', fromlist=['routes']).routes(projects),   # «Папка проекта»: файлы, роли, загрузка
         Route('/api/{rest:path}', api_not_found, methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
         Route('/', index),
     ]

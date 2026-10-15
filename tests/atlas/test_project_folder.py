@@ -126,3 +126,44 @@ def test_bad_inputs_do_not_crash(tmp_path):
 def test_empty_folder_gives_a_note(tmp_path):
     r = pf.scan(str(tmp_path))
     assert r['files'] == [] and 'нет таблиц' in r['warning']
+
+
+def make_csv(path, rows):
+    path.write_bytes(('Скважина;Дата;Расход\r\n' + ''.join(f'{w};{d};{q}\r\n' for w, d, q in rows)).encode('cp1251'))
+
+
+def test_load_from_folder_marks_loaded_then_changed(client, tmp_path):
+    folder = tmp_path / 'папка'
+    folder.mkdir()
+    make_csv(folder / 'добыча.csv', [('73', '01.11.2025', '2000'), ('73', '02.11.2025', '2100')])
+    pid = client.post('/api/projects', json={'name': 'П'}).json()['id']
+    before = client.post('/api/folder/scan', json={'folder': str(folder), 'project': pid}).json()
+    assert before['files'][0]['load'] == 'not_loaded'
+    r = client.post(f'/api/projects/{pid}/folder/load', json={'folder': str(folder), 'files': ['добыча.csv']})
+    assert r.status_code == 200, r.text
+    assert r.json()['results'][0]['status'] == 'loaded'
+    assert r.json()['folder']['files'][0]['load'] == 'loaded'
+    # файл изменился: отпечаток не совпадает
+    make_csv(folder / 'добыча.csv', [('73', '01.11.2025', '2000')] * 3)
+    after = client.post('/api/folder/scan', json={'folder': str(folder), 'project': pid}).json()
+    assert after['files'][0]['load'] == 'changed'
+
+
+def test_rejected_rows_go_to_attention_not_loaded(client, tmp_path):
+    folder = tmp_path / 'папка'
+    folder.mkdir()
+    make_csv(folder / 'плохой.csv', [('73', 'не дата', '2000')])
+    pid = client.post('/api/projects', json={'name': 'П'}).json()['id']
+    r = client.post(f'/api/projects/{pid}/folder/load', json={'folder': str(folder), 'files': ['плохой.csv']}).json()
+    assert r['results'][0]['status'] in ('attention', 'error')
+    assert r['folder']['files'][0]['load'] == 'not_loaded'
+
+
+def test_load_rejects_names_outside_folder_and_unknown_project(client, tmp_path):
+    folder = tmp_path / 'папка'
+    folder.mkdir()
+    (tmp_path / 'secret.csv').write_text('x', encoding='utf-8')
+    pid = client.post('/api/projects', json={'name': 'П'}).json()['id']
+    r = client.post(f'/api/projects/{pid}/folder/load', json={'folder': str(folder), 'files': ['../secret.csv']}).json()
+    assert r['results'][0]['status'] == 'error'
+    assert client.post(f'/api/projects/{"0" * 32}/folder/load', json={'folder': str(folder), 'files': ['x.csv']}).status_code == 404
