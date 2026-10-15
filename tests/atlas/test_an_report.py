@@ -128,3 +128,30 @@ def test_neutral_period_before_season_in_calendar_days():
     assert summary['neutral_days'] == 41                       # 01.01 — 10.02 включительно
     summary, _ = an_report.season_report(LEAP, MAPPING, PRESSURE, 'withdrawal', '2023-2024')
     assert summary['neutral_days'] is None                     # нейтрального периода в данных нет
+
+
+# Табл. 1.10: ГСП 9 в закачке — скважины 1 и 3 (написания «ГСП-9» и «гсп_9» — одна группа), скважина 2 — ГСП 1.
+INJ_MAPPING = {'1': {'group': 'ГСП-9'}, '2': {'group': 'ГСП 1'}, '3': {'group': 'гсп_9'}}
+INJECTION = pd.DataFrame([
+    ('1', '2023-05-01', 1e9, '2023'), ('2', '2023-05-01', 1e9, '2023'),
+    ('1', '2023-05-02', 1e9, '2023'), ('3', '2023-05-02', 0, '2023'),     # 2023: всего 3e9, ГСП 9 — 2e9
+    ('2', '2024-05-01', 3e9, '2024'), ('3', '2024-05-01', 1e9, '2024'),   # 2024: всего 4e9, ГСП 9 — 1e9
+], columns=['well', 'date', 'q', 'period'])
+INJECTION['date'] = pd.to_datetime(INJECTION.date)
+INJECTION['kind'] = 'injection'
+PLAN_INJ = pd.DataFrame({'group': ['ГСП_9', 'гсп 9', 'ГСП 1'], 'date': pd.to_datetime(['2023-05-01', '2024-05-01', '2024-05-01']),
+                         'plan_volume': [2500.0, 900.0, 700.0], 'kind': 'injection'})
+
+
+def test_injection_table_by_hand():
+    frame = an_report.injection_group_table(INJECTION, PLAN_INJ, INJ_MAPPING, {})
+    assert frame.season.tolist() == ['2023', '2024']
+    assert frame.recommended.tolist() == pytest.approx([2.5, 0.9])        # млн м³ плана → млрд м³
+    assert frame.fact.tolist() == pytest.approx([2.0, 1.0])               # м³ → млрд м³
+    assert frame.percent.tolist() == pytest.approx([200 / 3, 25.0])       # доля группы в общем факте сезона
+
+
+def test_injection_table_without_plan_and_without_group():
+    frame = an_report.injection_group_table(INJECTION, None, INJ_MAPPING, {})
+    assert frame.recommended.isna().all() and frame.fact.notna().all()
+    assert an_report.injection_group_table(INJECTION, PLAN_INJ, {'1': {'group': 'ГСП-1'}}, {}).empty
