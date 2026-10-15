@@ -1,4 +1,4 @@
-// Проводник: окно выбора файла в браузере. Копия pxg_core/web-ui/FilePicker.tsx из репозитория all_scripts (держать в согласии).
+// Проводник: окно выбора файла в браузере (замена окна Tk). Общий для трёх приложений.
 // Использование: const path = await openFilePicker({ start: текущийПуть }); null — отмена.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
