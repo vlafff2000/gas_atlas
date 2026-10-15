@@ -51,7 +51,7 @@ def small_production():
 def test_object_accumulation_and_missing_days():
     d=small_production(); c=production.curve_data(d,'withdrawal',['2025-2026'],['1'])
     assert np.allclose(c.cumulative,[.003,.003,.008])
-    assert c.q.iloc[0]==1 and np.isnan(c.q.iloc[1]) and c.q.iloc[2]==0; assert c.missing.tolist()==[False,True,False]
+    assert c.q.tolist()==[1,0,0]; assert c.missing.tolist()==[False,True,False]
     full=production.curve_data(d,'withdrawal',['2025-2026'],['1','2'])
     assert np.allclose(c.cumulative,full[full.well.eq('1')].cumulative)
 
