@@ -54,7 +54,12 @@ def make_handler(hub: Hub, quit_event: threading.Event):
             self.end_headers()
             self.wfile.write(data)
 
+        def host_ok(self):  # защита от DNS-rebinding: чужое имя в Host не пускаем
+            return self.headers.get('Host', '').rsplit(':', 1)[0] in ('127.0.0.1', 'localhost')
+
         def do_GET(self):
+            if not self.host_ok():
+                return self.send(403, '{}')
             if self.path == '/':
                 self.send(200, PAGE, 'text/html; charset=utf-8')
             elif self.path == '/api/status':
@@ -63,7 +68,7 @@ def make_handler(hub: Hub, quit_event: threading.Event):
                 self.send(404, '{}')
 
         def do_POST(self):
-            if self.headers.get('X-PXG') != '1':  # чужая страница в браузере не может запускать процессы
+            if not self.host_ok() or self.headers.get('X-PXG') != '1':  # чужая страница в браузере не может запускать процессы
                 return self.send(403, json.dumps({'error': 'запрещено'}))
             parts = self.path.strip('/').split('/')
             try:
@@ -103,7 +108,10 @@ def main(argv=None) -> None:
         print('Меню уже запущено:', url)
         return
     hub = Hub()
-    server, quit_event = serve(hub, args.port)
+    try:
+        server, quit_event = serve(hub, args.port)
+    except OSError as error:
+        raise SystemExit('Не удалось занять порт %d (%s). Закройте программу, которая его использует, или укажите --port.' % (args.port, error))
     url = 'http://127.0.0.1:%d/' % args.port
     print('ПХГ — все приложения: %s\nПапка проекта: %s' % (url, hub.project))
     try:

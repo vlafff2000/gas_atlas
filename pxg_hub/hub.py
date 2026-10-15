@@ -6,6 +6,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,6 +74,7 @@ class Hub:
         self.root = root
         self.project = project or project_dir(root)
         self.procs = {}  # type: Dict[str, subprocess.Popen]
+        self.locks = {a: threading.Lock() for a in self.apps}
 
     def status(self) -> List[dict]:
         rows = []
@@ -84,6 +86,10 @@ class Hub:
         return rows
 
     def start(self, app_id: str, timeout: float = 90) -> dict:
+        with self.locks[app_id]:  # меню многопоточное: два нажатия подряд не должны запускать приложение дважды
+            return self._start(app_id, timeout)
+
+    def _start(self, app_id: str, timeout: float) -> dict:
         app = self.apps[app_id]
         if not port_open(app.port):
             self.project.mkdir(parents=True, exist_ok=True)
@@ -93,7 +99,8 @@ class Hub:
             env.update(project_env(list(self.apps.values()), self.project, self.root))
             argv = [sys.executable, '-s', '-X', 'utf8'] + [a.format(port=app.port) for a in app.argv]
             with open(str(logs / ('hub_%s.log' % app.id)), 'ab') as log:
-                self.procs[app.id] = subprocess.Popen(argv, cwd=str(self.root), env=env, stdout=log, stderr=subprocess.STDOUT)
+                self.procs[app.id] = subprocess.Popen(argv, cwd=str(self.root), env=env, stdout=log, stderr=subprocess.STDOUT,
+                                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline and not port_open(app.port):
                 if self.procs[app.id].poll() is not None:
