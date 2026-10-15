@@ -227,6 +227,13 @@ class Projects:
         values = frame[column].dropna().astype(str)
         return sorted((v for v in values.unique() if v != ''), key=natural_key)
 
+    def wells(self, pid: str) -> list[str]:
+        """Скважины проекта: отбор/закачка, ГДИ и кроссплот давлений. По ним решается, показывать ли «Показать на карте»."""
+        found: set[str] = set()
+        for dataset in (DatasetKind.PRODUCTION, DatasetKind.GDI, DatasetKind.PRESSURE_MATCH):
+            found.update(self.options(pid, dataset, 'well'))
+        return sorted(found, key=natural_key)
+
     # --- изменения ---
     def _commit(self, pid: str, settings: dict, expected: int | None, action: str, details=None):
         try:

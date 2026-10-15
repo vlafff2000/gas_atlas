@@ -41,6 +41,8 @@ interface Props {
   onExclude: (dataset: string, id: string) => void
   /** Кроссплот давлений: щелчок по кнопке в закреплённой подсказке открывает динамику скважины. */
   onOpenWell?: (well: string, date: string) => void
+  /** Адрес на Карты ГСП для скважины из подсказки; null — скважины нет в проекте, кнопки нет. */
+  mapLink?: (well: string) => string | null
   onDownload: (format: string, dpi: number) => Promise<void>
   /** PNG графика для буфера обмена (как при выгрузке): кнопка «Копировать» для вставки в презентацию или письмо. */
   onCopy?: () => Promise<Blob>
@@ -366,7 +368,7 @@ interface Plotted { x: number; label: string; kind: ChartEvent['kind'] }
 const syncKey = (chart: Chart) =>
   chart.x.scale === 'category' ? null : chart.x.scale === 'time' ? 'time' : `${chart.x.scale}|${chart.x.label}|${chart.x.unit}`
 
-export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, onDownload, onCopy, fetchWindow }: Props) {
+export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -383,7 +385,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
     applyZoom: (() => {}) as () => void,
-    excludeMode, onExclude, onOpenWell: onOpenWell as Props['onOpenWell'], tracks: [] as Track[], selected: {} as Record<string, boolean>,
+    excludeMode, onExclude, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
@@ -459,6 +461,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
   state.current.mode = mode
   state.current.onExclude = onExclude
   state.current.onOpenWell = onOpenWell
+  state.current.mapLink = mapLink
   state.current.base = given
   state.current.fetchWindow = fetchWindow
   state.current.hiddenEvents = new Set(offEvents)
@@ -539,6 +542,13 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, on
       if (st.onOpenWell && st.chart.id === 'pressure-cross' && where) {
         (copy.lastElementChild ?? copy).insertAdjacentHTML('beforeend',
           `<button type="button" class="tip-go" data-open-well="${escapeHtml(where[1])}|${where[2]}">Динамика скважины</button>`)
+      }
+      // скважина из подсказки есть в проекте — ссылка на Карты ГСП (открывается в новой вкладке)
+      const mapWell = /^Скв\. (\S+)/.exec(pt?.track.series.labels?.[pt.track.src[pt.k]] ?? '')?.[1]
+      const mapHref = st.mapLink && mapWell ? st.mapLink(mapWell) : null
+      if (mapHref) {
+        (copy.lastElementChild ?? copy).insertAdjacentHTML('beforeend',
+          `<a class="tip-go" href="${escapeHtml(mapHref)}" target="_blank" rel="noopener">Показать на карте</a>`)
       }
       const el = document.createElement('div')
       el.className = 'atlas-tip pinned'
