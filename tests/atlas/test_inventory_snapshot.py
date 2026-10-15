@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # Модули Атласа (registry.modules()). Удалённые намеренно — в REMOVED_ON_PURPOSE.
 MODULES = [
     'an_report', 'an_revision', 'exclusions', 'filter_history', 'fund', 'gdi', 'gdi_trend', 'ggh',
-    'groups', 'histograms', 'overview', 'plan_fact', 'pressure', 'production', 'quality', 'response',
+    'elpro_compare', 'groups', 'histograms', 'overview', 'plan_fact', 'pressure', 'production', 'quality', 'response',
     'water', 'wells',
 ]
 REMOVED_ON_PURPOSE: dict[str, str] = {}   # id модуля -> причина; пусто, ничего не удалено
@@ -21,7 +21,7 @@ REMOVED_ON_PURPOSE: dict[str, str] = {}   # id модуля -> причина; �
 # Виды данных, которые принимает проект (DatasetKind).
 DATASET_KINDS = [
     'production', 'gdi', 'response', 'object_pressure', 'operations', 'water', 'water_factor',
-    'bottom', 'construction', 'pressure_match', 'plan', 'ggh',
+    'bottom', 'construction', 'pressure_match', 'plan', 'ggh', 'elpro',
 ]
 
 # Сколько пунктов со статусом ✅ стоит в каждом чек-листе паритета (docs/parity/*.md).

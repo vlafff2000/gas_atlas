@@ -43,6 +43,7 @@ ROLES = {
     'pressure': 'Давления',
     'gdi': 'ГДИ',
     'water': 'Вода',
+    'elpro': 'ЭЛПРО (параметры работы ГСП)',
     'other': 'Прочее',
 }
 # Результаты Базы ПХГ (all_scripts, pxg_base): имя → роль, нормирована ли база, что это. Порядок важен: длинные раньше.
@@ -55,7 +56,7 @@ KNOWN_RESULTS = (
     ('бд межколонки', 'other', False, 'База межколонок (База ПХГ)'),
     ('учёт газа отбор вынос воды', 'water', False, 'Учёт газа по отбору с выносом воды (База ПХГ)'),
     # Роль не угадываем: файл показываем как известный результат, роль назначает пользователь.
-    ('бд элпро', None, False, 'Данные ЭЛПРО (База ПХГ), роль назначьте вручную'),
+    ('бд элпро', 'elpro', False, 'База ЭЛПРО (База ПХГ) или месячные файлы ЭЛПРО'),
     ('daily well data', None, False, 'Суточные данные по скважинам (База ПХГ), роль назначьте вручную'),
     ('гис ', None, False, 'Данные ГИС (База ПХГ), роль назначьте вручную'),
 )
@@ -232,9 +233,10 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
     names_ok = {p.name for p in folder.iterdir() if p.is_file()}
     results = []
     warning = ''
+    roles = {f['name']: f['role'] for f in scan(str(folder))['files']}
     try:
         for name in names:
-            results.append(_load_one(imports, pid, folder, name, names_ok, policy, loads))
+            results.append(_load_one(imports, pid, folder, name, names_ok, policy, loads, roles.get(name)))
         # откат всей пачки: снимок до первого применённого файла (по нему отменяются все файлы пачки)
         batch = next((r['undo'] for r in results if r.get('undo')), '')
         for r in results:
@@ -251,20 +253,23 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
             'warning': warning, 'undo': batch}
 
 
-def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy: str, loads: dict) -> dict[str, Any]:
-    """Один файл: upload → check → apply. Ошибка одного файла не обрывает остальные."""
+def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy: str, loads: dict, role: str | None = None) -> dict[str, Any]:
+    """Один файл: upload → check → apply (ЭЛПРО — свой разбор). Ошибка одного файла не обрывает остальные."""
     if name not in names_ok or Path(name).name != name or Path(name).suffix.lower() not in EXTENSIONS:
         return {'name': name, 'status': 'error', 'message': 'Файла нет в папке или он не таблица'}
     path = folder / name
     try:
-        up = imports.upload(name, path.read_bytes())
-        if up['error']:
-            raise ParamError(up['error'])
-        pending = imports.check(pid, {'files': [{'token': up['token']}], 'mode': 'auto', 'view': 'simple'})
-        if pending['rejected']:
-            return {'name': name, 'status': 'attention',
-                    'message': f"Отклонённых строк: {pending['rejected']}. Загрузите этот файл вручную в «Импорт данных»."}
-        applied = imports.apply(pid, {'pending': pending['id'], 'policy': policy})
+        if role == 'elpro':
+            applied = imports.elpro_load(pid, name, path.read_bytes(), policy)
+        else:
+            up = imports.upload(name, path.read_bytes())
+            if up['error']:
+                raise ParamError(up['error'])
+            pending = imports.check(pid, {'files': [{'token': up['token']}], 'mode': 'auto', 'view': 'simple'})
+            if pending['rejected']:
+                return {'name': name, 'status': 'attention',
+                        'message': f"Отклонённых строк: {pending['rejected']}. Загрузите этот файл вручную в «Импорт данных»."}
+            applied = imports.apply(pid, {'pending': pending['id'], 'policy': policy})
         undo = (applied.get('undo') or {}).get('snapshot', '')
         loads[name] = dict(fingerprint(path), loaded_at=dt.datetime.now().isoformat(timespec='seconds'), message=applied['message'], undo=undo)
         return {'name': name, 'status': 'loaded', 'message': applied['message'], 'undo': undo}

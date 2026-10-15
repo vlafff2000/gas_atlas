@@ -174,8 +174,12 @@ class Projects:
         settings = {**DEFAULT_SETTINGS, **m.get('settings', {})}
         raw = self._raw_frames(pid, m)
         # Эксплуатация готовится как в 5.8: сезоны и индексы; остальное — только исключения.
-        prepared = exclusions.apply({n: d for n, d in raw.items() if n != 'production'}, settings)
-        shown, original = dict(prepared), {n: d for n, d in raw.items() if n != 'production'}
+        # ЭЛПРО — сырой набор для сверки с расходами: исключённые точки отбора на него не действуют
+        others = {n: d for n, d in raw.items() if n not in ('production', 'elpro')}
+        prepared = exclusions.apply(others, settings)
+        shown, original = dict(prepared), dict(others)
+        if 'elpro' in raw:
+            shown['elpro'] = original['elpro'] = raw['elpro']
         if 'production' in raw:
             shown['production'] = cache.prepared('production', settings)
             original['production'] = cache.prepared('production', {**settings, 'excluded_points': {}})

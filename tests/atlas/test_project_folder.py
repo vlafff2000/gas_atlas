@@ -202,6 +202,6 @@ def test_base_outputs_are_known_results():
 
     assert pf._known('Учёт_газа_отбор_вынос_воды.xlsx')['role'] == 'water'
     assert pf._known('БД_ГДИ_объединенная.xlsx')['role'] == 'gdi'
-    assert pf._known('БД_ЭЛПРО.xlsx')['role'] is None
+    assert pf._known('БД_ЭЛПРО.xlsx')['role'] == 'elpro'
     assert pf._known('daily_well_data_2019_01_2024_04.xlsx') is not None
     assert pf._known('Пересчёт_давлений.xlsx') is None
