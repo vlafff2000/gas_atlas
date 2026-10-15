@@ -6,7 +6,7 @@
 
 ## Требования
 
-- CPython **3.8 или новее**, 64-bit (проверяется на 3.8, 3.11 и 3.13). Весь код обязан оставаться совместимым с 3.8: без `dict | dict`, `match`, `str.removeprefix`; аннотации через `from __future__ import annotations`.
+- CPython **3.12 или новее**, 64-bit (проверяется на 3.12 и 3.13; переносные архивы собраны на 3.13). Версии пакетов для 3.13 зафиксированы в `requirements-lock-py313.txt`.
 - Интернет только для первой установки зависимостей. Node.js нужен лишь тому, кто меняет интерфейс: собранный интерфейс `atlas/web/dist` лежит в git.
 - Без Python и без интернета: переносные архивы (см. ниже).
 
@@ -82,13 +82,13 @@ cd web && npm run dev                              # интерфейс с го�
 
 Перед коммитом: тесты проходят, `atlas/web/dist` пересобран (CI сравнивает его с исходниками), новый интерфейс проверен в браузере. Чек-листы переноса из 5.8 остались в `docs/parity/` как история. Тексты для пользователя пишутся по-русски; пустая выборка — заметка, а не ошибка. Правила работы над репозиторием — `CLAUDE.md`.
 
-CI (`.github/workflows/ci.yml`) обычно идёт на Python 3.8; три версии сразу — Actions → CI → Run workflow → `all_pythons`. Правки только в `docs/`, `*.md` и `storage/` CI не запускают.
+CI (`.github/workflows/ci.yml`) обычно идёт на Python 3.13; обе версии (3.12 и 3.13) сразу — Actions → CI → Run workflow → `all_pythons`. Правки только в `docs/`, `*.md` и `storage/` CI не запускают.
 
 ## Переносные архивы
 
-Для компьютеров без Python и интернета (в том числе РЕД ОС) собираются архивы со своим Python 3.8 и всеми пакетами:
+Для компьютеров без Python и интернета (в том числе РЕД ОС) собираются архивы со своим Python 3.13 и всеми пакетами:
 
-- `Gas_Atlas_portable_windows_x64.zip` — Windows 7 SP1 – 11, запуск `Gas_Atlas_6.bat`;
+- `Gas_Atlas_portable_windows_x64.zip` — Windows 10 – 11, запуск `Gas_Atlas_6.bat`;
 - `Gas_Atlas_portable_linux_x64.tar.gz` — Linux x86_64 с glibc 2.17+ (РЕД ОС 7.3+, Astra, ALT), запуск `gas_atlas_6.sh`.
 
 Сборка идёт вручную: GitHub → Actions → «Portable archives» → Run workflow (или пуш тега `v*`); локально — `python tools/build_portable.py windows|linux`. Подробности — `docs/PORTABLE.md`. При обновлении переносите папку `storage/` в новую распаковку.

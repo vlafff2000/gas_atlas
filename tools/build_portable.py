@@ -1,15 +1,15 @@
-"""Build a portable Gas Atlas folder: its own CPython 3.8 + all packages + the application.
+"""Build a portable Gas Atlas folder: its own CPython 3.13 + all packages + the application.
 
     python tools/build_portable.py windows   ->  dist/Gas_Atlas_portable_windows_x64.zip
     python tools/build_portable.py linux     ->  dist/Gas_Atlas_portable_linux_x64.tar.gz
 
 The target computer needs neither Python, nor pip, nor the internet: unpack and start the launcher.
-The build machine needs the internet and pip (any OS, Python 3.8+); packages are taken from
-requirements-lock-py38.txt as binary wheels for the target platform, nothing is compiled.
+The build machine needs the internet and pip (any OS, Python 3.12+); packages are taken from
+requirements-lock-py313.txt as binary wheels for the target platform, nothing is compiled.
 
 Runtimes (pinned by sha256):
-- Windows: the official python.org CPython 3.8.10 x64 from nuget.org (PSF-signed, runs on Windows 7 SP1+).
-- Linux: python-build-standalone CPython 3.8.20 x86_64 (needs glibc 2.17+, e.g. РЕД ОС 7.3+);
+- Windows: the official python.org CPython 3.13.16 x64 from nuget.org (PSF-signed, runs on Windows 10+).
+- Linux: python-build-standalone CPython 3.13.16 x86_64 (needs glibc 2.17+, e.g. РЕД ОС 7.3+; checked: the highest GLIBC symbol is 2.17);
   wheels are limited to manylinux2014 (glibc 2.17) for the same reason.
 """
 import argparse
@@ -26,27 +26,27 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCK = ROOT / 'requirements-lock-py38.txt'
+LOCK = ROOT / 'requirements-lock-py313.txt'
 NAME = 'Gas_Atlas'
 
 RUNTIMES = {
     'windows': dict(
-        url='https://api.nuget.org/v3-flatcontainer/python/3.8.10/python.3.8.10.nupkg',
-        sha256='c63a2fc8fc62612b5abd391fda99ae1d90bad42ed8a9e99b1bd81c7ffdb4fefa',
+        url='https://api.nuget.org/v3-flatcontainer/python/3.13.16/python.3.13.16.nupkg',
+        sha256='95fad176338f1d6a799e45946488063f4aa61764e6cff2f132ddeffbf7a04c34',
         site='Lib/site-packages', platforms=['win_amd64'],
         marker_env={'sys_platform': 'win32', 'platform_system': 'Windows', 'os_name': 'nt'}),
     'linux': dict(
-        url='https://github.com/astral-sh/python-build-standalone/releases/download/20241002/'
-            'cpython-3.8.20%2B20241002-x86_64-unknown-linux-gnu-install_only.tar.gz',
-        sha256='285e141c36f88b2e9357654c5f77d1f8fb29cc25132698fe35bb30d787f38e87',
-        site='lib/python3.8/site-packages',
-        platforms=['manylinux2014_x86_64', 'manylinux2010_x86_64', 'manylinux1_x86_64'],
+        url='https://github.com/astral-sh/python-build-standalone/releases/download/20261013/'
+            'cpython-3.13.16%2B20261013-x86_64-unknown-linux-gnu-install_only.tar.gz',
+        sha256='e588e50db882fa6a89f926d9a9ad64e445183af0eda5bda226a2c151b17db8a6',
+        site='lib/python3.13/site-packages',
+        platforms=['manylinux2014_x86_64'],
         marker_env={'sys_platform': 'linux', 'platform_system': 'Linux', 'os_name': 'posix'}),
 }
 
 # Tracked application files that go into the folder (tests, interface sources and dev scripts stay out).
 INCLUDE = ['atlas', 'tools', 'examples', 'docs', 'README.md', 'CHANGES_v5.md', 'CHANGES_UI_update.md',
-           'requirements-lock-py38.txt']
+           'requirements-lock-py313.txt']
 SDIST_ONLY = {'proxy-tools'}  # pywebview dependency, pure Python
 SKIP_TOOLS = {'tools/build_portable.py', 'tools/install.py', 'tools/make_pressure_samples.py', 'tools/make_icons.py'}
 
@@ -79,12 +79,12 @@ LINUX_LAUNCHERS = {
                          'echo; read -r -p "Нажмите Enter, чтобы закрыть окно..." _ || true',
 }
 LINUX_PREFIX = ('#!/usr/bin/env bash\nset -eu\ncd -- "$(dirname -- "$(readlink -f -- "$0")")"\n'
-                'unset PYTHONHOME PYTHONPATH\nexport PYTHONNOUSERSITE=1 PYTHONUTF8=1\nPY=python/bin/python3.8\n')
+                'unset PYTHONHOME PYTHONPATH\nexport PYTHONNOUSERSITE=1 PYTHONUTF8=1\nPY=python/bin/python3.13\n')
 
 README = '''Газовый атлас — переносная версия ({target})
 =============================================
 
-Ничего устанавливать не нужно: Python 3.8 и все библиотеки уже лежат в папке python.
+Ничего устанавливать не нужно: Python 3.13 и все библиотеки уже лежат в папке python.
 Интернет не нужен.
 
 1. Распакуйте архив в любую папку, куда у вас есть права на запись
@@ -151,7 +151,7 @@ def requirements_for(target):
         from packaging.requirements import Requirement
     except ImportError:
         from pip._vendor.packaging.requirements import Requirement
-    env = dict(RUNTIMES[target]['marker_env'], python_version='3.8', python_full_version='3.8.10',
+    env = dict(RUNTIMES[target]['marker_env'], python_version='3.13', python_full_version='3.13.16',
                implementation_name='cpython', platform_python_implementation='CPython', platform_machine='')
     chosen = []
     for line in LOCK.read_text(encoding='utf-8').splitlines():
@@ -176,7 +176,7 @@ def install_packages(target, site, workdir):
                                    '-w', str(wheels), line])
     command = [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-compile',
                '--target', str(site), '--upgrade', '--no-deps', '--only-binary=:all:',
-               '--python-version', '3.8', '--implementation', 'cp', '--abi', 'cp38', '--find-links', str(wheels),
+               '--python-version', '3.13', '--implementation', 'cp', '--abi', 'cp313', '--find-links', str(wheels),
                '-r', str(reqs)]
     for platform in spec['platforms']:
         command += ['--platform', platform]
@@ -232,7 +232,7 @@ def archive(target, folder, out):
 
 def smoke_test(folder):
     """Import both apps with the bundled interpreter, isolated from the host (only when building on the target OS)."""
-    python = folder / 'python' / ('python.exe' if os.name == 'nt' else 'bin/python3.8')
+    python = folder / 'python' / ('python.exe' if os.name == 'nt' else 'bin/python3.13')
     env = {k: v for k, v in os.environ.items() if not k.startswith('PYTHON')}
     env.update(PYTHONNOUSERSITE='1', MPLBACKEND='Agg')
     env['GAS_ATLAS_STORAGE'] = tempfile.mkdtemp()

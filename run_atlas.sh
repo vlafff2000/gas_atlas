@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Газовый атлас 6: ядро + интерфейс в браузере. Python 3.8+ в .venv.
+# Газовый атлас 6: ядро + интерфейс в браузере. Python 3.12+ в .venv.
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 PY=.venv/bin/python
