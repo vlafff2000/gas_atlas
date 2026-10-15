@@ -163,6 +163,11 @@ def season_report(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], 
     return summary, pd.DataFrame(rows)
 
 
+def _signed(value: float) -> str:
+    """Отклонение со знаком: тысячи через пробел, десятичная запятая."""
+    return f'{value:+,.1f}'.replace(',', ' ').replace('.', ',')
+
+
 class AuthorReportModule(Module):
     spec = ModuleSpec(
         id='an_report',
@@ -204,6 +209,8 @@ class AuthorReportModule(Module):
         fund, classes, wet = [], [], []
         if PLAN not in data:
             result.notes.append(Note('План по группам не загружен: рис. 1.8 (план и факт) пропущен.', 'warning'))
+        if kind == 'withdrawal' and WATER not in data:
+            result.notes.append(Note('«Контроль воды» не загружен: таблица 1.6 по воде пропущена.', 'warning'))
         for period in periods:
             summary, table = season_report(data[PRODUCTION], data.mapping, pressure, kind, period, water)
             if summary is None:
@@ -284,7 +291,8 @@ class AuthorReportModule(Module):
         by_well = an_wells.water_by_well(data[WATER] if WATER in data else None, wells, scopes,
                                          summary['start'], summary['stop'])
         if by_well is None:
-            result.notes.append(Note(f'{period}: «Контроль воды» без объёма воды по скважинам — таблица 1.6 пропущена.', 'warning'))
+            if WATER in data:
+                result.notes.append(Note(f'{period}: в «Контроль воды» нет объёма воды — таблица 1.6 пропущена.', 'warning'))
             return
         wet.append(an_wells.water_table(by_well).assign(season=period))
         extremes = an_wells.water_extremes(by_well)
@@ -300,6 +308,7 @@ class AuthorReportModule(Module):
         plan = plan_compare(data[PRODUCTION], data[PLAN], data.mapping, kind, data.settings)
         part = plan[plan.period.eq(period)]
         if part.empty:
+            result.notes.append(Note(f'{period}: в плане нет строк за сезон — рис. 1.8 пропущен.', 'warning'))
             return
         by_group = plan_summed(part, 'group')
         by_group = by_group.set_index('group').loc[ordered(by_group.group)].reset_index()
@@ -308,9 +317,9 @@ class AuthorReportModule(Module):
         if not ext:
             return
         result.summary += [
-            Stat(f'Наибольшее отклонение · {period}', f'{ext["delta_max"]:+,.1f} {UNIT} · {ext["delta_max_group"]}'.replace(',', ' '),
+            Stat(f'Наибольшее отклонение · {period}', f'{_signed(ext["delta_max"])} {UNIT} · {ext["delta_max_group"]}',
                  'Факт минус план, группа с наибольшим превышением'),
-            Stat(f'Наименьшее отклонение · {period}', f'{ext["delta_min"]:+,.1f} {UNIT} · {ext["delta_min_group"]}'.replace(',', ' '),
+            Stat(f'Наименьшее отклонение · {period}', f'{_signed(ext["delta_min"])} {UNIT} · {ext["delta_min_group"]}',
                  'Факт минус план, группа с наибольшим недобором'),
             Stat(f'Выполнение макс./мин. · {period}',
                  f'{ext["percent_max"]:.1f} % · {ext["percent_min"]:.1f} %'.replace('.', ','),
