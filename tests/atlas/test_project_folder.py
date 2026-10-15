@@ -57,9 +57,9 @@ def test_manifest_overrides_name_and_is_written_only_for_files_in_folder(tmp_pat
     assert r['manifest'] is True
     saved = json.loads((tmp_path / pf.MANIFEST).read_text(encoding='utf-8'))
     assert saved['files']['Отчёт.xlsx'] == {'role': 'gdi'}
-    # роль снимается, файл обратно определяется по имени
-    r = pf.save_manifest(str(tmp_path), {'Отчёт.xlsx': {'role': None}})
-    assert roles(r)['Отчёт.xlsx'] == (None, '', False)
+    # явно «не назначено» сохраняется и не подменяется именем файла
+    r = pf.save_manifest(str(tmp_path), {'БД_расходы.xlsx': {'role': None}})
+    assert roles(r)['БД_расходы.xlsx'][:2] == (None, '')
 
 
 def test_manifest_rejects_bad_input(tmp_path):

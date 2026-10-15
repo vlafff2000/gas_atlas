@@ -9,7 +9,7 @@ function kb(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} КБ` : `${(bytes / 1024 / 1024).toFixed(1)} МБ`
 }
 
-/** Раздел «Источники»: папка проекта, роли файлов и чеклист «что есть / что не назначено». Загрузка — общая, без отдельного импорта. */
+/** Раздел «Источники»: папка проекта, роли файлов и сводка по ролям. Загрузка — в разделе «Импорт данных» ниже. */
 export function FolderSources() {
   const [folder, setFolder] = useState('')
   const [scan, setScan] = useState<FolderScan | null>(null)
@@ -24,6 +24,7 @@ export function FolderSources() {
       const next = await work()
       setScan(next); setFolder(next.folder); setEdits({}); setMessage(done)
     } catch (e) {
+      setScan(null); setEdits({})          // старый список не должен выглядеть как открытая папка
       setError((e as Error).message)
     } finally {
       setBusy(false)
@@ -31,8 +32,14 @@ export function FolderSources() {
   }
 
   const pick = async () => {
-    const chosen = await openFilePicker({ mode: 'folder', start: folder || undefined, title: 'Папка проекта' })
-    if (chosen) await run(() => folderApi.scan(chosen), 'Папка прочитана. Файлы не загружены: загрузка — в разделе «Импорт данных».')
+    let chosen: string | null = null
+    try {
+      chosen = await openFilePicker({ mode: 'folder', start: folder || undefined, title: 'Папка проекта' })
+    } catch (e) {
+      setError((e as Error).message)
+      return
+    }
+    if (chosen) await run(() => folderApi.scan(chosen!), 'Папка прочитана. Файлы не загружены: загрузка — в разделе «Импорт данных».')
   }
 
   const current = (f: FolderFile) => ({
@@ -51,7 +58,7 @@ export function FolderSources() {
   return (
     <section className="folder-sources" aria-label="Источники данных">
       <h2>Источники</h2>
-      <p className="lede">Папка с файлами проекта: какой файл чем является. Здесь ничего не загружается; роли и признак нормированной базы сохраняются в папке рядом с данными.</p>
+      <p className="lede">Папка с файлами проекта: какой файл чем является. Здесь только роли файлов: роли и признак нормированной базы сохраняются в папке рядом с данными.</p>
 
       <div className="folder-row">
         <input
@@ -78,7 +85,6 @@ export function FolderSources() {
               </li>
             ))}
           </ul>
-          <p className="lede">Статус «загружено / не загружено» появится вместе с автоподгрузкой. Сейчас видно только назначение ролей.</p>
 
           <table className="folder-table">
             <thead>
@@ -107,7 +113,7 @@ export function FolderSources() {
                       {f.known && <div>{f.known}</div>}
                       {f.qc && (f.qc.error
                         ? <div className="muted">{f.qc.error}</div>
-                        : <div>Проверка: {f.qc.summary} <span className="muted">({f.qc.file})</span></div>)}
+                        : <div>Проверка{f.qc.summary ? `: ${f.qc.summary}` : ''} <span className="muted">({f.qc.file})</span></div>)}
                       {!f.known && !f.qc && <span className="muted">—</span>}
                     </td>
                   </tr>
