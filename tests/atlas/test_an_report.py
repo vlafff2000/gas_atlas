@@ -79,9 +79,51 @@ def test_module_is_discovered_and_runs_on_demo(tmp_path):
     r = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': []}})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert any('Глава 1.1.1' in n['text'] for n in body['notes'])
+    assert any('Глава 1.1.2' in n['text'] for n in body['notes'])
+    assert not any('Глава 1.1.1' in n['text'] for n in body['notes'])
     assert any('Давление объекта не загружено' in n['text'] for n in body['notes'])
     assert 'Выберите сезон' in ' '.join(n['text'] for n in body['notes'])
     r = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': ['2023-2024']}})
     assert r.status_code == 200, r.text
     assert [t['id'] for t in r.json()['tables']] == ['an-season', 'an-season-means']
+
+
+def water_factor(rows):
+    frame = pd.DataFrame(rows, columns=['date', 'water_day', 'wf', 'wf_cum'])
+    frame['date'] = pd.to_datetime(frame.date)
+    return frame
+
+
+WATER = water_factor([
+    ('2024-02-26', 5, 1.0, 1.0),        # до сезона: в сводку не попадает
+    ('2024-02-28', 10, 2.0, 1.5),
+    ('2024-02-29', 40, 4.0, 2.0),       # максимум выноса и суточного фактора
+    ('2024-03-01', 20, 3.0, 2.5),       # максимум накопленного фактора (в конце сезона)
+])
+
+
+def test_water_peaks_use_season_window_and_peak_day_indicators():
+    summary, _ = an_report.season_report(LEAP, MAPPING, PRESSURE, 'withdrawal', '2023-2024', an_report.water_table(WATER))
+    assert summary['water_peak'] == 40
+    assert summary['water_peak_date'] == pd.Timestamp('2024-02-29')
+    assert summary['water_peak_q'] == pytest.approx(2.3)      # Q объекта на дату выноса: 2300 м³/сут
+    assert summary['water_peak_wells'] == 2                    # 29.02: скважины 1 и 3
+    assert summary['water_peak_pressure'] == 95.0
+    assert summary['wf_peak'] == 4.0 and summary['wf_peak_date'] == pd.Timestamp('2024-02-29')
+    assert summary['wf_cum_peak'] == 2.5 and summary['wf_cum_peak_date'] == pd.Timestamp('2024-03-01')
+
+
+def test_no_water_table_gives_no_water_keys_and_peak_wells_counted():
+    summary, _ = an_report.season_report(LEAP, MAPPING, PRESSURE, 'withdrawal', '2023-2024')
+    assert 'water_peak' not in summary                         # воды не загружено — ключей нет
+    assert summary['peak_wells'] == 2                          # 29.02: работали скважины 1 и 3; скважина 2 — ноль
+
+
+def test_neutral_period_before_season_in_calendar_days():
+    neutral = production([('1', '2024-01-01', 0), ('1', '2024-02-10', 0)], 'Нейтральный период Осень 2023')
+    neutral['kind'] = 'injection'
+    frame = pd.concat([neutral, LEAP], ignore_index=True)
+    summary, _ = an_report.season_report(frame, MAPPING, PRESSURE, 'withdrawal', '2023-2024')
+    assert summary['neutral_days'] == 41                       # 01.01 — 10.02 включительно
+    summary, _ = an_report.season_report(LEAP, MAPPING, PRESSURE, 'withdrawal', '2023-2024')
+    assert summary['neutral_days'] is None                     # нейтрального периода в данных нет
