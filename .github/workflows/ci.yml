@@ -27,6 +27,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
+          cache-dependency-path: requirements-lock-py313.txt
       - name: Install (exact lock on 3.13, version ranges on other Python)
         run: |
           python tools/check_runtime.py
@@ -43,6 +44,7 @@ jobs:
         with:
           python-version: '3.13'
           cache: pip
+          cache-dependency-path: requirements-lock-py313.txt
       - name: Install
         run: python -m pip install --upgrade pip && python -m pip install -r requirements-lock-py313.txt httpx
       - name: Speed on the large demo (budget in tools/perf_budget.json; update with --update after an intended change)
