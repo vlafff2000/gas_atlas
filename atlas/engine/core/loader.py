@@ -244,7 +244,7 @@ def unify_groups(groups,reference=None):
     mapped=keys.map(spell)
     return values.where(mapped.isna()|values.eq('')|values.eq('Без группы'),mapped)
 
-GSP_NAME=re.compile(r'^\s*гсп[\s_\-.№]*0*(\d+)\s*$',re.I)
+GSP_NAME=r'(?i)^\s*гсп[\s_\-.№]*0*(\d+)\s*$'  # строка с (?i), не re.compile: pandas новых версий не учитывает флаги готового шаблона
 
 def canonical_gsp(groups):
     """«ГСП_4», «гсп-4», «ГСП  4» — одна группа «ГСП 4»: разные файлы базы пишут название по-разному."""
