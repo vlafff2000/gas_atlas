@@ -1,4 +1,6 @@
-"""Авторский надзор: табл. 1.9 ревизии КРУ — расчёт на присланных файлах (история 2021–2025, ревизия 2025/26).
+"""Авторский надзор: табл. 1.8 ревизии КРУ — расчёт на присланных файлах (история 2021–2025, ревизия 2025/26).
+
+Нумерация: в скрипте-источнике (well_report.py, README) эта таблица названа 1.9; в отчёте АН — табл. 1.8.
 
 Эталон — результат исходного скрипта well_report.py на тех же файлах (ГСП-1 — 12 скважин, ГСП-2 — 20 строк).
 """
@@ -58,7 +60,7 @@ def test_module_builds_table_19(dataset):
     result = RevisionModule().run(Data({}), {'history': str(HISTORY), 'revision': str(REVISION), 'season': '2025/26',
                                               'filter': '', 'absent_zero': False})
     ids = [t.id for t in result.tables]
-    assert ids[0] == 'an-rev-1-9'
+    assert ids[0] == 'an-rev-1-8'
     table = result.tables[0]
     row = table.frame[table.frame.gsp.eq('ГСП-1')].iloc[0]
     assert row['c4'] == 12 or row['c4'] == '12'
