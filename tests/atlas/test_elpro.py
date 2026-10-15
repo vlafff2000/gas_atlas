@@ -79,6 +79,15 @@ def test_xml_file_groups_and_empty_values(tmp_path):
     assert set(data['Режим']) == {'Отбор'}
 
 
+def test_keep_first_drops_second_row_of_same_well_day():
+    base = pd.DataFrame({'date': pd.to_datetime(['2022-11-01'] * 3), 'group': 'ГСП 4', 'well': ['411', '411', '412'],
+                         'kind': 'withdrawal', 'np': ['42', '41', '45'], 'q': [2.0, 1.0, 3.0]})
+    kept, extra = elpro.keep_first(base)
+    assert extra == 1
+    assert sorted(kept.well) == ['411', '412']
+    assert kept.loc[kept.well.eq('411'), 'q'].iloc[0] == 1.0    # меньший «№ п/п» (41), вторая строка (42) не учтена
+
+
 def test_to_db_names_groups_and_merge_policy(tmp_path):
     path = tmp_path / 'Month_20221101_GSP4_Lift.xlsx'
     month_book(path, [pd.Timestamp('2022-11-01').date()])

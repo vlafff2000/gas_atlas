@@ -878,16 +878,17 @@ class Imports:
             data, _infos, cov, warn = elpro.build([str(path)])
         if data.empty:
             raise ParamError('В файле нет данных ЭЛПРО' + (f': {warn[0]}' if warn else '.'))
-        new = elpro.to_db(data)
+        new, extra = elpro.keep_first(elpro.to_db(data))
         raw = self._raw_frames(pid, m)
         final, matched = elpro.merge(raw.get('elpro'), new, policy)
         frames = dict(raw)
         frames['elpro'] = final
         gaps = int((cov['Статус'] != 'есть').sum()) if not cov.empty else 0
         message = (f'ЭЛПРО «{name}»: строк {len(new)}, скважин {new.well.nunique()}, групп {new.group.nunique()}; '
-                   f'пропусков покрытия: {gaps}' + (f'; заменено прежних строк: {matched}' if matched else ''))
+                   f'пропусков покрытия: {gaps}' + (f'; заменено прежних строк: {matched}' if matched else '')
+                   + (f'; лишних строк за сутки не учтено: {extra}' if extra else ''))
         saved = self._commit(pid, frames, m['revision'], 'Импорт ЭЛПРО',
-                             details={'file': name, 'rows': len(new), 'gaps': gaps, 'warnings': warn[:50]})
+                             details={'file': name, 'rows': len(new), 'gaps': gaps, 'extra': extra, 'warnings': warn[:50]})
         self._keep_originals(pid, [(name, content)])
         return {'message': message, 'warnings': warn, 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 

@@ -396,6 +396,17 @@ def to_db(data: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
+def keep_first(db: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
+    """Одна строка на скважину, сутки, группу и режим: та, что с меньшим «№ п/п». Лишние строки не учитываются.
+
+    Пока решение Егора (2026-10-15): вторые строки с другими значениями не складываются и не усредняются,
+    пока источник не подтвердит номер. Возвращает (таблица, число отброшенных строк)."""
+    key = ['date', 'group', 'well', 'kind']
+    ordered = db.assign(_np=pd.to_numeric(db['np'], errors='coerce')).sort_values(key + ['_np'], kind='stable')
+    keep = ~ordered.duplicated(key, keep='first')
+    return ordered.loc[keep].drop(columns='_np').reset_index(drop=True), int((~keep).sum())
+
+
 def merge(old: pd.DataFrame | None, new: pd.DataFrame, policy: str = "new") -> Tuple[pd.DataFrame, int]:
     """Дозапись в прежнюю базу по ключу (день, группа, скважина, режим, № п/п).
 
