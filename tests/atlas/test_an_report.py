@@ -4,7 +4,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from atlas.api import create_app
-from atlas.modules import an_report
+from atlas.contract import Data
+from atlas.modules import an_report, an_wells
 from atlas.projects import Projects
 from atlas.registry import modules
 
@@ -155,3 +156,91 @@ def test_injection_table_without_plan_and_without_group():
     frame = an_report.injection_group_table(INJECTION, None, INJ_MAPPING, {})
     assert frame.recommended.isna().all() and frame.fact.notna().all()
     assert an_report.injection_group_table(INJECTION, PLAN_INJ, {'1': {'group': 'ГСП-1'}}, {}).empty
+
+
+# Глава 2 (закачка): сезон 2024 — скважина 1 (ГСП-9) работает 01.05 и 02.05 по 150 тыс., скважина 2 (ГСП 1) — 02.05 на 50 тыс.,
+# скважина 3 (ГСП 9) — 01.06 на 350 тыс.; 01.05 скважина 2 — ноль (в фонде сезона, но не работала в этот день).
+INJ_SEASON = pd.DataFrame([
+    ('1', '2024-05-01', 150_000), ('2', '2024-05-01', 0), ('1', '2024-05-02', 150_000), ('2', '2024-05-02', 50_000),
+    ('3', '2024-06-01', 350_000),
+], columns=['well', 'date', 'q'])
+INJ_SEASON['date'] = pd.to_datetime(INJ_SEASON.date)
+INJ_SEASON['kind'] = 'injection'
+INJ_SEASON['period'] = '2024'
+INJ_PRESSURE = pd.DataFrame({'date': pd.to_datetime(['2024-04-30', '2024-05-02', '2024-06-01']), 'pressure': [60.0, 65.0, 80.0]})
+
+
+def test_injection_curve_cumulative_with_pressure_and_well_counts():
+    chart = an_report.injection_curve(INJ_SEASON, INJ_PRESSURE, '2024')
+    rate, pres = chart.series
+    assert rate.y == pytest.approx([150.0, 200.0, 350.0])            # тыс. м³/сут по датам
+    assert list(rate.x) == pytest.approx([0.15, 0.35, 0.70])         # накопленная закачка, млн м³
+    assert '2' in rate.labels[1] and '1' in rate.labels[0]          # скважин в работе: 01.05 — 1, 02.05 — 2
+    assert list(pres.x) == pytest.approx([0.35, 0.70])               # замер 30.04 — до сезона, на рисунке не выводится
+    assert list(pres.y) == [65.0, 80.0]
+    assert pres.axis == 'y2'
+
+
+def test_pressure_chart_and_empty_season():
+    chart = an_report.pressure_chart(INJ_PRESSURE, '2024', pd.Timestamp('2024-05-01'), pd.Timestamp('2024-06-01'))
+    assert list(chart.series[0].y) == [65.0, 80.0]                  # 30.04 — до сезона, не входит
+    assert an_report.pressure_chart(None, '2024', pd.Timestamp('2024-05-01'), pd.Timestamp('2024-06-01')) is None
+    assert an_report.injection_curve(INJ_SEASON.iloc[0:0], None, '2024') is None
+
+
+def test_monthly_wells_and_classes_by_hand():
+    frame, months = an_report.monthly_wells(INJ_SEASON, INJ_MAPPING, '2024')
+    assert [m.strftime('%m') for m in months] == ['05', '06']
+    whole = frame.set_index('group')
+    assert whole.loc['Всего', 'fund'] == 3 and whole.loc['Всего', 'm0'] == 2 and whole.loc['Всего', 'm1'] == 1
+    assert whole.loc['ГСП 9', 'fund'] == 2 and whole.loc['ГСП 9', 'm0'] == 1 and whole.loc['ГСП 9', 'm1'] == 1
+    assert whole.loc['ГСП 1', 'fund'] == 1 and whole.loc['ГСП 1', 'm0'] == 1 and whole.loc['ГСП 1', 'm1'] == 0
+
+    wells = an_wells.season_wells(INJ_SEASON, 'injection', '2024')
+    scopes = an_report.well_scopes(INJ_MAPPING, ['1', '2', '3'])
+    classes = an_report.injection_class_table(wells, scopes).set_index('group')
+    assert classes.loc['Всего', 'c0'] == '1 (2)'            # 2: 50 тыс. — менее 100
+    assert classes.loc['Всего', 'c2'] == '1 (1)'            # 1: 150 тыс. — от 150 до 200
+    assert classes.loc['Всего', 'c5'] == '1 (3)'            # 3: 350 тыс. — более 300
+    assert classes.loc['Всего', 'zero'] == '0'
+    assert classes.loc['ГСП 9', 'c2'] == '1 (1)' and classes.loc['ГСП 9', 'c5'] == '1 (3)'
+
+
+def test_plan_tables_from_comparison():
+    cmp = pd.DataFrame({'period': ['2024'] * 4, 'month': pd.to_datetime(['2024-05-01', '2024-06-01'] * 2),
+                        'group': ['ГСП 9', 'ГСП 9', 'ГСП 1', 'ГСП 1'], 'plan': [10.0, 20.0, 5.0, 5.0],
+                        'fact': [8.0, 25.0, 6.0, 4.0]})
+    table = an_report.plan_fact_by_group(cmp, '2024').set_index('group')
+    assert table.loc['ГСП 9', 'plan'] == 30 and table.loc['ГСП 9', 'fact'] == 33
+    assert table.loc['Всего', 'plan'] == 40 and table.loc['Всего', 'fact'] == 43
+    assert table.loc['Всего', 'delta'] == 3                          # факт минус план, итог по всем группам
+    card, months = an_report.plan_card(cmp, '2024')
+    assert len(months) == 2 and card.set_index('group').loc['ГСП 1', 'm1'] == 5.0
+
+
+def test_injection_season_run_builds_chapter2_items():
+    plan = pd.DataFrame({'group': ['ГСП-9', 'ГСП 1'], 'date': pd.to_datetime(['2024-05-01', '2024-06-01']),
+                         'plan_volume': [300.0, 200.0], 'kind': 'injection'})
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE, an_report.PLAN: plan})
+    data.mapping = INJ_MAPPING
+    result = an_report.AuthorReportModule().run(data, {'kind': 'injection', 'periods': ['2024']})
+    charts = {c.id for c in result.charts}
+    assert {'injection-curve-2024', 'injection-pressure-2024', 'plan-fact-months-2024'} <= charts
+    tables = [t.id for t in result.tables]
+    assert {'an-inj-plan-fact', 'an-inj-wells-0', 'an-inj-classes', 'an-inj-plan-card-0'} <= set(tables)
+    stat = next(s for s in result.summary if s.label == 'Рпл за сезон · 2024')
+    assert stat.value.startswith('+20,0')                              # 60 (30.04, ближе к 01.05 — ничья, раньше) → 80 на 01.06
+    assert not any(n.level == 'warning' and 'не загружен' in n.text for n in result.notes)
+    assert any('Рис. 2.5' in n.text for n in result.notes)
+
+
+def test_plan_and_fact_groups_match_across_spellings():
+    # План написан «ГСП 9», в закачке скважины 1 и 3 — «ГСП-9» и «гсп_9»: факт ГСП 9 по месяцам — 0,30 (май) и 0,35 (июнь).
+    plan = pd.DataFrame({'group': ['ГСП 9', 'ГСП 9'], 'date': pd.to_datetime(['2024-05-01', '2024-06-01']),
+                         'plan_volume': [1.0, 1.0], 'kind': 'injection'})
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.PLAN: plan})
+    data.mapping = INJ_MAPPING
+    result = an_report.AuthorReportModule().run(data, {'kind': 'injection', 'periods': ['2024']})
+    table = next(t for t in result.tables if t.id == 'an-inj-plan-fact').frame.set_index('group')
+    assert table.loc['ГСП 9', 'fact'] == pytest.approx(0.65)
+    assert table.loc['ГСП 9', 'plan'] == 2.0
