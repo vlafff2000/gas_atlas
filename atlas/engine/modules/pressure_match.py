@@ -135,10 +135,13 @@ def pair(fact,model,object_name,scenario,fonds=None,duplicate='first'):
         if count:diagnostics.append({'Объект':object_name,'Сценарий':scenario,'Источник':name,'Проблема':'Повторные скважина/дата','Строк':count,'Правило':duplicate})
     if duplicate=='error' and (fact.duplicated(keys).any() or model.duplicated(keys).any()):raise ValueError('Повторные скважина/дата. Выберите правило обработки дубликатов.')
     def unique(d):
-        if duplicate=='mean':return d.groupby(keys,as_index=False).agg(value=('value','mean'),_row=('_row','min'),note=('note','first'))
+        if duplicate=='mean':
+            spec={'value':('value','mean'),'_row':('_row','min')}
+            if 'note' in d:spec['note']=('note','first')
+            return d.groupby(keys,as_index=False).agg(**spec)
         return d.drop_duplicates(keys,keep=duplicate if duplicate in ('first','last') else 'first')
-    fact,model=unique(fact),unique(model)
     if 'note' not in fact:fact=fact.assign(note='')
+    fact,model=unique(fact),unique(model)
     model=model.drop(columns='note',errors='ignore')
     merged=fact.rename(columns={'value':'fact'}).merge(model.rename(columns={'value':'model','_row':'_model_row'}),on=keys,how='outer',validate='one_to_one',indicator=True)
     merged['note']=merged['note'].fillna('')
