@@ -16,7 +16,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Route
 
 MAX_RECENT = 12
@@ -242,7 +242,6 @@ async def _last(request: Request) -> JSONResponse:
 
 async def _file(request: Request):
     """Содержимое файла по пути из проводника (сервер локальный, 127.0.0.1): интерфейс получает его как обычный выбранный файл."""
-    from starlette.responses import FileResponse
     path = request.query_params.get("path") or ""
     if not path or not os.path.isfile(path):
         return JSONResponse({"error": "Файл не найден: %s" % (path or "—")}, status_code=404)
