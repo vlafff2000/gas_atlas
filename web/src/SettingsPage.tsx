@@ -1,6 +1,7 @@
 // Раздел «Настройки» (5.8: страница «Настройки» в app/main.py и «Оформление графиков» боковой панели).
 import { useCallback, useEffect, useState } from 'react'
 import { pickLocalFiles } from './FilePicker'
+import { api } from './api'
 import { projectsApi, saveLink } from './api_projects'
 import { smoothLines, theme, thinCharts, usePref, type Theme } from './chartPrefs'
 import { RestoreBox, Toast, useDetails, type PageProps } from './ProjectPage'
@@ -28,6 +29,7 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const [threshold, setThreshold] = useState(String(s.r2_threshold ?? 0.95))
   const [manometers, setManometers] = useState(((s.manometer_wells as string[] | null) ?? []).join(', '))
   const [pages, setPages] = useState<string[] | null>(null)
+  const [mapsUrl, setMapsUrl] = useState<string | null>(null)
   const [style, setStyle] = useState<Record<string, boolean>>({})
   const [originals, setOriginals] = useState(true)
   const currentTheme = usePref(theme)
@@ -46,6 +48,7 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
     setStyle({ points: true, legend: true, grid: true, ...saved })
   }, [s.season_start, s.season_end, s.r2_threshold, s.auto_seasons, s.show_neutral_periods, s.season_gap_days, s.season_rate_share, s.season_schedule, s.peak_windows, s.auto_peaks, s.peak_factor, s.manometer_wells, s.chart_style])
   useEffect(() => { if (details) setPages(details.visible_pages) }, [details])
+  useEffect(() => { api.appLinks().then(r => setMapsUrl(r.maps_url)).catch(() => setMapsUrl('')) }, [])
 
   const save = async (values: Record<string, unknown>, done: string) => {
     try { onProject(await projectsApi.settings(project.id, values)); setToast(done) }
@@ -220,6 +223,15 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
           <button type="button" className="quiet" onClick={() => save({ chart_style: style }, 'Оформление сохранено.')}>Сохранить оформление</button>
         </div>
         <p className="muted small-text">Действует на выгрузки раздела «Экспорт» и на графики версии 5.8.</p>
+      </section>
+
+      <section className="form-block">
+        <h2>Карты ГСП</h2>
+        {mapsUrl === null ? <p className="muted">Загрузка…</p> : mapsUrl ? (
+          <p className="muted small-text">Адрес: <a href={mapsUrl} target="_blank" rel="noopener">{mapsUrl}</a>. В графиках по скважинам, которые есть в проекте, появляется кнопка «Показать на карте».</p>
+        ) : (
+          <p className="muted small-text">Адрес карты не задан. Запустите Атлас из меню pxg_hub: оно передаёт адрес переменной PXG_MAPS_URL. Тогда в графиках по скважинам появится кнопка «Показать на карте».</p>
+        )}
       </section>
 
       <section className="form-block">

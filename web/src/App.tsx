@@ -238,6 +238,11 @@ function ChartKinds({ spec, values, onChange }: { spec: ModuleSpec; values: Para
 
 function ModulePanel({ spec, project, onProject, panel, labelled }:
   { spec: ModuleSpec; project: Project; onProject: (p: Project) => void; panel: number; labelled: boolean }) {
+  // «Показать на карте»: адрес Карт ГСП из настроек сервера и скважины проекта (кнопка только для скважин проекта)
+  const [mapsUrl, setMapsUrl] = useState('')
+  const [wells, setWells] = useState<Set<string>>(new Set())
+  useEffect(() => { api.appLinks().then(r => setMapsUrl(r.maps_url.replace(/\/+$/, ''))).catch(() => setMapsUrl('')) }, [])
+  useEffect(() => { api.projectWells(project.id).then(w => setWells(new Set(w))).catch(() => setWells(new Set())) }, [project.id, project.revision])
   const storeKey = `params:${project.id}:${spec.id}` + (panel ? `:${panel}` : '')
   const [params, setParams] = useState<Params | null>(null)
   const [saved, setSaved] = useState<SavedState | null>(null)
@@ -428,6 +433,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               <div className="chart-grid">
                 {shown.map(c => (
                   <ChartView key={c.id} chart={c} excludeMode={excludeMode} onExclude={excludePoint}
+                    mapLink={mapsUrl ? well => wells.has(well) && /^\d+$/.test(well) ? `${mapsUrl}/#/map?well=${well}` : null : undefined}
                     onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({
                       ...params, view: 'dynamics', wells: [well], groups: [], scope_groups: [], scope_wells: [], focus: `${well}|${date}` }) : undefined}
                     fetchWindow={(x0, x1, raw) => api.window(spec.id, project.id, params, c.id, x0, x1, raw, result.revision)}

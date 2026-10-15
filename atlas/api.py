@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -119,6 +120,13 @@ def create_app(projects: Projects | None = None) -> Starlette:
     # --- проекты ---
     def list_projects(request, body):
         return projects.list()
+
+    def app_links(request, body):
+        """Адрес Карт ГСП: переменная PXG_MAPS_URL (её передаёт меню pxg_hub); пусто — кнопки на карту не будет."""
+        return {'maps_url': os.environ.get('PXG_MAPS_URL', '').strip()}
+
+    def project_wells(request, body):
+        return {'wells': projects.wells(request.path_params['pid'])}
 
     def create_demo(request, body):
         rows = body.get('rows') or {}
@@ -286,6 +294,8 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}', E(project)),
         Route('/api/projects/{pid}/settings', E(settings), methods=['PATCH']),
         Route('/api/projects/{pid}/options', E(options)),
+        Route('/api/projects/{pid}/wells', E(project_wells)),
+        Route('/api/app/links', E(app_links)),
         Route('/api/projects/{pid}/exclusions', E(exclusions), methods=['POST']),
         Route('/api/projects/{pid}/exclusions/undo', E(undo), methods=['POST']),
         Route('/api/projects/{pid}/groups', E(groups), methods=['POST']),
