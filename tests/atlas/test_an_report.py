@@ -85,7 +85,8 @@ def test_module_is_discovered_and_runs_on_demo(tmp_path):
     assert 'Выберите сезон' in ' '.join(n['text'] for n in body['notes'])
     r = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': ['2023-2024']}})
     assert r.status_code == 200, r.text
-    assert [t['id'] for t in r.json()['tables']] == ['an-season', 'an-season-means']
+    ids = [t['id'] for t in r.json()['tables']]
+    assert ids[:2] == ['an-season', 'an-season-means'] and {'an-fund', 'an-fund-classes'} <= set(ids)
 
 
 def water_factor(rows):
