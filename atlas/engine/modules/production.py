@@ -86,7 +86,7 @@ def curve_data(df,kind,selected_periods,wells):
             g=g.set_index('date').reindex(calendar)
             excluded=g['_excluded'].fillna(False).astype(bool) if '_excluded' in g else pd.Series(False,index=g.index)
             part=pd.DataFrame({'date':calendar,'well':well,'period':period,
-                'cumulative':cumulative.to_numpy(),'q':g.q.where(~excluded,np.nan).to_numpy()/1000,
+                'cumulative':cumulative.to_numpy(),'q':g.q.fillna(0).where(~excluded,np.nan).to_numpy()/1000,
                 'missing':(g.q.isna()&~excluded).to_numpy()})
             for c in ('file','sheet','_row','_point_id'): part[c]=g[c].fillna('').to_numpy() if c in g else ''
             out.append(part)
@@ -158,7 +158,7 @@ def _indexed_curves(df,index,kind,selected_periods,wells):
             g=df.iloc[index.groups[(kind,period,well)]].set_index('date').reindex(calendar)
             excluded=g['_excluded'].fillna(False).astype(bool) if '_excluded' in g else pd.Series(False,index=g.index)
             part=pd.DataFrame({'date':calendar,'well':well,'period':period,'cumulative':cumulative,
-                'q':g.q.where(~excluded,np.nan).to_numpy()/1000,'missing':(g.q.isna()&~excluded).to_numpy()})
+                'q':g.q.fillna(0).where(~excluded,np.nan).to_numpy()/1000,'missing':(g.q.isna()&~excluded).to_numpy()})
             for c in ('file','sheet','_row','_point_id'):part[c]=g[c].fillna('').to_numpy() if c in g else ''
             out.append(part)
     return pd.concat(out,ignore_index=True) if out else pd.DataFrame()
