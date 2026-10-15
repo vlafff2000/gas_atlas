@@ -26,12 +26,16 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from .api import error
+from .imports import Imports
 from .api_projects import internal_error_text
 from .contract import ParamError
+from .imports import POLICIES
+from .projects import Conflict
 
 log = logging.getLogger(__name__)
 
 MANIFEST = 'gas_atlas_folder.json'
+LOADS = 'folder_loads.json'          # в папке проекта: что и когда загружено из папки (отпечаток файла)
 QC_SUFFIX = '.qc.json'
 EXTENSIONS = ('.xlsx', '.xlsm', '.xls', '.csv', '.txt')
 ROLES = {
@@ -108,8 +112,44 @@ def _qc_summary(folder: Path, name: str) -> dict[str, Any] | None:
             'counts': data.get('counts', {}), 'created': dt.datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec='minutes')}
 
 
-def scan(raw_folder: Any) -> dict[str, Any]:
-    """Список файлов папки. Ничего не открывается, кроме манифеста и отчётов проверки."""
+def fingerprint(path: Path) -> dict[str, int]:
+    """Отпечаток файла: размер и время изменения. Содержимое не читается (файлы бывают по сотням МБ)."""
+    stat = path.stat()
+    return {'size': stat.st_size, 'mtime': int(stat.st_mtime)}
+
+
+def read_loads(project_dir: Path) -> dict[str, Any]:
+    path = project_dir / LOADS
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        return data.get('files', {}) if isinstance(data, dict) and isinstance(data.get('files'), dict) else {}
+    except (OSError, ValueError):
+        log.warning('Не читается %s: все файлы будут показаны как «не загружены»', path)
+        return {}
+
+
+def write_loads(project_dir: Path, files: dict[str, Any]) -> None:
+    path = project_dir / LOADS
+    tmp = path.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps({'format': 1, 'files': files}, ensure_ascii=False, indent=1), encoding='utf-8')
+    os.replace(tmp, path)
+
+
+def _load_state(path: Path, loaded: dict[str, Any] | None) -> str | None:
+    if loaded is None:
+        return None
+    entry = loaded.get(path.name)
+    if not isinstance(entry, dict):
+        return 'not_loaded'
+    now = fingerprint(path)
+    return 'loaded' if (entry.get('size'), entry.get('mtime')) == (now['size'], now['mtime']) else 'changed'
+
+
+def scan(raw_folder: Any, loaded: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Список файлов папки. Ничего не открывается, кроме манифеста и отчётов проверки.
+    ``loaded`` — что уже загружено в проект (из ``folder_loads.json``): тогда у каждого файла статус загрузки."""
     folder = _folder(raw_folder)
     manifest, warning = read_manifest(folder)
     files = []
@@ -129,7 +169,7 @@ def scan(raw_folder: Any) -> dict[str, Any]:
                       'modified': dt.datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='minutes'),
                       'role': role, 'role_label': ROLES.get(role, ''), 'role_source': source if role else '',
                       'normalized': normalized, 'known': known['label'] if known else '',
-                      'qc': _qc_summary(folder, name)})
+                      'qc': _qc_summary(folder, name), 'load': _load_state(path, loaded)})
     if not files and not warning:
         warning = 'В папке нет таблиц Excel или CSV: положите файлы данных или выберите другую папку.'
     return {'folder': str(folder), 'manifest': bool(manifest) or (folder / MANIFEST).exists(), 'warning': warning,
@@ -173,7 +213,65 @@ def save_manifest(raw_folder: Any, files: Any) -> dict[str, Any]:
     return scan(str(folder))
 
 
-def routes() -> list[Route]:
+def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy: str) -> dict[str, Any]:
+    """Загрузить файлы папки в проект через общий импорт (check → apply), по одному файлу.
+    Файл с отклонёнными строками не грузится автоматически: он получает статус «нужно внимание» и идёт вручную."""
+    folder = _folder(raw_folder)
+    if not isinstance(names, list) or not names:
+        raise ParamError('Выберите файлы для загрузки')
+    if policy not in POLICIES:
+        raise ParamError('Неизвестное правило повторов')
+    project_dir = projects.store.path(pid)
+    m = projects.manifest(pid)                  # проверка, что проект есть
+    loads = read_loads(project_dir)
+    names_ok = {p.name for p in folder.iterdir() if p.is_file()}
+    results = []
+    warning = ''
+    try:
+        for name in names:
+            results.append(_load_one(imports, pid, folder, name, names_ok, policy, loads))
+    finally:
+        # записываем даже при сбое в середине: уже применённые файлы должны остаться отмеченными
+        try:
+            write_loads(project_dir, loads)
+        except OSError:
+            log.exception('Не записан %s в %s', LOADS, project_dir)
+            warning = 'Данные загружены, но отметки загрузки в папке не записаны (нет прав на запись в папку проекта).'
+    return {'results': results, 'folder': scan(str(folder), loads), 'project': pid, 'revision': m.get('revision'),
+            'warning': warning}
+
+
+def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy: str, loads: dict) -> dict[str, Any]:
+    """Один файл: upload → check → apply. Ошибка одного файла не обрывает остальные."""
+    if name not in names_ok or Path(name).name != name or Path(name).suffix.lower() not in EXTENSIONS:
+        return {'name': name, 'status': 'error', 'message': 'Файла нет в папке или он не таблица'}
+    path = folder / name
+    try:
+        up = imports.upload(name, path.read_bytes())
+        if up['error']:
+            raise ParamError(up['error'])
+        pending = imports.check(pid, {'files': [{'token': up['token']}], 'mode': 'auto', 'view': 'simple'})
+        if pending['rejected']:
+            return {'name': name, 'status': 'attention',
+                    'message': f"Отклонённых строк: {pending['rejected']}. Загрузите этот файл вручную в «Импорт данных»."}
+        applied = imports.apply(pid, {'pending': pending['id'], 'policy': policy})
+        loads[name] = dict(fingerprint(path), loaded_at=dt.datetime.now().isoformat(timespec='seconds'), message=applied['message'])
+        return {'name': name, 'status': 'loaded', 'message': applied['message']}
+    except ParamError as e:
+        return {'name': name, 'status': 'error', 'message': str(e)}
+    except (KeyError, Conflict) as e:
+        message = str(e.args[0]) if isinstance(e, KeyError) and e.args else str(e)
+        return {'name': name, 'status': 'error', 'message': message or 'Загрузка прервана: данные проекта изменились, повторите.'}
+    except OSError as e:
+        return {'name': name, 'status': 'error', 'message': f'Файл не прочитан: {e.strerror or e}'}
+    except Exception:
+        log.exception('Сбой загрузки %s из папки', name)
+        return {'name': name, 'status': 'error', 'message': 'Файл не загружен: внутренняя ошибка. Подробности — в журнале.'}
+
+
+def routes(projects) -> list[Route]:
+    imports = Imports(projects)
+
     def wrap(work):
         async def handler(request: Request):
             try:
@@ -183,16 +281,28 @@ def routes() -> list[Route]:
             if not isinstance(body, dict):
                 return error(400, 'Тело запроса должно быть объектом JSON')
             try:
-                out = await run_in_threadpool(work, body)
+                out = await run_in_threadpool(work, request, body)
             except ParamError as e:
                 return error(400, str(e))
+            except KeyError as e:
+                return error(404, str(e.args[0]) if e.args else 'Не найдено')
             except Exception:
                 log.exception('Сбой запроса %s', request.url.path)
                 return error(500, internal_error_text())
             return out if isinstance(out, Response) else JSONResponse(out)
         return handler
 
+    def scan_route(request, body):
+        loaded = None
+        if body.get('project'):
+            pid = str(body['project'])
+            projects.manifest(pid)              # нет проекта — KeyError → 404
+            loaded = read_loads(projects.store.path(pid))
+        return scan(body.get('folder'), loaded)
+
     return [
-        Route('/api/folder/scan', wrap(lambda b: scan(b.get('folder'))), methods=['POST']),
-        Route('/api/folder/manifest', wrap(lambda b: save_manifest(b.get('folder'), b.get('files'))), methods=['POST']),
+        Route('/api/folder/scan', wrap(scan_route), methods=['POST']),
+        Route('/api/folder/manifest', wrap(lambda r, b: save_manifest(b.get('folder'), b.get('files'))), methods=['POST']),
+        Route('/api/projects/{pid}/folder/load', wrap(lambda r, b: load_files(
+            imports, projects, r.path_params['pid'], b.get('folder'), b.get('files'), b.get('policy') or 'new')), methods=['POST']),
     ]
