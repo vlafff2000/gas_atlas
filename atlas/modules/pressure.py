@@ -119,6 +119,9 @@ class PressureModule(Module):
                   show_if={'view': '—'}),      # скрытый: «скважина|дата» из щелчка по точке кроссплота
             Param('time_mean_lines', 'Оставить линии скважин', 'boolean', default=True, section=SECTION_VIEW,
                   show_if={'view': 'dynamics'}, help='Со средней кривой: линии выбранных скважин остаются рядом с ней.'),
+            Param('reasons', 'Подписи причин отсутствия замеров', 'boolean', default=True, section=SECTION_VIEW,
+                  show_if={'view': 'dynamics'},
+                  help='Даты без замера, у которых в файле заполнено примечание (ремонт и т.п.), подписываются у линии модели.'),
             Param('scope_groups', 'Область графиков: группы', 'multi', default=[], dynamic=True, section=SECTION_VIEW,
                   help='Только для графиков; таблицы и статистика остаются по всей выборке. Пусто — все.'),
             Param('scope_wells', 'Область графиков: скважины', 'multi', default=[], dynamic=True,
@@ -164,11 +167,12 @@ class PressureModule(Module):
             if len(scoped) < len(d):
                 result.notes.append(Note('Графики: область — {:,} из {:,} точек; таблицы и статистика — по всей выборке.'
                                          .format(len(scoped), len(d)).replace(',', ' ')))
+            gaps = gap_points(source) if params.get('reasons', True) and view == 'dynamics' else None
             for name in VIEWS[view][1]:
                 if scoped.empty:
                     result.notes.append(Note('В выбранной области графиков нет точек.', 'warning'))
                     break
-                result.charts.extend(self.charts(name, scoped, cfg, params, result))
+                result.charts.extend(self.charts(name, scoped, cfg, params, result, gaps))
             if view == 'cross':
                 result.tables.append(summary_table(d, cfg))
             for title, frame in stat_tables(d, cfg):
@@ -186,7 +190,7 @@ class PressureModule(Module):
             result.tables.append(points)
         return result
 
-    def charts(self, name: str, d: pd.DataFrame, cfg: dict, params: dict, result: Result) -> list[Chart]:
+    def charts(self, name: str, d: pd.DataFrame, cfg: dict, params: dict, result: Result, gaps: pd.DataFrame | None = None) -> list[Chart]:
         view = d
         if name in PER_WELL and params['well_limit'] != 'all':
             limit = int(params['well_limit'])
@@ -195,6 +199,8 @@ class PressureModule(Module):
                 result.notes.append(Note(f'«{legacy.LABELS[name]}»: показано {limit} из {d.well.nunique()} скважин. '
                                          'Увеличьте «Скважин на графике» или сузьте выбор скважин.'))
         chart = build(name, view, cfg)
+        if name == 'time' and gaps is not None:
+            reason_series(chart, gaps, view)
         if name == 'cross' and len(d) > SCREEN_POINTS:
             result.notes.append(Note('Показана выборка {:,} из {:,} точек; статистика и таблицы — по всем.'
                                      .format(SCREEN_POINTS, len(d)).replace(',', ' ')))
@@ -640,6 +646,40 @@ def time_chart(d: pd.DataFrame, name: str, title: str, unit: str, cfg: Mapping[s
     if mean:
         mean_chart(chart, d, cfg, colors, many_objects)
     return chart
+
+
+CAPTION_LIMIT = 60             # символов примечания на подписи: длинный текст остаётся в подсказке точки
+
+
+def gap_points(source: pd.DataFrame) -> pd.DataFrame:
+    """Даты без факта с примечанием (причина: ремонт и т.п.) и давлением модели на ту же дату.
+
+    Неполные пары в ``filter_data`` отбрасываются, поэтому подписи берутся из исходной выборки отдельно."""
+    cols = ['object', 'well', 'date', 'note', 'model']
+    if source.empty or 'note' not in source:
+        return pd.DataFrame(columns=cols)
+    note = source.note.fillna('').astype(str).str.strip()
+    gaps = source[source.fact.isna() & note.ne('') & ~note.str.lower().isin(['nan', 'none'])].assign(
+        date=lambda d: pd.to_datetime(d.date), note=note)
+    if gaps.empty:
+        return pd.DataFrame(columns=cols)
+    models = source[source.model.notna()].assign(date=lambda d: pd.to_datetime(d.date))
+    models = models.drop_duplicates(['object', 'well', 'date'])[['object', 'well', 'date', 'model']]
+    return gaps[['object', 'well', 'date', 'note']].merge(models, on=['object', 'well', 'date'], how='inner')[cols]
+
+
+def reason_series(chart: Chart, gaps: pd.DataFrame, view: pd.DataFrame) -> None:
+    """Подписи причин у точек без замера: текст над кружком на линии модели, в подсказке — полное примечание."""
+    g = gaps[gaps.well.isin(view.well.unique()) & gaps.object.isin(view.object.unique())
+             & gaps.date.between(view.date.min(), view.date.max())]
+    if g.empty:
+        return
+    many_objects = view.object.nunique() > 1
+    short = [n if len(n) <= CAPTION_LIMIT else n[:CAPTION_LIMIT - 1] + '…' for n in g.note]
+    captions = [f'№{w}{" · " + o if many_objects else ""}: {s}' for w, o, s in zip(g.well, g.object, short)]
+    tips = [f'Скв. {w} · {t:%d.%m.%Y} · Замера нет: {n}' for w, t, n in zip(g.well, g.date, g.note)]
+    chart.series.append(Series('Нет замера', list(g.date), g.model.to_numpy(float), 'points', color=FACT_COLOR, hollow=True,
+                               legend=False, labels=tips, captions=captions))
 
 
 def focus_ring(chart: Chart, d: pd.DataFrame, name: str, cfg: Mapping[str, Any]) -> None:

@@ -10,7 +10,7 @@ from atlas.engine.core.config import MODULES
 from atlas.engine.core.loader import ALIASES,detect_layout,merge_frames
 from atlas.engine.core.well_import import REQUIRED
 
-FIELDS={'well':'Скважина','date':'Дата','q':'Расход газа','p_res':'Пластовое давление','p_bh':'Забойное давление','dp2':'ΔP²','level':'Уровень жидкости','pressure':'Приведенное давление','horizon':'Горизонт','group':'Группа','subgroup':'Подгруппа','value':'Давление','fond':'Тип / фонд'}
+FIELDS={'well':'Скважина','date':'Дата','q':'Расход газа','p_res':'Пластовое давление','p_bh':'Забойное давление','dp2':'ΔP²','level':'Уровень жидкости','pressure':'Приведенное давление','horizon':'Горизонт','group':'Группа','subgroup':'Подгруппа','value':'Давление','fond':'Тип / фонд','note':'Примечание'}
 FIELDS.update({f:aliases[0] for f,aliases in ALIASES.items() if f not in FIELDS})
 FIELDS['hours']='Время работы'
 MODULE_CHOICES=['auto','production','gdi','response','object_pressure','operations','water','water_factor','bottom','construction','plan','groups','subgroups']
@@ -123,7 +123,7 @@ def pressure_layout(raw):
         labels=list(raw.iloc[i]);table=tabular.headed(raw,i);cfg=pm.detect_columns(table)
         recognized=any(re.search(pm.ALIASES['date'],str(v),re.I) for v in labels)
         if recognized or i+1<len(raw) and pd.notna(pm.dates(pd.Series([raw.iloc[i+1,0]])).iloc[0]):
-            mapping={k:labels.index(cfg[k]) for k in ('date','well','value') if cfg[k] is not None and cfg[k] in labels}
+            mapping={k:labels.index(cfg[k]) for k in ('date','well','value','note') if cfg[k] is not None and cfg[k] in labels}
             mapping.setdefault('date',0)
             return {'header':i,'mapping':mapping,'wide':cfg['format']=='wide'}
     return {'header':0,'mapping':{'date':0},'wide':True}
@@ -140,7 +140,10 @@ def pressure_table(raw,spec):
         cfg={'format':'long','date':'Дата','well':'Скважина','value':'Давление','row_offset':offset,'row_column':'Строка источника'}
     else:
         if not {'date','well','value'}<=mapping.keys():raise ValueError('Назначьте дату, скважину и давление.')
-        data=data.iloc[:,[mapping[f] for f in ('date','well','value')]].copy();data.columns=['Дата','Скважина','Давление'];cfg={'format':'long','date':'Дата','well':'Скважина','value':'Давление','row_offset':offset}
+        fields=('date','well','value')+(('note',) if 'note' in mapping else ())
+        data=data.iloc[:,[mapping[f] for f in fields]].copy();data.columns=['Дата','Скважина','Давление']+(['Примечание'] if 'note' in mapping else [])
+        cfg={'format':'long','date':'Дата','well':'Скважина','value':'Давление','row_offset':offset}
+        if 'note' in mapping:cfg['note']='Примечание'
     cfg['source_signature']=json.dumps(spec,ensure_ascii=False,sort_keys=True)+str(raw.attrs.get('source_options',''))
     return data,cfg
 

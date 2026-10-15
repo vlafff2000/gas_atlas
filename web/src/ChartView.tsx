@@ -315,8 +315,16 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           emphasis: { ...emphasis, lineStyle: { width: width + 1 } } }
       }
       const big = rows.length > LARGE
+      // Подписи (например, причина отсутствия замера) — текст над точкой; индекс точки совпадает, т.к. пустых точек нет.
+      const captions = s.captions ?? null
+      const caption = captions ? {
+        show: true, position: 'top' as const, distance: 6, fontSize: 11, color: tk.ink, padding: [2, 5], borderRadius: 4,
+        backgroundColor: tk.surface, borderColor: c, borderWidth: 1,
+        formatter: (p: { dataIndex: number }) => captions[p.dataIndex] ?? '',
+      } : undefined
+      // hideOverlap: соседние подписи не налезают друг на друга — скрытая подпись видна в подсказке точки
       return { ...common, type: 'scatter', z: s.hollow ? 4 : 3, symbol: SYMBOL[s.symbol], symbolSize: big ? 5 : s.hollow ? 10 : 9,
-        large: big, largeThreshold: LARGE, progressive: 0,
+        large: big, largeThreshold: LARGE, progressive: 0, ...(caption ? { label: caption, labelLayout: { hideOverlap: true } } : {}),
         itemStyle: {
           ...(s.hollow
             ? { color: 'rgba(255,255,255,0)', borderColor: c, borderWidth: 1.8 }

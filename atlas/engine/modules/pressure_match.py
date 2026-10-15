@@ -22,7 +22,8 @@ LABELS={'cross':'Кроссплот факт / модель','time':'Давле�
  'hist':'Гистограммы распределения отклонений','cdf':'Доля точек в пределах отклонения','percentiles':'Процентили по объектам и сценариям'}
 FONDS=['Эксплуатационные','Наблюдательные','Неизвестный']
 ALIASES={'well':r'скваж|^well|^скв|^номер|^№','date':r'дат|date|time|врем',
- 'value':r'давлен|pressure|^p$|^p_|wbp|wb hp|bhp|^факт|^модел|^fact|^model'}
+ 'value':r'давлен|pressure|^p$|^p_|wbp|wb hp|bhp|^факт|^модел|^fact|^model',
+ 'note':r'примеч|причин|comment|note'}
 
 def well_id(value):
     s=str(value).strip().strip('"\'');s=re.sub(r'\.0$','',s)
@@ -85,23 +86,30 @@ def detect_columns(table):
     # «скв 74», «well 89» в заголовке — это сама скважина (широкая таблица), а не колонка «Скважина».
     well=next((c for c in columns if re.search(ALIASES['well'],str(c),re.I) and not re.search(r'^(скв\w*\.?|well)[\s:№#_.-]*\d',str(c),re.I)),None)
     date,value=match('date'),match('value')
+    note=next((c for c in columns if re.search(ALIASES['note'],str(c),re.I) and c not in (date,value)),None)
     if date is None and columns:date=columns[0]
     if value is None and well is not None:
         value=next((c for i,c in enumerate(columns) if c not in (well,date) and numeric(table.iloc[:,i]).notna().any()),None)
-    return {'date':date,'well':well,'value':value,'format':'long' if well is not None and value is not None else 'wide'}
+    return {'date':date,'well':well,'value':value,'note':note,'format':'long' if well is not None and value is not None else 'wide'}
+
+def note_text(values):
+    """Текст примечания к замеру («кап. ремонт», «н.д.»): пустые ячейки и «nan» — пустая строка."""
+    text=pd.Series(values).fillna('').astype(str).str.strip()
+    return text.where(~text.str.lower().isin(['','nan','none','nat']),'').values
 
 def normalize(table,cfg=None):
     cfg={**detect_columns(table),**(cfg or {})};date=cfg['date']
     if date not in table:raise ValueError('Выберите колонку даты.')
     if cfg['format']=='long':
         if cfg['well'] not in table or cfg['value'] not in table:raise ValueError('Выберите колонки скважины и давления.')
-        d=pd.DataFrame({'date':dates(table[date]),'well':per_unique(table[cfg['well']],well_id),'value':numeric(table[cfg['value']]),'_row':table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2)})
+        d=pd.DataFrame({'date':dates(table[date]),'well':per_unique(table[cfg['well']],well_id),'value':numeric(table[cfg['value']]),'_row':table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2),
+            'note':note_text(table[cfg['note']]) if cfg.get('note') in table else ''})
     else:
         cols=[c for c in table if c!=date and not str(c).startswith('Unnamed:')]
         parts=[];parsed=dates(table[date]);source_rows=table[cfg['row_column']].values if cfg.get('row_column') in table else np.arange(len(table))+cfg.get('row_offset',2)
         for c in cols:
-            parts.append(pd.DataFrame({'date':parsed,'well':well_id(c),'value':numeric(table[c]),'_row':source_rows}))
-        d=pd.concat(parts,ignore_index=True) if parts else pd.DataFrame(columns=['date','well','value','_row'])
+            parts.append(pd.DataFrame({'date':parsed,'well':well_id(c),'value':numeric(table[c]),'_row':source_rows,'note':''}))
+        d=pd.concat(parts,ignore_index=True) if parts else pd.DataFrame(columns=['date','well','value','_row','note'])
     d=d[d.date.notna()&d.well.notna()&d.well.ne('')&~d.well.isin(['nan','None'])]
     return d.reset_index(drop=True)
 
@@ -127,10 +135,13 @@ def pair(fact,model,object_name,scenario,fonds=None,duplicate='first'):
         if count:diagnostics.append({'Объект':object_name,'Сценарий':scenario,'Источник':name,'Проблема':'Повторные скважина/дата','Строк':count,'Правило':duplicate})
     if duplicate=='error' and (fact.duplicated(keys).any() or model.duplicated(keys).any()):raise ValueError('Повторные скважина/дата. Выберите правило обработки дубликатов.')
     def unique(d):
-        if duplicate=='mean':return d.groupby(keys,as_index=False).agg(value=('value','mean'),_row=('_row','min'))
+        if duplicate=='mean':return d.groupby(keys,as_index=False).agg(value=('value','mean'),_row=('_row','min'),note=('note','first'))
         return d.drop_duplicates(keys,keep=duplicate if duplicate in ('first','last') else 'first')
     fact,model=unique(fact),unique(model)
+    if 'note' not in fact:fact=fact.assign(note='')
+    model=model.drop(columns='note',errors='ignore')
     merged=fact.rename(columns={'value':'fact'}).merge(model.rename(columns={'value':'model','_row':'_model_row'}),on=keys,how='outer',validate='one_to_one',indicator=True)
+    merged['note']=merged['note'].fillna('')
     counts=merged['_merge'].value_counts()
     for mode,label in [('left_only','Нет модели на дату замера'),('right_only','Нет факта на дату модели')]:
         if counts.get(mode,0):diagnostics.append({'Объект':object_name,'Сценарий':scenario,'Источник':'Сопоставление','Проблема':label,'Строк':int(counts[mode]),'Правило':'Сохраняется как неполная пара'})

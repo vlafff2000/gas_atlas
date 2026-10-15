@@ -80,6 +80,7 @@ export interface Series {
   markers: boolean; axis: 'y' | 'y2'; stack?: string
   total: number      // точек в серии на самом деле; если больше x.length — линия прорежена (М4: пики и провалы сохранены)
   facets: Record<string, string> | null     // признаки для легенды рядами: {'Скважина': '№ 101', 'Период': '2024'}
+  captions?: string[] | null                // текст над каждой точкой (подписи причин отсутствия замеров)
 }
 /** Точки серии в видимом окне оси X (ответ /window): `window` — сколько их в окне до прореживания. */
 export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'total'> & { window: number }
