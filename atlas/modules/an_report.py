@@ -9,8 +9,12 @@
 Группы — единая схема имён: регистр, пробелы, «_» и «-» не различают группы, «ГСП-1» = «ГСП 1»
 (``loader.unify_groups`` и ``canonical_gsp`` из импорта). Давления — абсолютные, кгс/см²: Атлас их не пересчитывает.
 
-Главы отчёта (1.1.2, 2, 11.3) — разделы-заглушки в ``CHAPTERS``; каждая наполняется отдельным PR.
-Табл. 1.10 (глава 1.2, режим закачки): объёмы закачки ГСП 9 по последним сезонам — план по группам против факта.
+Глава 1.2 (режим закачки): табл. 1.10 — объёмы закачки ГСП 9 по последним сезонам, план по группам против факта.
+Глава 2 (сезон закачки, разделы 2.1.1–2.1.2) для режима «Закачка»: рис. 2.1 (расход, Рпл и число скважин от накопленной
+закачки), рис. 2.2 (план и факт по месяцам), рис. 2.3 (по ГСП — как в «План и факт»), рис. 2.4 (Рпл за сезон),
+табл. 2.1 (план и факт по группам), 2.2 (работавшие скважины по месяцам), 2.3 (классы приёмистости), 2.4 (план по месяцам).
+
+Главы 1.1.2 и 11.3 — разделы-заглушки в ``CHAPTERS``; каждая наполняется отдельным PR.
 """
 from __future__ import annotations
 
@@ -22,7 +26,7 @@ import pandas as pd
 from atlas.engine.core.config import ordered
 from atlas.engine.core.loader import canonical_gsp, unify_groups
 
-from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Stat, Table
+from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
 from . import an_wells
 from ._production import KINDS, NEUTRAL_PREFIXES, group_of, periods_of, visible_periods
@@ -51,9 +55,15 @@ NOTE = ('Средние считаются по суткам с положите
 # Главы отчёта, для которых в Атласе будет свой раздел. Пока — только заметка о том, что раздел в работе.
 CHAPTERS = (
     ('1.1.2', 'Фонд скважин: таблица 1.8 и текст по таблицам 1.7–1.8'),
-    ('2', 'Закачка: статистика сезона'),
     ('11.3', 'Межколонные давления: таблица 11.3'),
 )
+# Глава 2: не строятся — рис. 2.5 (Рпл по ГСП: нужны замеры по скважинам), 2.8 (ГПО), 2.9 (модельный объём газа);
+# карты 2.6, 2.7, 2.10, 2.11 — вне Атласа. Разделы 2.1.3, 2.2–2.4 в отчёте этого модуля не берутся.
+CHAPTER2_SKIPPED = ('Рис. 2.5 (Рпл по ГСП), 2.8 (ГПО), 2.9 (модель): в Атласе нет этих данных; карты 2.6, 2.7, 2.10, 2.11 — вне Атласа.')
+# Табл. 2.3 (закачка): классы среднего расхода за сутки с расходом, тыс. м³/сут; граница уходит в верхний класс
+INJ_CLASSES = (('Менее 100', 0, 100), ('От 100 до 150', 100, 150), ('От 150 до 200', 150, 200),
+               ('От 200 до 250', 200, 250), ('От 250 до 300', 250, 300), ('Более 300', 300, np.inf))
+INJ_CLASS_KEYS = tuple(f'c{i}' for i in range(len(INJ_CLASSES)))
 
 
 def pressure_near(pressure: pd.DataFrame | None, when: Any) -> float | None:
@@ -200,6 +210,103 @@ def season_report(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], 
     return summary, pd.DataFrame(rows)
 
 
+def pressure_window(pressure: pd.DataFrame | None, start: Any, stop: Any) -> pd.DataFrame | None:
+    """Замеры давления объекта с датами от ``start`` до ``stop`` включительно, по возрастанию дат; None, если их нет."""
+    if pressure is None or pressure.empty:
+        return None
+    p = pressure.dropna(subset=['pressure'])
+    p = p[p.date.between(pd.Timestamp(start), pd.Timestamp(stop))].sort_values('date', kind='stable')
+    return p if not p.empty else None
+
+
+def injection_curve(prod: pd.DataFrame, pressure: pd.DataFrame | None, period: str) -> Chart | None:
+    """Рис. 2.1: суточный расход объекта по накопленной закачке за сезон; Рпл — на правой оси (точки по датам замеров).
+    Число работающих скважин — в подсказке к каждой точке (третья ось в контракте графика не предусмотрена)."""
+    pos = prod[prod.kind.eq('injection') & prod.period.eq(period) & prod.q.gt(0)]
+    daily = pos.groupby('date').q.sum().sort_index()
+    if daily.empty:
+        return None
+    wells = pos.groupby('date').well.nunique()
+    cum = daily.cumsum() / 1e6                              # м³ → млн м³ накопленно за сезон
+    chart = Chart(f'injection-curve-{period}', f'Закачка за сезон · {period}: расход, давление и скважины',
+                  Axis('Накопленная закачка за сезон', 'млн м³', from_zero=True),
+                  Axis('Суточный расход', Q_UNIT, from_zero=True), y2=Axis('Рпл, абс.', P_UNIT))
+    labels = [f'{d:%d.%m.%Y} · скважин в работе: {int(wells[d])}' for d in daily.index]
+    chart.series.append(Series('Суточный расход', cum.to_numpy(), (daily / 1000).to_numpy(), 'line', labels=labels, width=1.0))
+    p = pressure_window(pressure, daily.index.min(), daily.index.max())
+    if p is not None:
+        x = [cum[cum.index <= d].iloc[-1] if d >= cum.index[0] else 0.0 for d in p.date]
+        chart.series.append(Series('Рпл, абс.', x, p.pressure.to_numpy(), 'points', axis='y2'))
+    return chart
+
+
+def pressure_chart(pressure: pd.DataFrame | None, period: str, start: Any, stop: Any) -> Chart | None:
+    """Рис. 2.4: динамика среднего пластового давления объекта за сезон (факт)."""
+    p = pressure_window(pressure, start, stop)
+    if p is None:
+        return None
+    chart = Chart(f'injection-pressure-{period}', f'Динамика пластового давления · {period}',
+                  Axis('Дата', scale='time'), Axis('Рпл, абс.', P_UNIT))
+    chart.series.append(Series('Среднее пластовое давление', p.date.to_numpy(), p.pressure.to_numpy(), 'line', markers=True))
+    return chart
+
+
+def injection_class_table(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
+    """Табл. 2.3: по группам — число и номера скважин с нулевым расходом за сезон и по классам среднего расхода (тыс. м³/сут)."""
+    w = wells.assign(group=wells.well.map(scopes), rate_k=wells.rate / 1000)
+    conds = [w.days.eq(0)] + [w.rate_k.ge(lo) & w.rate_k.lt(hi) for _, lo, hi in INJ_CLASSES]
+    w['cls'] = np.select(conds, ['zero', *INJ_CLASS_KEYS], default='none')
+    rows = []
+    for name, part in [(an_wells.TOTAL, w)] + [(g, w[w.group.eq(g)]) for g in ordered(w.group.unique())]:
+        row = {'group': name, 'zero': an_wells._numbers(ordered(part[part.cls.eq('zero')].well))}
+        for key in INJ_CLASS_KEYS:
+            row[key] = an_wells._numbers(ordered(part[part.cls.eq(key)].well))
+        rows.append(row)
+    return pd.DataFrame(rows, columns=['group', 'zero', *INJ_CLASS_KEYS])
+
+
+def monthly_wells(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], period: str) -> tuple[pd.DataFrame, list[Any]]:
+    """Табл. 2.2: по группам — фонд сезона и число скважин с расходом в каждом месяце; months — месяцы в порядке дат."""
+    d = prod[prod.kind.eq('injection') & prod.period.eq(period)][['well', 'date', 'q']].copy()
+    d['well'] = d.well.astype(str)
+    scopes = well_scopes(mapping, ordered(d.well.unique())) if not d.empty else {}
+    d = d.assign(group=d.well.map(scopes), month=d.date.dt.to_period('M').dt.to_timestamp())
+    work = d[d.q.gt(0)]
+    months = sorted(work.month.unique())
+    rows = []
+    for name, fund, wk in [(an_wells.TOTAL, d, work)] + [(g, d[d.group.eq(g)], work[work.group.eq(g)])
+                                                         for g in ordered(d.group.unique())]:
+        row = {'group': name, 'fund': fund.well.nunique()}
+        for i, month in enumerate(months):
+            row[f'm{i}'] = wk[wk.month.eq(month)].well.nunique()
+        rows.append(row)
+    return pd.DataFrame(rows), months
+
+
+def plan_card(plan_cmp: pd.DataFrame, period: str) -> tuple[pd.DataFrame, list[Any]]:
+    """Табл. 2.4: план закачки по группам и месяцам сезона, млн м³ (из «План по группам»)."""
+    part = plan_cmp[plan_cmp.period.eq(period)]
+    months = sorted(part.month.unique())
+    wide = part.pivot_table(index='group', columns='month', values='plan', aggfunc='sum')
+    wide = wide.reindex(ordered(part.group.unique()))
+    rows = []
+    for name, values in wide.iterrows():
+        row = {'group': name}
+        for i, month in enumerate(months):
+            row[f'm{i}'] = values.get(month, np.nan)
+        rows.append(row)
+    return pd.DataFrame(rows, columns=['group', *[f'm{i}' for i in range(len(months))]]), months
+
+
+def plan_fact_by_group(plan_cmp: pd.DataFrame, period: str) -> pd.DataFrame:
+    """Табл. 2.1: план и факт закачки сезона по группам и итогом; млн м³."""
+    part = plan_cmp[plan_cmp.period.eq(period)]
+    by = plan_summed(part, 'group')
+    by = by.set_index('group').loc[ordered(by.group)].reset_index()
+    total = plan_summed(part.assign(group=an_wells.TOTAL), 'group')
+    return pd.concat([by, total], ignore_index=True).assign(season=period)
+
+
 def _signed(value: float) -> str:
     """Отклонение со знаком: тысячи через пробел, десятичная запятая."""
     return f'{value:+,.1f}'.replace(',', ' ').replace('.', ',')
@@ -261,6 +368,7 @@ class AuthorReportModule(Module):
             self.plan_details(result, data, kind, period)
         if kind == 'injection':
             self.injection_details(result, data)
+            self.injection_season(result, data, summaries)
         if summaries:
             result.tables.append(self.season_table(summaries))
             if water is not None and kind == 'withdrawal':
@@ -268,12 +376,15 @@ class AuthorReportModule(Module):
             result.tables.append(self.means_table(means))
         if fund:
             result.tables.append(self.fund_table_report(fund))
+        if classes:
             result.tables.append(self.class_table_report(classes))
         if wet:
             result.tables.append(self.wet_table_report(wet))
         result.notes.append(Note(NOTE))
         for number, title in CHAPTERS:
             result.notes.append(Note(f'Глава {number} · {title}: раздел в разработке, появится отдельным изменением.'))
+        if kind == 'injection' and summaries:
+            result.notes.append(Note(CHAPTER2_SKIPPED, 'warning'))
         return result
 
     def injection_details(self, result: Result, data: Data) -> None:
@@ -286,6 +397,47 @@ class AuthorReportModule(Module):
             result.notes.append(Note(f'Табл. 1.10 пропущена: в закачке нет скважин группы {GSP9}.', 'warning'))
             return
         result.tables.append(self.injection_table(frame))
+
+    def injection_season(self, result: Result, data: Data, summaries: list[dict[str, Any]]) -> None:
+        """Глава 2 (разделы 2.1.1–2.1.2): рис. 2.1, 2.2, 2.3, 2.4 и табл. 2.1–2.4 по выбранным сезонам закачки."""
+        prod, pressure = data[PRODUCTION], (data[OBJECT] if OBJECT in data else None)
+        plan_cmp = None
+        if PLAN in data and not data[PLAN].empty:
+            plan_cmp = plan_compare(prod, data[PLAN], data.mapping, 'injection', data.settings)
+        if plan_cmp is None or plan_cmp.empty:
+            result.notes.append(Note('«План по группам» не загружен: рис. 2.2, 2.3 и табл. 2.1, 2.4 пропущены.', 'warning'))
+        if pressure is None:
+            result.notes.append(Note('Давление объекта не загружено: рис. 2.4 и пересчёт Рпл пропущены.', 'warning'))
+        plan_rows, months_parts, classes, cards = [], [], [], []
+        for summary in summaries:
+            period = summary['period']
+            curve = injection_curve(prod, pressure, period)
+            if curve is not None:
+                result.charts.append(curve)
+            pres = pressure_chart(pressure, period, summary['start'], summary['stop'])
+            if pres is not None:
+                result.charts.append(pres)
+                start_p, stop_p = summary.get('pressure_start'), pressure_near(pressure, summary['stop'])
+                if start_p is not None and stop_p is not None:
+                    result.summary.append(Stat(f'Рпл за сезон · {period}', f'{_signed(stop_p - start_p)} {P_UNIT}',
+                                               f'На конец сезона {stop_p:.1f}, на начало {start_p:.1f}'.replace('.', ',')))
+            months, mlist = monthly_wells(prod, data.mapping, period)
+            months_parts.append(self.injection_months_table(months, mlist, period, len(months_parts)))
+            wells = an_wells.season_wells(prod, 'injection', period)
+            classes.append(injection_class_table(wells, well_scopes(data.mapping, ordered(wells.well))).assign(season=period))
+            if plan_cmp is None or not plan_cmp.period.eq(period).any():
+                continue
+            part = plan_cmp[plan_cmp.period.eq(period)]
+            result.charts.append(PlanFactModule().months_chart(plan_summed(part, 'month').sort_values('month'), period, 'injection'))
+            plan_rows.append(plan_fact_by_group(plan_cmp, period))
+            card, card_months = plan_card(plan_cmp, period)
+            cards.append(self.plan_card_table(card, card_months, period, len(cards)))
+        if plan_rows:
+            result.tables.append(self.plan_fact_table(pd.concat(plan_rows, ignore_index=True)))
+        result.tables.extend(months_parts)
+        if classes:
+            result.tables.append(self.injection_class_report(pd.concat(classes, ignore_index=True)))
+        result.tables.extend(cards)
 
     @staticmethod
     def injection_table(frame: pd.DataFrame) -> Table:
@@ -345,9 +497,9 @@ class AuthorReportModule(Module):
         wells = an_wells.season_wells(data[PRODUCTION], kind, period)
         scopes = well_scopes(data.mapping, ordered(wells.well))
         fund.append(an_wells.fund_table(wells, scopes).assign(season=period))
-        classes.append(an_wells.class_table(wells, scopes).assign(season=period))
         if kind != 'withdrawal':
-            return
+            return                                   # закачка: классы — табл. 2.3 (injection_class_table)
+        classes.append(an_wells.class_table(wells, scopes).assign(season=period))
         by_well = an_wells.water_by_well(data[WATER] if WATER in data else None, wells, scopes,
                                          summary['start'], summary['stop'])
         if by_well is None:
@@ -395,6 +547,38 @@ class AuthorReportModule(Module):
                    Column('percent', 'Доля работавших, %', '%', 1, 'number')]
         return Table('an-fund', 'Табл. 1.4 · Фонд скважин по группам', frame, columns,
                      note='Фонд — скважины с данными за сезон; работали — с хотя бы одними сутками с расходом.')
+
+    @staticmethod
+    def injection_months_table(frame: pd.DataFrame, months: list[Any], period: str, index: int) -> Table:
+        columns = [Column('group', 'ГСП'), Column('fund', 'Фонд, скв.', decimals=0, kind='number')]
+        columns += [Column(f'm{i}', month_label(m), decimals=0, kind='number') for i, m in enumerate(months)]
+        return Table(f'an-inj-wells-{index}', f'Табл. 2.2 · Работавшие скважины по месяцам · {period}', frame, columns,
+                     note='Скважины с расходом хотя бы в одни сутки месяца; фонд — скважины сезона.')
+
+    @staticmethod
+    def injection_class_report(frame: pd.DataFrame) -> Table:
+        columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
+                   Column('zero', 'Нулевой расход за сезон, скв. (номера)')]
+        columns += [Column(key, f'{name} тыс. м³/сут, скв. (номера)') for key, (name, _, _) in zip(INJ_CLASS_KEYS, INJ_CLASSES)]
+        return Table('an-inj-classes', 'Табл. 2.3 · Условная классификация скважин по производительности', frame[['season', 'group', 'zero', *INJ_CLASS_KEYS]],
+                     columns, note='Средний расход за сутки с расходом, тыс. м³/сут; граница класса относится к верхнему. Номера — в скобках.')
+
+    @staticmethod
+    def plan_fact_table(frame: pd.DataFrame) -> Table:
+        columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
+                   Column('plan', f'План, {UNIT}', decimals=2, kind='number'),
+                   Column('fact', f'Факт, {UNIT}', decimals=2, kind='number'),
+                   Column('delta', f'Факт минус план, {UNIT}', decimals=2, kind='number'),
+                   Column('percent', 'Выполнение плана, %', decimals=1, kind='number')]
+        return Table('an-inj-plan-fact', 'Табл. 2.1 · Плановые и фактические объёмы закачки по группам', frame[['season', 'group', 'plan', 'fact', 'delta', 'percent']],
+                     columns, note='Группы — единые имена; итог — строка «Всего». План и факт — за сезон.')
+
+    @staticmethod
+    def plan_card_table(frame: pd.DataFrame, months: list[Any], period: str, index: int) -> Table:
+        columns = [Column('group', 'ГСП')]
+        columns += [Column(f'm{i}', month_label(m), UNIT, 2, 'number') for i, m in enumerate(months)]
+        return Table(f'an-inj-plan-card-{index}', f'Табл. 2.4 · Технологическая карта: план закачки по месяцам · {period}', frame, columns,
+                     note='Рекомендованный объём закачки по группам и месяцам (План по группам).')
 
     @staticmethod
     def class_table_report(parts: list[pd.DataFrame]) -> Table:
