@@ -167,3 +167,14 @@ def test_load_rejects_names_outside_folder_and_unknown_project(client, tmp_path)
     r = client.post(f'/api/projects/{pid}/folder/load', json={'folder': str(folder), 'files': ['../secret.csv']}).json()
     assert r['results'][0]['status'] == 'error'
     assert client.post(f'/api/projects/{"0" * 32}/folder/load', json={'folder': str(folder), 'files': ['x.csv']}).status_code == 404
+
+
+def test_one_bad_file_does_not_stop_the_others(client, tmp_path):
+    folder = tmp_path / 'папка'
+    folder.mkdir()
+    make_csv(folder / 'добыча.csv', [('73', '01.11.2025', '2000')])
+    pid = client.post('/api/projects', json={'name': 'П'}).json()['id']
+    r = client.post(f'/api/projects/{pid}/folder/load',
+                    json={'folder': str(folder), 'files': ['../нет.csv', 'добыча.csv']}).json()
+    assert [x['status'] for x in r['results']] == ['error', 'loaded']
+    assert r['folder']['files'][0]['load'] == 'loaded'

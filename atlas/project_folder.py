@@ -30,6 +30,7 @@ from .imports import Imports
 from .api_projects import internal_error_text
 from .contract import ParamError
 from .imports import POLICIES
+from .projects import Conflict
 
 log = logging.getLogger(__name__)
 
@@ -226,28 +227,47 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
     loads = read_loads(project_dir)
     names_ok = {p.name for p in folder.iterdir() if p.is_file()}
     results = []
-    for name in names:
-        if name not in names_ok or Path(name).name != name or Path(name).suffix.lower() not in EXTENSIONS:
-            results.append({'name': name, 'status': 'error', 'message': 'Файла нет в папке или он не таблица'})
-            continue
-        path = folder / name
+    warning = ''
+    try:
+        for name in names:
+            results.append(_load_one(imports, pid, folder, name, names_ok, policy, loads))
+    finally:
+        # записываем даже при сбое в середине: уже применённые файлы должны остаться отмеченными
         try:
-            up = imports.upload(name, path.read_bytes())
-            if up['error']:
-                raise ParamError(up['error'])
-            pending = imports.check(pid, {'files': [{'token': up['token']}], 'mode': 'auto', 'view': 'simple'})
-            if pending['rejected']:
-                results.append({'name': name, 'status': 'attention',
-                                'message': f"Отклонённых строк: {pending['rejected']}. Загрузите этот файл вручную в «Импорт данных»."})
-                continue
-            applied = imports.apply(pid, {'pending': pending['id'], 'policy': policy})
-            fp = fingerprint(path)
-            loads[name] = dict(fp, loaded_at=dt.datetime.now().isoformat(timespec='seconds'), message=applied['message'])
-            results.append({'name': name, 'status': 'loaded', 'message': applied['message']})
-        except ParamError as e:
-            results.append({'name': name, 'status': 'error', 'message': str(e)})
-    write_loads(project_dir, loads)
-    return {'results': results, 'folder': scan(str(folder), loads), 'project': pid, 'revision': m.get('revision')}
+            write_loads(project_dir, loads)
+        except OSError:
+            log.exception('Не записан %s в %s', LOADS, project_dir)
+            warning = 'Данные загружены, но отметки загрузки в папке не записаны (нет прав на запись в папку проекта).'
+    return {'results': results, 'folder': scan(str(folder), loads), 'project': pid, 'revision': m.get('revision'),
+            'warning': warning}
+
+
+def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy: str, loads: dict) -> dict[str, Any]:
+    """Один файл: upload → check → apply. Ошибка одного файла не обрывает остальные."""
+    if name not in names_ok or Path(name).name != name or Path(name).suffix.lower() not in EXTENSIONS:
+        return {'name': name, 'status': 'error', 'message': 'Файла нет в папке или он не таблица'}
+    path = folder / name
+    try:
+        up = imports.upload(name, path.read_bytes())
+        if up['error']:
+            raise ParamError(up['error'])
+        pending = imports.check(pid, {'files': [{'token': up['token']}], 'mode': 'auto', 'view': 'simple'})
+        if pending['rejected']:
+            return {'name': name, 'status': 'attention',
+                    'message': f"Отклонённых строк: {pending['rejected']}. Загрузите этот файл вручную в «Импорт данных»."}
+        applied = imports.apply(pid, {'pending': pending['id'], 'policy': policy})
+        loads[name] = dict(fingerprint(path), loaded_at=dt.datetime.now().isoformat(timespec='seconds'), message=applied['message'])
+        return {'name': name, 'status': 'loaded', 'message': applied['message']}
+    except ParamError as e:
+        return {'name': name, 'status': 'error', 'message': str(e)}
+    except (KeyError, Conflict) as e:
+        message = str(e.args[0]) if isinstance(e, KeyError) and e.args else str(e)
+        return {'name': name, 'status': 'error', 'message': message or 'Загрузка прервана: данные проекта изменились, повторите.'}
+    except OSError as e:
+        return {'name': name, 'status': 'error', 'message': f'Файл не прочитан: {e.strerror or e}'}
+    except Exception:
+        log.exception('Сбой загрузки %s из папки', name)
+        return {'name': name, 'status': 'error', 'message': 'Файл не загружен: внутренняя ошибка. Подробности — в журнале.'}
 
 
 def routes(projects) -> list[Route]:
