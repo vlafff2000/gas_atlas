@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent  # tools/ лежит в папке
 # (имя значка, название ярлыка, запускалка Windows, запускалка Linux, нужен ли терминал)
 APPS = [
     ('gas_atlas_6', 'Газовый атлас 6', 'Gas_Atlas_6.bat', 'gas_atlas_6.sh'),
+    ('pxg_hub', 'ПХГ: все приложения', 'PXG_Hub.bat', 'pxg_hub.sh'),  # есть только в едином архиве (tools/build_unified.py)
 ]
 
 

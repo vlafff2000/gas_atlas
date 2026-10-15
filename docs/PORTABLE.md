@@ -33,3 +33,7 @@ Workflow запускает из распакованного архива Ат�
 Новый пакет в `requirements-lock-py313.txt` должен иметь колёсо `cp313` (или `py3-none-any`) под
 `win_amd64` и `manylinux2014_x86_64`. Чистый Python, опубликованный только исходниками, допишите
 в `SDIST_ONLY` в `tools/build_portable.py`.
+
+## Единый архив со всеми приложениями ПХГ
+
+`python tools/build_unified.py windows|linux --scripts ../all_scripts` собирает один архив `PXG_Unified_portable_*` (Python 3.13 один на всех): Газовый атлас, База ПХГ, Карты ГСП, Скедул ПХГ и меню `pxg_hub`. Запуск без терминала: `PXG_Hub.bat` на Windows, `bash pxg_hub.sh` на РЕД ОС. Меню запускает каждое приложение на своём порту (8765–8768) и передаёт им общую папку «Проект» (`PXG_PROJECT`) и адреса друг друга (`PXG_APP_URLS`, `PXG_MAPS_URL`). Если рядом с программой есть папка `storage`, Атлас остаётся на ней. В CI — job `unified` рабочего процесса «Portable archives»; отдельные архивы не меняются.
