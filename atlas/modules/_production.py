@@ -36,6 +36,8 @@ CURVE_NOTE = ('Накопление по всему загруженному о�
               'Экспорт использует все исходные точки.')
 FILTER_NOTE = ('Отметьте «Исключить» и примените изменения. Исходные значения сохраняются; снятый флажок восстанавливает '
                'точку. Гистограммы и накопленный объем пересчитываются по действующим точкам.')
+OBJECT_NOTE = ('Суточный расход всего объекта за сезон: сумма по всем скважинам, без выбора групп. Сутки без записей ни по одной '
+               'скважине на графике пропущены. Накопленный отбор считается с начала сезона.')
 GROUP_NOTE = ('Сумма включает все скважины выбранной группы. Выбор кривых наложения не меняет сумму. Неполные наблюдения '
               'отмечены в подсказках; пропущенные даты не считаются простоями.')
 
@@ -160,6 +162,41 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
         chart.events = on_cumulative(gdi_events(sel.gdi, ws, start, end), data)
     else:
         chart.events = regime_events(sel.df, start, end) + gdi_events(sel.gdi, ws, start, end)
+    return chart
+
+
+def ordered_periods(sel: Selection) -> list[str]:
+    """Выбранные периоды в порядке списка проекта (как у остальных графиков)."""
+    return [p for p in periods_of(sel.df, sel.kind) if p in sel.periods]
+
+
+def object_season_chart(sel: Selection, xmode: str) -> Chart:
+    """Суточный расход объекта: по одной кривой на сезон; X — дата или накопленный отбор объекта с начала сезона."""
+    days = object_days(sel)
+    by_cumulative = xmode == 'object'
+    x_axis = (Axis('Накопленный отбор объекта', 'млн м³', from_zero=True,
+                   step=x_step(float(days.cum.max())) if not days.empty else None)
+              if by_cumulative else Axis('Дата', scale='time'))
+    chart = Chart('production-object-seasons', 'Объект · суточный расход по сезонам', x_axis,
+                  Axis('Суточный расход объекта', Q_UNIT, from_zero=True))
+    if days.empty:
+        return chart
+    colors = legacy.period_colors(sel.df, sel.kind)
+    periods = ordered_periods(sel)
+    limit = min(5000, max(4, POINT_BUDGET // max(1, len(periods))))
+    for period in periods:
+        g = days[days.period.eq(period) & days.total.notna()].copy()
+        if g.empty:
+            continue
+        g['q'] = g.total / 1000
+        g = screen_decimate(g, 'q', limit)
+        labels = (g.date.dt.strftime('%d.%m.%Y') + ' · ' + g.q.map('{:.1f}'.format) + ' ' + Q_UNIT
+                  + ' · накопленный ' + g.cum.map('{:.2f}'.format) + ' млн м³')
+        chart.series.append(Series(str(period), g.cum.to_numpy() if by_cumulative else g.date.to_numpy(), g.q.to_numpy(),
+                                   'line', color=colors.get(period), width=2.0, labels=labels.tolist(),
+                                   facets={'Период': str(period)}))
+    if not by_cumulative:
+        chart.events = regime_events(sel.df, days.date.min(), days.date.max())
     return chart
 
 

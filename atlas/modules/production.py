@@ -12,11 +12,12 @@ from atlas.engine.modules import group_analysis
 from ..contract import Data, ModuleSpec, Note, Option, Param, Result, Stat
 from ..domain import DatasetKind
 from ._group_charts import SHARE_METRICS, hybrid_chart, object_days, pareto_chart, share_chart, vs_object_chart, well_days
-from ._production import (DIRECTIONS, OVERLAY_METRICS, GROUP_NOTE, KINDS, CURVE_NOTE, PRODUCTION, ProductionBase, Selection, curve_chart, kind_label, period_stat,
-                          group_chart, group_table, groups_overlay_chart, object_lookup)
+from ._production import (DIRECTIONS, OVERLAY_METRICS, GROUP_NOTE, KINDS, CURVE_NOTE, OBJECT_NOTE, PRODUCTION, Q_UNIT, ProductionBase,
+                          Selection, curve_chart, kind_label, object_season_chart, period_stat, group_chart, group_table, groups_overlay_chart,
+                          object_lookup, ordered_periods)
 
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
-INDIVIDUAL, GROUPS = {'mode': 'individual'}, {'mode': 'groups'}
+INDIVIDUAL, GROUPS, OBJECT_MODE = {'mode': 'individual'}, {'mode': 'groups'}, {'mode': 'object'}
 MANY_CURVES = 200       # столько кривых на одном графике уже не различить, а строятся они десятки секунд
 
 
@@ -32,7 +33,9 @@ class ProductionModule(ProductionBase):
         panels=2,
         params=(
             Param('mode', 'Представление', 'choice', default='individual', section=SECTION_DATA,
-                  options=(Option('individual', 'Отдельные скважины'), Option('groups', 'Суммарные показатели групп'))),
+                  options=(Option('individual', 'Отдельные скважины'), Option('groups', 'Суммарные показатели групп'),
+                           Option('object', 'Объект по сезонам')),
+                  help='«Объект по сезонам»: одна кривая на сезон — суточный расход всего объекта; группы и скважины не учитываются'),
             Param('kind', 'Режим', 'choice', default='withdrawal', options=KINDS, section=SECTION_DATA),
             Param('groups', 'Группы', 'multi', default=[], dynamic=True, auto='all', empty='ничего',
                   section=SECTION_DATA),
@@ -47,6 +50,9 @@ class ProductionModule(ProductionBase):
                 Option('curve', 'Q / накопленный объем объекта'), Option('time', 'Q / дата'))),
             Param('direction', 'Порядок скважин', 'choice', default='number', options=DIRECTIONS,
                   section=SECTION_VIEW, show_if=INDIVIDUAL),
+            Param('seasonx', 'Ось X', 'choice', default='date', section=SECTION_VIEW, show_if=OBJECT_MODE, chart_kind=True,
+                  options=(Option('date', 'Дата'), Option('object', 'Накопленный отбор объекта')),
+                  help='Накопленный отбор считается с начала каждого сезона по всему объекту'),
             Param('metric', 'Показатель группы', 'choice', default='daily', section=SECTION_VIEW, show_if=GROUPS, chart_kind=True,
                   options=(Option('daily', 'Суточный суммарный расход'), Option('cumulative', 'Накопленный объем'),
                            Option('active', 'Работающие скважины'),
@@ -72,6 +78,8 @@ class ProductionModule(ProductionBase):
         result = Result()
         if params['mode'] == 'groups':
             return self.run_groups(result, sel)
+        if params['mode'] == 'object':
+            return self.run_object(result, sel)
         ws = sel.wells()
         if not ws or not sel.periods:
             return self.nothing_selected(result)
@@ -85,6 +93,24 @@ class ProductionModule(ProductionBase):
         result.charts.append(curve_chart(sel, ws, 'date' if params['view'] == 'time' else 'cumulative'))
         result.notes.append(Note(CURVE_NOTE))
         self.common_tables(result, sel, ws)
+        return result
+
+    @staticmethod
+    def run_object(result: Result, sel: Selection) -> Result:
+        if not sel.periods:
+            return ProductionBase.nothing_selected(result)
+        result.notes.append(Note(OBJECT_NOTE))
+        chart = object_season_chart(sel, sel.params.get('seasonx', 'date'))
+        result.charts.append(chart)
+        days = object_days(sel).dropna(subset=['total'])
+        if days.empty:
+            result.notes.append(Note('За выбранные сезоны нет суточных данных по объекту.', 'warning'))
+        result.summary = [Stat('Режим', kind_label(sel.kind)), Stat('Сезонов', str(len(chart.series))),
+                          period_stat(ordered_periods(sel))]
+        if not days.empty:
+            top = days.loc[days.total.idxmax()]
+            result.summary.append(Stat('Пиковый суточный расход', f'{top.total / 1000:.1f}'.replace('.', ',') + ' ' + Q_UNIT,
+                                       f'{top.date:%d.%m.%Y}, сезон {top.period}'))
         return result
 
     @staticmethod
