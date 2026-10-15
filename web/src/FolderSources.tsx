@@ -1,9 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { folderApi, FolderEdit, FolderFile, FolderLoad, FolderLoadResult, FolderScan } from './api_folder'
 import { openFilePicker } from './FilePicker'
 import { api, type Project } from './api'
 
 const KINDS = ['production', 'pressure', 'gdi', 'water'] as const
+
+/** Папка, которую пользователь выбрал для проекта, — запоминаем в браузере (удобство, не данные проекта). */
+const folderKey = (pid: string) => `atlas:folder:${pid}`
+function rememberedFolder(pid: string): string {
+  try { return localStorage.getItem(folderKey(pid)) ?? '' } catch { return '' }
+}
+function rememberFolder(pid: string, folder: string) {
+  try { localStorage.setItem(folderKey(pid), folder) } catch { /* приватный режим: просто не запоминаем */ }
+}
 const KIND_LABEL: Record<string, string> = { production: 'Расходы', pressure: 'Давления', gdi: 'ГДИ', water: 'Вода' }
 const LOAD_LABEL: Record<FolderLoad, string> = { loaded: 'загружен', changed: 'изменился, нужна загрузка', not_loaded: 'не загружен' }
 const RESULT_LABEL: Record<FolderLoadResult['status'], string> = { loaded: 'Загружено', attention: 'Нужно внимание', error: 'Ошибка' }
@@ -30,6 +39,7 @@ export function FolderSources({ project, onProject }: { project: Project | null;
     try {
       const next = await work()
       setScan(next); setFolder(next.folder); setEdits({}); setMessage(done); setResults([]); setWarning('')
+      if (project) rememberFolder(project.id, next.folder)
     } catch (e) {
       setScan(null); setEdits({})          // старый список не должен выглядеть как открытая папка
       setError((e as Error).message)
@@ -37,6 +47,16 @@ export function FolderSources({ project, onProject }: { project: Project | null;
       setBusy(false)
     }
   }
+
+  // При открытии проекта тихо читаем его папку: сразу видно новые и изменённые файлы. Загрузка — только по кнопке.
+  const pid = project?.id
+  useEffect(() => {
+    const saved = pid ? rememberedFolder(pid) : ''
+    if (!pid || !saved) return
+    folderApi.scan(saved, pid)
+      .then(next => { setScan(next); setFolder(next.folder) })
+      .catch(() => { /* папки уже нет или она недоступна: покажем обычную кнопку выбора */ })
+  }, [pid])
 
   const pick = async () => {
     let chosen: string | null = null

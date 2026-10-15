@@ -194,3 +194,14 @@ def test_folder_load_can_be_undone(client, tmp_path):
     assert back.status_code == 200, back.text
     after = client.post('/api/folder/scan', json={'folder': str(folder), 'project': pid}).json()
     assert after['files'][0]['load'] == 'not_loaded'
+
+
+def test_base_outputs_are_known_results():
+    """Файлы «Базы ПХГ», которые читает Атлас, узнаются по имени; неясные — без роли, роль назначает пользователь."""
+    from atlas import project_folder as pf
+
+    assert pf._known('Учёт_газа_отбор_вынос_воды.xlsx')['role'] == 'water'
+    assert pf._known('БД_ГДИ_объединенная.xlsx')['role'] == 'gdi'
+    assert pf._known('БД_ЭЛПРО.xlsx')['role'] is None
+    assert pf._known('daily_well_data_2019_01_2024_04.xlsx') is not None
+    assert pf._known('Пересчёт_давлений.xlsx') is None
