@@ -119,9 +119,10 @@ def scan(raw_folder: Any) -> dict[str, Any]:
             continue
         known = _known(name)
         entry = manifest.get(name) if isinstance(manifest.get(name), dict) else {}
-        mrole = entry.get('role')
-        role, source = (mrole, 'manifest') if isinstance(mrole, str) and mrole in ROLES else \
-            (known['role'], 'name') if known else (_role_by_name(name), 'name')
+        if 'role' in entry and (entry['role'] is None or (isinstance(entry['role'], str) and entry['role'] in ROLES)):
+            role, source = entry['role'], 'manifest'     # явное «не назначено» сохраняется и не подменяется именем
+        else:
+            role, source = (known['role'], 'name') if known else (_role_by_name(name), 'name')
         normalized = entry['normalized'] if isinstance(entry.get('normalized'), bool) else bool(known and known['normalized'])
         stat = path.stat()
         files.append({'name': name, 'size': stat.st_size,
@@ -155,10 +156,8 @@ def save_manifest(raw_folder: Any, files: Any) -> dict[str, Any]:
         if 'normalized' in value and not isinstance(value['normalized'], bool):
             raise ParamError(f'«{name}»: признак нормировки — да или нет')
         entry = dict(manifest.get(name) or {})
-        if role is None:
-            entry.pop('role', None)
-        else:
-            entry['role'] = role
+        if 'role' in value:
+            entry['role'] = role                 # None — явно «не назначено»
         if 'normalized' in value:
             entry['normalized'] = value['normalized']
         manifest[name] = entry

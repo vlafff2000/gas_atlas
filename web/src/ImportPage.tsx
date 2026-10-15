@@ -11,6 +11,7 @@ import { RowFixer } from './RowFixer'
 import { SheetEditor } from './SheetEditor'
 import { TableView } from './TableView'
 import './import.css'
+import { FolderSources } from './FolderSources'
 
 const ACCEPT = 'xlsx xls xlsm ods csv tsv txt dat'
 const ENCODINGS = [['auto', 'Автоопределение'], ['utf-8-sig', 'utf-8-sig'], ['cp1251', 'cp1251'], ['utf-16', 'utf-16'],
@@ -88,6 +89,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
         </div>
       </header>
       {failure && <div className="note warning">{failure}</div>}
+      <FolderSources />
       <NewProject project={project} onCreated={onCreated} />
       {project && options && (
         <>
