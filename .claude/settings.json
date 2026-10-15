@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./node_modules/**)",
+      "Read(./web/node_modules/**)",
+      "Read(./atlas/web/dist/**)",
+      "Read(./.venv/**)",
+      "Read(./storage/**)",
+      "Read(./logs/**)",
+      "Read(./exports/**)",
+      "Read(./patch_backups/**)"
+    ]
+  }
+}
