@@ -230,6 +230,11 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
     try:
         for name in names:
             results.append(_load_one(imports, pid, folder, name, names_ok, policy, loads))
+        # откат всей пачки: снимок до первого применённого файла (по нему отменяются все файлы пачки)
+        batch = next((r['undo'] for r in results if r.get('undo')), '')
+        for r in results:
+            if r.get('undo') and r['name'] in loads:
+                loads[r['name']]['batch'] = batch
     finally:
         # записываем даже при сбое в середине: уже применённые файлы должны остаться отмеченными
         try:
@@ -238,7 +243,7 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
             log.exception('Не записан %s в %s', LOADS, project_dir)
             warning = 'Данные загружены, но отметки загрузки в папке не записаны (нет прав на запись в папку проекта).'
     return {'results': results, 'folder': scan(str(folder), loads), 'project': pid, 'revision': m.get('revision'),
-            'warning': warning}
+            'warning': warning, 'undo': batch}
 
 
 def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy: str, loads: dict) -> dict[str, Any]:
@@ -255,8 +260,9 @@ def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy:
             return {'name': name, 'status': 'attention',
                     'message': f"Отклонённых строк: {pending['rejected']}. Загрузите этот файл вручную в «Импорт данных»."}
         applied = imports.apply(pid, {'pending': pending['id'], 'policy': policy})
-        loads[name] = dict(fingerprint(path), loaded_at=dt.datetime.now().isoformat(timespec='seconds'), message=applied['message'])
-        return {'name': name, 'status': 'loaded', 'message': applied['message']}
+        undo = (applied.get('undo') or {}).get('snapshot', '')
+        loads[name] = dict(fingerprint(path), loaded_at=dt.datetime.now().isoformat(timespec='seconds'), message=applied['message'], undo=undo)
+        return {'name': name, 'status': 'loaded', 'message': applied['message'], 'undo': undo}
     except ParamError as e:
         return {'name': name, 'status': 'error', 'message': str(e)}
     except (KeyError, Conflict) as e:
@@ -292,6 +298,28 @@ def routes(projects) -> list[Route]:
             return out if isinstance(out, Response) else JSONResponse(out)
         return handler
 
+    def undo_batch(request, body):
+        """«Откатить загрузку из папки»: данные возвращаются к снимку до пачки, файлы пачки снова «не загружены»."""
+        pid = request.path_params['pid']
+        projects.manifest(pid)
+        snapshot = str(body.get('snapshot') or '')
+        if not snapshot:
+            raise ParamError('Нет снимка для отката')
+        project_dir = projects.store.path(pid)
+        loads = read_loads(project_dir)
+        saved = projects.store.rollback(pid, snapshot, _revision(body))
+        for name in [n for n, v in loads.items() if v.get('batch') == snapshot]:
+            del loads[name]
+        try:
+            write_loads(project_dir, loads)
+        except OSError:
+            log.exception('Не записан %s в %s', LOADS, project_dir)
+        return projects.summary(saved)
+
+    def _revision(body):
+        value = body.get('revision')
+        return int(value) if isinstance(value, (int, float)) else None
+
     def _loads_of(pid_raw):
         if not pid_raw:
             return None
@@ -307,4 +335,5 @@ def routes(projects) -> list[Route]:
         Route('/api/folder/manifest', wrap(lambda r, b: save_manifest(b.get('folder'), b.get('files'), _loads_of(b.get('project')))), methods=['POST']),
         Route('/api/projects/{pid}/folder/load', wrap(lambda r, b: load_files(
             imports, projects, r.path_params['pid'], b.get('folder'), b.get('files'), b.get('policy') or 'new')), methods=['POST']),
+        Route('/api/projects/{pid}/folder/undo', wrap(undo_batch), methods=['POST']),
     ]

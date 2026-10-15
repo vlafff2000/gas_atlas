@@ -1,4 +1,5 @@
 // Папка проекта: список файлов папки, роли и манифест (сервер: atlas/project_folder.py).
+import type { Project } from './api'
 
 export interface FolderRole { value: string; label: string }
 
@@ -31,6 +32,7 @@ export interface FolderLoadResult {
   name: string
   status: 'loaded' | 'attention' | 'error'
   message: string
+  undo?: string
 }
 
 export interface FolderLoadReply {
@@ -39,6 +41,8 @@ export interface FolderLoadReply {
   project: string
   revision: number | null
   warning: string
+  /** Снимок до всей пачки: по нему откатывается загрузка целиком (пусто, если ничего не загружено). */
+  undo?: string
 }
 
 export interface FolderScan {
@@ -66,6 +70,8 @@ export const folderApi = {
   scan: (folder: string, project?: string) => post<FolderScan>('/api/folder/scan', project ? { folder, project } : { folder }),
   load: (project: string, folder: string, files: string[], policy = 'new') =>
     post<FolderLoadReply>(`/api/projects/${encodeURIComponent(project)}/folder/load`, { folder, files, policy }),
+  undo: (project: string, snapshot: string, revision: number) =>
+    post<Project>(`/api/projects/${encodeURIComponent(project)}/folder/undo`, { snapshot, revision }),
   saveManifest: (folder: string, files: Record<string, FolderEdit>, project?: string) =>
     post<FolderScan>('/api/folder/manifest', project ? { folder, files, project } : { folder, files }),
 }

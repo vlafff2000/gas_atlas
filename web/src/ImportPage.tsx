@@ -89,7 +89,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
         </div>
       </header>
       {failure && <div className="note warning">{failure}</div>}
-      <FolderSources key={project?.id ?? 'no-project'} project={project} />
+      <FolderSources key={project?.id ?? 'no-project'} project={project} onProject={onProject} />
       <NewProject project={project} onCreated={onCreated} />
       {project && options && (
         <>

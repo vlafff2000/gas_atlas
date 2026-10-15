@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { folderApi, FolderEdit, FolderFile, FolderLoad, FolderLoadResult, FolderScan } from './api_folder'
 import { openFilePicker } from './FilePicker'
-import type { Project } from './api'
+import { api, type Project } from './api'
 
 const KINDS = ['production', 'pressure', 'gdi', 'water'] as const
 const KIND_LABEL: Record<string, string> = { production: 'Расходы', pressure: 'Давления', gdi: 'ГДИ', water: 'Вода' }
@@ -13,7 +13,7 @@ function kb(bytes: number) {
 }
 
 /** Раздел «Источники»: папка проекта, роли файлов, статус загрузки в проект и кнопка загрузки через общий импорт. */
-export function FolderSources({ project }: { project: Project | null }) {
+export function FolderSources({ project, onProject }: { project: Project | null; onProject?: (p: Project) => void }) {
   const [folder, setFolder] = useState('')
   const [scan, setScan] = useState<FolderScan | null>(null)
   const [edits, setEdits] = useState<Record<string, FolderEdit>>({})
@@ -22,6 +22,8 @@ export function FolderSources({ project }: { project: Project | null }) {
   const [error, setError] = useState('')
   const [results, setResults] = useState<FolderLoadResult[]>([])
   const [warning, setWarning] = useState('')
+  /** Снимок до последней загрузки пачкой: «Откатить загрузку из папки» возвращает данные к нему. */
+  const [undo, setUndo] = useState('')
 
   const run = async (work: () => Promise<FolderScan>, done: string) => {
     setBusy(true); setError(''); setMessage('')
@@ -62,12 +64,28 @@ export function FolderSources({ project }: { project: Project | null }) {
   const pending = scan?.files.filter(f => f.role && (f.load === 'not_loaded' || f.load === 'changed')).map(f => f.name) ?? []
   const unknownLoad = !!project && !!scan && scan.files.some(f => f.role && f.load === null)
 
+  const undoLoad = async () => {
+    if (!project || !undo) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const current = await api.project(project.id)
+      onProject?.(await folderApi.undo(project.id, undo, current.revision))
+      setUndo(''); setResults([])
+      setScan(await folderApi.scan(scan!.folder, project.id))
+      setMessage('Загрузка из папки отменена: данные проекта возвращены к состоянию до нее.')
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const loadPending = async () => {
     if (!project || !scan || dirty) return
     setBusy(true); setError(''); setMessage('')
     try {
       const reply = await folderApi.load(project.id, scan.folder, pending)
-      setScan(reply.folder); setResults(reply.results); setWarning(reply.warning)
+      setScan(reply.folder); setResults(reply.results); setWarning(reply.warning); setUndo(reply.undo ?? '')
       setMessage(`Загрузка выполнена: ${reply.results.filter(r => r.status === 'loaded').length} из ${reply.results.length}.`)
     } catch (e) {
       setError((e as Error).message)
@@ -116,6 +134,7 @@ export function FolderSources({ project }: { project: Project | null }) {
                 Загрузить новые и изменённые ({pending.length})
               </button>
               <span className="muted">Грузятся только файлы с ролью. Загрузка идёт через общий импорт проекта «{project.name}».</span>
+              {undo && <button type="button" className="quiet" onClick={undoLoad} disabled={busy}>Откатить загрузку из папки</button>}
             </div>
           )}
           {!project && <div className="note">Выберите проект, чтобы видеть, что загружено, и загружать файлы.</div>}

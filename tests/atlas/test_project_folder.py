@@ -178,3 +178,19 @@ def test_one_bad_file_does_not_stop_the_others(client, tmp_path):
                     json={'folder': str(folder), 'files': ['../нет.csv', 'добыча.csv']}).json()
     assert [x['status'] for x in r['results']] == ['error', 'loaded']
     assert r['folder']['files'][0]['load'] == 'loaded'
+
+
+def test_folder_load_can_be_undone(client, tmp_path):
+    folder = tmp_path / 'папка'
+    folder.mkdir()
+    make_csv(folder / 'добыча.csv', [('73', '01.11.2025', '2000'), ('73', '02.11.2025', '2100')])
+    pid = client.post('/api/projects', json={'name': 'П'}).json()['id']
+    r = client.post(f'/api/projects/{pid}/folder/load', json={'folder': str(folder), 'files': ['добыча.csv']})
+    assert r.status_code == 200, r.text
+    snapshot = r.json()['undo']
+    assert snapshot, 'после загрузки должен быть снимок для отката'
+    current = client.get(f'/api/projects/{pid}').json()['revision']
+    back = client.post(f'/api/projects/{pid}/folder/undo', json={'snapshot': snapshot, 'revision': current})
+    assert back.status_code == 200, back.text
+    after = client.post('/api/folder/scan', json={'folder': str(folder), 'project': pid}).json()
+    assert after['files'][0]['load'] == 'not_loaded'
