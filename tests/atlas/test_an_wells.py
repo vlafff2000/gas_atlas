@@ -1,0 +1,90 @@
+"""«Авторский надзор»: фонд скважин за сезон (табл. 1.4–1.6) и отклонения плана (рис. 1.8) — расчёт на малом примере вручную."""
+import pandas as pd
+import pytest
+
+from atlas.modules import an_report, an_wells
+
+MAPPING = {'1': {'group': 'ГСП-1'}, '2': {'group': 'ГСП 1'}, '3': {'group': 'ГСП_2'}, '4': {'group': 'ГСП_2'}}
+SCOPES = an_report.well_scopes(MAPPING, ['1', '2', '3', '4'])
+
+
+def production(rows):
+    frame = pd.DataFrame(rows, columns=['well', 'date', 'q'])
+    frame['date'] = pd.to_datetime(frame.date)
+    frame['kind'] = 'withdrawal'
+    frame['period'] = '2023-2024'
+    return frame
+
+
+# м³/сут. Скв. 1 — 200 тыс. (выше 100), скв. 2 — 50 тыс. (один рабочий день), скв. 3 и 4 — нулевые за сезон.
+PROD = production([
+    ('1', '2024-02-01', 150000), ('1', '2024-02-02', 250000),
+    ('2', '2024-02-01', 50000), ('2', '2024-02-02', 0),
+    ('3', '2024-02-01', 0), ('3', '2024-02-02', 0),
+    ('4', '2024-02-01', 0),
+])
+
+
+def test_season_wells_counts_working_days_and_mean_rate():
+    wells = an_wells.season_wells(PROD, 'withdrawal', '2023-2024').set_index('well')
+    assert wells.loc['1', 'days'] == 2 and wells.loc['1', 'rate'] == pytest.approx(200000)
+    assert wells.loc['2', 'days'] == 1                      # 02.02 с нулём — не сутки с расходом
+    assert wells.loc['3', 'days'] == 0 and wells.loc['4', 'days'] == 0
+    assert wells.loc['1', 'gas'] == pytest.approx(400000)
+
+
+def test_fund_table_by_group_and_total():
+    fund = an_wells.fund_table(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES).set_index('group')
+    assert fund.loc[an_wells.TOTAL, ['fund', 'working']].tolist() == [4, 2]
+    assert fund.loc[an_wells.TOTAL, 'percent'] == pytest.approx(50)
+    assert fund.loc['ГСП 1', ['fund', 'working']].tolist() == [2, 2]     # «ГСП-1» и «ГСП 1» — одна группа
+    assert fund.loc['ГСП 2', ['fund', 'working']].tolist() == [2, 0]
+    assert fund.loc['ГСП 2', 'percent'] == 0
+
+
+def test_class_table_lists_well_numbers_in_brackets():
+    classes = an_wells.class_table(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES).set_index('group')
+    assert classes.loc[an_wells.TOTAL, 'zero'] == '2 (3, 4)'
+    assert classes.loc[an_wells.TOTAL, 'low'] == '1 (2)'
+    assert classes.loc[an_wells.TOTAL, 'high'] == '1 (1)'
+    assert classes.loc['ГСП 1', 'zero'] == '0'
+    assert classes.loc['ГСП 2', 'zero'] == '2 (3, 4)'
+
+
+WATER = pd.DataFrame({'well': ['1', '1', '2', '3'], 'date': pd.to_datetime(['2024-02-01', '2024-02-02', '2024-02-01', '2024-02-02']),
+                      'water_volume_m3': [300.0, 200.0, 100.0, 0.0]})
+
+
+def test_water_factor_is_liters_per_thousand_cubic_meters():
+    wells = an_wells.season_wells(PROD, 'withdrawal', '2023-2024')
+    by_well = an_wells.water_by_well(WATER, wells, SCOPES, pd.Timestamp('2024-02-01'), pd.Timestamp('2024-02-02')).set_index('well')
+    assert by_well.loc['1', 'water'] == 500
+    assert by_well.loc['1', 'wf'] == pytest.approx(1250)     # 500 м³ на 400 тыс. м³ газа = 1,25 м³/тыс. м³ = 1250 л/тыс. м³
+    assert by_well.loc['2', 'wf'] == pytest.approx(2000)
+
+
+def test_water_table_and_extremes():
+    wells = an_wells.season_wells(PROD, 'withdrawal', '2023-2024')
+    by_well = an_wells.water_by_well(WATER, wells, SCOPES, pd.Timestamp('2024-02-01'), pd.Timestamp('2024-02-02'))
+    table = an_wells.water_table(by_well).set_index('group')
+    assert table.loc[an_wells.TOTAL, 'wet'] == '2 (1, 2)'
+    assert table.loc[an_wells.TOTAL, 'wf_max'] == pytest.approx(2000) and table.loc[an_wells.TOTAL, 'wf_well'] == '2'
+    assert table.loc['ГСП 2', 'wet'] == '0' and pd.isna(table.loc['ГСП 2', 'wf_max'])
+    extremes = an_wells.water_extremes(by_well)
+    assert extremes['wet_wells'] == 2 and extremes['wf_max_well'] == '2' and extremes['wf_max_group'] == 'ГСП 1'
+
+
+def test_no_water_volume_means_no_water_table():
+    wells = an_wells.season_wells(PROD, 'withdrawal', '2023-2024')
+    assert an_wells.water_by_well(None, wells, SCOPES, pd.Timestamp('2024-02-01'), pd.Timestamp('2024-02-02')) is None
+    rates_only = WATER.rename(columns={'water_volume_m3': 'water_rate'})
+    assert an_wells.water_by_well(rates_only, wells, SCOPES, pd.Timestamp('2024-02-01'), pd.Timestamp('2024-02-02')) is None
+
+
+def test_plan_deviation_extremes_by_hand():
+    by_group = pd.DataFrame({'group': ['ГСП 1', 'ГСП 2', 'ГСП 3'], 'plan': [10.0, 10.0, 5.0],
+                             'fact': [12.0, 7.0, 5.0], 'percent': [120.0, 70.0, 100.0], 'delta': [2.0, -3.0, 0.0]})
+    ext = an_wells.deviation_extremes(by_group)
+    assert ext['delta_max'] == 2 and ext['delta_max_group'] == 'ГСП 1'
+    assert ext['delta_min'] == -3 and ext['delta_min_group'] == 'ГСП 2'
+    assert ext['percent_max'] == 120 and ext['percent_min'] == 70 and ext['percent_min_group'] == 'ГСП 2'

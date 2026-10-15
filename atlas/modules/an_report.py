@@ -23,10 +23,12 @@ from atlas.engine.core.loader import canonical_gsp, unify_groups
 
 from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Stat, Table
 from ..domain import DatasetKind
+from . import an_wells
 from ._production import KINDS, NEUTRAL_PREFIXES, group_of, periods_of, visible_periods
-from .plan_fact import month_label
+from .plan_fact import UNIT, PlanFactModule, compare as plan_compare, month_label, summed as plan_summed
 
 PRODUCTION, OBJECT, FACTOR = DatasetKind.PRODUCTION, DatasetKind.OBJECT_PRESSURE, DatasetKind.WATER_FACTOR
+PLAN, WATER = DatasetKind.PLAN, DatasetKind.WATER
 Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
 WATER_UNIT = 'м³/сут'
@@ -44,7 +46,7 @@ NOTE = ('Средние считаются по суткам с положите
 
 # Главы отчёта, для которых в Атласе будет свой раздел. Пока — только заметка о том, что раздел в работе.
 CHAPTERS = (
-    ('1.1.2', 'Фонд скважин: таблицы 1.4–1.6'),
+    ('1.1.2', 'Фонд скважин: таблица 1.8 и текст по таблицам 1.7–1.8'),
     ('1.2', 'Режим закачки: таблица 1.10 (ГСП-9)'),
     ('2', 'Закачка: статистика сезона'),
     ('11.3', 'Межколонные давления: таблица 11.3'),
@@ -168,7 +170,7 @@ class AuthorReportModule(Module):
         group='Авторский надзор',
         description='Статистика сезона для глав отчёта АН: даты, нейтральный период, средние по объекту и группам, пик, вода.',
         needs=(PRODUCTION,),
-        optional=(OBJECT, FACTOR),
+        optional=(OBJECT, FACTOR, PLAN, WATER),
         order=110,
         save_label='Сохранить вид',
         params=(
@@ -199,6 +201,9 @@ class AuthorReportModule(Module):
         if not periods:
             result.notes.append(Note('Выберите сезон: в проекте нет данных для выбранного режима.'))
         summaries, means = [], []
+        fund, classes, wet = [], [], []
+        if PLAN not in data:
+            result.notes.append(Note('План по группам не загружен: рис. 1.8 (план и факт) пропущен.', 'warning'))
         for period in periods:
             summary, table = season_report(data[PRODUCTION], data.mapping, pressure, kind, period, water)
             if summary is None:
@@ -208,11 +213,18 @@ class AuthorReportModule(Module):
             means.append(table.assign(period_season=period))
             result.summary += [Stat(f'Длительность · {period}', f'{summary["days"]} сут', 'Календарные сутки с расходом'),
                                Stat(f'Средний расход · {period}', f'{summary["mean"]:.1f} {Q_UNIT}'.replace('.', ','))]
+            self.fund_details(result, data, kind, period, summary, fund, classes, wet)
+            self.plan_details(result, data, kind, period)
         if summaries:
             result.tables.append(self.season_table(summaries))
             if water is not None and kind == 'withdrawal':
                 result.tables.append(self.water_table_report(summaries))
             result.tables.append(self.means_table(means))
+        if fund:
+            result.tables.append(self.fund_table_report(fund))
+            result.tables.append(self.class_table_report(classes))
+        if wet:
+            result.tables.append(self.wet_table_report(wet))
         result.notes.append(Note(NOTE))
         for number, title in CHAPTERS:
             result.notes.append(Note(f'Глава {number} · {title}: раздел в разработке, появится отдельным изменением.'))
@@ -259,3 +271,79 @@ class AuthorReportModule(Module):
                    Column('mean', 'Средний суточный расход', Q_UNIT, 1, 'number')]
         return Table('an-season-means', 'Средние суточные расходы: объект и группы', frame[['season', 'scope', 'period', 'days', 'mean']],
                      columns, note='Строка «Весь сезон» — среднее за сезон, остальные — по месяцам.')
+
+    def fund_details(self, result: Result, data: Data, kind: str, period: str, summary: dict[str, Any],
+                     fund: list[pd.DataFrame], classes: list[pd.DataFrame], wet: list[pd.DataFrame]) -> None:
+        """Фонд сезона: табл. 1.4 и 1.5, а для отбора — табл. 1.6 по воде и сводка по воде для текста."""
+        wells = an_wells.season_wells(data[PRODUCTION], kind, period)
+        scopes = well_scopes(data.mapping, ordered(wells.well))
+        fund.append(an_wells.fund_table(wells, scopes).assign(season=period))
+        classes.append(an_wells.class_table(wells, scopes).assign(season=period))
+        if kind != 'withdrawal':
+            return
+        by_well = an_wells.water_by_well(data[WATER] if WATER in data else None, wells, scopes,
+                                         summary['start'], summary['stop'])
+        if by_well is None:
+            result.notes.append(Note(f'{period}: «Контроль воды» без объёма воды по скважинам — таблица 1.6 пропущена.', 'warning'))
+            return
+        wet.append(an_wells.water_table(by_well).assign(season=period))
+        extremes = an_wells.water_extremes(by_well)
+        result.summary.append(Stat(f'Скважин с водой · {period}', str(extremes['wet_wells']), 'Суммарная вода за сезон больше нуля'))
+        if 'wf_max' in extremes:
+            result.summary.append(Stat(f'Максимальный ВФ · {period}', f'{extremes["wf_max"]:.1f} {WF_UNIT}'.replace('.', ','),
+                                       f'Скважина {extremes["wf_max_well"]}, группа {extremes["wf_max_group"]}'))
+
+    def plan_details(self, result: Result, data: Data, kind: str, period: str) -> None:
+        """Рис. 1.8: план и факт по группам сезона (модуль «План и факт»), самое большое и маленькое отклонение."""
+        if PLAN not in data or data[PLAN].empty:
+            return
+        plan = plan_compare(data[PRODUCTION], data[PLAN], data.mapping, kind, data.settings)
+        part = plan[plan.period.eq(period)]
+        if part.empty:
+            return
+        by_group = plan_summed(part, 'group')
+        by_group = by_group.set_index('group').loc[ordered(by_group.group)].reset_index()
+        result.charts.append(PlanFactModule().groups_chart(by_group, period, kind))
+        ext = an_wells.deviation_extremes(by_group)
+        if not ext:
+            return
+        result.summary += [
+            Stat(f'Наибольшее отклонение · {period}', f'{ext["delta_max"]:+,.1f} {UNIT} · {ext["delta_max_group"]}'.replace(',', ' '),
+                 'Факт минус план, группа с наибольшим превышением'),
+            Stat(f'Наименьшее отклонение · {period}', f'{ext["delta_min"]:+,.1f} {UNIT} · {ext["delta_min_group"]}'.replace(',', ' '),
+                 'Факт минус план, группа с наибольшим недобором'),
+            Stat(f'Выполнение макс./мин. · {period}',
+                 f'{ext["percent_max"]:.1f} % · {ext["percent_min"]:.1f} %'.replace('.', ','),
+                 f'Макс.: {ext["percent_max_group"]}; мин.: {ext["percent_min_group"]}'),
+        ]
+
+    @staticmethod
+    def fund_table_report(parts: list[pd.DataFrame]) -> Table:
+        frame = pd.concat(parts, ignore_index=True)[['season', 'group', 'fund', 'working', 'percent']]
+        columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
+                   Column('fund', 'Фонд, скв.', decimals=0, kind='number'),
+                   Column('working', 'Работало за сезон, скв.', decimals=0, kind='number'),
+                   Column('percent', 'Доля работавших, %', '%', 1, 'number')]
+        return Table('an-fund', 'Табл. 1.4 · Фонд скважин по группам', frame, columns,
+                     note='Фонд — скважины с данными за сезон; работали — с хотя бы одними сутками с расходом.')
+
+    @staticmethod
+    def class_table_report(parts: list[pd.DataFrame]) -> Table:
+        frame = pd.concat(parts, ignore_index=True)[['season', 'group', 'zero', 'low', 'high']]
+        columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
+                   Column('zero', 'Нулевой расход за сезон, скв. (номера)'),
+                   Column('low', f'Расход менее {an_wells.LOW_LIMIT} тыс. м³/сут, скв. (номера)'),
+                   Column('high', f'Расход {an_wells.LOW_LIMIT} тыс. м³/сут и более, скв. (номера)')]
+        return Table('an-fund-classes', 'Табл. 1.5 · Классы производительности скважин', frame, columns,
+                     note='Расход — средний за сутки с расходом, тыс. м³/сут. Номера скважин — в скобках.')
+
+    @staticmethod
+    def wet_table_report(parts: list[pd.DataFrame]) -> Table:
+        frame = pd.concat(parts, ignore_index=True)[['season', 'group', 'wet', 'water', 'wf_max', 'wf_well']]
+        columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
+                   Column('wet', 'Скважин с водой, скв. (номера)'),
+                   Column('water', 'Вода за сезон, м³', decimals=0, kind='number'),
+                   Column('wf_max', f'Максимальный водный фактор, {WF_UNIT}', decimals=1, kind='number'),
+                   Column('wf_well', 'Скважина с максимальным ВФ')]
+        return Table('an-fund-water', 'Табл. 1.6 · Вода по группам', frame, columns,
+                     note='Водный фактор скважины = вода за сезон / газ за сезон. Источник — «Контроль воды».')
