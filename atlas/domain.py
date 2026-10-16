@@ -34,6 +34,7 @@ class DatasetKind(str, Enum):
     PRESSURE_MATCH = 'pressure_match'    # кроссплот давлений: факт / модель
     PLAN = 'plan'                        # плановые объёмы отбора и закачки по группам и месяцам
     GGH = 'ggh'                          # газогидрохимические исследования: состав водорастворённого газа
+    ANNULUS = 'annulus'                  # межколонные давления и расход из МКП по скважинам и датам (База межколонок)
     ELPRO = 'elpro'                      # ЭЛПРО: суточные P, T, Y КРУ, Q по скважинам (сырые данные, без исключений)
 
     @property
@@ -54,6 +55,7 @@ LABELS = {
     DatasetKind.PRESSURE_MATCH: 'Кроссплот давлений',
     DatasetKind.PLAN: 'План по группам',
     DatasetKind.GGH: 'ГГХ',
+    DatasetKind.ANNULUS: 'Межколонные давления',
     DatasetKind.ELPRO: 'ЭЛПРО',
 }
 
@@ -71,6 +73,7 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.PRESSURE_MATCH: ('well', 'date'),
     DatasetKind.PLAN: ('group', 'date', 'plan_volume', 'kind'),
     DatasetKind.GGH: ('well', 'date'),
+    DatasetKind.ANNULUS: ('well', 'date', 'q', 'p'),
     DatasetKind.ELPRO: ('well', 'date', 'q', 'kind'),
 }
 

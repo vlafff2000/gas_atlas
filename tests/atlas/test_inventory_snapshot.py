@@ -21,7 +21,7 @@ REMOVED_ON_PURPOSE: dict[str, str] = {}   # id модуля -> причина; �
 # Виды данных, которые принимает проект (DatasetKind).
 DATASET_KINDS = [
     'production', 'gdi', 'response', 'object_pressure', 'operations', 'water', 'water_factor',
-    'bottom', 'construction', 'pressure_match', 'plan', 'ggh', 'elpro',
+    'bottom', 'construction', 'pressure_match', 'plan', 'ggh', 'elpro', 'annulus',
 ]
 
 # Сколько пунктов со статусом ✅ стоит в каждом чек-листе паритета (docs/parity/*.md).

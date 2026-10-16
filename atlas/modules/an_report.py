@@ -28,11 +28,12 @@ from atlas.engine.core.loader import canonical_gsp, unify_groups
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
-from . import an_wells
+from . import an_annulus, an_wells
 from ._production import KINDS, NEUTRAL_PREFIXES, group_of, periods_of, visible_periods
 from .plan_fact import UNIT, PlanFactModule, compare as plan_compare, month_label, plan_periods, summed as plan_summed
 
 PRODUCTION, OBJECT, FACTOR = DatasetKind.PRODUCTION, DatasetKind.OBJECT_PRESSURE, DatasetKind.WATER_FACTOR
+ANNULUS = DatasetKind.ANNULUS
 PLAN, WATER = DatasetKind.PLAN, DatasetKind.WATER
 Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
@@ -55,7 +56,6 @@ NOTE = ('Средние считаются по суткам с положите
 # Главы отчёта, для которых в Атласе будет свой раздел. Пока — только заметка о том, что раздел в работе.
 CHAPTERS = (
     ('1.1.2', 'Фонд скважин: таблица 1.8 и текст по таблицам 1.7–1.8'),
-    ('11.3', 'Межколонные давления: таблица 11.3'),
 )
 # Глава 2: не строятся — рис. 2.5 (Рпл по ГСП: нужны замеры по скважинам), 2.8 (ГПО), 2.9 (модельный объём газа);
 # карты 2.6, 2.7, 2.10, 2.11 — вне Атласа. Разделы 2.1.3, 2.2–2.4 в отчёте этого модуля не берутся.
@@ -324,17 +324,21 @@ class AuthorReportModule(Module):
         group='Авторский надзор',
         description='Статистика сезона для глав отчёта АН: даты, нейтральный период, средние по объекту и группам, пик, вода.',
         needs=(PRODUCTION,),
-        optional=(OBJECT, FACTOR, PLAN, WATER),
+        optional=(OBJECT, FACTOR, PLAN, WATER, ANNULUS),
         order=110,
         save_label='Сохранить вид',
         params=(
             Param('kind', 'Режим', 'choice', default='withdrawal', options=KINDS, section='Выбор данных'),
             Param('periods', 'Сезоны', 'multi', default=[], dynamic=True, depends=('kind',), auto='last:1',
                   empty='ничего', section='Выбор данных'),
+            Param('annulus', 'Сезоны замеров МКД (табл. 11.3)', 'multi', default=[], dynamic=True, auto='last:1',
+                  empty='ничего', section='Выбор данных'),
         ),
     )
 
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
+        if name == 'annulus':
+            return sorted(data[ANNULUS]['season'].dropna().unique()) if ANNULUS in data else []
         if name != 'periods':
             return super().options(name, data, params)
         return visible_periods(periods_of(data[PRODUCTION], params.get('kind') or 'withdrawal'), data.settings)
@@ -390,7 +394,26 @@ class AuthorReportModule(Module):
             result.notes.append(Note(f'Глава {number} · {title}: раздел в разработке, появится отдельным изменением.'))
         if kind == 'injection' and summaries:
             result.notes.append(Note(CHAPTER2_SKIPPED, 'warning'))
+        self.annulus_details(result, data, params.get('annulus') or [])
         return result
+
+    def annulus_details(self, result: Result, data: Data, seasons: list[str]) -> None:
+        """Табл. 11.3 (глава 11.3): межколонные давления и расход из МКП по выбранным сезонам замеров + текст под таблицей."""
+        if ANNULUS not in data or data[ANNULUS].empty:
+            result.notes.append(Note('Табл. 11.3 не построена: в проекте нет «Межколонных давлений» (База межколонок).'))
+            return
+        rows = data[ANNULUS]
+        picked = [s for s in seasons if s in set(rows['season'])]
+        if not picked:
+            result.notes.append(Note('Табл. 11.3: выберите сезон замеров МКД.'))
+            return
+        wells = an_annulus.annulus_wells(rows[rows['season'].isin(picked)])
+        frame = an_annulus.table_11_3(wells)
+        columns = [Column(c, c) for c in an_annulus.COLUMNS]
+        result.tables.append(Table('an-annulus-113', 'Табл. 11.3 · Результаты замеров МКД', frame, columns,
+                                   note='Максимумы за выбранные сезоны: расход из МКП и давление МКД, кгс/см² (абсолютные).'))
+        for line in an_annulus.classification_text(wells):
+            result.notes.append(Note(line))
 
     def injection_details(self, result: Result, data: Data) -> None:
         """Табл. 1.10 (глава 1.2): объёмы закачки ГСП 9 по последним сезонам — рекомендованный и фактический."""
