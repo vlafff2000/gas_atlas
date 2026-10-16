@@ -45,6 +45,7 @@ ROLES = {
     'gdi': 'ГДИ',
     'water': 'Вода',
     'elpro': 'ЭЛПРО (параметры работы ГСП)',
+    'gas': 'БД по учету газа',
     'other': 'Прочее',
 }
 # Результаты Базы ПХГ (all_scripts, pxg_base): имя → роль, нормирована ли база, что это. Порядок важен: длинные раньше.
@@ -57,6 +58,7 @@ KNOWN_RESULTS = (
     ('бд межколонки', 'other', False, 'База межколонок (База ПХГ)'),
     ('учёт газа отбор вынос воды', 'water', False, 'Учёт газа по отбору с выносом воды (База ПХГ)'),
     # Роль не угадываем: файл показываем как известный результат, роль назначает пользователь.
+    ('бд по учету газа', 'gas', False, 'БД по учету газа (База ПХГ): суточные отбор и закачка по объекту, вынос воды'),
     ('бд элпро', 'elpro', False, 'База ЭЛПРО (База ПХГ) или месячные файлы ЭЛПРО'),
     ('daily well data', None, False, 'Суточные данные по скважинам (База ПХГ), роль назначьте вручную'),
     ('гис ', None, False, 'Данные ГИС (База ПХГ), роль назначьте вручную'),
@@ -262,6 +264,8 @@ def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy:
     try:
         if role == 'elpro':
             applied = imports.elpro_load(pid, name, path.read_bytes(), policy)
+        elif role == 'gas':
+            applied = imports.gas_db_load(pid, name, path.read_bytes(), policy)
         else:
             up = imports.upload(name, path.read_bytes())
             if up['error']:

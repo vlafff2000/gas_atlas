@@ -22,6 +22,7 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.core import elpro_import as elpro
+from atlas.engine.core import gas_db_import
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
@@ -891,6 +892,33 @@ class Imports:
                              details={'file': name, 'rows': len(new), 'gaps': gaps, 'extra': extra, 'warnings': warn[:50]})
         self._keep_originals(pid, [(name, content)])
         return {'message': message, 'warnings': warn, 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def gas_db_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+        """«БД по учету газа» (лист «БД») → таблица ``gas_db``: суточный объём и вынос воды по объекту.
+        Разбор — atlas/engine/core/gas_db_import.py. Новый файл заменяет прежние сутки того же режима с той же датой."""
+        m = self.projects.manifest(pid)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_bytes(content)
+            new = gas_db_import.build(path)
+        if new.empty:
+            raise ParamError('В «БД по учету газа» нет суток с объёмом по объекту: проверьте лист «БД».')
+        raw = self._raw_frames(pid, m)
+        old = raw.get('gas_db')
+        if old is not None and len(old):
+            key = pd.MultiIndex.from_frame(new[['kind', 'date']])
+            kept = old[~pd.MultiIndex.from_frame(old[['kind', 'date']]).isin(key)]
+            final = pd.concat([kept, new], ignore_index=True).sort_values(['kind', 'date']).reset_index(drop=True)
+        else:
+            final = new
+        frames = dict(raw)
+        frames['gas_db'] = final
+        message = (f'БД по учету газа «{name}»: суток отбора {int((new.kind == "withdrawal").sum())}, '
+                   f'закачки {int((new.kind == "injection").sum())}; в проекте всего суток {len(final)}')
+        saved = self._commit(pid, frames, m['revision'], 'Импорт БД по учету газа',
+                             details={'file': name, 'rows': len(new)})
+        self._keep_originals(pid, [(name, content)])
+        return {'message': message, 'warnings': [], 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     # ---------- демонстрационные варианты кроссплота (atlas/engine/core/pressure_demo.py) ----------
     @staticmethod
