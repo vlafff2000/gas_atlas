@@ -36,15 +36,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Build portable folder (own Python 3.8, no install needed)
+          python-version: '3.13'
+      - name: Build portable folder (own Python 3.13, no install needed)
         run: python tools/build_portable.py ${{ matrix.target }}
       - name: Start the app from the unpacked archive
         run: |
           mkdir t && cd t
           python -c "import sys,zipfile,tarfile; p=sys.argv[1]; zipfile.ZipFile(p).extractall('.') if p.endswith('.zip') else tarfile.open(p).extractall('.')" ../dist/Gas_Atlas_portable_*
           cd Gas_Atlas
-          PY=python/bin/python3.8; [ -f python/python.exe ] && PY=python/python.exe
+          PY=python/bin/python3.13; [ -f python/python.exe ] && PY=python/python.exe
           export PYTHONNOUSERSITE=1
           "$PY" -s -m atlas --server --port 8765 > atlas6.log 2>&1 &
           ok=
@@ -60,7 +60,7 @@ jobs:
       - name: Self-check from the unpacked archive (own Python, demo data)
         run: |
           cd t/Gas_Atlas
-          PY=python/bin/python3.8; [ -f python/python.exe ] && PY=python/python.exe
+          PY=python/bin/python3.13; [ -f python/python.exe ] && PY=python/python.exe
           export PYTHONNOUSERSITE=1 PYTHONUTF8=1
           mkdir -p ../demo
           "$PY" -s -c "import pandas as pd; d=pd.DataFrame({'Скважина':['1','2','54/80'],'Дата':pd.to_datetime(['2025-01-01']*3),'Суточный расход газа':[100.0,0.0,240.0],'Время работы':[24,24,24],'Тип данных':['отбор']*3,'Источник':['ГСП 1','ГСП 1','ГСП 2'],'Сезон':['2024-2025']*3}); d.to_excel('../demo/otbor.xlsx',index=False,sheet_name='Отборы')"
@@ -74,11 +74,76 @@ jobs:
           for image in centos:7 almalinux:8; do
             echo "== $image"
             docker run --rm -v "$PWD/t/Gas_Atlas:/app" -v "$PWD/t/demo:/demo" -v "$PWD/t/out_$(echo $image | tr ':' '_'):/out" "$image" \
-              bash -c 'ldd --version | head -1; cd /app && PYTHONNOUSERSITE=1 python/bin/python3.8 -s -c "import atlas, pandas, numpy, openpyxl, uvicorn, starlette, plotly; print(\"imports ok\")" && PYTHONNOUSERSITE=1 python/bin/python3.8 -s -m atlas.selfcheck /demo --out /out --quick | tail -3'
+              bash -c 'ldd --version | head -1; cd /app && PYTHONNOUSERSITE=1 python/bin/python3.13 -s -c "import atlas, pandas, numpy, openpyxl, uvicorn, starlette, plotly; print(\"imports ok\")" && PYTHONNOUSERSITE=1 python/bin/python3.13 -s -m atlas.selfcheck /demo --out /out --quick | tail -3'
             test -f "t/out_$(echo $image | tr ':' '_')/selfcheck_report.md"
           done
       - uses: actions/upload-artifact@v4
         with:
           name: Gas_Atlas_portable_${{ matrix.target }}
           path: dist/Gas_Atlas_portable_*
+          compression-level: 0
+  unified:
+    # Один архив со всеми приложениями ПХГ (Атлас + База ПХГ + Карты ГСП + Скедул) и меню; отдельные архивы выше не меняются.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: windows, os: windows-2022}
+          - {target: linux, os: ubuntu-22.04}
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gas_atlas
+      - uses: actions/checkout@v4
+        with:
+          repository: vlafff2000/all_scripts
+          path: all_scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build unified portable folder
+        run: cd gas_atlas && python tools/build_unified.py ${{ matrix.target }} --scripts ../all_scripts
+      - name: Start the menu and all four apps from the unpacked archive
+        run: |
+          mkdir t && cd t
+          python -c "import sys,zipfile,tarfile; p=sys.argv[1]; zipfile.ZipFile(p).extractall('.') if p.endswith('.zip') else tarfile.open(p).extractall('.')" ../gas_atlas/dist/PXG_Unified_portable_*
+          cd PXG_Unified
+          PY=python/bin/python3.13; [ -f python/python.exe ] && PY=python/python.exe
+          export PYTHONNOUSERSITE=1
+          "$PY" -s -m pxg_hub --server --port 8760 > hub.log 2>&1 &
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8760/api/status > /dev/null && break; sleep 1; done
+          for a in atlas base maps schedule; do
+            curl -sf -X POST -H 'X-PXG: 1' http://127.0.0.1:8760/api/start/$a
+            echo
+          done
+          curl -sf http://127.0.0.1:8765/api/modules -o probe.json; head -c 120 probe.json; echo
+          curl -sf http://127.0.0.1:8766/api/modules -o probe.json; head -c 120 probe.json; echo
+          curl -sf http://127.0.0.1:8767/api/state -o probe.json; head -c 120 probe.json; echo
+          curl -sf http://127.0.0.1:8768/api/state -o probe.json; head -c 120 probe.json; echo
+          curl -sf http://127.0.0.1:8760/api/status | grep -o '"running": true' | wc -l | grep -qx 4
+          test -d Проект/logs
+          curl -sf -X POST -H 'X-PXG: 1' http://127.0.0.1:8760/api/quit
+          sleep 3
+          if curl -sf http://127.0.0.1:8765/api/modules; then echo 'Атлас не остановился'; exit 1; fi
+          mkdir -p ../desk && "$PY" -s tools/desktop_shortcuts.py --dir ../desk && "$PY" -s -m pxg_core.desktop_shortcuts --dir ../desk
+          test "$(ls ../desk | wc -l)" = 8
+          test -f PXG_Hub.bat -o -f pxg_hub.sh
+      - name: Linux archive on old glibc systems (glibc 2.17 and 2.28)
+        if: matrix.target == 'linux'
+        run: |
+          for image in centos:7 almalinux:8; do
+            echo "== $image"
+            docker run --rm -v "$PWD/t/PXG_Unified:/app" "$image" \
+              bash -c 'cd /app && PYTHONNOUSERSITE=1 python/bin/python3.13 -s -c "import atlas, pxg_hub, pxg_base, gsp_maps, schedule_pxg, pandas, numpy, openpyxl, xlsxwriter, odf, plotly; print(\"imports ok\")"'
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PXG_Unified_portable_${{ matrix.target }}
+          path: gas_atlas/dist/PXG_Unified_portable_*
           compression-level: 0

@@ -60,3 +60,8 @@ details.table-block > summary.block-head { cursor: pointer; list-style: none; }
 .series-rule input, .series-rule button, .series-rule .toggle { width: auto; flex: 0 0 auto; }
 .series-rule input:not([type]):first-child { flex: 1 1 200px; }
 .series-rule input[size] { width: 92px; }
+
+/* Параметр «файл»: имя выбранного файла, кнопки «Выбрать…» и «Убрать» в одну строку */
+.field.file { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.field.file .field-label { flex-basis: 100%; }
+.field.file .file-value { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }

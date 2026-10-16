@@ -6,7 +6,7 @@ export interface Option { value: unknown; label: string }
 export interface Param {
   name: string
   label: string
-  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map'
+  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map' | 'file'
   default: unknown
   help: string
   formula: string
@@ -26,6 +26,7 @@ export interface Param {
   empty: string
   show_if: Record<string, unknown> | null
   chart_kind: boolean
+  extensions: string
 }
 export interface ModuleSpec {
   id: string
@@ -149,6 +150,8 @@ export const api = {
   createDemo: (large = false) => request<{ id: string }>('/api/projects/demo', json('POST', { large })),
   options: (project: string, dataset: string, column: string) =>
     request<string[]>(`/api/projects/${project}/options?dataset=${encodeURIComponent(dataset)}&column=${encodeURIComponent(column)}`),
+  projectWells: (project: string) => request<{ wells: string[] }>(`/api/projects/${project}/wells`).then(r => r.wells),
+  appLinks: () => request<{ maps_url: string }>('/api/app/links'),
   run: (module: string, project: string, params: Params, signal?: AbortSignal, thin = true) =>
     request<Result>(`/api/modules/${module}/run`, json('POST', { project, params, thin }, signal)),
   project: (id: string) => request<Project>(`/api/projects/${id}`),

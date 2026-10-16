@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       all_pythons:
-        description: 'Run tests on Python 3.8, 3.11 and 3.13 (default: 3.8 only)'
+        description: 'Run tests on Python 3.12 and 3.13 (default: 3.13 only)'
         type: boolean
         default: false
 concurrency:
@@ -20,14 +20,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ${{ fromJSON(inputs.all_pythons && '["3.8","3.11","3.13"]' || '["3.8"]') }}
+        python: ${{ fromJSON(inputs.all_pythons && '["3.12","3.13"]' || '["3.13"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - name: Install (exact lock on 3.8, version ranges on newer Python)
+          cache-dependency-path: requirements-lock-py313.txt
+      - name: Install (exact lock on 3.13, version ranges on other Python)
         run: |
           python tools/check_runtime.py
           python -m pip install --upgrade pip
@@ -41,10 +42,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: pip
+          cache-dependency-path: requirements-lock-py313.txt
       - name: Install
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements-atlas.txt httpx
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-lock-py313.txt httpx
       - name: Speed on the large demo (budget in tools/perf_budget.json; update with --update after an intended change)
         run: python tools/check_perf.py
   web:

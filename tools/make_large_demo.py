@@ -8,7 +8,7 @@
     python tools/make_large_demo.py --production 200000 --gdi 50000 --response 0 --pressure 100000
     GAS_ATLAS_STORAGE=/путь/к/storage python tools/make_large_demo.py
 
-0 у набора (кроме отбора и закачки) — набор не создаётся. Работает на Python 3.8+.
+0 у набора (кроме отбора и закачки) — набор не создаётся. Работает на Python 3.12+.
 """
 import argparse
 import sys

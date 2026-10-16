@@ -1,8 +1,15 @@
-# Gas Atlas 6: расчётное ядро 5.8 + сервер + окно приложения. CPython 3.8 или новее, 64-bit.
--r requirements-modern.txt
-starlette>=0.40; python_version >= "3.9"
-uvicorn>=0.30; python_version >= "3.9"
-# Python 3.8: последние выпуски с его поддержкой, проверены (tests/atlas, запуск сервера).
-starlette==0.44.0; python_version < "3.9"
-uvicorn==0.33.0; python_version < "3.9"
+# Gas Atlas 6: расчётное ядро + сервер + окно приложения. CPython 3.12 или новее, 64-bit.
+# Версии для проверенных сборок зафиксированы в requirements-lock-py313.txt (Python 3.13); эти диапазоны — для других версий.
+plotly>=5.24,<7
+pandas>=2.0,<3
+numpy>=1.24,<3
+scipy>=1.10
+pyarrow>=14
+openpyxl>=3.1
+xlrd>=2.0
+matplotlib>=3.7
+portalocker>=2.10
+python-calamine>=0.2
+starlette>=0.40
+uvicorn>=0.30
 pywebview>=5.0; sys_platform == "win32"

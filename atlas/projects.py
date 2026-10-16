@@ -174,8 +174,12 @@ class Projects:
         settings = {**DEFAULT_SETTINGS, **m.get('settings', {})}
         raw = self._raw_frames(pid, m)
         # Эксплуатация готовится как в 5.8: сезоны и индексы; остальное — только исключения.
-        prepared = exclusions.apply({n: d for n, d in raw.items() if n != 'production'}, settings)
-        shown, original = dict(prepared), {n: d for n, d in raw.items() if n != 'production'}
+        # ЭЛПРО — сырой набор для сверки с расходами: исключённые точки отбора на него не действуют
+        others = {n: d for n, d in raw.items() if n not in ('production', 'elpro')}
+        prepared = exclusions.apply(others, settings)
+        shown, original = dict(prepared), dict(others)
+        if 'elpro' in raw:
+            shown['elpro'] = original['elpro'] = raw['elpro']
         if 'production' in raw:
             shown['production'] = cache.prepared('production', settings)
             original['production'] = cache.prepared('production', {**settings, 'excluded_points': {}})
@@ -226,6 +230,13 @@ class Projects:
             return []
         values = frame[column].dropna().astype(str)
         return sorted((v for v in values.unique() if v != ''), key=natural_key)
+
+    def wells(self, pid: str) -> list[str]:
+        """Скважины проекта: отбор/закачка, ГДИ и кроссплот давлений. По ним решается, показывать ли «Показать на карте»."""
+        found: set[str] = set()
+        for dataset in (DatasetKind.PRODUCTION, DatasetKind.GDI, DatasetKind.PRESSURE_MATCH):
+            found.update(self.options(pid, dataset, 'well'))
+        return sorted(found, key=natural_key)
 
     # --- изменения ---
     def _commit(self, pid: str, settings: dict, expected: int | None, action: str, details=None):

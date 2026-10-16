@@ -21,6 +21,7 @@ from typing import Any
 
 import pandas as pd
 
+from atlas.engine.core import elpro_import as elpro
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
@@ -866,6 +867,30 @@ class Imports:
         self._forget(p)
         return {'message': f'Сохранено: {len(p["data"])} замеров ГГХ, скважин {p["data"].well.nunique()}',
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def elpro_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+        """Файл ЭЛПРО (месячный «Параметры работы ГСП» или готовая «БД_ЭЛПРО») → таблица ``elpro``: дозапись по ключу.
+        Разбор — atlas/engine/core/elpro_import.py (перенесён из all_scripts, PR #141)."""
+        m = self.projects.manifest(pid)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / name
+            path.write_bytes(content)
+            data, _infos, cov, warn = elpro.build([str(path)])
+        if data.empty:
+            raise ParamError('В файле нет данных ЭЛПРО' + (f': {warn[0]}' if warn else '.'))
+        new, extra = elpro.keep_first(elpro.to_db(data))
+        raw = self._raw_frames(pid, m)
+        final, matched = elpro.merge(raw.get('elpro'), new, policy)
+        frames = dict(raw)
+        frames['elpro'] = final
+        gaps = int((cov['Статус'] != 'есть').sum()) if not cov.empty else 0
+        message = (f'ЭЛПРО «{name}»: строк {len(new)}, скважин {new.well.nunique()}, групп {new.group.nunique()}; '
+                   f'пропусков покрытия: {gaps}' + (f'; заменено прежних строк: {matched}' if matched else '')
+                   + (f'; лишних строк за сутки не учтено: {extra}' if extra else ''))
+        saved = self._commit(pid, frames, m['revision'], 'Импорт ЭЛПРО',
+                             details={'file': name, 'rows': len(new), 'gaps': gaps, 'extra': extra, 'warnings': warn[:50]})
+        self._keep_originals(pid, [(name, content)])
+        return {'message': message, 'warnings': warn, 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     # ---------- демонстрационные варианты кроссплота (atlas/engine/core/pressure_demo.py) ----------
     @staticmethod

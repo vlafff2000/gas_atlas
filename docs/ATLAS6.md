@@ -4,8 +4,8 @@
 
 ## Запуск
 
-Windows: `run_atlas_windows.bat` (нужен Python 3.8+ в `.venv`; недостающие пакеты поставит
-`tools/install.py`: на 3.8 — `requirements-lock-py38.txt`, на новых — `requirements-atlas.txt`). Открывается окно приложения (pywebview).
+Windows: `run_atlas_windows.bat` (нужен Python 3.12+ в `.venv`; недостающие пакеты поставит
+`tools/install.py`: на 3.13 — `requirements-lock-py313.txt`, на 3.12 — `requirements-atlas.txt`). Открывается окно приложения (pywebview).
 Linux: `bash run_atlas.sh` — то же в браузере.
 
 Вручную: `python -m atlas` (окно), `python -m atlas --browser`, `python -m atlas --server` (только ядро на порту 8765).
@@ -17,7 +17,7 @@ Linux: `bash run_atlas.sh` — то же в браузере.
 отбор и закачка 1 000 000 строк, ГДИ 300 000, реагирование 200 000, кроссплот давлений 500 000 пар.
 
 - в 6: «Проекты» → «Создать большой демо-объект (2 млн строк)» (или та же кнопка на пустом экране);
-- из командной строки (Python 3.8+): `python tools/make_large_demo.py`, объёмы меняются ключами
+- из командной строки (Python 3.12+): `python tools/make_large_demo.py`, объёмы меняются ключами
   `--production --gdi --response --pressure` (0 — набор не создаётся), `--seed`, `--storage`;
 - замер скорости: `python tools/benchmark_large_demo.py` (создаёт демо во временной папке).
 
