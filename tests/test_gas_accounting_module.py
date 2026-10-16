@@ -69,3 +69,15 @@ def test_module_chart_and_table_for_selected_kind():
 def test_module_without_data_gives_note_not_error():
     res = GasAccountingModule().run({}, {'kind': 'injection', 'date_from': None, 'date_to': None})
     assert not res.charts and res.notes and 'БД по учету газа' in res.notes[0].text
+
+
+def test_build_reads_canonical_column_names(tmp_path):
+    # новые выгрузки: главные колонки под каноническими именами (как в all_scripts), строки те же
+    rows = [
+        {'Режим': 'отбор', 'Дата': '2025-10-01', g.CANON_WITHDRAW: 100.0, g.CANON_INJECT: None, g.CANON_WATER: 10.0},
+        {'Режим': 'закачка', 'Дата': '2025-10-01', g.CANON_WITHDRAW: None, g.CANON_INJECT: 50.0, g.CANON_WATER: None},
+    ]
+    out = g.build(_book(tmp_path / 'БД_по_учету_газа.xlsx', rows))
+    assert list(out['kind']) == ['injection', 'withdrawal']
+    assert list(out['gas']) == [50.0, 100.0]
+    assert out['water'].iloc[1] == 10.0
