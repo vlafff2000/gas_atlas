@@ -26,6 +26,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from .api import error
+from . import workspace_folders
 from .imports import Imports
 from .api_projects import internal_error_text
 from .contract import ParamError
@@ -340,7 +341,11 @@ def routes(projects) -> list[Route]:
     def scan_route(request, body):
         return scan(body.get('folder'), _loads_of(body.get('project')))
 
+    async def project_state(request: Request):
+        return JSONResponse(workspace_folders.state())
+
     return [
+        Route('/api/folder/project', project_state, methods=['GET']),
         Route('/api/folder/scan', wrap(scan_route), methods=['POST']),
         Route('/api/folder/manifest', wrap(lambda r, b: save_manifest(b.get('folder'), b.get('files'), _loads_of(b.get('project')))), methods=['POST']),
         Route('/api/projects/{pid}/folder/load', wrap(lambda r, b: load_files(

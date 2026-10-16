@@ -66,7 +66,17 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return data as T
 }
 
+/** Общий выбор проекта из «Базы ПХГ»: папка проекта и её подпапки «готовые» и «выгрузки». */
+export interface ProjectFolder { slot: 'ready' | 'exports'; label: string; path: string; found: boolean; files: string[] }
+export interface ProjectFolders { project: string; folders: ProjectFolder[] }
+
 export const folderApi = {
+  projectState: async (): Promise<ProjectFolders> => {
+    const r = await fetch('/api/folder/project')
+    const data = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(data.error ?? `Ошибка ${r.status}`)
+    return data as ProjectFolders
+  },
   scan: (folder: string, project?: string) => post<FolderScan>('/api/folder/scan', project ? { folder, project } : { folder }),
   load: (project: string, folder: string, files: string[], policy = 'new') =>
     post<FolderLoadReply>(`/api/projects/${encodeURIComponent(project)}/folder/load`, { folder, files, policy }),
