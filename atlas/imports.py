@@ -59,6 +59,20 @@ def ggh_well_horizon(values) -> str:
     return max(set(names), key=names.count) if names else ''
 
 
+def base_book(tables: dict[str, pd.DataFrame]) -> str:
+    """«БД_ЭЛПРО» или «БД по учету газа» Базы ПХГ: у них свой разбор (``elpro_load``, ``gas_db_load``). Общий импорт
+    принял бы ЭЛПРО за расходы, а учёт газа — за вынос воды по объекту. Пусто, если книга обычная."""
+    def head(sheet: str) -> set[str]:
+        raw = tables.get(sheet)
+        return set() if raw is None or raw.empty else {str(v).strip() for v in raw.iloc[0].tolist()}
+    elpro_head = head('Данные')
+    if {'Дата', 'Режим', 'ГСП', 'Скважина'} <= elpro_head and any(v.lower().startswith('y кру') for v in elpro_head):
+        return 'база ЭЛПРО'
+    if {'Режим', 'Дата', 'Файл', 'Лист'} <= head('БД'):
+        return '«БД по учету газа»'
+    return ''
+
+
 def module_label(value) -> str:
     return MODULES.get(value, 'Группы') if value != 'subgroups' else 'Подгруппы'
 
@@ -339,6 +353,12 @@ class Imports:
                 rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
                              'status': 'Это книга факта и моделей давлений: загрузите ее в разделе «Данные давлений» ниже'})
+                continue
+            special = base_book(tables)
+            if special:
+                rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
+                             'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
+                             'status': f'Это {special} из Базы ПХГ: загрузите ее на странице «Источники» (папка проекта)'})
                 continue
             sheets, any_rows, auto_use = {}, False, False
             for sheet, raw in tables.items():

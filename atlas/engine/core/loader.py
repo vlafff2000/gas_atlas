@@ -69,6 +69,11 @@ def norm(v):
 
 GSP_LABELS=('гсп','номергсп')
 
+def _file_names(rows, column):
+    """В колонке под заголовком — имена файлов («….xlsx»), а не названия групп."""
+    values = [str(r[column]).strip() for r in rows or [] if column < len(r) and r[column] is not None and str(r[column]).strip()]
+    return bool(values) and all(re.search(r'(?i)\.(xlsx|xlsm|xls|csv|txt)$', v) for v in values)
+
 def column_map(labels, rows=None):
     """Колонки полей по заголовкам. ``rows`` — строки под заголовком: пустые дубли колонки (служебные «date» и т. п.) отбрасываются."""
     result = {}
@@ -98,11 +103,11 @@ def column_map(labels, rows=None):
         month = [i for i, n in enumerate(normalized) if n == 'месяц']
         if len(month) == 1:
             result['date'] = month[0]
-    if 'group' not in result:
-        # Колонка «ГСП» / «Номер ГСП» — группа, если нет колонки «Группа» или «Источник».
-        gsp = [i for i, n in enumerate(normalized) if n in GSP_LABELS]
-        if len(gsp) == 1:
-            result['group'] = gsp[0]
+    gsp = [i for i, n in enumerate(normalized) if n in GSP_LABELS]
+    if len(gsp) == 1 and ('group' not in result or _file_names(rows, result['group'])):
+        # Колонка «ГСП» / «Номер ГСП» — группа, если нет колонки «Группа» или «Источник». «Источник» с именами файлов
+        # («Результат замеров сентябрь.xlsx» в базах давлений Базы ПХГ) — не группа: тогда группа берётся из ГСП.
+        result['group'] = gsp[0]
     if 'q' in result and result.get('water_rate')==result['q']:
         # The legacy broad "Расход..." alias must not turn water into gas.
         result.pop('q')
@@ -336,7 +341,9 @@ def detect_layout(head,module='auto'):
             wf_map=water_factor_map(row)
             if wf_map:
                 mapping=wf_map;detected='water_factor';header=i;break
-        if module in ('auto','plan') and not well_header and sum(month_cell(v) is not None for v in row[1:])>=2 \
+        # «Скважина | 2006-06 | 2006-08 …» — сводная по скважинам (листы «Руст по месяцам» базы давлений), не план
+        if module in ('auto','plan') and not well_header and not (module=='auto' and 'well' in mapping) \
+                and sum(month_cell(v) is not None for v in row[1:])>=2 \
                 and any(str(r[0] or '').strip() and any(is_number(v) for v in r[1:]) for r in head[i+1:i+4]):
             detected='plan';wide=True;mapping={'date':0};header=i;break       # матрица: группы в строках, месяцы в столбцах
         if module in ('auto','plan') and 'well' not in mapping and {'group','date','plan_volume'}<=mapping.keys():
@@ -613,7 +620,7 @@ def merge_frames(old, new, module, policy='new'):
     else: base=pd.concat([old,new] if policy=='new' else [new,old],ignore_index=True)
     keys={'production':['kind','well','date'],'response':['well','date','horizon'],
           'pressure_match':['object','scenario','well','date'],'groups':['well'],'object_pressure':['date','horizon'],'water_factor':['date'],'plan':['kind','group','date'],'gdi':['well','date','method','study','q','dp2'],
-          'operations':['well','date','kind'],'water':['well','date'],'bottom':['well','date'],
+          'operations':['well','date','kind'],'water':['well','date'],'bottom':['well','date'],'annulus':['well','date'],
           'construction':['well','date','element','top_m','bottom_m','diameter_mm']}[module]
     keys=[k for k in keys if k in base]
     if module=='gdi': keys += [c for c in ('p_res','p_bh','a_db','b_db') if c in base]
