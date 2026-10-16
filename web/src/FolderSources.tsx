@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { folderApi, FolderEdit, FolderFile, FolderLoad, FolderLoadResult, FolderScan } from './api_folder'
+import { folderApi, FolderEdit, FolderFile, FolderLoad, FolderLoadResult, FolderScan, ProjectFolders } from './api_folder'
 import { openFilePicker } from './FilePicker'
 import { api, type Project } from './api'
 
@@ -33,6 +33,8 @@ export function FolderSources({ project, onProject }: { project: Project | null;
   const [warning, setWarning] = useState('')
   /** Снимок до последней загрузки пачкой: «Откатить загрузку из папки» возвращает данные к нему. */
   const [undo, setUndo] = useState('')
+  /** Папка проекта, выбранная в «Базе ПХГ»: подпапки «готовые» и «выгрузки». */
+  const [projectFolders, setProjectFolders] = useState<ProjectFolders | null>(null)
 
   const run = async (work: () => Promise<FolderScan>, done: string) => {
     setBusy(true); setError(''); setMessage('')
@@ -50,6 +52,10 @@ export function FolderSources({ project, onProject }: { project: Project | null;
 
   // При открытии проекта тихо читаем его папку: сразу видно новые и изменённые файлы. Загрузка — только по кнопке.
   const pid = project?.id
+  useEffect(() => {
+    folderApi.projectState().then(setProjectFolders).catch(() => setProjectFolders(null))
+  }, [])
+
   useEffect(() => {
     const saved = pid ? rememberedFolder(pid) : ''
     if (!pid || !saved) return
@@ -121,6 +127,19 @@ export function FolderSources({ project, onProject }: { project: Project | null;
     <section className="folder-sources" aria-label="Источники данных">
       <h2>Источники</h2>
       <p className="lede">Папка с файлами проекта: какой файл чем является. Здесь только роли файлов: роли и признак нормированной базы сохраняются в папке рядом с данными.</p>
+
+      {projectFolders?.project && (
+        <div className="folder-row" aria-label="Папка проекта из Базы ПХГ">
+          <span className="muted">Папка проекта: {projectFolders.project}</span>
+          {projectFolders.folders.map(f => (
+            <button key={f.slot} type="button" disabled={busy || !f.found}
+              onClick={() => run(() => folderApi.scan(f.path, project?.id), `Прочитана папка «${f.label}».`)}
+              title={f.found ? `${f.files.length} файл(ов)` : 'Папки пока нет'}>
+              Прочитать: {f.label} ({f.found ? f.files.length : "нет"})
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="folder-row">
         <input
