@@ -52,6 +52,11 @@ ROLES = {
 KNOWN_RESULTS = (
     ('бд расходы нормированная', 'production', True, 'База расходов, нормированная на узел учёта'),
     ('бд расходы', 'production', False, 'База расходов (База ПХГ)'),
+    ('сводка закачка отбор', 'production', False, 'База расходов («Создание базы данных расходов» Базы ПХГ)'),
+    # Сырая база замеров (Руст, Рпл без приведения): Атлас берёт приведённое давление из «Пересчёт_давлений».
+    ('бд давлений по замерам', None, False, 'База давлений по замерам (База ПХГ): для Атласа загрузите «Пересчёт_давлений»'),
+    ('пересчёт давлений', 'pressure', False, 'Пересчёт давлений (База ПХГ): приведённое Рпл по скважинам'),
+    ('пересчет давлений', 'pressure', False, 'Пересчёт давлений (База ПХГ): приведённое Рпл по скважинам'),
     ('бд давл', 'pressure', False, 'База давлений (База ПХГ)'),
     ('бд гди', 'gdi', False, 'База ГДИ (База ПХГ)'),
     ('бд замеров воды', 'water', False, 'База замеров воды (База ПХГ)'),
@@ -62,7 +67,13 @@ KNOWN_RESULTS = (
     ('бд элпро', 'elpro', False, 'База ЭЛПРО (База ПХГ) или месячные файлы ЭЛПРО'),
     ('daily well data', None, False, 'Суточные данные по скважинам (База ПХГ), роль назначьте вручную'),
     ('гис ', None, False, 'Данные ГИС (База ПХГ), роль назначьте вручную'),
+    # Отчёты проверок Базы ПХГ: не данные, в проект не грузятся (иначе «Часы_…_расход_…» ушёл бы в расходы).
+    ('часы ненулевые расход нулевой', None, False, 'Отчёт проверки Базы ПХГ (часы и расход не согласованы), не данные'),
+    ('журнал нормировки', None, False, 'Журнал нормировки на узел учёта (База ПХГ), не данные'),
+    ('даты к проверке', None, False, 'Даты к проверке (База ПХГ), не данные'),
 )
+# Нормированная база — итог Базы ПХГ: рядом с ней исходная база расходов роли не получает, иначе сутки загрузятся дважды.
+SUPERSEDED = 'Есть нормированная база расходов: эта исходная не загружается (роль можно назначить вручную)'
 # Роль по словам в имени, если файл не известный результат и манифеста нет.
 NAME_HINTS = (('расход', 'production'), ('давлен', 'pressure'), ('гди', 'gdi'), ('вода', 'water'), ('воды', 'water'))
 
@@ -161,12 +172,15 @@ def scan(raw_folder: Any, loaded: dict[str, Any] | None = None) -> dict[str, Any
     ``loaded`` — что уже загружено в проект (из ``folder_loads.json``): тогда у каждого файла статус загрузки."""
     folder = _folder(raw_folder)
     manifest, warning = read_manifest(folder)
+    paths = [p for p in sorted(folder.iterdir(), key=lambda p: p.name.lower())
+             if p.is_file() and not p.name.startswith('~$') and p.suffix.lower() in EXTENSIONS]
+    has_normalized = any((_known(p.name) or {}).get('normalized') for p in paths)
     files = []
-    for path in sorted(folder.iterdir(), key=lambda p: p.name.lower()):
+    for path in paths:
         name = path.name
-        if not path.is_file() or name.startswith('~$') or path.suffix.lower() not in EXTENSIONS:
-            continue
         known = _known(name)
+        if known and has_normalized and known['role'] == 'production' and not known['normalized']:
+            known = dict(known, role=None, label=SUPERSEDED)
         entry = manifest.get(name) if isinstance(manifest.get(name), dict) else {}
         if 'role' in entry and (entry['role'] is None or (isinstance(entry['role'], str) and entry['role'] in ROLES)):
             role, source = entry['role'], 'manifest'     # явное «не назначено» сохраняется и не подменяется именем

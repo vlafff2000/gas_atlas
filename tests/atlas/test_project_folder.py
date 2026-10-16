@@ -32,11 +32,11 @@ def test_known_results_get_role_and_normalized_flag(tmp_path):
     r = pf.scan(str(tmp_path))
     assert roles(r) == {
         'БД_давления_2006-2025.xlsx': ('pressure', 'name', False),
-        'БД_давлений_по_замерам.xlsx': ('pressure', 'name', False),
+        'БД_давлений_по_замерам.xlsx': (None, '', False),       # сырая база: Атлас берёт «Пересчёт_давлений»
         'БД_ГДИ_объединенная.xlsx': ('gdi', 'name', False),
         'БД_замеров_воды.xlsx': ('water', 'name', False),
         'БД_межколонки.xlsx': ('other', 'name', False),
-        'БД_расходы.xlsx': ('production', 'name', False),
+        'БД_расходы.xlsx': (None, '', False),                   # рядом нормированная: исходная не грузится второй раз
         'БД_расходы_нормированная_ПЗРГ.xlsx': ('production', 'name', True),
     }
     assert all(f['known'] for f in r['files'])
@@ -204,4 +204,4 @@ def test_base_outputs_are_known_results():
     assert pf._known('БД_ГДИ_объединенная.xlsx')['role'] == 'gdi'
     assert pf._known('БД_ЭЛПРО.xlsx')['role'] == 'elpro'
     assert pf._known('daily_well_data_2019_01_2024_04.xlsx') is not None
-    assert pf._known('Пересчёт_давлений.xlsx') is None
+    assert pf._known('Пересчёт_давлений.xlsx')['role'] == 'pressure'
