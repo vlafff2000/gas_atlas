@@ -20,14 +20,16 @@ def settings_path() -> str:
 
 
 def chosen_project() -> str:
-    """Путь папки проекта или '' (нет файла, битый файл или пустое поле)."""
+    """Путь папки проекта: из файла выбора; без выбора — общая папка «Проект» единого архива (PXG_PROJECT). Иначе ''."""
     try:
         with open(settings_path(), encoding='utf-8') as f:
             data = json.load(f)
     except (OSError, ValueError):
-        return ''
+        data = None
     value = data.get('project') if isinstance(data, dict) else None
-    return value.strip() if isinstance(value, str) else ''
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return os.environ.get('PXG_PROJECT', '').strip()
 
 
 def state() -> dict[str, Any]:
