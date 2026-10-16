@@ -14,6 +14,7 @@ from atlas.projects import Projects
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, 'STORAGE', tmp_path / 'storage')
     monkeypatch.setenv('PXG_HOME', str(tmp_path / 'pxg'))
+    monkeypatch.delenv('PXG_PROJECT', raising=False)
     return TestClient(create_app(Projects(tmp_path / 'storage')))
 
 
