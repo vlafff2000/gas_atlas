@@ -128,14 +128,14 @@ export function FolderSources({ project, onProject }: { project: Project | null;
       <h2>Источники</h2>
       <p className="lede">Папка с файлами проекта: какой файл чем является. Здесь только роли файлов: роли и признак нормированной базы сохраняются в папке рядом с данными.</p>
 
-      {projectFolders?.project && (
+      {project && projectFolders?.project && (
         <div className="folder-row" aria-label="Папка проекта из Базы ПХГ">
           <span className="muted">Папка проекта: {projectFolders.project}</span>
           {projectFolders.folders.map(f => (
             <button key={f.slot} type="button" disabled={busy || !f.found}
               onClick={() => run(() => folderApi.scan(f.path, project?.id), `Прочитана папка «${f.label}».`)}
               title={f.found ? `${f.files.length} файл(ов)` : 'Папки пока нет'}>
-              Прочитать: {f.label} ({f.found ? f.files.length : "нет"})
+              Прочитать: {f.label} ({f.found ? f.files.length : 'нет'})
             </button>
           ))}
         </div>
