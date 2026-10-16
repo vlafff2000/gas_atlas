@@ -14,6 +14,7 @@ from atlas.projects import Projects
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, 'STORAGE', tmp_path / 'storage')
     monkeypatch.setenv('PXG_HOME', str(tmp_path / 'pxg'))
+    monkeypatch.delenv('PXG_PROJECT', raising=False)
     return TestClient(create_app(Projects(tmp_path / 'storage')))
 
 
@@ -48,3 +49,13 @@ def test_state_lists_subfolders_and_files(tmp_path, client):
     assert ready['files'] == ['карта ГСП.xlsx']
     assert exports['slot'] == 'exports' and exports['found'] is False
     assert exports['files'] == []
+
+
+def test_hub_project_is_default_without_choice(tmp_path, client, monkeypatch):
+    # единый архив передаёт общую папку «Проект» через PXG_PROJECT: без выбора она и есть проект
+    project = tmp_path / 'Проект'
+    (project / 'выгрузки').mkdir(parents=True)
+    monkeypatch.setenv('PXG_PROJECT', str(project))
+    body = client.get('/api/folder/project').json()
+    assert body['project'] == str(project)
+    assert [f['found'] for f in body['folders']] == [False, True]
