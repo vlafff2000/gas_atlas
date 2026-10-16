@@ -36,6 +36,7 @@ class DatasetKind(str, Enum):
     GGH = 'ggh'                          # газогидрохимические исследования: состав водорастворённого газа
     ANNULUS = 'annulus'                  # межколонные давления и расход из МКП по скважинам и датам (База межколонок)
     ELPRO = 'elpro'                      # ЭЛПРО: суточные P, T, Y КРУ, Q по скважинам (сырые данные, без исключений)
+    GAS_DB = 'gas_db'                    # «БД по учету газа» Базы ПХГ: суточный объём по объекту, вынос воды по объекту
 
     @property
     def label(self) -> str:
@@ -57,6 +58,7 @@ LABELS = {
     DatasetKind.GGH: 'ГГХ',
     DatasetKind.ANNULUS: 'Межколонные давления',
     DatasetKind.ELPRO: 'ЭЛПРО',
+    DatasetKind.GAS_DB: 'БД по учету газа',
 }
 
 # Обязательные колонки каждого набора (как после импорта 5.8).
@@ -75,6 +77,7 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.GGH: ('well', 'date'),
     DatasetKind.ANNULUS: ('well', 'date', 'q', 'p'),
     DatasetKind.ELPRO: ('well', 'date', 'q', 'kind'),
+    DatasetKind.GAS_DB: ('date', 'kind', 'gas'),
 }
 
 # Подписи колонок для таблиц и подсказок.
