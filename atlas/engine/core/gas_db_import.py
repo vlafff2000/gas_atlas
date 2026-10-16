@@ -6,6 +6,8 @@
 иначе файл не принимается — лучше ошибка, чем тихий выбор не того параметра.
 
 Вход: xlsx с листом «БД». Значения по объекту — приоритетные: это основной источник суточных объёмов.
+Главные колонки базы пишутся под каноническими именами (словарь pxg_core/имена_бд_газа.py в all_scripts; здесь
+те же строки). Старые выгрузки с исходными названиями читаются по подстроке, как раньше.
 """
 from __future__ import annotations
 
@@ -15,11 +17,17 @@ SHEET = 'БД'
 WITHDRAW_TOTAL = 'Всего по ПЗРГ - за сутки по ПХГ'      # отбор, тыс. м³/сут
 INJECT_TOTAL = 'Закачано в ПХГ за СУТКИ, тыс.м3/сут'     # закачка, тыс. м³/сут
 WATER = 'Пластовая жидкость (м3) / Всего по ПХГ'        # вынос воды по объекту, м³ (сутки с замером)
+# канонические имена главных колонок «БД по учету газа» (те же, что в all_scripts, pxg_core/имена_бд_газа.py)
+CANON_WITHDRAW = 'Отбор из ПХГ, тыс. м³/сут'
+CANON_INJECT = 'Закачка в ПХГ, тыс. м³/сут'
+CANON_WATER = 'Добыча пластовой воды, м³/сут'
 KIND_OF = {'отбор': 'withdrawal', 'закачка': 'injection'}
 COLUMNS = ['kind', 'date', 'gas', 'water']
 
 
-def _one(columns, part: str) -> str:
+def _one(columns, part: str, canonical: str = '') -> str:
+    if canonical and canonical in list(columns):
+        return canonical
     hits = [c for c in columns if part in str(c)]
     if len(hits) != 1:
         raise ValueError(f'В «БД по учету газа» столбец «{part}» найден {len(hits)} раз: проверьте лист «БД»')
@@ -29,9 +37,9 @@ def _one(columns, part: str) -> str:
 def build(path) -> pd.DataFrame:
     """Таблица (kind, date, gas, water) по суткам. ``gas`` — тыс. м³/сут, ``water`` — м³ или NaN (нет замера)."""
     db = pd.read_excel(path, sheet_name=SHEET)
-    total_w = _one(db.columns, WITHDRAW_TOTAL)
-    total_i = _one(db.columns, INJECT_TOTAL)
-    water_col = _one(db.columns, WATER)
+    total_w = _one(db.columns, WITHDRAW_TOTAL, CANON_WITHDRAW)
+    total_i = _one(db.columns, INJECT_TOTAL, CANON_INJECT)
+    water_col = _one(db.columns, WATER, CANON_WATER)
     mode = db['Режим'].astype(str).str.strip().str.lower()
     gas = pd.Series(float('nan'), index=db.index)
     gas[mode.eq('отбор')] = pd.to_numeric(db.loc[mode.eq('отбор'), total_w], errors='coerce')
