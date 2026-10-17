@@ -296,8 +296,9 @@ class AuthorReportModule(Module):
             Param('view', 'График', 'choice', default='canvas', section='Вид', chart_kind=True, options=VIEWS),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
                   show_if={'view': 'canvas'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.SHOW)),
-            Param('group', 'Группа', 'choice', default='', dynamic=True, depends=('kind', 'periods'), section='Вид',
-                  show_if={'view': 'group_months'}, help='Группа для графика накопленного объёма по месяцам; пусто — первая.'),
+            Param('groups', 'Группы', 'multi', default=[], dynamic=True, depends=('kind', 'periods'), auto='first:1',
+                  empty='ничего', section='Вид', show_if={'view': 'group_months'},
+                  help='Группы для графика накопленного объёма по месяцам: по графику на группу.'),
             Param('annulus', 'Сезоны замеров МКД', 'multi', default=[], dynamic=True, auto='last:1',
                   empty='ничего', section='Выбор данных'),
         ),
@@ -306,7 +307,7 @@ class AuthorReportModule(Module):
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         if name == 'annulus':
             return sorted(data[ANNULUS]['season'].dropna().unique()) if ANNULUS in data else []
-        if name == 'group':
+        if name == 'groups':
             kind = params.get('kind') or 'withdrawal'
             d = data[PRODUCTION]
             d = d[d.kind.eq(kind) & d.period.isin(params.get('periods') or periods_of(d, kind))]
@@ -517,8 +518,8 @@ class AuthorReportModule(Module):
                 charts = [an_charts.cum_groups_months(kind, period, rates, OBJECT_SCOPE)]
             else:
                 names = ordered(set(rates.scope.astype(str)) - {OBJECT_SCOPE})
-                group = params.get('group') if params.get('group') in names else (names[0] if names else '')
-                charts = [an_charts.cum_group_months(kind, period, rates, group)] if group else []
+                picked = [g for g in params.get('groups') or [] if g in names] or names[:1]
+                charts = [an_charts.cum_group_months(kind, period, rates, g) for g in picked]
         result.charts += [c for c in charts if c is not None]
         start_p, stop_p = summary.get('pressure_start'), pressure_near(pressure, stop)
         if an_charts.pressure_points(pressure, start, stop) is not None and start_p is not None and stop_p is not None:

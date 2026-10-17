@@ -137,7 +137,9 @@ def cum_groups_season(kind: str, period: str, rates: pd.DataFrame, object_name: 
 
 
 def cum_groups_months(kind: str, period: str, rates: pd.DataFrame, object_name: str) -> Chart | None:
-    """Объём за каждый месяц сезона (накоплен в пределах месяца): столбцы по месяцам, ряд — группа, млн м³."""
+    """Объём за каждый месяц сезона (накоплен в пределах месяца): столбцы по месяцам, ряд — группа, млн м³.
+    Объект не рисуется: он в несколько раз выше групп и прячет их; его месячные объёмы — сумма столбцов."""
+    rates = rates[rates.scope.astype(str).ne(object_name)]
     if rates.empty:
         return None
     noun = WHAT[kind][0]

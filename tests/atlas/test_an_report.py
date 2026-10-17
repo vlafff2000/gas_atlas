@@ -208,9 +208,9 @@ def test_group_series_views():
     assert 'an-group-means-injection-2024' in ids(view='group_mean')
     assert 'an-monthly-groups-injection-2024' in ids(view='group_mean_months')
     assert 'an-canvas-injection-2024' in ids(view='canvas', show=['rate'])
-    groups = module.options('group', data, base)
+    groups = module.options('groups', data, base)
     assert groups
-    chart = next(c for c in module.run(data, {**base, 'view': 'group_months', 'group': groups[-1]}).charts if c.id.startswith('an-cum-group-months'))
+    chart = next(c for c in module.run(data, {**base, 'view': 'group_months', 'groups': [groups[-1]]}).charts if c.id.startswith('an-cum-group-months'))
     assert groups[-1] in chart.title
     total = next(c for c in module.run(data, {**base, 'view': 'cum_season'}).charts if c.id.startswith('an-cum-groups'))
     obj = next(s for s in total.series if s.name == 'Объект')
