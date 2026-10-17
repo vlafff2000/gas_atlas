@@ -109,11 +109,18 @@ jobs:
           python-version: '3.13'
       - name: Build unified portable folder
         run: cd gas_atlas && python tools/build_unified.py ${{ matrix.target }} --scripts ../all_scripts
-      - name: Start the menu and all four apps from the unpacked archive
+      - name: Unpack and check the bundled Python (stdlib, pywin32) before starting anything
         run: |
           mkdir t && cd t
           python -c "import sys,zipfile,tarfile; p=sys.argv[1]; zipfile.ZipFile(p).extractall('.') if p.endswith('.zip') else tarfile.open(p).extractall('.')" ../gas_atlas/dist/PXG_Unified_portable_*
           cd PXG_Unified
+          PY=python/bin/python3.13; [ -f python/python.exe ] && PY=python/python.exe
+          export PYTHONNOUSERSITE=1 PYTHONUTF8=1
+          "$PY" -s -X utf8 -c "import http.server, urllib.parse, urllib.request, email.utils, json, logging, zipfile, sqlite3, ssl; print('stdlib ok', __import__('sys').version.split()[0])"
+          if [ -f python/python.exe ]; then "$PY" -s -c "import pythoncom, pywintypes, win32api, win32com.shell.shell; print('pywin32 ok')"; fi
+      - name: Start the menu and all four apps from the unpacked archive
+        run: |
+          cd t/PXG_Unified
           PY=python/bin/python3.13; [ -f python/python.exe ] && PY=python/python.exe
           export PYTHONNOUSERSITE=1
           "$PY" -s -m pxg_hub --server --port 8760 > hub.log 2>&1 &
