@@ -62,8 +62,8 @@ SHOW_KEY = {label: key for key, label in SHOW}
 
 def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None,
                  water: pd.DataFrame | None = None, factor: pd.DataFrame | None = None) -> Chart | None:
-    """Единый холст сезона: ряды по датам на выбор. Левая шкала — первая из выбранных величин, остальные — справа
-    (подписи рядов называют единицу), чтобы расход, давление и число скважин читались на одном графике."""
+    """Единый холст сезона: ряды по датам на выбор. Левая шкала — первая из выбранных величин, вторая — справа,
+    третья — на дополнительной оси справа (если величин больше трёх, остальные делят её; единицы — в подписи оси)."""
     if daily.empty:
         return None
     genitive = WHAT[kind][1]
@@ -99,14 +99,20 @@ def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, well
                                                                           (f.gas / 1e6).to_numpy(float), 'line', width=1.2)))
     if not items:
         return None
-    main = items[0][1], items[0][2]
-    rest = list(dict.fromkeys((label, unit) for _, label, unit, _ in items if (label, unit) != main))
-    y2 = Axis(' · '.join(label for label, _ in rest), ' · '.join(dict.fromkeys(unit for _, unit in rest))) if rest else None
+    families = list(dict.fromkeys((label, unit) for _, label, unit, _ in items))        # величины в порядке первого появления
+    main = families[0]
+    side = {fam: ('y2' if n == 0 else 'y3') for n, fam in enumerate(families[1:])}       # третья и следующие величины делят ось y3
+
+    def merged(keys):
+        return Axis(' · '.join(dict.fromkeys(label for label, _ in keys)), ' · '.join(dict.fromkeys(unit for _, unit in keys)))
+
     chart = Chart(f'an-canvas-{kind}-{period}', f'Сезон {genitive}: ряды по суткам · {period}',
-                  Axis('Дата', scale='time'), Axis(main[0], main[1], from_zero=True), y2=y2)
+                  Axis('Дата', scale='time'), Axis(main[0], main[1], from_zero=True),
+                  y2=merged([f for f, a in side.items() if a == 'y2']) if side else None,
+                  y3=merged([f for f, a in side.items() if a == 'y3']) if 'y3' in side.values() else None)
     for _, label, unit, series in items:
         if (label, unit) != main:
-            series = replace(series, axis='y2')
+            series = replace(series, axis=side[(label, unit)])
         chart.series.append(series)
     return chart
 

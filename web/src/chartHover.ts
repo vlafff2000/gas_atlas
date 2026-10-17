@@ -6,7 +6,7 @@ import type { Axis, Cell, Series } from './api'
 export interface Track {
   index: number                 // номер серии в chart.series и в option.series
   series: Series
-  axis: 0 | 1                   // 1 — вторая шкала справа
+  axis: 0 | 1 | 2               // 1 — вторая шкала справа, 2 — третья (правее второй)
   xs: Float64Array              // x без пустых, по возрастанию, если monotonic
   ys: Float64Array              // NaN — разрыв линии
   src: Uint32Array              // номер исходной точки (для ids и labels)
@@ -18,7 +18,7 @@ export interface Track {
 }
 
 export interface View {
-  toPixel: (x: number, y: number, axis: 0 | 1) => [number, number]
+  toPixel: (x: number, y: number, axis: 0 | 1 | 2) => [number, number]
   fromPixel: (px: number, py: number) => [number, number]
   visible: (t: Track) => boolean
 }
@@ -40,7 +40,7 @@ export function toNumber(v: Cell, scale: Axis['scale']): number {
 }
 
 /** marked — видны ли на линии отметки замеров (на них наводят и щёлкают). */
-export function buildTracks(series: Series[], x: Axis, y2: boolean, marked: (s: Series) => boolean = s => s.markers): Track[] {
+export function buildTracks(series: Series[], x: Axis, yCount: number, marked: (s: Series) => boolean = s => s.markers): Track[] {
   if (x.scale === 'category') return []
   const tracks: Track[] = []
   series.forEach((s, index) => {
@@ -65,7 +65,7 @@ export function buildTracks(series: Series[], x: Axis, y2: boolean, marked: (s: 
       monotonic = true
     }
     const track: Track = {
-      index, series: s, axis: s.axis === 'y2' && y2 ? 1 : 0,
+      index, series: s, axis: s.axis === 'y3' && yCount > 2 ? 2 : s.axis === 'y2' && yCount > 1 ? 1 : 0,
       xs: xs.subarray(0, m), ys: ys.subarray(0, m), src: src.subarray(0, m), monotonic,
       curve: s.kind === 'line', bar: s.kind === 'bar',
       points: s.kind === 'points' || (s.kind === 'line' && marked(s)),
@@ -103,7 +103,7 @@ export type HoverMode = 'smooth' | 'facts'
 const FACT_RADIUS = 32        // в режиме замеров кривая показывается, если её замер не дальше этого по x
 
 export function hover(tracks: Track[], view: View, px: number, py: number, scaleX: Axis['scale'],
-  scaleY: (axis: 0 | 1) => Axis['scale'], mode: HoverMode = 'smooth'): Hover {
+  scaleY: (axis: 0 | 1 | 2) => Axis['scale'], mode: HoverMode = 'smooth'): Hover {
   const [dx] = view.fromPixel(px, py)
   const [dxR] = view.fromPixel(px + POINT_RADIUS, py)
   const [dxL] = view.fromPixel(px - POINT_RADIUS, py)

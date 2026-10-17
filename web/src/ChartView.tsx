@@ -8,7 +8,7 @@ import type { Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
-import { axisAt, formatBound, parseBound, shiftRange, wheelFactor, zoomRange, type AxisName, type Range } from './chartAxes'
+import { Y_BAND, axisAt, formatBound, parseBound, shiftRange, wheelFactor, zoomRange, type AxisName, type Range } from './chartAxes'
 import { chartLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { applyLooks, chartLookKey, markerSymbol, type Look } from './chartStyle'
 import { ChartSettings } from './ChartSettings'
@@ -56,8 +56,16 @@ interface Props {
 /** Подгруженное окно: серии с точками в границах [from, to] поверх прореженного графика `base`. */
 interface Patch { base: Chart; from: number; to: number; raw: boolean; series: WindowReply['series'] }
 /** Оси после подгрузки окна остаются прежними: X — на весь график (сброс масштаба возвращает всё), Y — как её видел пользователь. */
-type Manual = { y: Range | null; y2: Range | null }      // границы шкал Y, заданные вручную
-type AxisPin = { x: [number, number] | null; y: [number, number] | null; y2: [number, number] | null }
+type Manual = { y: Range | null; y2: Range | null; y3: Range | null }      // границы шкал Y, заданные вручную
+type AxisPin = { x: [number, number] | null; y: [number, number] | null; y2: [number, number] | null; y3: [number, number] | null }
+
+const Y_NAMES = ['y', 'y2', 'y3'] as const
+type YName = (typeof Y_NAMES)[number]
+const NO_RANGES: Manual = { y: null, y2: null, y3: null }
+/** Шкалы Y, которые есть у графика, по порядку: левая, затем правые. */
+const yCount = (chart: Chart) => (chart.y2 ? (chart.y3 ? 3 : 2) : 1)
+const yAxisAt = (chart: Chart, index: number): Axis => (index === 2 ? chart.y3 : index === 1 ? chart.y2 : chart.y) ?? chart.y
+const yIndexOf = (chart: Chart, name: string | undefined): 0 | 1 | 2 => (name === 'y3' && chart.y3 ? 2 : name === 'y2' && chart.y2 ? 1 : 0)
 
 const key = (s: Series) => s.group || s.name
 /** Отметки замеров на линии: заданы модулем, нужны для исключения кликом или включён вид «Замеры».
@@ -129,15 +137,16 @@ function alignedRange(lo: number, hi: number, minimum?: number | null, maximum?:
 }
 
 /** На оси есть столбцы: их длина читается от нуля, шкала «не от нуля» вводила бы в заблуждение. */
-const hasBars = (chart: Chart, key: 'y' | 'y2') => chart.series.some(s => s.kind === 'bar' && (s.axis ?? 'y') === key)
+const hasBars = (chart: Chart, key: YName) => chart.series.some(s => s.kind === 'bar' && (s.axis ?? 'y') === key)
 
-function alignedYAxes(chart: Chart, base: Chart): Record<'y' | 'y2', { min: number; max: number; step: number }> | null {
-  if (!chart.y2 || chart.y.scale !== 'value' || chart.y2.scale !== 'value') return null
-  const out = {} as Record<'y' | 'y2', { min: number; max: number; step: number }>
+function alignedYAxes(chart: Chart, base: Chart): Record<YName, { min: number; max: number; step: number }> | null {
+  const names = Y_NAMES.slice(0, yCount(chart))
+  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value')) return null
+  const out = {} as Record<YName, { min: number; max: number; step: number }>
   const hasData = base.series.some(s => s.kind !== 'box' && s.y.some(v => typeof v === 'number' && Number.isFinite(v)))
   if (!hasData) return null
-  for (const key of ['y', 'y2'] as const) {
-    const spec = key === 'y' ? chart.y : chart.y2
+  for (const key of names) {
+    const spec = yAxisAt(chart, Y_NAMES.indexOf(key))
     let lo = Infinity, hi = -Infinity
     const stacks = new Map<string, number[]>()      // стопка складывается по номеру точки: шкала по сумме, а не по одной серии
     for (const s of base.series) {
@@ -190,13 +199,13 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
 
   // две оси Y: одинаковое число делений строго друг напротив друга — одна основная сетка на обе
   const dual = alignedYAxes(chart, base)
-  const twin = !!chart.y2 && chart.y.scale === 'value' && chart.y2.scale === 'value'      // ручные границы тоже делятся на 5
-  const axis = (a: Axis, position: 'x' | 'y' | 'y2') => {
-    const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position === 'y' || position === 'y2' ? dual?.[position] : undefined
+  const twin = yCount(chart) > 1 && Y_NAMES.slice(0, yCount(chart)).every((_, i) => yAxisAt(chart, i).scale === 'value')      // ручные границы тоже делятся на 5
+  const axis = (a: Axis, position: 'x' | YName) => {
+    const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position !== 'x' ? dual?.[position] : undefined
     if (fixed) return { ...plain, min: fixed[0], max: fixed[1], ...(twin ? { interval: (fixed[1] - fixed[0]) / TICK_INTERVALS } : {}) }
     return grid ? { ...plain, min: grid.min, max: grid.max, interval: grid.step } : plain
   }
-  const axisBase = (a: Axis, position: 'x' | 'y' | 'y2') => {
+  const axisBase = (a: Axis, position: 'x' | YName) => {
     const y = position !== 'x'
     const zero = a.from_zero || (y && hasBars(chart, position))
     return {
@@ -209,9 +218,10 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       // подпись шкалы Y — горизонтально над осью, читается без наклона головы
       nameLocation: y ? (a.inverse ? 'start' : 'end') : 'middle', nameGap: y ? 14 : 30,
       nameTextStyle: y
-        ? { color: tk.muted, fontSize: 12, align: position === 'y2' ? 'right' : 'left', padding: position === 'y2' ? [0, -8, 0, 0] : [0, 0, 0, -44] }
+        ? { color: tk.muted, fontSize: 12, align: position === 'y' ? 'left' : 'right', padding: position === 'y' ? [0, 0, 0, -44] : [0, position === 'y3' ? -8 - Y_BAND : -8, 0, 0] }
         : { color: tk.muted, fontSize: 12 },
-      axisLine: { show: !y, lineStyle: { color: tk.axis } },
+      axisLine: { show: !y || position === 'y3', lineStyle: { color: tk.axis } },
+      ...(position === 'y3' ? { offset: Y_BAND } : {}),
       axisTick: { show: false },
       axisLabel: {
         color: tk.muted, fontSize: 11, hideOverlap: true, margin: 10,
@@ -219,7 +229,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           ? { formatter: { year: '{yyyy}', month: '{MM}.{yyyy}', day: '{dd}.{MM}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', none: '{dd}.{MM}.{yyyy}' } }
           : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(v) }),
       },
-      splitLine: { show: position !== 'y2' && (y || a.scale !== 'category'), lineStyle: { color: tk.grid, width: 1 } },
+      splitLine: { show: (position === 'y' || position === 'x') && (y || a.scale !== 'category'), lineStyle: { color: tk.grid, width: 1 } },
     }
   }
 
@@ -232,9 +242,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     animation: false,
     useUTC: true,
     textStyle: { fontFamily: FONT, color: tk.ink },
-    grid: { left: 64, right: chart.y2 ? 64 : 20, top: 34, bottom: navigator ? 80 : 44 },
+    grid: { left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20, top: 34, bottom: navigator ? 80 : 44 },
     xAxis: axis(chart.x, 'x'),
-    yAxis: chart.y2 ? [axis(chart.y, 'y'), axis(chart.y2, 'y2')] : axis(chart.y, 'y'),
+    yAxis: chart.y2 ? [axis(chart.y, 'y'), axis(chart.y2, 'y2'), ...(chart.y3 ? [axis(chart.y3, 'y3')] : [])] : axis(chart.y, 'y'),
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
     legend: { show: false, data: legend },
     tooltip: custom ? { show: false } : {
@@ -250,7 +260,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           return tipHtml(escapeHtml(p.name), [{ name: p.seriesName, color: p.color, dash: false, value: '' }],
             names.map((n, i) => `${n}: <b>${formatNumber(v[i])}</b>`))
         }
-        const yAxis = (i: number) => chart.series[i]?.axis === 'y2' && chart.y2 ? chart.y2 : chart.y
+        const yAxis = (i: number) => yAxisAt(chart, yIndexOf(chart, chart.series[i]?.axis))
         return tipHtml(escapeHtml(list[0].name), list.filter(p => Array.isArray(p.data) && p.data[1] !== null).map(p => ({
           name: p.seriesName, color: p.color, dash: false,
           value: '<b>' + barFmt((p.data as number[])[1]) + '</b>' + (yAxis(p.seriesIndex).unit ? ' ' + yAxis(p.seriesIndex).unit : ''),
@@ -260,10 +270,10 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     dataZoom: category ? [] : [
       // Ctrl + колесо — масштаб, перетаскивание — сдвиг; страница при этом прокручивается колесом как обычно
       { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false },
-      ...(time ? [] : [{ type: 'inside', yAxisIndex: chart.y2 ? [0, 1] : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false }]),
+      ...(time ? [] : [{ type: 'inside', yAxisIndex: chart.y2 ? [0, 1, ...(chart.y3 ? [2] : [])] : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false }]),
       // навигатор: весь период тенью и выбранное окно, его края и середину можно тянуть
       ...(navigator ? [{
-        type: 'slider', xAxisIndex: 0, filterMode: 'none', height: 22, bottom: 8, left: 64, right: chart.y2 ? 64 : 20,
+        type: 'slider', xAxisIndex: 0, filterMode: 'none', height: 22, bottom: 8, left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20,
         brushSelect: false, showDataShadow: true, showDetail: false, borderColor: tk.axis, backgroundColor: 'transparent', borderRadius: 4,
         fillerColor: alpha(tk.accent, 0.12),
         dataBackground: { lineStyle: { color: tk.faint, width: 1 }, areaStyle: { color: alpha(tk.faint, 0.18) } },
@@ -303,7 +313,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         : xs.map((x, j) => [x, s.y[j]])
       let rows = s.kind === 'points' ? data.filter(([x, y]) => x !== null && y !== null) : data
       if (s.kind === 'line' && time && !excludeMode && isDense(s, rows.length) && smoothLines.get()) rows = binned(rows, SMOOTH_BINS) as typeof rows
-      const common = { name: key(s), data: rows, color: c, yAxisIndex: s.axis === 'y2' && chart.y2 ? 1 : 0,
+      const common = { name: key(s), data: rows, color: c, yAxisIndex: yIndexOf(chart, s.axis),
         silent: custom, emphasis, blur: blurred, ...(s.stack ? { stack: s.stack } : {}) }
       if (s.kind === 'bar') {
         return { ...common, type: 'bar', barMaxWidth: 24, barGap: '12%', itemStyle: { color: c, borderRadius: [4, 4, 0, 0] },
@@ -362,7 +372,7 @@ function tipHtml(head: string, rows: TipRow[], extra: string[], foot = '') {
 const MAX_ROWS = 10
 
 /** Закреплённая подсказка; off — сдвиг карточки от её точки в пикселях, если карточку перетащили. */
-interface Pin { x: number; y: number; axis: 0 | 1; html: string; el: HTMLDivElement; off: [number, number] | null
+interface Pin { x: number; y: number; axis: 0 | 1 | 2; html: string; el: HTMLDivElement; off: [number, number] | null
   token: number; shared: boolean; own: boolean }   // token — запись в общем списке; own — закреплена на этом графике, а не пришла с другого
 
 /** Ближайшая к точке (px, py) точка прямоугольника карточки — конец линии-выноски. */
@@ -391,13 +401,13 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const [settings, setSettings] = useState(false)
   const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
   const state = useRef({
-    ranges: { y: null, y2: null } as Manual, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
+    ranges: NO_RANGES as Manual, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
     applyZoom: (() => {}) as () => void,
     excludeMode, onExclude, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
-    mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1 }, blur: true, draw: (() => {}) as () => void,
+    mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1, y3: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
     renderPins: (() => {}) as () => void, reconcile: (() => {}) as () => void,
   })
@@ -418,9 +428,9 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const syncZoom = usePref(zoomSync)
   const pinSyncAll = usePref(pinSync)
   const kind = pinSyncKind(chart), pinsOn = pinSyncAll[kind]
-  const rangeKey = `${given.title}|${given.y.label}|${given.y2?.label ?? ''}`
+  const rangeKey = `${given.title}|${given.y.label}|${given.y2?.label ?? ''}|${given.y3?.label ?? ''}`
   const yKey = `${given.y.label}|${given.y.unit}`
-  const [ranges, setRangesState] = useState<Manual>(() => savedRanges.get()[rangeKey] ?? { y: null, y2: null })      // ручные границы Y: переживают обновление данных и перезапуск
+  const [ranges, setRangesState] = useState<Manual>(() => ({ ...NO_RANGES, ...savedRanges.get()[rangeKey] }))      // ручные границы Y: переживают обновление данных и перезапуск
   const setLooks = (next: Record<string, Look>) => {
     const all = { ...chartLooks.get() }, key = chartLookKey(given)
     delete all[key]
@@ -434,7 +444,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   state.current.setRanges = (r: Manual) => {
     setRangesState(r)
     const all = { ...savedRanges.get() }
-    if (r.y || r.y2) { delete all[rangeKey]; all[rangeKey] = r } else delete all[rangeKey]
+    if (r.y || r.y2 || r.y3) { delete all[rangeKey]; all[rangeKey] = r } else delete all[rangeKey]
     const keys = Object.keys(all)
     for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete all[k]
     savedRanges.set(all)
@@ -443,7 +453,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   useEffect(() => {
     if (firstKey.current === rangeKey) return
     firstKey.current = rangeKey
-    setRangesState(savedRanges.get()[rangeKey] ?? { y: null, y2: null })
+    setRangesState({ ...NO_RANGES, ...savedRanges.get()[rangeKey] })
   }, [rangeKey])
   // «Те же границы на всех графиках раздела»: приём границ с графика, у которого такая же ось Y
   useEffect(() => sharedRange.subscribe(() => {
@@ -452,13 +462,13 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   }), [yKey])
   const resetZoom = () => {
     setEditor(null)
-    state.current.setRanges({ y: null, y2: null })
+    state.current.setRanges(NO_RANGES)
     instance.current?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
   }
-  const manual = !!(ranges.y || ranges.y2)
+  const manual = !!(ranges.y || ranges.y2 || ranges.y3)
   const commitEditor = (autoAxis: boolean) => {
     if (!editor) return
-    const a = editor.axis, ax = a === 'x' ? chart.x : a === 'y2' && chart.y2 ? chart.y2 : chart.y
+    const a = editor.axis, ax = a === 'x' ? chart.x : yAxisAt(chart, Y_NAMES.indexOf(a))
     if (autoAxis) {
       if (a === 'x') instance.current?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
       else state.current.setRanges({ ...state.current.ranges, [a]: null })
@@ -513,21 +523,23 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
         const b = (p1 - p0) / (f(v1) - f(v0)), a = p0 - b * f(v0)
         return (v: number) => a + b * f(v)
       }
-      const corner = (a: 0 | 1, px: number, py: number) =>
+      const corner = (a: number, px: number, py: number) =>
         ch.convertFromPixel({ xAxisIndex: 0, yAxisIndex: a }, [px, py]) as [number, number]
       const left = rect.x, right = rect.x + rect.width, top = rect.y, bottom = rect.y + rect.height
       const [x0, y0] = corner(0, left, bottom), [x1, y1] = corner(0, right, top)
       st.map.x = line(left, right, x0, x1, chart.x.scale === 'log')
       st.map.y[0] = line(bottom, top, y0, y1, chart.y.scale === 'log')
-      if (chart.y2) {
-        const [, u0] = corner(1, left, bottom), [, u1] = corner(1, right, top)
-        st.map.y[1] = line(bottom, top, u0, u1, chart.y2.scale === 'log')
-      } else st.map.y[1] = st.map.y[0]
+      for (const i of [1, 2]) {
+        if (i < yCount(chart)) {
+          const [, u0] = corner(i, left, bottom), [, u1] = corner(i, right, top)
+          st.map.y[i] = line(bottom, top, u0, u1, yAxisAt(chart, i).scale === 'log')
+        } else st.map.y[i] = st.map.y[0]
+      }
     }
 
     const fmtX = () => formatter(st.chart.x, st.spans.x)
-    const fmtY = (a: 0 | 1) => formatter(a && st.chart.y2 ? st.chart.y2 : st.chart.y, a ? st.spans.y2 : st.spans.y)
-    const unit = (a: 0 | 1) => (a && st.chart.y2 ? st.chart.y2 : st.chart.y).unit
+    const fmtY = (a: 0 | 1 | 2) => formatter(yAxisAt(st.chart, a), st.spans[Y_NAMES[a]])
+    const unit = (a: 0 | 1 | 2) => yAxisAt(st.chart, a).unit
 
     /** Закреплённые подсказки: номер, карточка, разница с первой, крестик. */
     const renderPins = () => {
@@ -549,7 +561,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       })
     }
     st.renderPins = renderPins
-    const addPin = (x: number, y: number, axis: 0 | 1) => {
+    const addPin = (x: number, y: number, axis: 0 | 1 | 2) => {
       if (card.hidden || !card.innerHTML) return
       const copy = document.createElement('div')
       copy.innerHTML = card.innerHTML
@@ -765,7 +777,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
             g.strokeStyle = alpha(tk.accent, 0.7); g.lineWidth = 1; g.setLineDash([4, 3])
             g.beginPath(); g.moveTo(Math.round(px) + 0.5, rect.y); g.lineTo(Math.round(px) + 0.5, rect.y + rect.height); g.stroke()
             g.restore()
-            const h = hover(st.tracks, view, px, rect.y + rect.height / 2, chart.x.scale, a => (a && chart.y2 ? chart.y2 : chart.y).scale, st.mode)
+            const h = hover(st.tracks, view, px, rect.y + rect.height / 2, chart.x.scale, a => yAxisAt(chart, a).scale, st.mode)
             for (const v of h.values) {
               if (!v.track.curve || !inside(v.px, v.py)) continue
               g.fillStyle = colors(v.track.series); g.strokeStyle = tk.surface; g.lineWidth = 2
@@ -776,7 +788,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
         }
         return
       }
-      const h = hover(st.tracks, view, m![0], m![1], chart.x.scale, a => (a && chart.y2 ? chart.y2 : chart.y).scale, st.mode)
+      const h = hover(st.tracks, view, m![0], m![1], chart.x.scale, a => yAxisAt(chart, a).scale, st.mode)
       st.current = h
       publish(st.id, st.sync, h.point?.x ?? (st.mode === 'facts' && h.focus ? h.focus.x : h.x))
 
@@ -825,7 +837,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       if (h.point) {
         const p = h.point, s = p.track.series, j = p.track.src[p.k]
         const label = s.labels?.[j] ?? ''
-        const yTitle = axisTitle((p.track.axis && chart.y2 ? chart.y2 : chart.y).label, '')
+        const yTitle = axisTitle(yAxisAt(chart, p.track.axis).label, '')
         html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(p.x))}</b>`,
           [{ name: s.name, color: colors(s), dash: false, symbol: s.symbol, value: '', strong: true },
             { name: yTitle, color: 'transparent', dash: false, value: `<b>${escapeHtml(fmtY(p.track.axis)(p.y))}</b> ${escapeHtml(unit(p.track.axis))}` }],
@@ -851,7 +863,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       if (!rect || !st.tracks.length) return
       calibrate(rect)
       const py = rect.y + rect.height / 2
-      const h = hover(st.tracks, view, st.map.x(x), py, st.chart.x.scale, a => (a && st.chart.y2 ? st.chart.y2 : st.chart.y).scale, st.mode)
+      const h = hover(st.tracks, view, st.map.x(x), py, st.chart.x.scale, a => yAxisAt(st.chart, a).scale, st.mode)
       const v = h.focus ?? h.values[0]
       if (!v) return
       const el = document.createElement('div')
@@ -911,12 +923,12 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     // ---- ручная правка осей: двойной щелчок — окно с границами, колесо над осью — масштаб только её, перетаскивание — сдвиг ----
     const zone = (px: number, py: number): AxisName | null => {
       const r = gridRect()
-      return r ? axisAt(px, py, r, el.clientWidth, !!st.chart.y2, st.chart.x.scale !== 'category') : null
+      return r ? axisAt(px, py, r, el.clientWidth, yCount(st.chart), st.chart.x.scale !== 'category') : null
     }
-    const axisOf = (a: AxisName) => (a === 'x' ? st.chart.x : a === 'y2' && st.chart.y2 ? st.chart.y2 : st.chart.y)
+    const axisOf = (a: AxisName) => (a === 'x' ? st.chart.x : yAxisAt(st.chart, Y_NAMES.indexOf(a)))
     const rangeOf = (a: AxisName): Range | null => {
       if (a === 'x') return st.edges()
-      return st.ranges[a] ?? axisExtent(a === 'y2' ? 1 : 0)
+      return st.ranges[a] ?? axisExtent(Y_NAMES.indexOf(a))
     }
     const apply = (a: AxisName, next: Range) => {
       if (a === 'x') ch.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: next[0], endValue: next[1] })
@@ -924,7 +936,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     }
     zr.on('dblclick', (e: { offsetX: number; offsetY: number }) => {
       if (zone(e.offsetX, e.offsetY)) return
-      st.setRanges({ y: null, y2: null })
+      st.setRanges(NO_RANGES)
       ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
     })
     st.openEditor = (a: AxisName) => {
@@ -949,7 +961,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       e.preventDefault(); e.stopPropagation()
       const r = rangeOf(a), ax = axisOf(a)
       if (!r) return
-      const [vx, vy] = ch.convertFromPixel({ xAxisIndex: 0, yAxisIndex: a === 'y2' ? 1 : 0 }, [px, py]) as [number, number]
+      const [vx, vy] = ch.convertFromPixel({ xAxisIndex: 0, yAxisIndex: Math.max(0, Y_NAMES.indexOf(a as YName)) }, [px, py]) as [number, number]
       const next = zoomRange(r, a === 'x' ? vx : vy, wheelFactor(e.deltaY), ax.scale === 'log')
       if (next) apply(a, next)
     }
@@ -997,10 +1009,10 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     // Y по точкам в видимом окне X (с запасом 5%)
     st.fitY = () => {
       const win = st.edges()
-      const next: Manual = { y: null, y2: null }
-      for (const name of ['y', 'y2'] as const) {
-        const ax = axisOf(name), log = ax.scale === 'log', axis = name === 'y2' ? 1 : 0
-        if (name === 'y2' && !st.chart.y2) continue
+      const next: Manual = { ...NO_RANGES }
+      for (const name of Y_NAMES) {
+        const axis = Y_NAMES.indexOf(name), ax = axisOf(name), log = ax.scale === 'log'
+        if (axis >= yCount(st.chart)) continue
         let lo = Infinity, hi = -Infinity
         for (const t of st.tracks) {
           if (t.axis !== axis || st.selected[key(t.series)] === false) continue
@@ -1068,7 +1080,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       const id = ++seq
       load(from, to, raw).then(reply => {
         if (id !== seq || st.base !== base) return
-        st.pin = { x: [lo, hi], y: axisExtent(0), y2: base.y2 ? axisExtent(1) : null }
+        st.pin = { x: [lo, hi], y: axisExtent(0), y2: base.y2 ? axisExtent(1) : null, y3: base.y3 ? axisExtent(2) : null }
         const next: Patch = { base, from, to, raw, series: reply.series }
         st.patch = next
         setPatch(next)
@@ -1135,7 +1147,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     st.chart = chart
     st.sync = syncKey(chart)
     st.tokens = chartTokens(el)
-    st.tracks = buildTracks(chart.series, chart.x, !!chart.y2, s => hasMarkers(s, excludeMode, mode))
+    st.tracks = buildTracks(chart.series, chart.x, yCount(chart), s => hasMarkers(s, excludeMode, mode))
     st.events = (chart.events ?? []).map(e => ({ x: toNumber(e.x, chart.x.scale), label: e.label, kind: e.kind }))
       .filter(e => Number.isFinite(e.x)).sort((a, b) => a.x - b.x)
     const span = (t: Track[], f: (t: Track) => Float64Array) => {
@@ -1143,7 +1155,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       for (const tr of t) for (const v of f(tr)) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v }
       return hi - lo
     }
-    st.spans = { x: span(st.tracks, t => t.xs), y: span(st.tracks.filter(t => !t.axis), t => t.ys), y2: span(st.tracks.filter(t => t.axis), t => t.ys) }
+    st.spans = { x: span(st.tracks, t => t.xs), y: span(st.tracks.filter(t => t.axis === 0), t => t.ys), y2: span(st.tracks.filter(t => t.axis === 1), t => t.ys), y3: span(st.tracks.filter(t => t.axis === 2), t => t.ys) }
     st.blur = chart.series.reduce((n, s) => n + s.x.length, 0) <= BLUR_LIMIT
     st.focused = -1
     const view = (st.patch && st.patch.base === given) || st.lastChart === chart ? st.edges() : null      // масштаб сохраняется при подмене точек окна и смене границ осей
@@ -1254,12 +1266,12 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
         <div ref={box} className="chart-canvas" role="img" aria-label={chart.title} />
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
         <div ref={tip} className="atlas-tip floating" hidden />
-        {manual && <button type="button" className="axes-chip" onClick={() => state.current.setRanges({ y: null, y2: null })}
+        {manual && <button type="button" className="axes-chip" onClick={() => state.current.setRanges(NO_RANGES)}
           title="Вернуть автоматические границы осей Y">Оси Y вручную ✕</button>}
         {editor && <form className="axis-editor" style={{ left: editor.at[0], top: editor.at[1] }}
           onSubmit={e => { e.preventDefault(); commitEditor(false) }}
           onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setEditor(null) } }}>
-          <b>{editor.axis === 'x' ? 'Ось X' : editor.axis === 'y2' ? 'Ось Y справа' : 'Ось Y'}</b>
+          <b>{editor.axis === 'x' ? 'Ось X' : editor.axis === 'y3' ? 'Ось Y справа (третья)' : editor.axis === 'y2' ? 'Ось Y справа' : 'Ось Y'}</b>
           <label>Минимум<input autoFocus value={editor.lo} onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, lo: e.target.value, error: '' })} /></label>
           <label>Максимум<input value={editor.hi} onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, hi: e.target.value, error: '' })} /></label>
           {editor.error && <span className="axis-error">{editor.error}</span>}

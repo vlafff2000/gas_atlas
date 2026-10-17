@@ -102,7 +102,8 @@ def has_bars(chart: Chart) -> bool:
 
 def align_y_axes(fig, chart: Chart) -> None:
     """Две оси Y: одинаковое число делений, деления строго друг напротив друга — одна основная сетка на обе."""
-    specs = {'y': chart.y, 'y2': chart.y2}
+    specs = {'y': chart.y, 'y2': chart.y2, 'y3': chart.y3}
+    specs = {k: v for k, v in specs.items() if v is not None}
     if chart.y2 is None or any(a.scale != 'value' for a in specs.values()):
         return
     extents = {key: axis_extent(chart, key) for key in specs}
@@ -114,7 +115,7 @@ def align_y_axes(fig, chart: Chart) -> None:
             lo, hi = min(lo, 0.0), max(hi, 0.0)
         start, step = aligned_range(lo, hi, spec.minimum, spec.maximum)
         end = start + TICK_INTERVALS * step
-        axis = fig.layout.yaxis if key == 'y' else fig.layout.yaxis2
+        axis = getattr(fig.layout, {'y': 'yaxis', 'y2': 'yaxis2', 'y3': 'yaxis3'}[key])
         axis.range = [end, start] if spec.inverse else [start, end]
         axis.autorange = False
         axis.rangemode = 'normal'
@@ -149,13 +150,13 @@ def to_plotly(chart: Chart):
             if s.stack:      # линии одной стопки складываются по значению X (дате), как на экране
                 extra['stackgroup'] = s.stack
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='lines+markers' if s.markers else 'lines',
-                                     name=s.name, showlegend=s.legend, yaxis='y2' if s.axis == 'y2' else 'y',
+                                     name=s.name, showlegend=s.legend, yaxis=s.axis,
                                      connectgaps=False, opacity=s.opacity, line={'color': color, 'dash': dash, 'width': s.width or 2},
                                      **extra))
         else:
             symbol = SYMBOLS[s.symbol] + ('-open' if s.hollow else '')
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='markers', name=s.name, showlegend=s.legend,
-                                     yaxis='y2' if s.axis == 'y2' else 'y',
+                                     yaxis=s.axis,
                                      marker={'color': color, 'symbol': symbol, 'size': 9,
                                              'opacity': s.opacity,
                                              'line': {'color': color, 'width': 2 if s.hollow else 0}}))
@@ -165,6 +166,10 @@ def to_plotly(chart: Chart):
     if chart.y2 is not None:
         fig.update_layout(yaxis2={'overlaying': 'y', 'side': 'right', 'showgrid': False})
         axes.append((fig.layout.yaxis2, chart.y2))
+    if chart.y3 is not None and chart.y2 is not None:
+        fig.update_layout(xaxis={'domain': [0, 0.88]},
+                          yaxis3={'overlaying': 'y', 'side': 'right', 'anchor': 'free', 'position': 0.97, 'showgrid': False})
+        axes.append((fig.layout.yaxis3, chart.y3))
     for n, (axis, spec) in enumerate(axes):
         axis.title = {'text': axis_title(spec.label, spec.unit)}
         axis.type = {'time': 'date', 'log': 'log', 'category': 'category'}.get(spec.scale, 'linear')
@@ -210,6 +215,9 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
 
     xl, yl = axis_title(chart.x.label, chart.x.unit), axis_title(chart.y.label, chart.y.unit)
     y2l = axis_title(chart.y2.label, chart.y2.unit) if chart.y2 else yl
+    y3l = axis_title(chart.y3.label, chart.y3.unit) if chart.y3 else y2l
+    unit_of = {'y': chart.y.unit, 'y2': chart.y2.unit if chart.y2 else chart.y.unit, 'y3': chart.y3.unit if chart.y3 else chart.y.unit}
+    title_of = {'y': yl, 'y2': y2l, 'y3': y3l}
     wb = Workbook()
     data = wb.active
     data.title = 'Данные'
@@ -221,7 +229,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         for r, c in enumerate(cats, 2):
             data.cell(r, 1, c)
         for k, s in enumerate(chart.series, 2):
-            data.cell(1, k, f'{s.name}, {chart.y2.unit if s.axis == "y2" and chart.y2 else chart.y.unit}'.rstrip(', '))
+            data.cell(1, k, f'{s.name}, {unit_of[s.axis]}'.rstrip(', '))
             by = {str(x): y for x, y in zip(s.x, s.y)}
             for r, c in enumerate(cats, 2):
                 data.cell(r, k, _cell(by.get(c)))
@@ -231,7 +239,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         col = 1
         for s in chart.series:
             data.cell(1, col, f'{s.name} · {xl}')
-            data.cell(1, col + 1, f'{s.name} · {y2l if s.axis == "y2" else yl}')
+            data.cell(1, col + 1, f'{s.name} · {title_of[s.axis]}')
             extra = [s.labels] if s.labels is not None else []
             if extra:
                 data.cell(1, col + 2, f'{s.name} · подсказка')
@@ -289,18 +297,19 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
 
     drawable = [item for item in plotted if item[0].kind != 'box']
     if drawable:
-        main = build([i for i in drawable if i[0].axis != 'y2'] or drawable, False)
+        main = build([i for i in drawable if i[0].axis == 'y'] or drawable, False)
         main.title = chart.title
         main.x_axis.title, main.y_axis.title = xl, yl
         main.x_axis.delete = main.y_axis.delete = False
         main.height, main.width = 11, 20
         if not category and chart.x.scale == 'time':
             main.x_axis.number_format = 'DD.MM.YYYY'
-        second = [i for i in drawable if i[0].axis == 'y2'] if chart.y2 and any(i[0].axis != 'y2' for i in drawable) else []
+        # в Excel у диаграммы одна правая ось: ряды y2 и y3 идут на неё, единицы каждого ряда — в заголовке листа «Данные»
+        second = [i for i in drawable if i[0].axis != 'y'] if chart.y2 and any(i[0].axis == 'y' for i in drawable) else []
         if second:
             right = build(second, True)
             right.y_axis.axId = 200
-            right.y_axis.title = y2l
+            right.y_axis.title = y2l if not chart.y3 else f'{y2l} · {y3l}'
             right.y_axis.crosses = 'max'
             right.y_axis.delete = False
             main += right

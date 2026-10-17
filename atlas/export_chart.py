@@ -45,7 +45,8 @@ def _values(values, scale: str) -> list[Any]:
 def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
     layout = fig.layout
     x, y = _axis(layout.xaxis), _axis(layout.yaxis)
-    y2 = _axis(layout.yaxis2) if any(t.yaxis == 'y2' for t in fig.data) else None
+    y2 = _axis(layout.yaxis2) if any(t.yaxis in ('y2', 'y3') for t in fig.data) else None
+    y3 = _axis(layout.yaxis3) if any(t.yaxis == 'y3' for t in fig.data) else None
     series = []
     for t in fig.data:
         meta = t.meta if isinstance(t.meta, dict) else {}
@@ -75,6 +76,6 @@ def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
             legend=t.showlegend is not False, color=color, opacity=float(t.opacity if t.opacity is not None else 1.0),
             symbol=_SYMBOL.get(str(t.marker.symbol or 'circle').replace('-open', ''), 'circle') if t.marker is not None else 'circle',
             hollow='open' in str(t.marker.symbol or '') if t.marker is not None else False,
-            markers=mark == 'line' and 'markers' in (t.mode or ''), axis='y2' if t.yaxis == 'y2' else 'y',
+            markers=mark == 'line' and 'markers' in (t.mode or ''), axis=t.yaxis if t.yaxis in ('y2', 'y3') else 'y',
             ids=ids, dataset=dataset))
-    return Chart(id=chart_id, title=_text(layout.title), x=x, y=y, y2=y2, series=series)
+    return Chart(id=chart_id, title=_text(layout.title), x=x, y=y, y2=y2, y3=y3, series=series)

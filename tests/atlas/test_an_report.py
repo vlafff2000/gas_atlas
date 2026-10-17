@@ -185,12 +185,12 @@ def test_canvas_series_selection_and_axes():
     daily, wells = an_charts.daily_of(INJ_SEASON, 'injection', '2024')
     chart = an_charts.canvas_chart('injection', '2024', ['rate', 'pressure', 'wells'], daily, wells, INJ_PRESSURE)
     rate, pres, cnt = chart.series
-    assert rate.axis == 'y' and pres.axis == cnt.axis == 'y2'
+    assert (rate.axis, pres.axis, cnt.axis) == ('y', 'y2', 'y3')
+    assert chart.y2.unit == an_charts.P_UNIT and chart.y3.unit == 'скв.'
     assert list(pres.y) == [65.0, 80.0]                              # замер 30.04 — до сезона, не входит
     assert list(cnt.y) == [1, 2, 1]
-    assert chart.y2.unit == f'{an_charts.P_UNIT} · скв.'
     only = an_charts.canvas_chart('injection', '2024', ['wells'], daily, wells, None)
-    assert [s.name for s in only.series] == ['Скважин в работе'] and only.y2 is None and only.y.unit == 'скв.'
+    assert [s.name for s in only.series] == ['Скважин в работе'] and only.y2 is None and only.y3 is None and only.y.unit == 'скв.'
     assert an_charts.canvas_chart('injection', '2024', [], daily, wells, None) is None
     empty, none = an_charts.daily_of(INJ_SEASON.iloc[0:0], 'injection', '2024')
     assert an_charts.canvas_chart('injection', '2024', ['rate'], empty, none, None) is None

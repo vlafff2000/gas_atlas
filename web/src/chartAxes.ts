@@ -1,15 +1,16 @@
 // Ручная правка осей графика: зоны осей, масштаб колесом, сдвиг перетаскиванием, ввод границ.
-export type AxisName = 'x' | 'y' | 'y2'
+export type AxisName = 'x' | 'y' | 'y2' | 'y3'
 export type Range = [number, number]
 export interface Rect { x: number; y: number; width: number; height: number }
 
+export const Y_BAND = 64      // ширина полосы подписей одной правой оси Y, пикселей
 const BELT = 30      // высота полосы подписей оси X под сеткой, пикселей
 
 /** Какая ось под курсором: подписи слева — Y, справа — вторая шкала, под сеткой — X. */
-export function axisAt(px: number, py: number, r: Rect, width: number, hasY2: boolean, hasX: boolean): AxisName | null {
+export function axisAt(px: number, py: number, r: Rect, width: number, yCount: number, hasX: boolean): AxisName | null {
   if (py >= r.y && py <= r.y + r.height) {
     if (px >= 0 && px < r.x) return 'y'
-    if (hasY2 && px > r.x + r.width && px <= width) return 'y2'
+    if (yCount > 1 && px > r.x + r.width && px <= width) return yCount > 2 && px > r.x + r.width + Y_BAND ? 'y3' : 'y2'
   } else if (hasX && px >= r.x && px <= r.x + r.width && py > r.y + r.height && py <= r.y + r.height + BELT) return 'x'
   return null
 }
