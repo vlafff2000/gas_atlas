@@ -348,6 +348,12 @@ def detect_layout(head,module='auto'):
             detected='plan';wide=True;mapping={'date':0};header=i;break       # матрица: группы в строках, месяцы в столбцах
         if module in ('auto','plan') and 'well' not in mapping and {'group','date','plan_volume'}<=mapping.keys():
             detected='plan';header=i;break
+        if module in ('auto','object_pressure') and 'well' not in mapping and 'date' in mapping and 'p_res' not in mapping \
+                and 'pressure' not in mapping:
+            # «Дата | Давление, кгс/см²»: две колонки, вторая — просто давление (по объекту)
+            cells=[(k,norm(str(v))) for k,v in enumerate(row) if str(v or '').strip()]
+            rest=[k for k,n in cells if k!=mapping['date']]
+            if len(cells)==2 and len(rest)==1 and 'давлен' in dict(cells)[rest[0]]: mapping['pressure']=rest[0]
         if module in ('auto','object_pressure') and 'well' not in mapping and 'date' in mapping and ('p_res' in mapping or 'pressure' in mapping):
             mapping['pressure']=mapping.pop('p_res') if 'p_res' in mapping else mapping['pressure']
             detected='object_pressure';header=i;break

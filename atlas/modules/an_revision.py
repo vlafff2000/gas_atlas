@@ -20,7 +20,7 @@ from atlas.engine.modules import revision_report as rr
 from ..contract import Column, Data, Module, ModuleSpec, Note, Param, Result, Stat, Table
 
 SECTION = 'Выбор данных'
-TITLE_19 = 'Табл. 1.8 · Перечень скважин с выносом пластового песка по сезонам отбора'
+TITLE_19 = 'Перечень скважин с выносом пластового песка по сезонам отбора'
 
 
 def season_frame(data: rr.Dataset) -> pd.DataFrame:
@@ -90,7 +90,7 @@ def frequency_table(analytics: dict[str, Any], seasons: list[str]) -> Table:
 class RevisionModule(Module):
     spec = ModuleSpec(
         id='an_revision',
-        title='Авторский надзор: табл. 1.8 ревизии КРУ',
+        title='Авторский надзор: вынос песка по ревизии КРУ',
         group='Авторский надзор',
         description='Перечень скважин с выносом песка по ГСП за сезоны: историческая сводная и ревизия нового сезона, повторяемость, частота.',
         needs=(),
@@ -142,10 +142,12 @@ class RevisionModule(Module):
         result.summary = [
             Stat('Сезонов в истории', str(len(dataset.seasons))),
             Stat('ГСП', str(len(dataset.gsps))),
-            Stat(f'Пар ГСП + скважина · {latest["season"]}', str(latest['count']) if latest['complete'] else 'н/д',
-                 'Уникальные пары за последний сезон; «н/д» — нет данных хотя бы по одному ГСП'),
+            Stat(f'Пар ГСП + скважина · {latest["season"]}',
+                 str(latest['count']) if latest['complete'] else f'{latest["count"]} (данные по {latest["known"]} из {len(dataset.gsps)} ГСП)',
+                 'Уникальные пары за последний сезон; если по части ГСП в ревизии нет данных, число неполное'),
             Stat('Замечаний', str(len(dataset.issues)), 'Повторы, пометки и расхождения — см. таблицу замечаний'),
         ]
-        result.notes += [Note(line) for line in rr.methodology(dataset)]
-        result.notes += [Note(line) for line in dataset.sources]
+        about = [*rr.methodology(dataset), *dataset.sources]
+        result.tables.append(Table('an-rev-method', 'Как считается и откуда данные', pd.DataFrame({'text': about}),
+                                   [Column('text', 'Пояснение')], collapsed=True))
         return result

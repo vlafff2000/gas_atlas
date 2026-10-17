@@ -5,7 +5,7 @@ from starlette.testclient import TestClient
 
 from atlas.api import create_app
 from atlas.contract import Data
-from atlas.modules import an_report, an_wells
+from atlas.modules import an_charts, an_report, an_wells
 from atlas.projects import Projects
 from atlas.registry import modules
 
@@ -80,8 +80,7 @@ def test_module_is_discovered_and_runs_on_demo(tmp_path):
     r = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': []}})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert any('Глава 1.1.2' in n['text'] for n in body['notes'])
-    assert not any('Глава 1.1.1' in n['text'] for n in body['notes'])
+    assert not any('раздел в разработке' in n['text'] for n in body['notes'])
     assert any('Давление объекта не загружено' in n['text'] for n in body['notes'])
     assert 'Выберите сезон' in ' '.join(n['text'] for n in body['notes'])
     r = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': ['2023-2024']}})
@@ -171,7 +170,8 @@ INJ_PRESSURE = pd.DataFrame({'date': pd.to_datetime(['2024-04-30', '2024-05-02',
 
 
 def test_injection_curve_cumulative_with_pressure_and_well_counts():
-    chart = an_report.injection_curve(INJ_SEASON, INJ_PRESSURE, '2024')
+    daily, wells = an_charts.daily_of(INJ_SEASON, 'injection', '2024')
+    chart = an_charts.curve_chart('injection', '2024', daily, wells, INJ_PRESSURE)
     rate, pres = chart.series
     assert rate.y == pytest.approx([150.0, 200.0, 350.0])            # тыс. м³/сут по датам
     assert list(rate.x) == pytest.approx([0.15, 0.35, 0.70])         # накопленная закачка, млн м³
@@ -182,10 +182,11 @@ def test_injection_curve_cumulative_with_pressure_and_well_counts():
 
 
 def test_pressure_chart_and_empty_season():
-    chart = an_report.pressure_chart(INJ_PRESSURE, '2024', pd.Timestamp('2024-05-01'), pd.Timestamp('2024-06-01'))
+    chart = an_charts.pressure_chart(INJ_PRESSURE, '2024', pd.Timestamp('2024-05-01'), pd.Timestamp('2024-06-01'))
     assert list(chart.series[0].y) == [65.0, 80.0]                  # 30.04 — до сезона, не входит
-    assert an_report.pressure_chart(None, '2024', pd.Timestamp('2024-05-01'), pd.Timestamp('2024-06-01')) is None
-    assert an_report.injection_curve(INJ_SEASON.iloc[0:0], None, '2024') is None
+    assert an_charts.pressure_chart(None, '2024', pd.Timestamp('2024-05-01'), pd.Timestamp('2024-06-01')) is None
+    empty, none = an_charts.daily_of(INJ_SEASON.iloc[0:0], 'injection', '2024')
+    assert an_charts.curve_chart('injection', '2024', empty, none, None) is None
 
 
 def test_monthly_wells_and_classes_by_hand():
@@ -225,13 +226,17 @@ def test_injection_season_run_builds_chapter2_items():
     data.mapping = INJ_MAPPING
     result = an_report.AuthorReportModule().run(data, {'kind': 'injection', 'periods': ['2024']})
     charts = {c.id for c in result.charts}
-    assert {'injection-curve-2024', 'injection-pressure-2024', 'plan-fact-months-2024'} <= charts
+    assert {'an-curve-injection-2024', 'an-pressure-2024', 'plan-fact-months-2024', 'an-rate-injection-2024',
+            'an-wells-injection-2024', 'an-cumulative-injection-2024', 'an-group-means-injection-2024',
+            'an-monthly-groups-injection-2024', 'an-fund-injection-2024'} <= charts
+    assert not any(c.title.lower().startswith(('табл', 'рис')) for c in result.charts)
+    assert not any(t.title.lower().startswith(('табл', 'рис')) for t in result.tables)
     tables = [t.id for t in result.tables]
     assert {'an-inj-plan-fact', 'an-inj-wells-0', 'an-inj-classes', 'an-inj-plan-card-0'} <= set(tables)
     stat = next(s for s in result.summary if s.label == 'Рпл за сезон · 2024')
     assert stat.value.startswith('+20,0')                              # 60 (30.04, ближе к 01.05 — ничья, раньше) → 80 на 01.06
     assert not any(n.level == 'warning' and 'не загружен' in n.text for n in result.notes)
-    assert any('Рис. 2.5' in n.text for n in result.notes)
+    assert any('Не построены' in n.text for n in result.notes)
 
 
 def test_plan_and_fact_groups_match_across_spellings():

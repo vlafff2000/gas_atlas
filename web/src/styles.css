@@ -214,10 +214,16 @@ button.quiet:hover { color: var(--ink); border-color: var(--line-strong); }
 .block-head h3 { font-size: 16px; }
 .block-head .quiet { margin-left: auto; }
 .table-scroll { overflow: auto; max-height: 560px; border-top: 1px solid var(--line); }
+.table-scroll::-webkit-scrollbar { height: 12px; width: 12px; }
+.table-scroll::-webkit-scrollbar-track { background: var(--head-bg); }
+.table-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; border: 2px solid var(--head-bg); }
 table { border-collapse: collapse; width: 100%; font-size: 14px; }
 th, td { padding: 6px 12px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; text-align: left; }
 td.number, th.number { text-align: right; font-variant-numeric: tabular-nums; }
 td:last-child { white-space: normal; min-width: 240px; }
+td.text { white-space: normal; max-width: 48ch; min-width: 9ch; overflow-wrap: break-word; vertical-align: top; }
+th { max-width: 26ch; }
+thead button { white-space: normal; flex-wrap: wrap; }
 thead th { position: sticky; top: 0; background: var(--head-bg); z-index: 2; border-bottom: 1px solid var(--line); padding: 0; }
 thead button {
   width: 100%; background: none; border: 0; padding: 8px 12px; text-align: inherit; cursor: pointer;
