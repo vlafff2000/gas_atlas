@@ -106,6 +106,27 @@ def write_launchers(target, folder, sp):
         (folder / 'ПРОЧТИТЕ.txt').write_text(text, encoding='utf-8')
 
 
+# Стандартная библиотека, без которой меню и приложения не запускаются (проверяется до упаковки архива).
+STDLIB_CHECK = ['urllib/parse.py', 'urllib/request.py', 'http/server.py', 'email/utils.py', 'json/__init__.py',
+                'logging/__init__.py', 'xml/etree/ElementTree.py', 'zipfile/__init__.py', 'encodings/utf_8.py']
+
+
+def check_runtime(folder, target):
+    lib = folder / 'python' / ('Lib' if target == 'windows' else 'lib/python3.13')
+    missing = [name for name in STDLIB_CHECK if not (lib / name).is_file()]
+    if target == 'windows':  # pywin32.pth: каждая строка-путь должна существовать, иначе Python пишет ошибку при каждом запуске
+        site = lib / 'site-packages'
+        for line in (site / 'pywin32.pth').read_text(encoding='utf-8').splitlines():
+            line = line.strip().replace('\\', '/')
+            if line and not line.startswith(('#', 'import ')) and not (site / line).is_dir():
+                missing.append('pywin32.pth: ' + line)
+        if not (site / 'win32' / 'lib' / 'pywin32_bootstrap.py').is_file():
+            missing.append('win32/lib/pywin32_bootstrap.py')
+    if missing:
+        raise SystemExit('В сборке не хватает файлов Python: ' + ', '.join(missing))
+    print('Стандартная библиотека и pywin32 на месте', flush=True)
+
+
 def archive(target, folder, out):
     out.mkdir(parents=True, exist_ok=True)
     if target == 'windows':
@@ -167,11 +188,14 @@ def main(argv=None):
     bp.requirements_for = lambda target: lock_requirements(target) + extra
     with tempfile.TemporaryDirectory() as tmp:
         bp.install_packages(args.target, python_dir / spec['site'], Path(tmp))
+    for stray in (python_dir / spec['site']).glob('*.whl'):  # копии колёс в site-packages ничего не импортируют
+        stray.unlink()
     bp.SKIP_TOOLS.add('tools/build_unified.py')
     bp.INCLUDE.append('pxg_hub')
     bp.copy_application(folder)
     copy_scripts(scripts, folder)
     write_launchers(args.target, folder, sp)
+    check_runtime(folder, args.target)
     if (args.target == 'windows') == (os.name == 'nt'):
         smoke_test(folder)
         shutil.rmtree(str(folder / 'logs'), ignore_errors=True)
