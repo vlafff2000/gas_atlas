@@ -273,6 +273,12 @@ def _signed(value: float) -> str:
     return f'{value:+,.1f}'.replace(',', ' ').replace('.', ',')
 
 
+VIEWS = (Option('canvas', 'Ряды по суткам'), Option('curve', 'Расход от накопленного объёма'),
+         Option('group_mean', 'Средний расход по группам'), Option('group_mean_months', 'Средний расход по месяцам'),
+         Option('cum_season', 'Накопленный объём за сезон по группам'), Option('cum_months', 'Объём за месяц по группам'),
+         Option('group_months', 'Накопленный объём по месяцам, одна группа'))
+
+
 class AuthorReportModule(Module):
     spec = ModuleSpec(
         id='an_report',
@@ -287,6 +293,11 @@ class AuthorReportModule(Module):
             Param('kind', 'Режим', 'choice', default='withdrawal', options=KINDS, section='Выбор данных'),
             Param('periods', 'Сезоны', 'multi', default=[], dynamic=True, depends=('kind',), auto='last:1',
                   empty='ничего', section='Выбор данных'),
+            Param('view', 'График', 'choice', default='canvas', section='Вид', chart_kind=True, options=VIEWS),
+            Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
+                  show_if={'view': 'canvas'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.SHOW)),
+            Param('group', 'Группа', 'choice', default='', dynamic=True, depends=('kind', 'periods'), section='Вид',
+                  show_if={'view': 'group_months'}, help='Группа для графика накопленного объёма по месяцам; пусто — первая.'),
             Param('annulus', 'Сезоны замеров МКД', 'multi', default=[], dynamic=True, auto='last:1',
                   empty='ничего', section='Выбор данных'),
         ),
@@ -295,6 +306,12 @@ class AuthorReportModule(Module):
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         if name == 'annulus':
             return sorted(data[ANNULUS]['season'].dropna().unique()) if ANNULUS in data else []
+        if name == 'group':
+            kind = params.get('kind') or 'withdrawal'
+            d = data[PRODUCTION]
+            d = d[d.kind.eq(kind) & d.period.isin(params.get('periods') or periods_of(d, kind))]
+            wells = ordered(d.well.astype(str).unique())
+            return ordered(set(well_scopes(data.mapping, wells).values()))
         if name != 'periods':
             return super().options(name, data, params)
         return visible_periods(periods_of(data[PRODUCTION], params.get('kind') or 'withdrawal'), data.settings)
@@ -329,7 +346,7 @@ class AuthorReportModule(Module):
             means.append(table.assign(period_season=period))
             result.summary += [Stat(f'Длительность · {period}', f'{summary["days"]} сут', 'Календарные сутки с расходом'),
                                Stat(f'Средний расход · {period}', f'{summary["mean"]:.1f} {Q_UNIT}'.replace('.', ','))]
-            self.season_charts(result, data, kind, period, summary, table, pressure)
+            self.season_charts(result, data, kind, period, summary, table, pressure, params)
             self.fund_details(result, data, kind, period, summary, fund, classes, wet)
             self.plan_details(result, data, kind, period)
         if kind == 'injection':
@@ -473,21 +490,35 @@ class AuthorReportModule(Module):
                      columns, note='Строка «Весь сезон» — среднее за сезон, остальные — по месяцам.')
 
     def season_charts(self, result: Result, data: Data, kind: str, period: str, summary: dict[str, Any],
-                      means: pd.DataFrame, pressure: pd.DataFrame | None) -> None:
-        """Графики сезона по данным проекта: расход, давление, скважины, накопленный объём, группы, вода, газ в пласте."""
+                      means: pd.DataFrame, pressure: pd.DataFrame | None, params: dict[str, Any]) -> None:
+        """График сезона по выбранному виду: единый холст рядов, расход от объёма или серия графиков по группам."""
         daily, wells = an_charts.daily_of(data[PRODUCTION], kind, period)
         start, stop = summary['start'], summary['stop']
         factor = data[FACTOR] if FACTOR in data else None
-        charts = [an_charts.curve_chart(kind, period, daily, wells, pressure),
-                  an_charts.rate_chart(kind, period, daily, wells, pressure),
-                  an_charts.wells_chart(kind, period, wells),
-                  an_charts.cumulative_chart(kind, period, daily),
-                  an_charts.pressure_chart(pressure, period, start, stop),
-                  an_charts.group_means_chart(kind, period, means),
-                  an_charts.monthly_groups_chart(kind, period, means)]
-        if kind == 'withdrawal' and factor is not None and not factor.empty:
-            charts.append(an_charts.water_chart(period, water_table(factor), start, stop))
-        charts.append(an_charts.gas_in_place_chart(period, factor, start, stop))
+        view = params.get('view') or 'canvas'
+        if view == 'canvas':
+            show = list(params['show']) if 'show' in params else list(an_charts.SHOW_DEFAULT)
+            water = water_table(factor) if factor is not None and not factor.empty and kind == 'withdrawal' else None
+            charts = [an_charts.canvas_chart(kind, period, show, daily, wells, pressure, water, factor)]
+        elif view == 'curve':
+            charts = [an_charts.curve_chart(kind, period, daily, wells, pressure)]
+        elif view == 'group_mean':
+            charts = [an_charts.group_means_chart(kind, period, means)]
+        elif view == 'group_mean_months':
+            charts = [an_charts.monthly_groups_chart(kind, period, means)]
+        else:
+            d = data[PRODUCTION]
+            d = d[d.kind.eq(kind) & d.period.eq(period)][['well', 'date', 'q']].copy()
+            d['well'] = d.well.astype(str)
+            rates = daily_rates(d, well_scopes(data.mapping, ordered(d.well.unique())))
+            if view == 'cum_season':
+                charts = [an_charts.cum_groups_season(kind, period, rates, OBJECT_SCOPE)]
+            elif view == 'cum_months':
+                charts = [an_charts.cum_groups_months(kind, period, rates, OBJECT_SCOPE)]
+            else:
+                names = ordered(set(rates.scope.astype(str)) - {OBJECT_SCOPE})
+                group = params.get('group') if params.get('group') in names else (names[0] if names else '')
+                charts = [an_charts.cum_group_months(kind, period, rates, group)] if group else []
         result.charts += [c for c in charts if c is not None]
         start_p, stop_p = summary.get('pressure_start'), pressure_near(pressure, stop)
         if an_charts.pressure_points(pressure, start, stop) is not None and start_p is not None and stop_p is not None:

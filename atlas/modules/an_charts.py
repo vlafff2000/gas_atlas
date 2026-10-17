@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -16,6 +17,7 @@ Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
 WHAT = {'withdrawal': ('отбор', 'отбора', 'Суточный отбор'), 'injection': ('закачка', 'закачки', 'Суточная закачка')}
 WHOLE = 'Весь сезон'
+MONTHS = ('январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь')
 
 
 def daily_of(prod: pd.DataFrame, kind: str, period: str) -> tuple[pd.Series, pd.Series]:
@@ -51,52 +53,116 @@ def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pres
     return chart
 
 
-def rate_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None) -> Chart | None:
-    """Суточный расход объекта по датам сезона; Рпл — точки на правой оси."""
+SHOW = (('rate', 'Суточный расход'), ('pressure', 'Среднее Рпл (замеры)'), ('wells', 'Скважин в работе'),
+        ('cumulative', 'Накопленный объём'), ('water', 'Вынос воды'), ('wf', 'Водный фактор, суточный'),
+        ('wf_cum', 'Водный фактор, накопленный'), ('gas', 'Объём газа в пласте'))
+SHOW_DEFAULT = ('Суточный расход', 'Среднее Рпл (замеры)', 'Скважин в работе')      # в списке параметра значения — подписи
+SHOW_KEY = {label: key for key, label in SHOW}
+
+
+def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None,
+                 water: pd.DataFrame | None = None, factor: pd.DataFrame | None = None) -> Chart | None:
+    """Единый холст сезона: ряды по датам на выбор. Левая шкала — первая из выбранных величин, остальные — справа
+    (подписи рядов называют единицу), чтобы расход, давление и число скважин читались на одном графике."""
     if daily.empty:
         return None
     genitive = WHAT[kind][1]
-    chart = Chart(f'an-rate-{kind}-{period}', f'Суточный расход {genitive} и пластовое давление · {period}',
-                  Axis('Дата', scale='time'), Axis('Суточный расход', Q_UNIT, from_zero=True), y2=Axis('Рпл, абс.', P_UNIT))
-    labels = [f'скважин в работе: {int(wells[d])}' for d in daily.index]
-    chart.series.append(Series('Суточный расход', daily.index.to_numpy(), (daily / 1000).to_numpy(), 'line',
-                               labels=labels, width=1.0))
-    p = pressure_points(pressure, daily.index.min(), daily.index.max())
+    start, stop = daily.index.min(), daily.index.max()
+    show = [SHOW_KEY.get(v, v) for v in show]
+    items: list[tuple[str, str, str, Series]] = []         # (ключ, подпись шкалы, единица, ряд)
+    if 'rate' in show:
+        labels = [f'скважин в работе: {int(wells[d])}' for d in daily.index]
+        items.append(('rate', 'Суточный расход', Q_UNIT, Series('Суточный расход', daily.index.to_numpy(),
+                                                                (daily / 1000).to_numpy(), 'line', width=1.0, labels=labels)))
+    if 'cumulative' in show:
+        items.append(('cumulative', f'Накопленный {WHAT[kind][0]}', 'млн м³',
+                      Series(f'Накопленный {WHAT[kind][0]}', daily.index.to_numpy(), (daily.cumsum() / 1e6).to_numpy(), 'line', width=1.2)))
+    p = pressure_points(pressure, start, stop) if 'pressure' in show else None
     if p is not None:
-        chart.series.append(Series('Рпл, абс.', p.date.to_numpy(), p.pressure.to_numpy(), 'points', axis='y2'))
-    return chart
-
-
-def wells_chart(kind: str, period: str, wells: pd.Series) -> Chart | None:
-    """Число скважин с расходом по суткам сезона."""
-    if wells.empty:
+        items.append(('pressure', 'Рпл, абс.', P_UNIT, Series('Среднее Рпл, абс.', p.date.to_numpy(), p.pressure.to_numpy(), 'points')))
+    if 'wells' in show:
+        items.append(('wells', 'Скважин в работе', 'скв.', Series('Скважин в работе', wells.index.to_numpy(), wells.to_numpy(float),
+                                                                    'points', symbol='square')))
+    if water is not None and not water.empty:
+        w = water[water.date.between(start, stop)].sort_values('date')
+        for key, col, label, unit, name, line in (('water', 'water_day', 'Вынос воды', 'м³/сут', 'Вынос воды', {}),
+                                                  ('wf', 'wf', 'Водный фактор', 'л/тыс. м³', 'Водный фактор, суточный', {'dashed': True}),
+                                                  ('wf_cum', 'wf_cum', 'Водный фактор', 'л/тыс. м³', 'Водный фактор, накопленный', {})):
+            part = w[w[col].notna()] if key in show else w.iloc[0:0]
+            if not part.empty:
+                items.append((key, label, unit, Series(name, part.date.to_numpy(), part[col].to_numpy(float), 'line', width=1.0, **line)))
+    if 'gas' in show and factor is not None and 'gas_in_place' in factor and not factor.empty:
+        f = factor.assign(date=pd.to_datetime(factor.date), gas=pd.to_numeric(factor.gas_in_place, errors='coerce'))
+        f = f[f.date.between(start, stop) & f.gas.notna()].sort_values('date')
+        if not f.empty:
+            items.append(('gas', 'Объём газа в пласте', 'млрд м³', Series('Объём газа в пласте', f.date.to_numpy(),
+                                                                          (f.gas / 1e6).to_numpy(float), 'line', width=1.2)))
+    if not items:
         return None
-    chart = Chart(f'an-wells-{kind}-{period}', f'Скважины в работе по суткам · {period}',
-                  Axis('Дата', scale='time'), Axis('Скважин в работе', 'скв.', from_zero=True))
-    chart.series.append(Series('Скважин в работе', wells.index.to_numpy(), wells.to_numpy(float), 'line', width=1.0))
+    main = items[0][1], items[0][2]
+    rest = list(dict.fromkeys((label, unit) for _, label, unit, _ in items if (label, unit) != main))
+    y2 = Axis(' · '.join(label for label, _ in rest), ' · '.join(dict.fromkeys(unit for _, unit in rest))) if rest else None
+    chart = Chart(f'an-canvas-{kind}-{period}', f'Сезон {genitive}: ряды по суткам · {period}',
+                  Axis('Дата', scale='time'), Axis(main[0], main[1], from_zero=True), y2=y2)
+    for _, label, unit, series in items:
+        if (label, unit) != main:
+            series = replace(series, axis='y2')
+        chart.series.append(series)
     return chart
 
 
-def cumulative_chart(kind: str, period: str, daily: pd.Series) -> Chart | None:
-    """Накопленный за сезон объём по датам, млн м³."""
-    if daily.empty:
+def _cum_frames(rates: pd.DataFrame) -> dict[str, pd.Series]:
+    """Суточный расход (м³/сут) объекта и групп по всем суткам сезона (пропуск = 0), для накопления."""
+    days = pd.date_range(rates.date.min(), rates.date.max(), freq='D')
+    return {str(scope): part.set_index('date').q.reindex(days, fill_value=0.0) for scope, part in rates.groupby('scope', sort=False)}
+
+
+def cum_groups_season(kind: str, period: str, rates: pd.DataFrame, object_name: str) -> Chart | None:
+    """Накопленный за сезон объём по датам: объект и все группы на одном графике, млн м³."""
+    if rates.empty:
         return None
     noun = WHAT[kind][0]
-    chart = Chart(f'an-cumulative-{kind}-{period}', f'Накопленный {noun} за сезон · {period}',
+    chart = Chart(f'an-cum-groups-{kind}-{period}', f'Накопленный {noun} за сезон по группам · {period}',
                   Axis('Дата', scale='time'), Axis(f'Накопленный {noun}', 'млн м³', from_zero=True))
-    chart.series.append(Series(f'Накопленный {noun}', daily.index.to_numpy(), (daily.cumsum() / 1e6).to_numpy(), 'line', width=1.2))
+    for scope, daily in _cum_frames(rates).items():
+        chart.series.append(Series(scope, daily.index.to_numpy(), (daily.cumsum() / 1e6).to_numpy(), 'line',
+                                   group=scope, width=2.2 if scope == object_name else 1.2, dashed=scope == object_name))
     return chart
 
 
-def pressure_chart(pressure: pd.DataFrame | None, period: str, start: Any, stop: Any) -> Chart | None:
-    """Динамика среднего пластового давления объекта за сезон (факт)."""
-    p = pressure_points(pressure, start, stop)
-    if p is None:
+def cum_groups_months(kind: str, period: str, rates: pd.DataFrame, object_name: str) -> Chart | None:
+    """Объём за каждый месяц сезона (накоплен в пределах месяца): столбцы по месяцам, ряд — группа, млн м³."""
+    if rates.empty:
         return None
-    chart = Chart(f'an-pressure-{period}', f'Динамика пластового давления · {period}',
-                  Axis('Дата', scale='time'), Axis('Рпл, абс.', P_UNIT))
-    chart.series.append(Series('Среднее пластовое давление', p.date.to_numpy(), p.pressure.to_numpy(), 'line', markers=True))
+    noun = WHAT[kind][0]
+    by = rates.assign(month=rates.date.dt.to_period('M')).groupby(['scope', 'month']).q.sum() / 1e6
+    months = sorted(by.index.get_level_values('month').unique())
+    cats = [month_name(m) for m in months]
+    chart = Chart(f'an-cum-months-{kind}-{period}', f'Накопленный {noun} за месяц по группам · {period}',
+                  Axis('Месяц', scale='category', categories=cats), Axis(f'Накопленный {noun} за месяц', 'млн м³', from_zero=True))
+    for scope in dict.fromkeys(rates.scope.astype(str)):
+        chart.series.append(Series(scope, cats, np.array([by.get((scope, m), np.nan) for m in months], float), 'bar', group=scope))
     return chart
+
+
+def cum_group_months(kind: str, period: str, rates: pd.DataFrame, group: str) -> Chart | None:
+    """Одна группа: накопленный объём внутри каждого месяца сезона по дням месяца (линия на месяц), млн м³."""
+    part = rates[rates.scope.astype(str).eq(group)]
+    if part.empty:
+        return None
+    noun = WHAT[kind][0]
+    chart = Chart(f'an-cum-group-months-{kind}-{period}', f'Накопленный {noun} по месяцам · {group} · {period}',
+                  Axis('День месяца', 'сут', from_zero=True), Axis(f'Накопленный {noun} в месяце', 'млн м³', from_zero=True))
+    for month, rows in part.groupby(part.date.dt.to_period('M'), sort=True):
+        days = pd.Series(rows.q.to_numpy(float), index=rows.date.dt.day.to_numpy()).groupby(level=0).sum()
+        days = days.reindex(range(1, int(days.index.max()) + 1), fill_value=0.0)
+        chart.series.append(Series(month_name(month), days.index.to_numpy(float), (days.cumsum() / 1e6).to_numpy(), 'line',
+                                   group=month_name(month), width=1.4))
+    return chart
+
+
+def month_name(month: pd.Period) -> str:
+    return f'{MONTHS[month.month - 1].capitalize()} {month.year}'
 
 
 def group_means_chart(kind: str, period: str, means: pd.DataFrame) -> Chart | None:
@@ -138,42 +204,6 @@ def fund_chart(kind: str, period: str, fund: pd.DataFrame) -> Chart | None:
     chart.series.append(Series('Фонд', cats, part.fund.to_numpy(float), 'bar'))
     chart.series.append(Series('Работало за сезон', cats, part.working.to_numpy(float), 'bar',
                                labels=[f'доля работавших {v:.1f} %' for v in part.percent]))
-    return chart
-
-
-def water_chart(period: str, water: pd.DataFrame, start: Any, stop: Any) -> Chart | None:
-    """Вынос воды по объекту (м³/сут) и суточный водный фактор на правой оси."""
-    w = water[water.date.between(pd.Timestamp(start), pd.Timestamp(stop))].sort_values('date')
-    day, wf = w[w.water_day.notna()], w[w.wf.notna()]
-    if day.empty and wf.empty:
-        return None
-    chart = Chart(f'an-water-{period}', f'Вынос воды и водный фактор · {period}',
-                  Axis('Дата', scale='time'), Axis('Вынос воды', 'м³/сут', from_zero=True),
-                  y2=Axis('Водный фактор', 'л/тыс. м³', from_zero=True))
-    if not day.empty:
-        chart.series.append(Series('Вынос воды', day.date.to_numpy(), day.water_day.to_numpy(float), 'line',
-                                   markers=True, width=1.0))
-    if not wf.empty:
-        chart.series.append(Series('Водный фактор, суточный', wf.date.to_numpy(), wf.wf.to_numpy(float), 'line',
-                                   axis='y2', width=1.0, dashed=True))
-    cum = w[w.wf_cum.notna()]
-    if not cum.empty:
-        chart.series.append(Series('Водный фактор, накопленный', cum.date.to_numpy(), cum.wf_cum.to_numpy(float), 'line',
-                                   axis='y2', width=1.0))
-    return chart
-
-
-def gas_in_place_chart(period: str, factor: pd.DataFrame | None, start: Any, stop: Any) -> Chart | None:
-    """Объём газа в пласте по суткам сезона (набор «Вынос воды по объекту»), млрд м³."""
-    if factor is None or 'gas_in_place' not in factor or factor.empty:
-        return None
-    f = factor.assign(date=pd.to_datetime(factor.date), gas=pd.to_numeric(factor.gas_in_place, errors='coerce'))
-    f = f[f.date.between(pd.Timestamp(start), pd.Timestamp(stop)) & f.gas.notna()].sort_values('date')
-    if f.empty:
-        return None
-    chart = Chart(f'an-gas-in-place-{period}', f'Объём газа в пласте · {period}',
-                  Axis('Дата', scale='time'), Axis('Объём газа в пласте', 'млрд м³'))
-    chart.series.append(Series('Объём газа в пласте', f.date.to_numpy(), (f.gas / 1e6).to_numpy(float), 'line', width=1.2))
     return chart
 
 
