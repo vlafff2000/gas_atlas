@@ -1,6 +1,7 @@
 // Общие настройки вида, запоминаются в браузере: подсказка графиков, события на оси, тема, свёрнутые панели.
 import { useSyncExternalStore } from 'react'
 import type { HoverMode } from './chartHover'
+import type { Look } from './chartStyle'
 
 export interface Pref<T> { get: () => T; set: (next: T) => void; subscribe: (f: () => void) => () => void }
 
@@ -70,6 +71,8 @@ export const zoomSync = pref<boolean>('atlas.chart.zoomSync', true)
 
 /** Ручные границы шкал Y по графикам (ключ — заголовок и подписи осей): помнятся между запусками. */
 export const savedRanges = pref<Record<string, { y: [number, number] | null; y2: [number, number] | null }>>('atlas.chart.ranges', {})
+/** Личный вид рядов по графикам («Настройка»): ключ графика → ключ ряда → вид. Помнится между запусками. */
+export const chartLooks = pref<Record<string, Record<string, Look>>>('atlas.chart.looks', {})
 /** Границы Y, разосланные всем графикам раздела с той же подписью и единицей оси (не хранится). */
 export const sharedRange = pref<{ key: string; range: [number, number]; n: number } | null>('', null)
 

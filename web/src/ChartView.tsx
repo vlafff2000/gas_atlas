@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
 import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
@@ -8,7 +9,9 @@ import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { axisAt, formatBound, parseBound, shiftRange, wheelFactor, zoomRange, type AxisName, type Range } from './chartAxes'
-import { hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { chartLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { applyLooks, chartLookKey, markerSymbol, type Look } from './chartStyle'
+import { ChartSettings } from './ChartSettings'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
 
@@ -60,7 +63,7 @@ const key = (s: Series) => s.group || s.name
 /** Отметки замеров на линии: заданы модулем, нужны для исключения кликом или включён вид «Замеры».
  *  Расчётные линии (аппроксимация, модель) без ids — не замеры, их отметки не показываются. */
 const hasMarkers = (s: Series, excludeMode: boolean, mode: HoverMode) =>
-  s.markers || (!!s.ids && (excludeMode || (mode === 'facts' && s.x.length <= LARGE)))
+  s.look?.marker ?? (s.markers || (!!s.ids && (excludeMode || (mode === 'facts' && s.x.length <= LARGE))))
 /** Плотный ряд: на экране отметки сливаются (их белая обводка стирает линию). */
 const isDense = (s: Series, n: number) => !!s.markers && n > DENSE
 
@@ -156,18 +159,19 @@ function alignedYAxes(chart: Chart, base: Chart): Record<'y' | 'y2', { min: numb
 }
 
 /** Размах оси времени в мс по всем сериям (для решения, нужен ли ползунок). */
-function timeSpan(chart: Chart) {
-  if (chart.x.scale !== 'time') return 0
+function xSpan(chart: Chart) {
+  if (chart.x.scale !== 'time' && chart.x.scale !== 'value') return 0
   let lo = Infinity, hi = -Infinity
   for (const s of chart.series) {
     for (const v of [s.x[0], s.x[s.x.length - 1]]) {
-      const n = toNumber(v ?? null, 'time')
+      const n = toNumber(v ?? null, chart.x.scale)
       if (Number.isFinite(n)) { lo = Math.min(lo, n); hi = Math.max(hi, n) }
     }
   }
   return hi > lo ? hi - lo : 0
 }
-export const hasNavigator = (chart: Chart) => timeSpan(chart) > NAVIGATOR_SPAN
+/** Ползунок по оси X: по времени — когда ряды длиннее полугода; у числовой оси — когда точки разнесены по X. */
+export const hasNavigator = (chart: Chart) => xSpan(chart) > (chart.x.scale === 'time' ? NAVIGATOR_SPAN : 0)
 
 /** Холст рисуется минимум в двойном разрешении: на обычных мониторах (масштаб 100%) линии и подписи иначе выходят «мыльными». */
 function pixelRatio() { return Math.max(2, window.devicePixelRatio || 1) }
@@ -268,7 +272,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         moveHandleSize: 5, moveHandleStyle: { color: alpha(tk.accent, 0.45) },
         emphasis: { handleStyle: { borderColor: tk.ink }, moveHandleStyle: { color: tk.accent } },
         textStyle: { color: tk.muted, fontSize: 11 },
-        labelFormatter: (v: number) => formatDate(new Date(v).toISOString().slice(0, 10)),
+        labelFormatter: (v: number) => (time ? formatDate(new Date(v).toISOString().slice(0, 10)) : formatNumber(v)),
       }] : []),
     ],
     // кнопки масштаба — в заголовке графика (ChartView), панель ECharts скрыта и даёт только выделение области
@@ -281,7 +285,8 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       },
     },
     series: chart.series.map(s => {
-      const c = color(s)
+      const L: Look = s.look ?? {}
+      const c = L.color ?? color(s)
       const blur = total <= BLUR_LIMIT
       const emphasis = { focus: blur ? 'series' : 'none', blurScope: 'coordinateSystem' }
       const blurred = { lineStyle: { opacity: 0.25 }, itemStyle: { opacity: 0.25 } }
@@ -304,15 +309,16 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         return { ...common, type: 'bar', barMaxWidth: 24, barGap: '12%', itemStyle: { color: c, borderRadius: [4, 4, 0, 0] },
           emphasis: { focus: 'none', itemStyle: { color: c } } }
       }
-      const width = s.width || 2
+      const width = L.width ?? (s.width || 2)
       if (s.kind === 'line') {
         // в режиме «Только замеры» на линиях видны сами замеры (перекрывающиеся ECharts скрывает)
-        const markers = hasMarkers(s, excludeMode, mode) && (excludeMode || !isDense(s, rows.length))
+        const markers = L.marker ?? (hasMarkers(s, excludeMode, mode) && (excludeMode || !isDense(s, rows.length)))
+        const mc = L.markerColor ?? c
         return { ...common, type: 'line', z: s.markers ? 3 : 2, connectNulls: false,
           sampling: rows.length > LARGE && !markers && thinCharts.get() ? 'lttb' : undefined,
-          showSymbol: markers, showAllSymbol: 'auto', symbol: markers ? SYMBOL[s.symbol] : 'none', symbolSize: rows.length > 150 ? 4 : s.markers ? 7 : 5,
-          itemStyle: s.hollow ? { color: tk.surface, borderColor: c, borderWidth: 1.8 } : { color: c, borderColor: tk.surface, borderWidth: 1.5 },
-          lineStyle: { color: c, width, type: dashOf(s), cap: 'round', join: 'round', ...(s.opacity < 1 ? { opacity: s.opacity } : {}) },
+          showSymbol: markers, showAllSymbol: 'auto', symbol: markers ? markerSymbol(L.shape, SYMBOL[s.symbol]) : 'none', symbolSize: L.size ?? (rows.length > 150 ? 4 : s.markers ? 7 : 5),
+          itemStyle: s.hollow ? { color: tk.surface, borderColor: mc, borderWidth: 1.8 } : { color: mc, borderColor: tk.surface, borderWidth: 1.5 },
+          lineStyle: { color: c, width, type: L.dash ? DASH[L.dash] : dashOf(s), cap: 'round', join: 'round', opacity: L.line === false ? 0 : s.opacity < 1 ? s.opacity : 1 },
           ...(s.stack ? { areaStyle: { color: c, opacity: 0.6 } } : {}),
           emphasis: { ...emphasis, lineStyle: { width: width + 1 } } }
       }
@@ -325,7 +331,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         formatter: (p: { dataIndex: number }) => captions[p.dataIndex] ?? '',
       } : undefined
       // hideOverlap: соседние подписи не налезают друг на друга — скрытая подпись видна в подсказке точки
-      return { ...common, type: 'scatter', z: s.hollow ? 4 : 3, symbol: SYMBOL[s.symbol], symbolSize: big ? 5 : s.hollow ? 10 : 9,
+      return { ...common, type: 'scatter', z: s.hollow ? 4 : 3, symbol: L.marker === false ? 'none' : markerSymbol(L.shape, SYMBOL[s.symbol]), symbolSize: L.size ?? (big ? 5 : s.hollow ? 10 : 9),
         large: big, largeThreshold: LARGE, progressive: 0, ...(caption ? { label: caption, labelLayout: { hideOverlap: true } } : {}),
         itemStyle: {
           ...(s.hollow
@@ -375,10 +381,14 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const stage = useRef<HTMLDivElement>(null)
   const instance = useRef<echarts.ECharts | null>(null)
   const [patch, setPatch] = useState<Patch | null>(null)
-  const chart = useMemo<Chart>(() => {
+  const windowed = useMemo<Chart>(() => {
     if (!patch || patch.base !== given) return given
     return { ...given, series: given.series.map((s, i) => { const w = patch.series[i]; return w ? { ...s, x: w.x, y: w.y, ids: w.ids, labels: w.labels, total: w.total } : s }) }
   }, [given, patch])
+  const looksAll = usePref(chartLooks)
+  const looks = looksAll[chartLookKey(given)]
+  const chart = useMemo(() => applyLooks(windowed, looks), [windowed, looks])
+  const [settings, setSettings] = useState(false)
   const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
   const state = useRef({
     ranges: { y: null, y2: null } as Manual, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
@@ -411,6 +421,14 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const rangeKey = `${given.title}|${given.y.label}|${given.y2?.label ?? ''}`
   const yKey = `${given.y.label}|${given.y.unit}`
   const [ranges, setRangesState] = useState<Manual>(() => savedRanges.get()[rangeKey] ?? { y: null, y2: null })      // ручные границы Y: переживают обновление данных и перезапуск
+  const setLooks = (next: Record<string, Look>) => {
+    const all = { ...chartLooks.get() }, key = chartLookKey(given)
+    delete all[key]
+    if (Object.keys(next).length) all[key] = next
+    const keys = Object.keys(all)
+    for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete all[k]
+    chartLooks.set(all)
+  }
   const [editor, setEditor] = useState<{ axis: AxisName; lo: string; hi: string; at: [number, number]; error: string } | null>(null)
   state.current.ranges = ranges
   state.current.setRanges = (r: Manual) => {
@@ -1219,10 +1237,18 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
                 title="Только фактические замеры, точки видны на линиях">Замеры</button>
             </span>
           </>}
+          <span className="chart-tools">
+            <button type="button" className={'icon' + (settings ? ' on' : '')} aria-pressed={settings} onClick={() => setSettings(v => !v)}
+              title="Настройка графика: цвет, толщина и стиль линии, маркеры (форма, размер, цвет) для каждого ряда — как в Excel">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.9M8 12.3v1.9M1.8 8h1.9M12.3 8h1.9M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" /></svg>
+            </button>
+          </span>
           {onCopy && <CopyButton onCopy={onCopy} />}
           <DownloadMenu onDownload={onDownload} />
         </span>
       </figcaption>
+      {settings && createPortal(<ChartSettings title={chart.title} series={chart.series} colorOf={colorOf(chart)} looks={looks ?? {}}
+        onChange={setLooks} onClose={() => setSettings(false)} />, document.body)}
       {thinned.length > 0 && <ThinNote chart={chart} thinned={thinned.map(([, i]) => i)} windowed={!!patch && patch.base === given} patch={patch} />}
       <div className="chart-stage" ref={stage}>
         <div ref={box} className="chart-canvas" role="img" aria-label={chart.title} />
