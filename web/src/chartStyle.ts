@@ -49,7 +49,7 @@ const SYMBOLS: Record<MarkerShape, string> = { circle: 'circle', square: 'rect',
 export const markerSymbol = (shape: MarkerShape | undefined, fallback: string) => (shape ? SYMBOLS[shape] : fallback)
 
 /** Ключ графика в хранилище: заголовок и подписи осей (как ключ границ Y). */
-export const chartLookKey = (chart: Chart) => `${chart.title}|${chart.y.label}|${chart.y2?.label ?? ''}|${chart.y3?.label ?? ''}`
+export const chartLookKey = (chart: Chart) => `${chart.title}|${chart.y.label}|${chart.y2?.label ?? ''}${chart.y3 ? '|' + chart.y3.label : ''}`
 /** Ключ ряда внутри графика: группа или имя, и вид ряда. */
 export const seriesLookKey = (s: Series) => `${s.group || s.name}|${s.kind}`
 

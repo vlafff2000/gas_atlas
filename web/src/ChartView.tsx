@@ -428,7 +428,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const syncZoom = usePref(zoomSync)
   const pinSyncAll = usePref(pinSync)
   const kind = pinSyncKind(chart), pinsOn = pinSyncAll[kind]
-  const rangeKey = `${given.title}|${given.y.label}|${given.y2?.label ?? ''}|${given.y3?.label ?? ''}`
+  const rangeKey = `${given.title}|${given.y.label}|${given.y2?.label ?? ''}${given.y3 ? '|' + given.y3.label : ''}`
   const yKey = `${given.y.label}|${given.y.unit}`
   const [ranges, setRangesState] = useState<Manual>(() => ({ ...NO_RANGES, ...savedRanges.get()[rangeKey] }))      // ручные границы Y: переживают обновление данных и перезапуск
   const setLooks = (next: Record<string, Look>) => {
