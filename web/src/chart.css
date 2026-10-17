@@ -11,7 +11,9 @@
 .chart-stage { position: relative; }
 .chart-overlay { position: absolute; inset: 0; pointer-events: none; }
 /* Название графика переносится по словам целиком: обрезанный заголовок не даёт понять, какой график открыт */
-.chart figcaption > span:first-child { min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
+.chart figcaption { flex-wrap: wrap; row-gap: 4px; }
+.chart figcaption > span:first-child { flex: 1 1 16em; min-width: 0; line-height: 1.3; overflow-wrap: break-word; }
+.chart figcaption .chart-actions { margin-left: auto; }
 .chart-actions { display: flex; align-items: center; gap: 10px; font-weight: 400; flex-shrink: 0; }
 .chart-tools { display: inline-flex; gap: 2px; }
 .chart-tools button.icon {
