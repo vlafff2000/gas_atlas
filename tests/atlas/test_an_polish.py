@@ -32,12 +32,12 @@ def run(extra, params):
 def test_withdrawal_season_builds_charts_from_input_data():
     result = run({DatasetKind.WATER_FACTOR: FACTOR}, {})
     ids = {c.id for c in result.charts}
-    assert {'an-curve-withdrawal-2025-2026', 'an-rate-withdrawal-2025-2026', 'an-wells-withdrawal-2025-2026',
-            'an-cumulative-withdrawal-2025-2026', 'an-pressure-2025-2026', 'an-group-means-withdrawal-2025-2026',
-            'an-monthly-groups-withdrawal-2025-2026', 'an-fund-withdrawal-2025-2026', 'an-water-2025-2026',
-            'an-gas-in-place-2025-2026'} <= ids
-    wells = next(c for c in result.charts if c.id.startswith('an-wells'))
-    assert list(wells.series[0].y) == [2, 1, 2]
+    assert {'an-canvas-withdrawal-2025-2026', 'an-fund-withdrawal-2025-2026'} <= ids
+    wells = next(s for c in result.charts if c.id.startswith('an-canvas') for s in c.series if s.name == 'Скважин в работе')
+    assert list(wells.y) == [2, 1, 2]
+    full = run({DatasetKind.WATER_FACTOR: FACTOR}, {'show': [v for _, v in an_report.an_charts.SHOW]})
+    names = {s.name for c in full.charts if c.id.startswith('an-canvas') for s in c.series}
+    assert {'Вынос воды', 'Водный фактор, суточный', 'Объём газа в пласте', 'Накопленный отбор'} <= names
     assert not any(c.title.lower().startswith(('табл', 'рис')) or ' табл. ' in c.title for c in result.charts)
     assert not any(t.title.lower().startswith(('табл', 'рис')) for t in result.tables)
     assert not any('раздел в разработке' in n.text for n in result.notes)

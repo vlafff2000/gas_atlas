@@ -181,12 +181,40 @@ def test_injection_curve_cumulative_with_pressure_and_well_counts():
     assert pres.axis == 'y2'
 
 
-def test_pressure_chart_and_empty_season():
-    chart = an_charts.pressure_chart(INJ_PRESSURE, '2024', pd.Timestamp('2024-05-01'), pd.Timestamp('2024-06-01'))
-    assert list(chart.series[0].y) == [65.0, 80.0]                  # 30.04 — до сезона, не входит
-    assert an_charts.pressure_chart(None, '2024', pd.Timestamp('2024-05-01'), pd.Timestamp('2024-06-01')) is None
+def test_canvas_series_selection_and_axes():
+    daily, wells = an_charts.daily_of(INJ_SEASON, 'injection', '2024')
+    chart = an_charts.canvas_chart('injection', '2024', ['rate', 'pressure', 'wells'], daily, wells, INJ_PRESSURE)
+    rate, pres, cnt = chart.series
+    assert rate.axis == 'y' and pres.axis == cnt.axis == 'y2'
+    assert list(pres.y) == [65.0, 80.0]                              # замер 30.04 — до сезона, не входит
+    assert list(cnt.y) == [1, 2, 1]
+    assert chart.y2.unit == f'{an_charts.P_UNIT} · скв.'
+    only = an_charts.canvas_chart('injection', '2024', ['wells'], daily, wells, None)
+    assert [s.name for s in only.series] == ['Скважин в работе'] and only.y2 is None and only.y.unit == 'скв.'
+    assert an_charts.canvas_chart('injection', '2024', [], daily, wells, None) is None
     empty, none = an_charts.daily_of(INJ_SEASON.iloc[0:0], 'injection', '2024')
+    assert an_charts.canvas_chart('injection', '2024', ['rate'], empty, none, None) is None
     assert an_charts.curve_chart('injection', '2024', empty, none, None) is None
+
+
+def test_group_series_views():
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE})
+    data.mapping = INJ_MAPPING
+    module = an_report.AuthorReportModule()
+    base = {'kind': 'injection', 'periods': ['2024']}
+    ids = lambda **p: {c.id for c in module.run(data, {**base, **p}).charts}
+    assert 'an-cum-groups-injection-2024' in ids(view='cum_season')
+    assert 'an-cum-months-injection-2024' in ids(view='cum_months')
+    assert 'an-group-means-injection-2024' in ids(view='group_mean')
+    assert 'an-monthly-groups-injection-2024' in ids(view='group_mean_months')
+    assert 'an-canvas-injection-2024' in ids(view='canvas', show=['rate'])
+    groups = module.options('group', data, base)
+    assert groups
+    chart = next(c for c in module.run(data, {**base, 'view': 'group_months', 'group': groups[-1]}).charts if c.id.startswith('an-cum-group-months'))
+    assert groups[-1] in chart.title
+    total = next(c for c in module.run(data, {**base, 'view': 'cum_season'}).charts if c.id.startswith('an-cum-groups'))
+    obj = next(s for s in total.series if s.name == 'Объект')
+    assert obj.y[-1] == pytest.approx(INJ_SEASON.q.sum() / 1e6)      # накопленное по объекту = весь объём сезона
 
 
 def test_monthly_wells_and_classes_by_hand():
@@ -226,9 +254,7 @@ def test_injection_season_run_builds_chapter2_items():
     data.mapping = INJ_MAPPING
     result = an_report.AuthorReportModule().run(data, {'kind': 'injection', 'periods': ['2024']})
     charts = {c.id for c in result.charts}
-    assert {'an-curve-injection-2024', 'an-pressure-2024', 'plan-fact-months-2024', 'an-rate-injection-2024',
-            'an-wells-injection-2024', 'an-cumulative-injection-2024', 'an-group-means-injection-2024',
-            'an-monthly-groups-injection-2024', 'an-fund-injection-2024'} <= charts
+    assert {'an-canvas-injection-2024', 'plan-fact-months-2024', 'an-fund-injection-2024'} <= charts
     assert not any(c.title.lower().startswith(('табл', 'рис')) for c in result.charts)
     assert not any(t.title.lower().startswith(('табл', 'рис')) for t in result.tables)
     tables = [t.id for t in result.tables]
