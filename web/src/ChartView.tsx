@@ -1498,14 +1498,14 @@ function DownloadMenu({ onDownload }: { onDownload: (format: string, dpi: number
         <div className="popover right">
           <label className="inline-field">Формат
             <select value={format} onChange={e => setFormat(e.target.value)}>
-              <option value="svg">SVG</option><option value="pdf">PDF</option><option value="png">PNG</option>
+              <option value="svg">SVG</option><option value="pdf">PDF</option><option value="png">PNG</option><option value="xlsx">XLSX (график и данные)</option>
             </select>
           </label>
-          <label className="inline-field">DPI
+          {format !== 'xlsx' && <label className="inline-field">DPI
             <select value={dpi} onChange={e => setDpi(Number(e.target.value))}>
               {[300, 600, 1200].map(d => <option key={d} value={d}>{d}</option>)}
             </select>
-          </label>
+          </label>}
           <button type="button" className="primary" disabled={busy} onClick={go}>{busy ? 'Готовлю файл…' : `Скачать ${format.toUpperCase()}`}</button>
           {failure && <p className="field-error">{failure}</p>}
         </div>

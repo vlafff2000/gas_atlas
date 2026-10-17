@@ -25,11 +25,19 @@ COLUMNS = ('№ скв.', 'Qм/к, м³/сут', 'Рм/к, кгс/см²', 'Гр
 GROUP_NEAR_ZERO, GROUP_LOW, GROUP_HIGH = 'Р≈0', 'Р≤28', 'Р>28'
 
 
+def valid_rows(rows: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Строки с числовым номером скважины (целое); второй результат — встреченные некорректные номера («`», пустые)."""
+    number = pd.to_numeric(rows[WELL], errors='coerce')
+    good = number.notna() & number.eq(number.round())
+    bad = sorted({str(v).strip() or '(пусто)' for v in rows.loc[~good, WELL]})
+    return rows[good].assign(**{WELL: number[good].astype(int)}), bad
+
+
 def annulus_wells(rows: pd.DataFrame) -> pd.DataFrame:
     """Скважины с расходом или давлением за период: максимумы Q и P, группа по давлению. Порядок — по номеру скважины."""
     if rows.empty:
         return pd.DataFrame(columns=['well', 'q_max', 'p_max', 'group'])
-    rows = rows.assign(**{WELL: pd.to_numeric(rows[WELL]).astype(int)})
+    rows = valid_rows(rows)[0]
     grouped = rows.groupby(WELL).agg(q_max=(Q, 'max'), p_max=(P, 'max')).reset_index()
     grouped = grouped[(grouped['q_max'] > 0) | (grouped['p_max'] > 0)]
     grouped = grouped.rename(columns={WELL: 'well'}).sort_values('well').reset_index(drop=True)
@@ -52,7 +60,7 @@ def flow_group(q: float) -> str:
 
 
 def table_11_3(wells: pd.DataFrame) -> pd.DataFrame:
-    """Табл. 11.3: номер скважины, Qм/к, Рм/к и группа; значения округлены как в отчёте (Q — до десятых, P — целые)."""
+    """Результаты замеров МКД: номер скважины, Qм/к, Рм/к и группа; значения округлены как в отчёте (Q — до десятых, P — целые)."""
     out = pd.DataFrame({
         COLUMNS[0]: wells['well'].astype(int),
         COLUMNS[1]: wells['q_max'].round(1),
@@ -75,7 +83,7 @@ def classification_text(wells: pd.DataFrame) -> list[str]:
     low = wells[wells['group'] == GROUP_LOW]
     high = wells[wells['group'] == GROUP_HIGH]
     lines = [
-        f'В выбранном периоде межколонные давления отмечаются на {count} скважинах (таблица 11.3).',
+        f'В выбранном периоде межколонные давления отмечаются на {count} скважинах (таблица «Результаты замеров МКД»).',
         'По величине МКД и расхода из МКП скважины разделены на 3 условных группы:',
         f'Скважины с наличием расхода, но с минимальным (близким к нулю) МКД - {len(near)} скв. '
         f'(№ {_numbers(near["well"])});' if len(near) else

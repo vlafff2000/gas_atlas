@@ -112,4 +112,4 @@ def test_author_report_builds_table_11_3_for_chosen_season():
 def test_author_report_without_annulus_is_a_note():
     result = an_report.AuthorReportModule().run(Data({DatasetKind.PRODUCTION: PRODUCTION_STUB}), {'kind': 'withdrawal', 'periods': [], 'annulus': []})
     assert not any(t.id == 'an-annulus-113' for t in result.tables)
-    assert any('Табл. 11.3 не построена' in n.text for n in result.notes)
+    assert any('Результаты замеров МКД не построены' in n.text for n in result.notes)

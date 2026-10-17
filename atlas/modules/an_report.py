@@ -14,7 +14,8 @@
 закачки), рис. 2.2 (план и факт по месяцам), рис. 2.3 (по ГСП — как в «План и факт»), рис. 2.4 (Рпл за сезон),
 табл. 2.1 (план и факт по группам), 2.2 (работавшие скважины по месяцам), 2.3 (классы приёмистости), 2.4 (план по месяцам).
 
-Главы 1.1.2 и 11.3 — разделы-заглушки в ``CHAPTERS``; каждая наполняется отдельным PR.
+Графики сезона (отбор и закачка) собирает ``an_charts``: расход и давление по датам и по накопленному объёму, скважины в работе,
+накопленный объём, давление, средние по группам и месяцам, фонд, вынос воды, объём газа в пласте, МКД.
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from atlas.engine.core.loader import canonical_gsp, unify_groups
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
-from . import an_annulus, an_wells
+from . import an_annulus, an_charts, an_wells
 from ._production import KINDS, NEUTRAL_PREFIXES, group_of, periods_of, visible_periods
 from .plan_fact import UNIT, PlanFactModule, compare as plan_compare, month_label, plan_periods, summed as plan_summed
 
@@ -53,13 +54,9 @@ NOTE = ('Средние считаются по суткам с положите
         'Давления абсолютные, кгс/см²: давление объекта берётся на дату начала, пика или на ближайшую к ней дату. '
         'Водный фактор — л воды на 1000 м³ газа; накопленный фактор — максимум за сезон (обычно на последние сутки).')
 
-# Главы отчёта, для которых в Атласе будет свой раздел. Пока — только заметка о том, что раздел в работе.
-CHAPTERS = (
-    ('1.1.2', 'Фонд скважин: таблица 1.8 и текст по таблицам 1.7–1.8'),
-)
-# Глава 2: не строятся — рис. 2.5 (Рпл по ГСП: нужны замеры по скважинам), 2.8 (ГПО), 2.9 (модельный объём газа);
-# карты 2.6, 2.7, 2.10, 2.11 — вне Атласа. Разделы 2.1.3, 2.2–2.4 в отчёте этого модуля не берутся.
-CHAPTER2_SKIPPED = ('Рис. 2.5 (Рпл по ГСП), 2.8 (ГПО), 2.9 (модель): в Атласе нет этих данных; карты 2.6, 2.7, 2.10, 2.11 — вне Атласа.')
+# Не строятся: давление по группам (нужны замеры по скважинам), геологические запасы газа и модельный объём газа; карты — вне Атласа.
+CHAPTER2_SKIPPED = ('Не построены: пластовое давление по группам (нужны замеры по скважинам), геологические запасы газа (ГПО) '
+                    'и модельный объём газа — в Атласе нет этих данных; карты — вне Атласа.')
 # Табл. 2.3 (закачка): классы среднего расхода за сутки с расходом, тыс. м³/сут; граница уходит в верхний класс
 INJ_CLASSES = (('Менее 100', 0, 100), ('От 100 до 150', 100, 150), ('От 150 до 200', 150, 200),
                ('От 200 до 250', 200, 250), ('От 250 до 300', 250, 300), ('Более 300', 300, np.inf))
@@ -215,47 +212,6 @@ def season_report(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], 
     return summary, pd.DataFrame(rows)
 
 
-def pressure_window(pressure: pd.DataFrame | None, start: Any, stop: Any) -> pd.DataFrame | None:
-    """Замеры давления объекта с датами от ``start`` до ``stop`` включительно, по возрастанию дат; None, если их нет."""
-    if pressure is None or pressure.empty:
-        return None
-    p = pressure.dropna(subset=['pressure'])
-    p = p[p.date.between(pd.Timestamp(start), pd.Timestamp(stop))].sort_values('date', kind='stable')
-    return p if not p.empty else None
-
-
-def injection_curve(prod: pd.DataFrame, pressure: pd.DataFrame | None, period: str) -> Chart | None:
-    """Рис. 2.1: суточный расход объекта по накопленной закачке за сезон; Рпл — на правой оси (точки по датам замеров).
-    Число работающих скважин — в подсказке к каждой точке (третья ось в контракте графика не предусмотрена)."""
-    pos = prod[prod.kind.eq('injection') & prod.period.eq(period) & prod.q.gt(0)]
-    daily = pos.groupby('date').q.sum().sort_index()
-    if daily.empty:
-        return None
-    wells = pos.groupby('date').well.nunique()
-    cum = daily.cumsum() / 1e6                              # м³ → млн м³ накопленно за сезон
-    chart = Chart(f'injection-curve-{period}', f'Закачка за сезон · {period}: расход, давление и скважины',
-                  Axis('Накопленная закачка за сезон', 'млн м³', from_zero=True),
-                  Axis('Суточный расход', Q_UNIT, from_zero=True), y2=Axis('Рпл, абс.', P_UNIT))
-    labels = [f'{d:%d.%m.%Y} · скважин в работе: {int(wells[d])}' for d in daily.index]
-    chart.series.append(Series('Суточный расход', cum.to_numpy(), (daily / 1000).to_numpy(), 'line', labels=labels, width=1.0))
-    p = pressure_window(pressure, daily.index.min(), daily.index.max())
-    if p is not None:
-        x = [cum[cum.index <= d].iloc[-1] if d >= cum.index[0] else 0.0 for d in p.date]
-        chart.series.append(Series('Рпл, абс.', x, p.pressure.to_numpy(), 'points', axis='y2'))
-    return chart
-
-
-def pressure_chart(pressure: pd.DataFrame | None, period: str, start: Any, stop: Any) -> Chart | None:
-    """Рис. 2.4: динамика среднего пластового давления объекта за сезон (факт)."""
-    p = pressure_window(pressure, start, stop)
-    if p is None:
-        return None
-    chart = Chart(f'injection-pressure-{period}', f'Динамика пластового давления · {period}',
-                  Axis('Дата', scale='time'), Axis('Рпл, абс.', P_UNIT))
-    chart.series.append(Series('Среднее пластовое давление', p.date.to_numpy(), p.pressure.to_numpy(), 'line', markers=True))
-    return chart
-
-
 def injection_class_table(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
     """Табл. 2.3: по группам — число и номера скважин с нулевым расходом за сезон и по классам среднего расхода (тыс. м³/сут)."""
     w = wells.assign(group=wells.well.map(scopes), rate_k=wells.rate / 1000)
@@ -331,7 +287,7 @@ class AuthorReportModule(Module):
             Param('kind', 'Режим', 'choice', default='withdrawal', options=KINDS, section='Выбор данных'),
             Param('periods', 'Сезоны', 'multi', default=[], dynamic=True, depends=('kind',), auto='last:1',
                   empty='ничего', section='Выбор данных'),
-            Param('annulus', 'Сезоны замеров МКД (табл. 11.3)', 'multi', default=[], dynamic=True, auto='last:1',
+            Param('annulus', 'Сезоны замеров МКД', 'multi', default=[], dynamic=True, auto='last:1',
                   empty='ничего', section='Выбор данных'),
         ),
     )
@@ -361,9 +317,9 @@ class AuthorReportModule(Module):
         summaries, means = [], []
         fund, classes, wet = [], [], []
         if PLAN not in data:
-            result.notes.append(Note('План по группам не загружен: рис. 1.8 (план и факт) пропущен.', 'warning'))
+            result.notes.append(Note('План по группам не загружен: график «План и факт по группам» пропущен.', 'warning'))
         if kind == 'withdrawal' and WATER not in data:
-            result.notes.append(Note('«Контроль воды» не загружен: таблица 1.6 по воде пропущена.', 'warning'))
+            result.notes.append(Note('«Контроль воды» не загружен: таблица «Вода по группам» пропущена.', 'warning'))
         for period in periods:
             summary, table = season_report(data[PRODUCTION], data.mapping, pressure, kind, period, water)
             if summary is None:
@@ -373,6 +329,7 @@ class AuthorReportModule(Module):
             means.append(table.assign(period_season=period))
             result.summary += [Stat(f'Длительность · {period}', f'{summary["days"]} сут', 'Календарные сутки с расходом'),
                                Stat(f'Средний расход · {period}', f'{summary["mean"]:.1f} {Q_UNIT}'.replace('.', ','))]
+            self.season_charts(result, data, kind, period, summary, table, pressure)
             self.fund_details(result, data, kind, period, summary, fund, classes, wet)
             self.plan_details(result, data, kind, period)
         if kind == 'injection':
@@ -390,45 +347,51 @@ class AuthorReportModule(Module):
         if wet:
             result.tables.append(self.wet_table_report(wet))
         result.notes.append(Note(NOTE))
-        for number, title in CHAPTERS:
-            result.notes.append(Note(f'Глава {number} · {title}: раздел в разработке, появится отдельным изменением.'))
         if kind == 'injection' and summaries:
             result.notes.append(Note(CHAPTER2_SKIPPED, 'warning'))
         self.annulus_details(result, data, params.get('annulus') or [])
         return result
 
     def annulus_details(self, result: Result, data: Data, seasons: list[str]) -> None:
-        """Табл. 11.3 (глава 11.3): межколонные давления и расход из МКП по выбранным сезонам замеров + текст под таблицей."""
+        """Результаты замеров МКД: межколонные давления и расход из МКП по выбранным сезонам замеров + текст под таблицей."""
         if ANNULUS not in data or data[ANNULUS].empty:
-            result.notes.append(Note('Табл. 11.3 не построена: в проекте нет «Межколонных давлений» (База межколонок).'))
+            result.notes.append(Note('Результаты замеров МКД не построены: в проекте нет «Межколонных давлений» (База межколонок).'))
             return
         rows = data[ANNULUS]
         picked = [s for s in seasons if s in set(rows['season'])]
         if not picked:
-            result.notes.append(Note('Табл. 11.3: выберите сезон замеров МКД.'))
+            result.notes.append(Note('Результаты замеров МКД: выберите сезон замеров МКД.'))
             return
-        wells = an_annulus.annulus_wells(rows[rows['season'].isin(picked)])
+        chosen, bad = an_annulus.valid_rows(rows[rows['season'].isin(picked)])
+        if bad:
+            result.notes.append(Note('Межколонные давления: пропущены строки с некорректным номером скважины: '
+                                     + ', '.join(f'«{b}»' for b in bad) + '. Исправьте номер в базе межколонок.', 'warning'))
+        wells = an_annulus.annulus_wells(chosen)
         frame = an_annulus.table_11_3(wells)
-        columns = [Column(c, c) for c in an_annulus.COLUMNS]
-        result.tables.append(Table('an-annulus-113', 'Табл. 11.3 · Результаты замеров МКД', frame, columns,
+        columns = [Column(an_annulus.COLUMNS[0], an_annulus.COLUMNS[0], decimals=0, kind='number'),
+                   Column(an_annulus.COLUMNS[1], an_annulus.COLUMNS[1], decimals=1, kind='number'),
+                   Column(an_annulus.COLUMNS[2], an_annulus.COLUMNS[2], decimals=0, kind='number'),
+                   Column(an_annulus.COLUMNS[3], an_annulus.COLUMNS[3])]
+        result.tables.append(Table('an-annulus-113', 'Результаты замеров МКД', frame, columns,
                                    note='Максимумы за выбранные сезоны: расход из МКП и давление МКД, кгс/см² (абсолютные).'))
+        result.charts += an_charts.annulus_charts(wells, ', '.join(picked))
         for line in an_annulus.classification_text(wells):
             result.notes.append(Note(line))
 
     def injection_details(self, result: Result, data: Data) -> None:
-        """Табл. 1.10 (глава 1.2): объёмы закачки ГСП 9 по последним сезонам — рекомендованный и фактический."""
+        """Объёмы закачки газа: объёмы закачки ГСП 9 по последним сезонам — рекомендованный и фактический."""
         plan = data[PLAN] if PLAN in data else None
         if plan is None or plan.empty:
-            result.notes.append(Note('«План по группам» не загружен: рекомендованный объём в табл. 1.10 пустой.', 'warning'))
+            result.notes.append(Note('«План по группам» не загружен: рекомендованный объём в таблице «Объёмы закачки газа» пустой.', 'warning'))
         frame = injection_group_table(data[PRODUCTION], plan, data.mapping, data.settings)
         if frame.empty:
-            result.notes.append(Note(f'Табл. 1.10 пропущена: в закачке нет скважин группы {GSP9}.', 'warning'))
+            result.notes.append(Note(f'Таблица «Объёмы закачки газа» пропущена: в закачке нет скважин группы {GSP9}.', 'warning'))
             return
         result.tables.append(self.injection_table(frame))
 
     def injection_season(self, result: Result, data: Data, summaries: list[dict[str, Any]]) -> None:
         """Глава 2 (разделы 2.1.1–2.1.2): рис. 2.1, 2.2, 2.3, 2.4 и табл. 2.1–2.4 по выбранным сезонам закачки."""
-        prod, pressure = data[PRODUCTION], (data[OBJECT] if OBJECT in data else None)
+        prod = data[PRODUCTION]
         plan_cmp = None
         if PLAN in data and not data[PLAN].empty:
             # Имена групп плана и факта приводятся к единой схеме до сопоставления, иначе «ГСП-9» и «гсп_9» не совпадут.
@@ -439,16 +402,6 @@ class AuthorReportModule(Module):
         plan_rows, months_parts, classes, cards = [], [], [], []
         for summary in summaries:
             period = summary['period']
-            curve = injection_curve(prod, pressure, period)
-            if curve is not None:
-                result.charts.append(curve)
-            pres = pressure_chart(pressure, period, summary['start'], summary['stop'])
-            if pres is not None:
-                result.charts.append(pres)
-                start_p, stop_p = summary.get('pressure_start'), pressure_near(pressure, summary['stop'])
-                if start_p is not None and stop_p is not None:
-                    result.summary.append(Stat(f'Рпл за сезон · {period}', f'{_signed(stop_p - start_p)} {P_UNIT}',
-                                               f'На конец сезона {stop_p:.1f}, на начало {start_p:.1f}'.replace('.', ',')))
             months, mlist = monthly_wells(prod, data.mapping, period)
             months_parts.append(self.injection_months_table(months, mlist, period, len(months_parts)))
             wells = an_wells.season_wells(prod, 'injection', period)
@@ -473,7 +426,7 @@ class AuthorReportModule(Module):
                    Column('recommended', 'Рекомендованный объём закачки, млрд м³', decimals=2, kind='number'),
                    Column('fact', 'Фактический объём закачки, млрд м³', decimals=3, kind='number'),
                    Column('percent', 'Доля в общем объёме закачки, %', decimals=1, kind='number')]
-        return Table('an-injection-gsp9', f'Табл. 1.10 · Объёмы закачки газа по {GSP9}', frame, columns,
+        return Table('an-injection-gsp9', f'Объёмы закачки газа по {GSP9}', frame, columns,
                      note=f'Рекомендованный — «План по группам» (закачка); фактический — сумма суточных объёмов скважин {GSP9}; '
                           f'доля — от общего фактического объёма сезона. Последние {INJECTION_SEASONS} сезонов закачки.')
 
@@ -491,7 +444,7 @@ class AuthorReportModule(Module):
                    Column('peak_wells', 'Скважин на дату максимума', decimals=0, kind='number'),
                    Column('pressure_start', f'Рпл на начало, абс. {P_UNIT}', decimals=2, kind='number'),
                    Column('pressure_peak', f'Рпл на дату максимума, абс. {P_UNIT}', decimals=2, kind='number')]
-        return Table('an-season', 'Сезон: основные показатели', frame, columns)
+        return Table('an-season', 'Основные показатели сезона', frame, columns)
 
     @staticmethod
     def water_table_report(summaries: list[dict[str, Any]]) -> Table:
@@ -516,15 +469,41 @@ class AuthorReportModule(Module):
         columns = [Column('season', 'Сезон'), Column('scope', 'Группа'), Column('period', 'Период'),
                    Column('days', 'Суток с расходом', decimals=0, kind='number'),
                    Column('mean', 'Средний суточный расход', Q_UNIT, 1, 'number')]
-        return Table('an-season-means', 'Средние суточные расходы: объект и группы', frame[['season', 'scope', 'period', 'days', 'mean']],
+        return Table('an-season-means', 'Средние суточные расходы объекта и групп', frame[['season', 'scope', 'period', 'days', 'mean']],
                      columns, note='Строка «Весь сезон» — среднее за сезон, остальные — по месяцам.')
+
+    def season_charts(self, result: Result, data: Data, kind: str, period: str, summary: dict[str, Any],
+                      means: pd.DataFrame, pressure: pd.DataFrame | None) -> None:
+        """Графики сезона по данным проекта: расход, давление, скважины, накопленный объём, группы, вода, газ в пласте."""
+        daily, wells = an_charts.daily_of(data[PRODUCTION], kind, period)
+        start, stop = summary['start'], summary['stop']
+        factor = data[FACTOR] if FACTOR in data else None
+        charts = [an_charts.curve_chart(kind, period, daily, wells, pressure),
+                  an_charts.rate_chart(kind, period, daily, wells, pressure),
+                  an_charts.wells_chart(kind, period, wells),
+                  an_charts.cumulative_chart(kind, period, daily),
+                  an_charts.pressure_chart(pressure, period, start, stop),
+                  an_charts.group_means_chart(kind, period, means),
+                  an_charts.monthly_groups_chart(kind, period, means)]
+        if kind == 'withdrawal' and factor is not None and not factor.empty:
+            charts.append(an_charts.water_chart(period, water_table(factor), start, stop))
+        charts.append(an_charts.gas_in_place_chart(period, factor, start, stop))
+        result.charts += [c for c in charts if c is not None]
+        start_p, stop_p = summary.get('pressure_start'), pressure_near(pressure, stop)
+        if an_charts.pressure_points(pressure, start, stop) is not None and start_p is not None and stop_p is not None:
+            result.summary.append(Stat(f'Рпл за сезон · {period}', f'{_signed(stop_p - start_p)} {P_UNIT}',
+                                       f'На конец сезона {stop_p:.1f}, на начало {start_p:.1f}'.replace('.', ',')))
 
     def fund_details(self, result: Result, data: Data, kind: str, period: str, summary: dict[str, Any],
                      fund: list[pd.DataFrame], classes: list[pd.DataFrame], wet: list[pd.DataFrame]) -> None:
         """Фонд сезона: табл. 1.4 и 1.5, а для отбора — табл. 1.6 по воде и сводка по воде для текста."""
         wells = an_wells.season_wells(data[PRODUCTION], kind, period)
         scopes = well_scopes(data.mapping, ordered(wells.well))
-        fund.append(an_wells.fund_table(wells, scopes).assign(season=period))
+        fund_frame = an_wells.fund_table(wells, scopes).assign(season=period)
+        fund.append(fund_frame)
+        chart = an_charts.fund_chart(kind, period, fund_frame)
+        if chart is not None:
+            result.charts.append(chart)
         if kind != 'withdrawal':
             return                                   # закачка: классы — табл. 2.3 (injection_class_table)
         classes.append(an_wells.class_table(wells, scopes).assign(season=period))
@@ -532,7 +511,7 @@ class AuthorReportModule(Module):
                                          summary['start'], summary['stop'])
         if by_well is None:
             if WATER in data:
-                result.notes.append(Note(f'{period}: в «Контроль воды» нет объёма воды — таблица 1.6 пропущена.', 'warning'))
+                result.notes.append(Note(f'{period}: в «Контроль воды» нет объёма воды — таблица «Вода по группам» пропущена.', 'warning'))
             return
         wet.append(an_wells.water_table(by_well).assign(season=period))
         extremes = an_wells.water_extremes(by_well)
@@ -548,11 +527,13 @@ class AuthorReportModule(Module):
         plan = plan_compare(data[PRODUCTION], data[PLAN], data.mapping, kind, data.settings)
         part = plan[plan.period.eq(period)]
         if part.empty:
-            result.notes.append(Note(f'{period}: в плане нет строк за сезон — рис. 1.8 пропущен.', 'warning'))
+            result.notes.append(Note(f'{period}: в плане нет строк за сезон — график «План и факт по группам» пропущен.', 'warning'))
             return
         by_group = plan_summed(part, 'group')
         by_group = by_group.set_index('group').loc[ordered(by_group.group)].reset_index()
         result.charts.append(PlanFactModule().groups_chart(by_group, period, kind))
+        if kind == 'withdrawal':
+            result.charts.append(PlanFactModule().months_chart(plan_summed(part, 'month').sort_values('month'), period, kind))
         ext = an_wells.deviation_extremes(by_group)
         if not ext:
             return
@@ -573,14 +554,14 @@ class AuthorReportModule(Module):
                    Column('fund', 'Фонд, скв.', decimals=0, kind='number'),
                    Column('working', 'Работало за сезон, скв.', decimals=0, kind='number'),
                    Column('percent', 'Доля работавших, %', '%', 1, 'number')]
-        return Table('an-fund', 'Табл. 1.4 · Фонд скважин по группам', frame, columns,
+        return Table('an-fund', 'Фонд скважин по группам', frame, columns,
                      note='Фонд — скважины с данными за сезон; работали — с хотя бы одними сутками с расходом.')
 
     @staticmethod
     def injection_months_table(frame: pd.DataFrame, months: list[Any], period: str, index: int) -> Table:
         columns = [Column('group', 'ГСП'), Column('fund', 'Фонд, скв.', decimals=0, kind='number')]
         columns += [Column(f'm{i}', month_label(m), decimals=0, kind='number') for i, m in enumerate(months)]
-        return Table(f'an-inj-wells-{index}', f'Табл. 2.2 · Работавшие скважины по месяцам · {period}', frame, columns,
+        return Table(f'an-inj-wells-{index}', f'Работавшие скважины по месяцам · {period}', frame, columns,
                      note='Скважины с расходом хотя бы в одни сутки месяца; фонд — скважины сезона.')
 
     @staticmethod
@@ -588,7 +569,7 @@ class AuthorReportModule(Module):
         columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
                    Column('zero', 'Нулевой расход за сезон, скв. (номера)')]
         columns += [Column(key, f'{name} тыс. м³/сут, скв. (номера)') for key, (name, _, _) in zip(INJ_CLASS_KEYS, INJ_CLASSES)]
-        return Table('an-inj-classes', 'Табл. 2.3 · Условная классификация скважин по производительности', frame[['season', 'group', 'zero', *INJ_CLASS_KEYS]],
+        return Table('an-inj-classes', 'Условная классификация скважин по производительности', frame[['season', 'group', 'zero', *INJ_CLASS_KEYS]],
                      columns, note='Средний расход за сутки с расходом, тыс. м³/сут; граница класса относится к верхнему. Номера — в скобках.')
 
     @staticmethod
@@ -598,14 +579,14 @@ class AuthorReportModule(Module):
                    Column('fact', f'Факт, {UNIT}', decimals=2, kind='number'),
                    Column('delta', f'Факт минус план, {UNIT}', decimals=2, kind='number'),
                    Column('percent', 'Выполнение плана, %', decimals=1, kind='number')]
-        return Table('an-inj-plan-fact', 'Табл. 2.1 · Плановые и фактические объёмы закачки по группам', frame[['season', 'group', 'plan', 'fact', 'delta', 'percent']],
+        return Table('an-inj-plan-fact', 'Плановые и фактические объёмы закачки по группам', frame[['season', 'group', 'plan', 'fact', 'delta', 'percent']],
                      columns, note='Группы — единые имена; итог — строка «Всего». План и факт — за сезон.')
 
     @staticmethod
     def plan_card_table(frame: pd.DataFrame, months: list[Any], period: str, index: int) -> Table:
         columns = [Column('group', 'ГСП')]
         columns += [Column(f'm{i}', month_label(m), UNIT, 2, 'number') for i, m in enumerate(months)]
-        return Table(f'an-inj-plan-card-{index}', f'Табл. 2.4 · Технологическая карта: план закачки по месяцам · {period}', frame, columns,
+        return Table(f'an-inj-plan-card-{index}', f'Технологическая карта: план закачки по месяцам · {period}', frame, columns,
                      note='Рекомендованный объём закачки по группам и месяцам (План по группам).')
 
     @staticmethod
@@ -615,7 +596,7 @@ class AuthorReportModule(Module):
                    Column('zero', 'Нулевой расход за сезон, скв. (номера)'),
                    Column('low', f'Расход менее {an_wells.LOW_LIMIT} тыс. м³/сут, скв. (номера)'),
                    Column('high', f'Расход {an_wells.LOW_LIMIT} тыс. м³/сут и более, скв. (номера)')]
-        return Table('an-fund-classes', 'Табл. 1.5 · Классы производительности скважин', frame, columns,
+        return Table('an-fund-classes', 'Классы производительности скважин', frame, columns,
                      note='Расход — средний за сутки с расходом, тыс. м³/сут. Номера скважин — в скобках.')
 
     @staticmethod
@@ -626,5 +607,5 @@ class AuthorReportModule(Module):
                    Column('water', 'Вода за сезон, м³', decimals=0, kind='number'),
                    Column('wf_max', f'Максимальный водный фактор, {WF_UNIT}', decimals=1, kind='number'),
                    Column('wf_well', 'Скважина с максимальным ВФ')]
-        return Table('an-fund-water', 'Табл. 1.6 · Вода по группам', frame, columns,
+        return Table('an-fund-water', 'Вода по группам', frame, columns,
                      note='Водный фактор скважины = вода за сезон / газ за сезон. Источник — «Контроль воды».')
