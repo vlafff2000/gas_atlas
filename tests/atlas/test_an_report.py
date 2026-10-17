@@ -208,6 +208,11 @@ def test_group_series_views():
     assert 'an-group-means-injection-2024' in ids(view='group_mean')
     assert 'an-monthly-groups-injection-2024' in ids(view='group_mean_months')
     assert 'an-canvas-injection-2024' in ids(view='canvas', show=['rate'])
+    assert 'an-fund-injection-2024' in ids()                          # правый график по умолчанию — фонд
+    assert 'an-fund-injection-2024' not in ids(side='none')
+    side = ids(side='cum_months')
+    assert 'an-cum-months-injection-2024' in side and 'an-fund-injection-2024' not in side
+    assert [c.id for c in module.run(data, {**base, 'view': 'group_mean', 'side': 'group_mean'}).charts].count('an-group-means-injection-2024') == 1
     groups = module.options('groups', data, base)
     assert groups
     chart = next(c for c in module.run(data, {**base, 'view': 'group_months', 'groups': [groups[-1]]}).charts if c.id.startswith('an-cum-group-months'))
