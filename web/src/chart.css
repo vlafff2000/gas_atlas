@@ -10,7 +10,8 @@
 }
 .chart-stage { position: relative; }
 .chart-overlay { position: absolute; inset: 0; pointer-events: none; }
-.chart figcaption > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Название графика переносится по словам целиком: обрезанный заголовок не даёт понять, какой график открыт */
+.chart figcaption > span:first-child { min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
 .chart-actions { display: flex; align-items: center; gap: 10px; font-weight: 400; flex-shrink: 0; }
 .chart-tools { display: inline-flex; gap: 2px; }
 .chart-tools button.icon {
@@ -120,3 +121,45 @@
 
 .copy-chart { display: inline-flex; align-items: center; gap: 8px; }
 .copy-chart .field-error { font-size: 12px; max-width: 260px; }
+
+/* «Настройка графика»: панель без затемнения, меняет график сразу, как «Формат ряда» в Excel */
+.chart-settings {
+  position: fixed; top: 72px; right: 24px; z-index: 60; width: 500px; max-width: calc(100vw - 32px); max-height: calc(100vh - 96px);
+  display: flex; flex-direction: column; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 30px var(--shadow); font-size: 13px; font-weight: 400;
+}
+.chart-settings > header { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.chart-settings > header b { flex-shrink: 0; }
+.cs-title { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.cs-close { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; border-radius: 4px; padding: 0 4px; }
+.cs-close:hover { color: var(--ink); background: var(--bg); }
+.cs-body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 0; overflow: auto; }
+.cs-list { list-style: none; margin: 0; padding: 6px; border-right: 1px solid var(--line); overflow: auto; }
+.cs-list button {
+  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 5px 6px; border-radius: 4px;
+  color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.cs-list button span { overflow-wrap: anywhere; }
+.cs-list button:hover { background: var(--bg); }
+.cs-list button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; }
+.cs-list i { width: 12px; height: 12px; flex-shrink: 0; border-radius: 3px; }
+.cs-editor { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; min-width: 0; }
+.cs-editor h3 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.cs-editor h3 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.cs-editor fieldset { display: grid; gap: 8px; margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.cs-editor legend { padding: 0 4px; color: var(--muted); font-size: 12px; }
+.cs-editor label { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; gap: 8px; }
+.cs-editor label.cs-check { grid-template-columns: auto 1fr; }
+.cs-editor input[type='color'] { width: 44px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+.cs-editor select { font: inherit; padding: 3px 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+.cs-range { display: flex; align-items: center; gap: 8px; }
+.cs-range input { flex: 1; min-width: 0; }
+.cs-range output { min-width: 48px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cs-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.cs-actions button { font: inherit; font-size: 12px; padding: 4px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.cs-actions button:disabled { color: var(--muted); cursor: default; opacity: .6; }
+@media (max-width: 640px) {
+  .chart-settings { top: auto; right: 8px; left: 8px; bottom: 8px; width: auto; max-height: 70vh; }
+  .cs-body { grid-template-columns: 1fr; }
+  .cs-list { border-right: 0; border-bottom: 1px solid var(--line); max-height: 120px; }
+}
