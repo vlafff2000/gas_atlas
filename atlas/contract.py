@@ -254,7 +254,7 @@ class Series:
     ids: Sequence[str] | None = None  # идентификаторы точек: по ним щелчок исключает точку
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
     markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
-    axis: Literal['y', 'y2'] = 'y'   # 'y2' — правая ось Chart.y2
+    axis: Literal['y', 'y2', 'y3'] = 'y'   # 'y2' — правая ось Chart.y2, 'y3' — вторая правая (Chart.y3)
     stack: str = ''                  # одинаковое значение: столбцы или линии с заливкой складываются стопкой
     total: int = 0                   # сколько точек было до прореживания самим модулем (0 — столько, сколько в x)
     # Признаки серии для легенды по рядам: {'Скважина': '№ 101', 'Период': '2023/2024'}. Легенда графика
@@ -289,6 +289,7 @@ class Chart:
     series: list[Series] = field(default_factory=list)
     crosshair: bool = False
     y2: Axis | None = None           # вторая шкала справа (две шкалы Y)
+    y3: Axis | None = None           # третья шкала: вторая справа, снаружи от y2 (требует y2)
     events: list[Event] = field(default_factory=list)   # отметки: дата на оси времени, число на числовой оси (накопленный объём)
 
 
@@ -491,7 +492,7 @@ def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
     from . import thinning
     kept = thinning.screen_indices(c) if thin else {}
     return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
-            'y2': asdict(c.y2) if c.y2 else None,
+            'y2': asdict(c.y2) if c.y2 else None, 'y3': asdict(c.y3) if c.y3 else None,
             'series': [_series_json(s, kept.get(i)) for i, s in enumerate(c.series)],
             'events': [{'x': _event_x(e.x), 'label': e.label, 'kind': e.kind,
                         'well': e.well} for e in c.events]}

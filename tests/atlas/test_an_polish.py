@@ -100,3 +100,15 @@ def test_tables_xlsx_is_formatted_like_the_screen():
     assert ws['B1'].value == 'Расход, тыс. м³/сут' and ws['B1'].font.bold and ws['B2'].number_format == '0.0'
     assert ws['C2'].number_format == 'DD.MM.YYYY' and ws.freeze_panes == 'A2'
     assert ws['A5'].value == 'Примечание'
+
+
+def test_three_axes_export_to_all_formats():
+    from atlas import render
+    result = run({}, {})
+    chart = next(c for c in result.charts if c.id.startswith('an-canvas'))
+    assert chart.y3 is not None
+    for fmt in ('svg', 'png', 'pdf', 'xlsx'):
+        data, name, _ = render.chart_file(chart, fmt, 150)
+        assert data and name.endswith(fmt)
+    fig = render.to_plotly(chart)
+    assert {t.yaxis for t in fig.data} == {'y', 'y2', 'y3'} and fig.layout.yaxis3.overlaying == 'y'
