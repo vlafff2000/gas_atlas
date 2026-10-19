@@ -81,7 +81,7 @@ class ProductionModule(ProductionBase):
         skipped = int(implausible_dates(part).sum())
         if skipped:
             result.notes.append(Note(
-                f'Пропущено строк с нулевой или пустой датой (1970 и раньше): {skipped}. График построен по остальным; '
+                f'Пропущено строк с нулевой датой (01.01.1970 и подобные): {skipped}. График построен по остальным; '
                 'проверьте даты в исходной БД расходов.', 'warning'))
         if params['mode'] == 'groups':
             return self.run_groups(result, sel)

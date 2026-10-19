@@ -14,6 +14,11 @@ def test_future_rows_are_dropped():
     assert len(out) == 2
 
 
+def test_old_real_history_is_kept():
+    out = bounded_dates(frame(['1985-05-01', '1985-06-01', '1986-01-01']), 'Период история')
+    assert len(out) == 3
+
+
 def test_typo_year_gives_readable_error():
     dates = ['2024-01-01'] * 300 + ['1995-01-01']
     with pytest.raises(DataRangeError) as e:
@@ -31,3 +36,8 @@ def test_zero_dates_are_dropped_not_fatal():
     dates = ['2024-01-01', '2024-01-02', '1970-01-01', '1899-12-30']
     out = bounded_dates(frame(dates), 'Период 2023-2024')
     assert len(out) == 2
+
+
+def test_old_real_history_is_kept():
+    out = bounded_dates(frame(['1985-05-01', '1985-06-01', '1986-01-01']), 'Период история')
+    assert len(out) == 3
