@@ -13,6 +13,7 @@
 | `GET /api/import/templates`, `GET /api/import/templates/{name}` | шаблоны и примеры |
 | `POST /api/projects/{pid}/import/check` | «Проверить файлы» |
 | `POST /api/projects/{pid}/import/apply` `{pending, policy, accept}` | «Применить загрузку» |
+| `POST /api/projects/{pid}/import/base-load` `{token, policy}` | «БД_ЭЛПРО» / «БД по учету газа» из общего импорта |
 | `POST /api/projects/{pid}/import/table` `{pending, table, format}` | журнал проверки / таблица CSV, XLSX |
 | `POST /api/projects/{pid}/import/pressure` `{files, choices, overrides, duplicate}` | данные давлений: роли листов и сопоставление |
 | `POST /api/projects/{pid}/import/pressure/apply` `{pending, mode}` | сохранить данные давлений |
@@ -121,6 +122,7 @@ def routes(projects) -> list[Route]:
         Route('/api/import/pressure-demo', _wrap(lambda r, b: imports.pressure_demo_variants())),
         Route('/api/import/pressure-demo/{variant}/{name}', _wrap(demo_book)),
         Route('/api/projects/{pid}/import/check', _wrap(lambda r, b: imports.check(pid(r), b)), methods=['POST']),
+        Route('/api/projects/{pid}/import/base-load', _wrap(lambda r, b: imports.base_load(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/apply', _wrap(lambda r, b: imports.apply(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/fix', _wrap(lambda r, b: imports.fix(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/table', _wrap(table), methods=['POST']),

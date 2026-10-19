@@ -327,6 +327,17 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
     setBusy(false)
   }
 
+  const loadBase = async (token: string) => {
+    setBusy(true)
+    try {
+      const r: Applied = await importApi.baseLoad(project.id, token, policy)
+      onProject(r.project)
+      uploads.clear(); setChoices({}); setDetailed({}); setFileOpts({}); setFine('')
+      setMessage({ text: r.message, ok: true, undo: r.undo?.snapshot })
+    } catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
+    setBusy(false)
+  }
+
   const fineRow = simple?.rows.find(r => r.token + sep + r.sheet === fine)
   const sheetTypes = options.sheet_types
   const rowTypes = options.sheet_types.filter(t => t.value !== 'auto')
@@ -386,7 +397,8 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
                             {rowTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                           </select>)}</td>
                         <td>{r.fields}</td>
-                        <td className={r.status === 'OK' ? 'ok' : r.status.startsWith('Не') || r.status.startsWith('Таблица') ? 'bad' : ''}>{r.status}</td>
+                        <td className={r.status === 'OK' ? 'ok' : r.status.startsWith('Не') || r.status.startsWith('Таблица') ? 'bad' : ''}>{r.status}
+                          {r.base && <> <button type="button" disabled={busy} onClick={() => loadBase(r.token)}>Загрузить в проект</button></>}</td>
                       </tr>
                     ))}
                   </tbody>

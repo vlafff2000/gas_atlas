@@ -114,3 +114,8 @@ def test_elpro_and_gas_db_books_are_sent_to_sources(tmp_path):
     token = imports.upload(path.name, path.read_bytes())['token']
     rows, _problems, options, _errors = imports.simple([{'token': token}], 'auto')
     assert rows[0]['book'] and 'Источники' in rows[0]['status'] and token not in options
+    assert rows[0]['base'] == 'elpro'
+
+    pid = imports.projects.create_demo()
+    out = imports.base_load(pid, {'token': token})
+    assert 'ЭЛПРО' in out['message'] and 'elpro' in imports.projects.data(pid)
