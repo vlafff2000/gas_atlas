@@ -104,6 +104,10 @@ def routes(projects) -> list[Route]:
         return attachment(imports.pressure_demo_book(request.path_params['variant'], name), name,
                           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+    def plan_xlsx(request, body):
+        content, name = imports.plan_xlsx(request.path_params['token'])
+        return attachment(content, name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
     def file_bytes(request, body):
         name, content = imports.content(request.path_params['token'])
         return attachment(content, name, 'application/octet-stream')
@@ -112,6 +116,7 @@ def routes(projects) -> list[Route]:
     return [
         Route('/api/import/files', _wrap(upload, raw_body=True), methods=['POST']),
         Route('/api/import/files/{token}', _wrap(file_bytes)),
+        Route('/api/import/files/{token}/plan.xlsx', _wrap(plan_xlsx)),
         Route('/api/import/rows', _wrap(lambda r, b: imports.rows(b)), methods=['POST']),
         Route('/api/import/options', _wrap(lambda r, b: imports.options())),
         Route('/api/import/inspect', _wrap(lambda r, b: imports.inspect(b)), methods=['POST']),

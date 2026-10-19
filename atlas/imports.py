@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import tempfile
 import threading
 import uuid
@@ -26,7 +27,7 @@ from atlas.engine.core import gas_db_import
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
-from atlas.engine.core import profiles, tabular
+from atlas.engine.core import plan_blocks, profiles, tabular
 from atlas.engine.core.config import MODULES, ROOT
 from atlas.engine.core.loader import column_map, detect_layout, load_file
 from atlas.engine.core import pressure_demo
@@ -129,10 +130,32 @@ class Imports:
         out = {'token': item.token, 'name': item.name, 'bytes': len(content), 'binary': item.binary}
         try:
             fmt, tables = self.sample(item.token)
-            out.update(format=fmt, sheets=list(tables), error='')
+            out.update(format=fmt, sheets=list(tables), error='',
+                       plan_matrix=[n for n, t in tables.items() if plan_blocks.is_converted(t)])
         except Exception as e:        # файл принят, но не читается: сообщение — в строке таблицы
             out.update(format='?', sheets=[], error=str(e))
         return out
+
+    def plan_xlsx(self, token: str) -> tuple[bytes, str]:
+        """Длинный план, полученный из таблицы блоками («2026 РЕКОМЕНДАЦИЯ»…), как Excel: Группа, Месяц, Режим, План."""
+        import io
+        item = self.file(token)
+        tables = tabular.read_content(item.content, item.name)[1]
+        found = {n: t for n, t in tables.items() if plan_blocks.is_converted(t)}
+        if not found:
+            raise ParamError('В файле нет таблицы плана блоками («2026 РЕКОМЕНДАЦИЯ»).')
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine='openpyxl') as xl:
+            for n, t in found.items():
+                f = plan_blocks.to_frame(t.values.tolist())
+                f['Месяц'] = pd.to_datetime(f['Месяц'])
+                f.to_excel(xl, sheet_name=re.sub(r'[\[\]:*?/\\]', '_', n)[:31], index=False)
+                ws = xl.sheets[re.sub(r'[\[\]:*?/\\]', '_', n)[:31]]
+                for row in ws.iter_rows(min_row=2, min_col=2, max_col=2):
+                    row[0].number_format = 'DD.MM.YYYY'
+                for col, w in zip('ABCD', (12, 14, 10, 16)):
+                    ws.column_dimensions[col].width = w
+        return out.getvalue(), 'План_по_группам.xlsx'
 
     def file(self, token: str) -> Upload:
         with self.lock:

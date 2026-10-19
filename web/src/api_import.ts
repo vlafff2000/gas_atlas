@@ -2,7 +2,7 @@
 import { ApiError, type Project, type Table } from './api'
 
 export interface Choice { value: string; label: string }
-export interface Upload { token: string; name: string; bytes: number; binary: boolean; format: string; sheets: string[]; error: string }
+export interface Upload { token: string; name: string; bytes: number; binary: boolean; format: string; sheets: string[]; error: string; plan_matrix?: string[] }
 export interface FileOptions { encoding: string; delimiter: string }
 export interface Spec {
   enabled: boolean; module?: string; header: number; mapping: Record<string, number>; wide: boolean
@@ -132,6 +132,7 @@ export const importApi = {
     post<RowsWindow>('/api/import/rows', body),
   fix: (project: string, body: { token: string; sheet: string; edits: CellEdit[]; confirm: boolean; encoding?: string; delimiter?: string }) =>
     post<Fixed>(`/api/projects/${project}/import/fix`, body),
+  planExcel: async (token: string) => save(await send(`/api/import/files/${token}/plan.xlsx`), 'План_по_группам.xlsx'),
   fileBlob: async (token: string) => (await send(`/api/import/files/${token}`)).blob(),
   table: async (project: string, pending: string, table: string, format: 'xlsx' | 'csv') =>
     save(await send(`/api/projects/${project}/import/table`, {

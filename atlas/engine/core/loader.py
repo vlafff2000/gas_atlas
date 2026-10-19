@@ -380,6 +380,8 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
     for sheet, iterator in iter_sheets(path,encoding=encoding,delimiter=delimiter):
         iterator=iter(iterator); head=list(islice(iterator,31)); detected=None; mapping={}; wide=False; header=-1
         if sheet=='Инструкция' and head and head[0] and str(head[0][0]).startswith('Заполните первый лист своими данными'):continue
+        from .plan_blocks import NOTES
+        for note in NOTES.pop((str(path),sheet),[]):result.issue(filename,sheet,1,note+' Месяц приведён к 1-му числу, режим — по сезону месяца.' if note.startswith('Блок') else note,'предупреждение')
         spec=(sheet_options or {}).get(sheet)
         if spec is not None:
             if not spec.get('enabled',True):continue
