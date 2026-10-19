@@ -202,6 +202,7 @@ function FilePicker({ uploads, paste, help }: { uploads: ReturnType<typeof useUp
             <li key={f.token}>
               <span>{f.name}</span><span className="muted">{f.format?.toUpperCase()} · {(f.bytes / 1024).toFixed(0)} КБ</span>
               {f.error && <span className="bad">{f.error}</span>}
+              {f.plan_matrix && f.plan_matrix.length > 0 && <button type="button" className="link" onClick={() => importApi.planExcel(f.token).catch(err => setPickError((err as Error).message))}>скачать план как Excel</button>}
               <button type="button" className="link" aria-label={'Убрать ' + f.name} onClick={() => uploads.remove(f.token)}>убрать</button>
             </li>
           ))}

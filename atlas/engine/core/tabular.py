@@ -114,6 +114,11 @@ def _calamine_book(path):
     except Exception:return None
 
 def iter_tables(path,encoding='auto',delimiter='auto'):
+    from .plan_blocks import convert
+    for name,rows in _iter_tables(path,encoding,delimiter):
+        yield name,(rows if format_of(path)=='text' else convert(path,name,rows))
+
+def _iter_tables(path,encoding='auto',delimiter='auto'):
     if Path(path).stat().st_size>512*1024**2:raise ValueError('Размер файла превышает 512 МБ.')
     fmt=format_of(path)
     if fmt=='ods':
