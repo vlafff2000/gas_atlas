@@ -42,15 +42,23 @@ class DataRangeError(ValueError):
 
 
 MAX_SPAN_DAYS = 3660
+# Нулевая/пустая дата из БД читается как 01.01.1970 (или 1899/1900): такие строки в расчёт не берутся.
+MIN_PLAUSIBLE_DATE = '1990-01-01'
+
+
+def implausible_dates(frame):
+    """Маска строк с датой раньше 1990 года (нулевые и пустые даты из БД)."""
+    import pandas as pd
+    return frame.date.lt(pd.Timestamp(MIN_PLAUSIBLE_DATE))
 
 
 def bounded_dates(frame, label):
-    """Строки периода без дат из будущего (шаблоны на ещё не наступившие дни).
+    """Строки периода без дат из будущего (шаблоны на ещё не наступившие дни) и без нулевых дат (до 1990 года).
     Если и после этого период длиннее 10 лет, это опечатка в дате: ошибка с перечнем подозрительных лет."""
     import pandas as pd
-    future = frame.date.gt(pd.Timestamp.today().normalize())
-    if future.any():
-        frame = frame[~future]
+    bad = frame.date.gt(pd.Timestamp.today().normalize()) | implausible_dates(frame)
+    if bad.any():
+        frame = frame[~bad]
     if frame.empty:
         return frame
     lo, hi = frame.date.min(), frame.date.max()
