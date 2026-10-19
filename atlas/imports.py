@@ -358,7 +358,7 @@ class Imports:
             if special:
                 rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
-                             'status': f'Это {special} из Базы ПХГ: загрузите ее на странице «Источники» (папка проекта)'})
+                             'status': f'Это {special} из Базы ПХГ: здесь она не грузится. Загрузите её в блоке «Источники» вверху этой страницы: укажите папку с файлом, назначьте роль и нажмите загрузку'})
                 continue
             sheets, any_rows, auto_use = {}, False, False
             for sheet, raw in tables.items():
