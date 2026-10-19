@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 import pandas as pd
 from atlas.engine.modules import group_analysis
+from atlas.engine.core.config import implausible_dates
 
 from ..contract import Data, ModuleSpec, Note, Option, Param, Result, Stat
 from ..domain import DatasetKind
@@ -76,6 +77,12 @@ class ProductionModule(ProductionBase):
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         sel = Selection(data, params)
         result = Result()
+        part = sel.df[sel.df.kind.eq(sel.kind) & sel.df.period.isin(sel.periods)]
+        skipped = int(implausible_dates(part).sum())
+        if skipped:
+            result.notes.append(Note(
+                f'Пропущено строк с нулевой датой (01.01.1970 и подобные): {skipped}. График построен по остальным; '
+                'проверьте даты в исходной БД расходов.', 'warning'))
         if params['mode'] == 'groups':
             return self.run_groups(result, sel)
         if params['mode'] == 'object':
