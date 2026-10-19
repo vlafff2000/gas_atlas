@@ -10,6 +10,7 @@ export interface ProjectDetails extends Project {
   panels: Record<string, unknown>
   pages: string[]
   default_pages: string[]
+  always_pages: string[]
   visible_pages: string[]
   exports: SavedExport[]
   log: boolean
@@ -129,15 +130,18 @@ export const exportApi = {
 
 /** Разделы 5.8, которым соответствуют модули и страницы 6: скрытые в «Составе меню» не показываются. */
 const PAGE_OF: Record<string, string> = {
-  production: 'Производительность скважин', histograms: 'Гистограммы по эксплуатации скважин', gdi: 'ГДИ',
+  production: 'Производительность скважин', water: 'Вынос воды и водный фактор', histograms: 'Гистограммы по эксплуатации скважин',
+  gas_accounting: 'БД по учету газа', elpro_compare: 'Сравнение БД ЭЛПРО', elpro_daily: 'Суточный график ЭЛПРО', plan_fact: 'План и факт по группам',
+  gdi: 'Газодинамические исследования', gdi_trend: 'Динамика коэффициентов ГДИ', ggh: 'ГГХ',
   response: 'Графики реагирования', pressure: 'Кроссплот давлений', wells: 'Поскважинный анализ', groups: 'Группы', fund: 'Аналитика фонда',
-  '@import': 'Импорт данных', '@export': 'Экспорт', exclusions: 'Исключенные точки', filter_history: 'История фильтра', overview: 'Обзор',
-  '@projects': 'Проекты', '@passport': 'Паспорт скважины', '@settings': 'Настройки',
+  an_report: 'Авторский надзор: сезон', an_revision: 'Авторский надзор: ревизия КРУ', quality: 'Проверка данных',
+  '@import': 'Импорт данных', '@export': 'Экспорт', exclusions: 'Исключенные точки', filter_history: 'История фильтра',
+  overview: 'Обзор', '@projects': 'Проекты', '@passport': 'Паспорт скважины', '@settings': 'Настройки',
 }
 export function inMenu(id: string, project: Project | null): boolean {
   const page = PAGE_OF[id]
   const menu = (project as (Project & { menu?: string[] }) | null)?.menu
-  return !page || !menu || page === 'Настройки' || menu.includes(page)
+  return !page || !menu || page === 'Настройки' || page === 'Импорт данных' || menu.includes(page)
 }
 
 export const PROJECT_PAGES = [

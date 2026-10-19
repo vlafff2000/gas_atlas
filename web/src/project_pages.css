@@ -65,3 +65,11 @@ details.table-block > summary.block-head { cursor: pointer; list-style: none; }
 .field.file { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .field.file .field-label { flex-basis: 100%; }
 .field.file .file-value { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+
+.page-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2px; }
+.page-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: default; user-select: none; border: 1px solid transparent; }
+.page-item:hover { background: var(--bg); }
+.page-item.selected { background: var(--accent-soft, var(--bg)); border-color: var(--accent-strong); }
+.page-item:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: -2px; }
+.page-item.locked { opacity: .7; }
+.page-item input { accent-color: var(--accent-strong); width: 16px; height: 16px; }
