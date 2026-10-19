@@ -27,6 +27,7 @@ export interface SheetChoice { use?: boolean; module?: string; spec?: Spec | nul
 export interface SimpleRow {
   token: string; file: string; sheet: string; use: boolean; module: string; found: string | null
   fields: string; status: string; book: boolean; custom: boolean; binary: boolean
+  base?: 'elpro' | 'gas'
 }
 export interface SimpleInspect {
   rows: SimpleRow[]; problems: string[]; errors: string[]; blocked: boolean
@@ -123,6 +124,8 @@ export const importApi = {
   templates: async () => (await send('/api/import/templates')).json() as Promise<{ name: string; kind: string }[]>,
   template: async (name: string) => save(await send(`/api/import/templates/${encodeURIComponent(name)}`), name),
   check: (project: string, body: CheckBody) => post<Pending>(`/api/projects/${project}/import/check`, body),
+  baseLoad: (project: string, token: string, policy: string) =>
+    post<Applied>(`/api/projects/${project}/import/base-load`, { token, policy }),
   apply: (project: string, pending: string, policy: string, accept: boolean, keepRejected = false) =>
     post<Applied>(`/api/projects/${project}/import/apply`, { pending, policy, accept, keep_rejected: keepRejected }),
   rows: (body: { token: string; sheet: string; row: number; encoding?: string; delimiter?: string; radius?: number }) =>

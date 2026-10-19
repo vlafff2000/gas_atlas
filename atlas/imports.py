@@ -318,6 +318,22 @@ class Imports:
                            'use': sum(r['use'] for r in rows),
                            'unknown': sum(r['status'] == 'Таблица не распознана' for r in rows)}}
 
+    def base_load(self, pid: str, body: dict) -> dict[str, Any]:
+        """«Загрузить в проект» для «БД_ЭЛПРО» и «БД по учету газа» прямо из общего импорта (тот же разбор, что в «Источниках»)."""
+        policy = body.get('policy') or 'new'
+        if policy not in POLICIES:
+            raise ParamError('Неизвестное правило повторов')
+        item = self.file(body.get('token'))
+        tables = self.sample(item.token, body.get('encoding') or 'auto', body.get('delimiter') or 'auto')[1]
+        special = base_book(tables)
+        if not special:
+            raise ParamError('Это не «БД_ЭЛПРО» и не «БД по учету газа» Базы ПХГ.')
+        load = self.elpro_load if special == 'база ЭЛПРО' else self.gas_db_load
+        out = load(pid, item.name, item.content, policy)
+        with self.lock:
+            self.files.pop(item.token, None)
+        return out
+
     def _file_info(self, f: dict, mode: str) -> dict[str, Any]:
         """Подробный режим (``import_editor.file_editor``): листы файла и признаки книги давлений."""
         item = self.file(f.get('token'))
@@ -358,7 +374,8 @@ class Imports:
             if special:
                 rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
-                             'status': f'Это {special} из Базы ПХГ: загрузите ее на странице «Источники» (папка проекта)'})
+                             'status': f'Это {special} из Базы ПХГ: у неё свой разбор. Нажмите «Загрузить в проект» справа (или загрузите её через блок «Источники»)',
+                             'base': 'elpro' if special == 'база ЭЛПРО' else 'gas'})
                 continue
             sheets, any_rows, auto_use = {}, False, False
             for sheet, raw in tables.items():
