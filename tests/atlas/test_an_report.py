@@ -81,7 +81,7 @@ def test_module_is_discovered_and_runs_on_demo(tmp_path):
     assert r.status_code == 200, r.text
     body = r.json()
     assert not any('раздел в разработке' in n['text'] for n in body['notes'])
-    assert any('Давление объекта не загружено' in n['text'] for n in body['notes'])
+    assert any('Давление объекта: опорная сетка' in n['text'] for n in body['notes'])
     assert 'Выберите сезон' in ' '.join(n['text'] for n in body['notes'])
     r = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': ['2023-2024']}})
     assert r.status_code == 200, r.text
