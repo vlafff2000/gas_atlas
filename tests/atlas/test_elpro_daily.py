@@ -111,3 +111,18 @@ def test_export_builds_flow_chart_per_well_with_chosen_rows():
     plan = with_elpro(Plan(), data, options)
     assert len(plan.jobs) == 2                           # по графику на скважину, таблицы в выгрузку не идут
     assert all(job.module == 'elpro_daily' for job in plan.jobs)
+
+
+def test_dynamic_params_match_frontend_shape():
+    """Интерфейс: зависимый список с kind=multi — массив, с kind=choice — одна строка. Иначе вкладка падает целиком."""
+    from atlas import registry
+    for module in registry.modules().values():
+        for p in module.spec.params:
+            if not p.dynamic:
+                continue
+            if p.kind == 'multi':
+                assert isinstance(p.default, list), (module.spec.id, p.name)
+            if p.kind == 'choice':
+                assert isinstance(p.default, str), (module.spec.id, p.name)
+    well = next(p for p in ed.ElproDailyModule.spec.params if p.name == 'well')
+    assert well.kind == 'choice' and well.dynamic and well.default == ''

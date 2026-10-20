@@ -43,6 +43,7 @@ export function paramSummary(params: Param[], values: Params, options: Record<st
     } else if (p.kind === 'choice') {
       const o = p.options.find(o => o.value === v)
       if (o) out.push(o.label)
+      else if (p.dynamic && v) out.push(p.prefix + String(v))
     } else if (p.kind === 'boolean') {
       if (v) out.push(p.label)
     } else if (p.kind === 'date') {
@@ -111,6 +112,10 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
           <div className="param-fields">
             {params.map(p => p.kind === 'map'
               ? <DynamicMap key={p.name} spec={spec} project={project} param={p} values={values} onChange={v => set(p.name, v)} />
+              : p.dynamic && p.kind === 'choice'
+              ? <DynamicChoice key={p.name} spec={spec} project={project} param={p}
+                               values={values} onChange={v => set(p.name, v)}
+                               onOptions={list => setDynamic(d => (d[p.name] === list ? d : { ...d, [p.name]: list }))} />
               : p.dynamic
               ? <DynamicMulti key={p.name} spec={spec} project={project} panel={panel} param={p}
                               values={values} onChange={v => set(p.name, v)}
@@ -124,13 +129,53 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
   )
 }
 
+/** Одиночный выбор, варианты которого считает модуль (скважина ЭЛПРО при выбранном режиме). */
+function DynamicChoice({ spec, project, param: p, values, onChange, onOptions }:
+  { spec: ModuleSpec; project: string; param: Param; values: Params; onChange: (v: string) => void
+    onOptions: (list: string[] | undefined) => void }) {
+  const [options, setOptions] = useState<string[] | undefined>()
+  const value = typeof values[p.name] === 'string' ? (values[p.name] as string) : ''
+  const deps = JSON.stringify(p.depends.map(d => values[d]))
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const current = Object.fromEntries(p.depends.map(d => [d, values[d]]))
+    api.paramOptions(spec.id, project, p.name, current, ctrl.signal)
+      .then(setOptions)
+      .catch(e => { if ((e as Error).name !== 'AbortError') setOptions([]) })
+    return () => ctrl.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spec.id, project, p.name, deps])
+
+  // Пришли новые варианты: если текущего нет в списке — выбор по умолчанию (первый) или пусто.
+  useEffect(() => {
+    onOptions(options)
+    if (!options || options.includes(value)) return
+    const next = p.auto && options.length > 0 ? autoPick(p.auto, options)[0] : ''
+    if (next !== value) onChange(next ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options])
+
+  const list = options ?? []
+  return (
+    <label className="field" title={p.help}>
+      <span className="field-label">{p.label}<HelpMark param={p} /></span>
+      <select value={value} disabled={options === undefined} onChange={e => onChange(e.target.value)}>
+        {value && !list.includes(value) && <option value={value}>{value}</option>}
+        {list.map(o => <option key={o} value={o}>{p.prefix + o}</option>)}
+      </select>
+    </label>
+  )
+}
+
 /** Список, варианты которого считает модуль и зависят от других параметров (группы → скважины, режим → периоды). */
 function DynamicMulti({ spec, project, param: p, values, onChange, onOptions }:
   { spec: ModuleSpec; project: string; panel: number; param: Param; values: Params; onChange: (v: string[]) => void
     onOptions: (list: string[] | undefined) => void }) {
   const [options, setOptions] = useState<string[] | undefined>()
   const touched = useRef(false)
-  const value = (values[p.name] as string[] | undefined) ?? []
+  // значение обязано быть списком: одиночный параметр с той же меткой не должен ронять весь интерфейс
+  const value = Array.isArray(values[p.name]) ? (values[p.name] as string[]) : []
   const deps = JSON.stringify(p.depends.map(d => values[d]))
 
   useEffect(() => {
