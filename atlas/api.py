@@ -21,7 +21,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import VERSION, api_exclusions, registry, render, season_format, thinning
-from . import api_export, api_projects
+from . import api_corrected, api_export, api_projects
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
 from .projects import Conflict, Projects
@@ -303,6 +303,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
         *__import__('atlas.fs_browse', fromlist=['routes']).routes(),   # проводник: список папок, последняя папка
         *api_exclusions.routes(projects),
+        *api_corrected.routes(projects),   # «Исправленная БД» вкладки
         *api_projects.routes(projects), *api_export.routes(projects),   # «Проекты», «Настройки», «Экспорт»
         *__import__('atlas.api_passport', fromlist=['routes']).routes(projects),   # «Паспорт скважины»
         *__import__('atlas.api_import', fromlist=['routes']).routes(projects),   # раздел «Импорт данных»

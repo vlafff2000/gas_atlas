@@ -34,7 +34,7 @@ from ._production import KINDS, NEUTRAL_PREFIXES, group_of, periods_of, visible_
 from .plan_fact import UNIT, PlanFactModule, compare as plan_compare, month_label, plan_periods, summed as plan_summed
 
 PRODUCTION, OBJECT, FACTOR = DatasetKind.PRODUCTION, DatasetKind.OBJECT_PRESSURE, DatasetKind.WATER_FACTOR
-ANNULUS = DatasetKind.ANNULUS
+ANNULUS, RESPONSE, MATCH = DatasetKind.ANNULUS, DatasetKind.RESPONSE, DatasetKind.PRESSURE_MATCH
 PLAN, WATER = DatasetKind.PLAN, DatasetKind.WATER
 Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
@@ -48,14 +48,16 @@ WATER_KEYS = ('water_peak', 'water_peak_date', 'water_peak_q', 'water_peak_wells
               'wf_peak', 'wf_peak_date', 'wf_cum_peak', 'wf_cum_peak_date')
 OBJECT_SCOPE = 'Объект'
 WHOLE = 'Весь сезон'
+GAP_DAYS = 30             # дней: дальше от даты давление объекта не берётся (иначе «на начало» — замер за год до него)
+GROUP_NONE = 'Без группы'  # скважина без группы в схеме проекта
 NOTE = ('Средние считаются по суткам с положительным расходом; пропущенные даты не считаются нулём и простоем. '
         'Длительность — календарные сутки от первого до последнего суток с расходом включительно (високосный год — по календарю). '
         'Нейтральный период — календарные сутки последнего нейтрального периода перед сезоном по данным отбора и закачки. '
-        'Давления абсолютные, кгс/см²: давление объекта берётся на дату начала, пика или на ближайшую к ней дату. '
+        'Давления абсолютные, кгс/см²: давление объекта берётся на дату начала, пика или на ближайшую к ней дату (не дальше 30 суток). '
         'Водный фактор — л воды на 1000 м³ газа; накопленный фактор — максимум за сезон (обычно на последние сутки).')
 
-# Не строятся: давление по группам (нужны замеры по скважинам), геологические запасы газа и модельный объём газа; карты — вне Атласа.
-CHAPTER2_SKIPPED = ('Не построены: пластовое давление по группам (нужны замеры по скважинам), геологические запасы газа (ГПО) '
+# Не строятся: геологические запасы газа и модельный объём газа; карты — вне Атласа.
+CHAPTER2_SKIPPED = ('Не построены: геологические запасы газа (ГПО) '
                     'и модельный объём газа — в Атласе нет этих данных; карты — вне Атласа.')
 # Табл. 2.3 (закачка): классы среднего расхода за сутки с расходом, тыс. м³/сут; граница уходит в верхний класс
 INJ_CLASSES = (('Менее 100', 0, 100), ('От 100 до 150', 100, 150), ('От 150 до 200', 150, 200),
@@ -64,14 +66,62 @@ INJ_CLASS_KEYS = tuple(f'c{i}' for i in range(len(INJ_CLASSES)))
 
 
 def pressure_near(pressure: pd.DataFrame | None, when: Any) -> float | None:
-    """Давление объекта на дату ``when`` или на ближайшую к ней; при равной разнице берётся более ранняя дата."""
+    """Давление объекта на дату ``when`` или на ближайшую к ней в пределах ``GAP_DAYS``; при равной разнице берётся более ранняя дата."""
     if pressure is None or pressure.empty:
         return None
     p = pressure.dropna(subset=['pressure']).sort_values('date', kind='stable')
     if p.empty:
         return None
     gap = (p.date - pd.Timestamp(when)).abs()
+    if gap.min() > pd.Timedelta(days=GAP_DAYS):
+        return None
     return float(p.loc[gap.idxmin(), 'pressure'])
+
+
+REFERENCE_LABELS = {'grid': 'реагирование, давление (пересчёт)', 'match': 'кроссплот, факт'}
+
+
+def reference_pressure(data: Data, source: str) -> tuple[pd.DataFrame | None, str]:
+    """Замеры опорной сетки (одна скважина — одна группа): well, date, pressure, scope — одно давление на скважину и дату.
+
+    ``source``: «grid» — «Реагирование», давление (пересчёт по уровню); «match» — «Кроссплот давлений», факт;
+    «auto» — сначала «grid», иначе «match». Скважины без группы в схеме проекта не попадают в сетку.
+    Второй результат — подпись взятого источника (пусто, если замеров нет)."""
+    for name in (('grid', 'match') if source == 'auto' else (source,)):
+        key, column = (MATCH, 'fact') if name == 'match' else (RESPONSE, 'pressure')
+        if key not in data or column not in data[key]:
+            continue
+        d = data[key][['well', 'date', column]].dropna(subset=[column])
+        if d.empty:
+            continue
+        d = d.assign(well=d.well.astype(str)).groupby(['well', 'date'], as_index=False)[column].mean()
+        d = d.rename(columns={column: 'pressure'})
+        d['scope'] = d.well.map(well_scopes(data.mapping, ordered(d.well.unique())))
+        d = d[d.scope.ne(GROUP_NONE)].reset_index(drop=True)
+        if not d.empty:
+            return d, REFERENCE_LABELS[name]
+    return None, ''
+
+
+def grid_object_pressure(reference: pd.DataFrame) -> pd.DataFrame:
+    """Давление объекта по опорной сетке: среднее по группам на дату, каждая группа с одинаковым весом. Колонки — date, pressure."""
+    by_group = reference.groupby(['scope', 'date'], as_index=False).pressure.mean()
+    return by_group.groupby('date', as_index=False).pressure.mean()
+
+
+def object_pressure_of(data: Data, source: str) -> tuple[pd.DataFrame | None, pd.DataFrame | None, str]:
+    """Давление объекта по выбранному источнику: (давление объекта или None, опорная сетка или None, подпись источника).
+
+    «auto» берёт столбец «Давление объекта» из БД, если он загружен, иначе среднее по опорной сетке; «object» — только столбец;
+    «grid» и «match» — только опорная сетка своего вида. Опорная сетка строится всегда, кроме «object»: нужна для графика по группам."""
+    column = data[OBJECT] if OBJECT in data else None
+    reference, ref_label = (None, '') if source == 'object' else reference_pressure(data, source)
+    if source == 'object' or (source == 'auto' and column is not None):
+        return column, reference, 'столбец «Давление объекта» из БД'
+    if reference is None:
+        return None, None, ''
+    return grid_object_pressure(reference), reference, \
+        f'опорная сетка ({ref_label}): {reference.well.nunique()} скв. в {reference.scope.nunique()} группах'
 
 
 def neutral_days_before(prod: pd.DataFrame, start: Any) -> int | None:
@@ -279,6 +329,10 @@ VIEWS = (Option('canvas', 'Ряды по суткам'), Option('curve', 'Рас
          Option('group_months', 'Накопленный объём по месяцам, одна группа'))
 
 
+PRESSURE_SOURCES = (Option('auto', 'Авто: столбец «Давление объекта», иначе опорная сетка'),
+                    Option('object', 'Столбец «Давление объекта» из БД'),
+                    Option('grid', 'Опорная сетка: реагирование, давление (пересчёт)'),
+                    Option('match', 'Опорная сетка: кроссплот, факт'))
 SIDES = (Option('fund', 'Фонд и работавшие скважины'), Option('none', 'Нет'),
          *(o for o in VIEWS if o.value != 'canvas'))
 
@@ -290,7 +344,7 @@ class AuthorReportModule(Module):
         group='Авторский надзор',
         description='Статистика сезона для глав отчёта АН: даты, нейтральный период, средние по объекту и группам, пик, вода.',
         needs=(PRODUCTION,),
-        optional=(OBJECT, FACTOR, PLAN, WATER, ANNULUS),
+        optional=(OBJECT, FACTOR, PLAN, WATER, ANNULUS, RESPONSE, MATCH),
         order=110,
         save_label='Сохранить вид',
         params=(
@@ -299,6 +353,8 @@ class AuthorReportModule(Module):
                   empty='ничего', section='Выбор данных'),
             Param('view', 'График', 'choice', default='canvas', section='Вид', chart_kind=True, options=VIEWS),
             Param('side', 'Правый график', 'choice', default='fund', section='Вид', chart_kind=True, options=SIDES),
+            Param('pressure_source', 'Давление объекта', 'choice', default='auto', section='Выбор данных',
+                  options=PRESSURE_SOURCES, help='Откуда берётся Рпл объекта и динамика по группам. «Авто» — столбец БД, иначе опорная сетка.'),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
                   show_if={'view': 'canvas'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.SHOW)),
             Param('show_curve', 'Ряды на графике «от накопленного объёма»', 'multi', default=list(an_charts.CURVE_SHOW_DEFAULT),
@@ -329,10 +385,15 @@ class AuthorReportModule(Module):
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         result = Result()
         kind = params['kind']
-        pressure = data[OBJECT] if OBJECT in data else None
+        source = params.get('pressure_source') or 'auto'
+        pressure, reference, source_label = object_pressure_of(data, source)
         if pressure is None:
-            result.notes.append(Note('Давление объекта не загружено: столбцы давления будут пустыми. '
-                                     'Загрузите «Давление объекта» (среднее пластовое, абсолютное).', 'warning'))
+            result.notes.append(Note('Давление объекта не построено: нет столбца «Давление объекта» и замеров опорной сетки. '
+                                     'Загрузите «Давление объекта» или замеры по скважинам с группами.', 'warning'))
+        else:
+            result.notes.append(Note(f'Давление объекта: {source_label}.'))
+        if source != 'object' and reference is None:
+            result.notes.append(Note('Опорная сетка: замеров давления по скважинам с группой нет — график по группам пропущен.'))
         water = water_table(data[FACTOR]) if FACTOR in data and not data[FACTOR].empty else None
         if kind == 'withdrawal' and water is None:
             result.notes.append(Note('«Вынос воды по объекту» не загружен: максимумы по выносу воды и водному фактору пропущены.',
@@ -358,6 +419,9 @@ class AuthorReportModule(Module):
                                Stat(f'Средний расход · {period}', f'{summary["mean"]:.1f} {Q_UNIT}'.replace('.', ','))]
             self.fund_details(result, data, kind, period, summary, fund, classes, wet)
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
+            group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'])
+            if group_pressure is not None:
+                result.charts.append(group_pressure)
             self.plan_details(result, data, kind, period)
         if kind == 'injection':
             self.injection_details(result, data)
