@@ -11,6 +11,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from atlas.engine.modules.charts import well_colors
+
 from ..contract import Axis, Chart, Series
 
 Q_UNIT = 'тыс. м³/сут'
@@ -32,6 +34,25 @@ def pressure_points(pressure: pd.DataFrame | None, start: Any, stop: Any) -> pd.
     p = pressure.dropna(subset=['pressure'])
     p = p[p.date.between(pd.Timestamp(start), pd.Timestamp(stop))].sort_values('date', kind='stable')
     return p if not p.empty else None
+
+
+def group_pressure_chart(kind: str, period: str, reference: pd.DataFrame | None, start: Any, stop: Any) -> Chart | None:
+    """Пластовое давление по группам за сезон: одна линия на группу (среднее замеров её скважин на дату).
+
+    ``reference`` — замеры опорной сетки: well, date, pressure, scope (см. ``an_report.reference_pressure``)."""
+    if reference is None or reference.empty:
+        return None
+    part = reference[reference.date.between(pd.Timestamp(start), pd.Timestamp(stop))]
+    if part.empty:
+        return None
+    by_group = part.groupby(['scope', 'date'], as_index=False).pressure.mean().sort_values('date', kind='stable')
+    colors = well_colors(by_group.scope.astype(str))
+    chart = Chart(f'an-group-pressure-{kind}-{period}', f'Пластовое давление по группам · {period}',
+                  Axis('Дата', scale='time'), Axis('Рпл, абс.', P_UNIT))
+    for group, rows in by_group.groupby('scope', sort=False):
+        chart.series.append(Series(str(group), rows.date.to_numpy(), rows.pressure.to_numpy(float), 'line',
+                                   color=colors.get(str(group)), width=2.0, markers=True))
+    return chart
 
 
 def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None) -> Chart | None:
