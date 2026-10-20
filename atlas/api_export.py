@@ -38,19 +38,23 @@ from .projects import Conflict, Projects
 
 log = logging.getLogger(__name__)
 
+ELPRO_DAILY = 'elpro_daily'      # «Суточный график скважины: ЭЛПРО и расход» (модуль Атласа 6)
 ORDER = ('production', 'histograms', 'gdi', 'response', 'object_pressure', 'well_dashboard',
-         'operations', 'water', 'bottom', 'construction', 'pressure_match', 'waterfactor')
+         'operations', 'water', 'bottom', 'construction', 'pressure_match', 'waterfactor', ELPRO_DAILY)
 WATERFACTOR = 'waterfactor'      # «Вынос воды и водный фактор» (модуль Атласа 6, в 5.8 его не было)
-EXTRA_MODULES = {WATERFACTOR: 'Вынос воды и водный фактор'}
+ELPRO_EXTRAS = (('hours', 'Часы работы'), ('cru', 'КРУ, %'), ('p', 'Давление, кгс/см²'), ('t', 'Температура, °C'))
+EXTRA_MODULES = {WATERFACTOR: 'Вынос воды и водный фактор', ELPRO_DAILY: 'Суточный график скважины: ЭЛПРО и расход'}
 EXTRA_CAPTIONS = {WATERFACTOR: {'section': '11', 'start': 1,
-                                'template': 'Рисунок {раздел}.{номер} - Вынос воды и водный фактор: {период}'}}
+                                'template': 'Рисунок {раздел}.{номер} - Вынос воды и водный фактор: {период}'},
+                  ELPRO_DAILY: {'section': '12', 'start': 1,
+                                'template': 'Рисунок {раздел}.{номер} - Суточный расход скважины с рядами ЭЛПРО: {скважина}'}}
 DEFAULT_MODULES = ('production', 'gdi', 'response', 'object_pressure')
 STYLE_FIELDS = (('points', 'Экспорт: точки'), ('legend', 'Экспорт: легенда'), ('grid', 'Экспорт: сетка'))
 GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'), ('db', 'db_curves'),
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
 PRESET_FIELDS = ('look', 'modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
-PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_', 'waterfactor_')
+PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_', 'waterfactor_', 'elpro_daily_')
 
 
 # Пакет графиков по фонду («Приложение»): режим → (раздел, слово в подписи).
@@ -88,6 +92,7 @@ def available(raw: Mapping[str, pd.DataFrame]) -> list[str]:
     """Вкладки модулей экспорта — тот же отбор, что в 5.8."""
     water = 'water_factor' in raw or ('production' in raw and ('water' in raw or 'operations' in raw))
     return [m for m in ORDER if (m == 'histograms' and 'production' in raw) or (m == WATERFACTOR and water)
+            or (m == ELPRO_DAILY and 'elpro' in raw and 'production' in raw)
             or (m == 'well_dashboard' and any(k != 'object_pressure' for k in raw)) or m in raw]
 
 
@@ -96,7 +101,7 @@ def group_of(mapping, well) -> str:
 
 
 def well_choices(module: str, raw: Mapping[str, pd.DataFrame]) -> list[str]:
-    real = 'production' if module == 'histograms' else module
+    real = 'production' if module == 'histograms' else 'elpro' if module == ELPRO_DAILY else module
     if real == 'well_dashboard':
         return ordered(w for k, d in raw.items() if k != 'ggh' and 'well' in d for w in d.well.dropna().unique())
     d = raw.get(real)
@@ -242,6 +247,9 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             if module == 'histograms':
                 cfg['histaxis'] = form.get('histograms_histaxis', 'well')
                 cfg['hist_size'] = str(form.get('histograms_hist_size', 'Авто'))
+        elif module == ELPRO_DAILY:
+            cfg['kind'] = form.get('elpro_daily_kind') if form.get('elpro_daily_kind') in ('withdrawal', 'injection') else 'withdrawal'
+            cfg['extras'] = [key for key, _ in ELPRO_EXTRAS if form.get('elpro_daily_' + key, key == 'hours')]
         elif module == 'gdi':
             cfg['n'] = int(form.get('gdi_n', 3))
             cfg['orientation'] = form.get('gdi_orientation', 'standard')
@@ -324,6 +332,29 @@ def with_water(plan, data: Data, options: Mapping[str, Any]):
     return plan
 
 
+def with_elpro(plan, data: Data, options: Mapping[str, Any]):
+    """Суточные графики ЭЛПРО с выбранными рядами — по одному на скважину; модуль Атласа 6 (код 5.8 о нём не знает)."""
+    from functools import partial
+    from atlas.engine.core.reporting import FigureJob
+    from .modules.elpro_daily import ElproDailyModule
+    from .render import to_plotly
+    if ELPRO_DAILY not in options['modules']:
+        return plan
+    cfg = options[ELPRO_DAILY]
+    module = ElproDailyModule()
+
+    def figure(chart, well):
+        fig = to_plotly(chart)
+        fig.update_layout(meta={'module': ELPRO_DAILY, 'wells': [well], 'periods': []})
+        return fig
+    for well in cfg['wells']:
+        result = module.run(data, module.spec.coerce({'kind': cfg['kind'], 'well': well, 'extras': cfg['extras']}))
+        plan.jobs.extend(FigureJob('Суточный график ЭЛПРО · ' + chart.title, partial(figure, chart, well), options.get('style', {}),
+                                   ELPRO_DAILY)
+                         for chart in result.charts if chart.id.startswith('elpro-flow-'))
+    return plan
+
+
 def pressure_cfg(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
     """Кроссплот давлений: параметры сохранённого вида раздела (формат 5.8) и «Построение при экспорте»."""
     from .domain import DatasetKind
@@ -381,7 +412,7 @@ def years_of(d: pd.DataFrame, kind: str, periods) -> str:
 def captions_from(form: Mapping[str, Any], modules) -> dict[str, dict]:
     out = {}
     for m in modules:
-        default = DEFAULT_CAPTIONS.get(m, DEFAULT_CAPTIONS['well_dashboard'])
+        default = EXTRA_CAPTIONS.get(m) or DEFAULT_CAPTIONS.get(m, DEFAULT_CAPTIONS['well_dashboard'])
         out[m] = {'section': str(form.get('caption_section_' + m, default['section'])),
                   'start': int(form.get('caption_start_' + m, default['start'])),
                   'template': str(form.get('caption_template_' + m, default['template']))[:500]}
@@ -563,7 +594,7 @@ def routes(projects: Projects) -> list[Route]:
             options, source, raw = options_from(form, data)
             if not options['modules'] or (not options['wells'] and not {'object_pressure', WATERFACTOR} & set(options['modules'])):
                 return options, None, data
-            return options, with_water(reporting.plan(source, data.mapping, data.settings, options, raw), data, options), data
+            return options, with_elpro(with_water(reporting.plan(source, data.mapping, data.settings, options, raw), data, options), data, options), data
         return plans.get(key, build)
 
     def need_plan(pid, form):

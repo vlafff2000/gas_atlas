@@ -100,6 +100,7 @@ export const projectsApi = {
   restore: (file: File) => request<Project>(`/api/projects/restore?name=${encodeURIComponent(file.name)}`, upload(file)),
   exportUrl: (pid: string, name: string) => `${P(pid)}/exports/${encodeURIComponent(name)}`,
   logUrl: '/api/log',
+  correctedDbUrl: (pid: string, module: string) => `${P(pid)}/corrected-db?module=${encodeURIComponent(module)}`,
 }
 
 export interface WordPreview {

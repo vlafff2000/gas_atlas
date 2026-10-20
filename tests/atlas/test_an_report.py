@@ -81,7 +81,7 @@ def test_module_is_discovered_and_runs_on_demo(tmp_path):
     assert r.status_code == 200, r.text
     body = r.json()
     assert not any('раздел в разработке' in n['text'] for n in body['notes'])
-    assert any('Давление объекта не загружено' in n['text'] for n in body['notes'])
+    assert any('Давление объекта: опорная сетка' in n['text'] for n in body['notes'])
     assert 'Выберите сезон' in ' '.join(n['text'] for n in body['notes'])
     r = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': ['2023-2024']}})
     assert r.status_code == 200, r.text
@@ -181,6 +181,19 @@ def test_injection_curve_cumulative_with_pressure_and_well_counts():
     assert pres.axis == 'y2'
 
 
+def test_curve_series_selection_and_water():
+    daily, wells = an_charts.daily_of(INJ_SEASON, 'injection', '2024')
+    pres, cnt = an_charts.curve_chart('injection', '2024', daily, wells, INJ_PRESSURE, ('Скважин в работе', 'Среднее Рпл (замеры)')).series
+    assert list(cnt.x) == pytest.approx([0.15, 0.35, 0.70]) and list(cnt.y) == [1, 2, 1]     # скважины — по накопленному объёму
+    assert (pres.axis, cnt.axis) == ('y', 'y2') and list(pres.y) == [65.0, 80.0]     # без расхода первая величина — на левой шкале
+    water = pd.DataFrame({'date': pd.to_datetime(['2024-05-01', '2024-05-02']), 'water_day': [10.0, 20.0],
+                          'wf': [1.0, 2.0], 'wf_cum': [1.0, 1.5]})
+    only = an_charts.curve_chart('injection', '2024', daily, wells, None, ('Вынос воды',), water)
+    assert [s.name for s in only.series] == ['Вынос воды'] and list(only.series[0].x) == pytest.approx([0.15, 0.35])
+    assert only.y.unit == 'м³/сут' and only.y2 is None
+    assert an_charts.curve_chart('injection', '2024', daily, wells, INJ_PRESSURE, []) is None
+
+
 def test_canvas_series_selection_and_axes():
     daily, wells = an_charts.daily_of(INJ_SEASON, 'injection', '2024')
     chart = an_charts.canvas_chart('injection', '2024', ['rate', 'pressure', 'wells'], daily, wells, INJ_PRESSURE)
@@ -208,6 +221,10 @@ def test_group_series_views():
     assert 'an-group-means-injection-2024' in ids(view='group_mean')
     assert 'an-monthly-groups-injection-2024' in ids(view='group_mean_months')
     assert 'an-canvas-injection-2024' in ids(view='canvas', show=['rate'])
+    assert [s.name for s in module.run(data, {**base, 'view': 'curve', 'show_curve': ['Скважин в работе'], 'side': 'none'}).charts[0].series] == ['Скважин в работе']
+    right = module.run(data, {**base, 'view': 'canvas', 'side': 'curve', 'show_curve': ['Скважин в работе']}).charts
+    assert [c.id for c in right] == ['an-canvas-injection-2024', 'an-curve-injection-2024']
+    assert [s.name for s in right[1].series] == ['Скважин в работе']
     assert 'an-fund-injection-2024' in ids()                          # правый график по умолчанию — фонд
     assert 'an-fund-injection-2024' not in ids(side='none')
     side = ids(side='cum_months')
