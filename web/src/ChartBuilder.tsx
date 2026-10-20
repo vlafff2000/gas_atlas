@@ -3,7 +3,7 @@ import { api } from './api'
 import { MultiSelect } from './MultiSelect'
 import type { ChartStyle } from './api'
 import type { Look } from './chartStyle'
-import { AxisDialog, ChartDialog, SeriesDialog, type AxisFmt, type AxisItem, type AxisKey } from './BuilderDialogs'
+import { AxisDialog, ChartDialog, SeriesDialog, VIEWS, type AxisFmt, type AxisItem, type AxisKey, type BuilderView } from './BuilderDialogs'
 import './builder.css'
 
 // Конструктор графиков: дерево полей, ряды-карточки, ручные подписи. Макет — параметр раздела ``layout``
@@ -25,7 +25,8 @@ export interface BuilderCatalog {
 export type AxisName = 'y' | 'y2' | 'y3' | 'y4' | 'y5'
 export interface BuilderRow {
   id: string; dataset: string; y: string; x_dataset: string; x: string; wells: string[]
-  date_from: string; date_to: string; kind: string; axis: AxisName; view: 'line' | 'points'
+  date_from: string; date_to: string; kind: string; axis: AxisName; view: BuilderView
+  stack?: string         // общее имя: столбцы и области с одним именем складываются стопкой
   key: string; days: number; name: string; hidden?: boolean
   look?: Look            // ручной вид ряда (окно «Ряд»); пусто — авто
 }
@@ -38,7 +39,6 @@ export interface BuilderLayout {
 const AXES: AxisName[] = ['y', 'y2', 'y3', 'y4', 'y5']
 const axisTitle = (a: AxisName) => (a === 'y' ? 'Y1' : 'Y' + a.slice(1))
 const axisHint = (a: AxisName) => (a === 'y' ? 'левая' : 'правая')
-const VIEWS: [BuilderRow['view'], string][] = [['line', 'линия'], ['points', 'точки']]
 const newId = () => Math.random().toString(36).slice(2, 10)
 
 export function layoutOf(value: unknown): BuilderLayout {
@@ -67,7 +67,7 @@ function rowFor(field: BuilderField, ds: BuilderDataset | undefined, axis: AxisN
     date_from: base?.date_from ?? '', date_to: base?.date_to ?? '',
     kind: !ds?.kinds.length ? '' : base && (base.kind === '' || ds.kinds.some(k => k.value === base.kind)) ? base.kind
       : ds.kinds.some(k => k.value === 'withdrawal') ? 'withdrawal' : '',
-    axis: base?.axis ?? axis, view: base?.view ?? 'line', key: base?.key ?? 'well_date', days: base?.days ?? 3,
+    axis: base?.axis ?? axis, view: base?.view ?? 'line', stack: base?.stack, key: base?.key ?? 'well_date', days: base?.days ?? 3,
     name: '', hidden: base?.hidden, look: base?.look,
   }
 }
@@ -255,7 +255,7 @@ function RowCard({ index, row, catalog, datasets, open, onOpen, onChange, onPick
           <span className="row-sub">
             {ds?.label ?? row.dataset} → {y?.label ?? row.y} · X: {x?.label ?? row.x}{joined ? ` (${xs?.label ?? row.x_dataset}, ${keyLabel})` : ''}
             {row.kind ? ' · ' + (ds?.kinds.find(k => k.value === row.kind)?.label.toLowerCase() ?? row.kind) : ''}
-            {' · '}<span className="axis-chip">{axisTitle(row.axis)} {axisHint(row.axis)}</span> · {VIEWS.find(v => v[0] === row.view)?.[1]}
+            {' · '}<span className="axis-chip">{axisTitle(row.axis)} {axisHint(row.axis)}</span> · {VIEWS.find(v => v[0] === row.view)?.[1]}{row.stack && (row.view === 'bar' || row.view === 'area') ? ` · стопка «${row.stack}»` : ''}
           </span>
         </button>
         <div className="row-actions">
@@ -347,6 +347,14 @@ function RowCard({ index, row, catalog, datasets, open, onOpen, onChange, onPick
                 onClick={() => onChange({ view: v })}>{label}</button>
             ))}
           </div>
+          {(row.view === 'bar' || row.view === 'area') && (
+            <label className="field">
+              <span className="field-label">Стопка</span>
+              <input type="text" value={row.stack ?? ''} placeholder="нет" maxLength={60}
+                title="Столбцы или области с одинаковым именем стопки складываются друг на друга; пусто — рядом (столбцы) или поверх (области)"
+                onChange={e => onChange({ stack: e.target.value })} />
+            </label>
+          )}
           <label className="field wide">
             <span className="field-label">Название в легенде</span>
             <input type="text" value={row.name} placeholder={y?.label ?? ''} onChange={e => onChange({ name: e.target.value })} />

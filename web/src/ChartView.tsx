@@ -136,7 +136,8 @@ function alignedRange(lo: number, hi: number, minimum?: number | null, maximum?:
 }
 
 /** На оси есть столбцы: их длина читается от нуля, шкала «не от нуля» вводила бы в заблуждение. */
-const hasBars = (chart: Chart, key: YName) => chart.series.some(s => s.kind === 'bar' && (s.axis ?? 'y') === key)
+/** Столбцы и области растут от нуля: шкала их оси включает 0. */
+const hasBars = (chart: Chart, key: YName) => chart.series.some(s => (s.kind === 'bar' || (s.kind === 'line' && s.fill)) && (s.axis ?? 'y') === key)
 
 function alignedYAxes(chart: Chart, base: Chart): Record<YName, { min: number; max: number; step: number }> | null {
   const names = Y_NAMES.slice(0, yCount(chart))
@@ -320,7 +321,10 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       const common = { name: key(s), data: rows, color: c, yAxisIndex: yIndexOf(chart, s.axis),
         silent: custom, emphasis, blur: blurred, ...(s.stack ? { stack: s.stack } : {}) }
       if (s.kind === 'bar') {
-        return { ...common, type: 'bar', barMaxWidth: 24, barGap: '12%', itemStyle: { color: c, borderRadius: [4, 4, 0, 0] },
+        // столбцы под линиями и точками (z), у соседних рядов зазор, у стопки одна колонка
+        const own = chart.id === 'builder'
+        return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : { barMaxWidth: 24 }), barGap: '12%',
+          itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : {}) },
           emphasis: { focus: 'none', itemStyle: { color: c } } }
       }
       const width = L.width ?? (s.width || 2)
@@ -328,12 +332,13 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         // в режиме «Только замеры» на линиях видны сами замеры (перекрывающиеся ECharts скрывает)
         const markers = L.marker ?? (hasMarkers(s, excludeMode, mode) && (excludeMode || !isDense(s, rows.length)))
         const mc = L.markerColor ?? c
-        return { ...common, type: 'line', z: s.markers ? 3 : 2, connectNulls: false,
+        const area = s.fill || !!s.stack
+        return { ...common, type: 'line', z: s.fill ? 1 : s.markers ? 3 : 2, connectNulls: false, ...(s.step ? { step: 'end' } : {}),
           sampling: rows.length > LARGE && !markers && thinCharts.get() ? 'lttb' : undefined,
           showSymbol: markers, showAllSymbol: 'auto', symbol: markers ? markerSymbol(L.shape, SYMBOL[s.symbol]) : 'none', symbolSize: L.size ?? (rows.length > 150 ? 4 : s.markers ? 7 : 5),
           itemStyle: s.hollow ? { color: tk.surface, borderColor: mc, borderWidth: 1.8 } : { color: mc, borderColor: tk.surface, borderWidth: 1.5 },
-          lineStyle: { color: c, width, type: L.dash ? DASH[L.dash] : dashOf(s), cap: 'round', join: 'round', opacity: L.line === false ? 0 : s.opacity < 1 ? s.opacity : 1 },
-          ...(s.stack ? { areaStyle: { color: c, opacity: 0.6 } } : {}),
+          lineStyle: { color: c, width, type: L.dash ? DASH[L.dash] : dashOf(s), cap: 'round', join: 'round', opacity: L.line === false ? 0 : s.opacity < 1 && !s.fill ? s.opacity : 1 },
+          ...(area ? { areaStyle: { color: c, opacity: s.fill ? L.opacity ?? 0.6 : 0.6 } } : {}),
           emphasis: { ...emphasis, lineStyle: { width: width + 1 } } }
       }
       const big = rows.length > LARGE

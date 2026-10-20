@@ -273,3 +273,84 @@ def test_chart_style_and_api_roundtrip(tmp_path):
               'axis_style': {'y': {'decimals': 2}}}
     chart = client.post('/api/modules/builder/run', json={'project': pid, 'params': {'layout': layout}}).json()['charts'][0]
     assert chart['style'] == {'title_size': 18} and chart['y']['style'] == {'decimals': 2} and chart['series'][0]['look'] == {'color': '#ff0000'}
+
+
+# ---------- этап 3: комбинированные виды ----------
+
+Q = {'dataset': 'production', 'y': 'q', 'wells': ['1']}
+
+
+@pytest.mark.parametrize('view, kind, markers, fill, step', [
+    ('line', 'line', True, False, False), ('points', 'points', False, False, False), ('line_points', 'line', False, False, False),
+    ('bar', 'bar', False, False, False), ('area', 'line', False, True, False), ('step', 'line', True, False, True)])
+def test_view_to_series(data, view, kind, markers, fill, step):
+    s = build(data, {**Q, 'view': view}).charts[0].series[0]
+    assert (s.kind, s.markers, s.fill, s.step) == (kind, markers, fill, step)
+    if view == 'line_points':
+        assert s.look['marker'] is True           # отметки не зависят от плотности ряда
+    assert list(s.y[:2]) == [100.0, 0.0]          # ноль остаётся нулём в любом виде
+
+
+def test_unknown_view_message(data):
+    with pytest.raises(ParamError, match='Ряд 1: вид — линия, точки, линия с точками, столбцы, область, ступенчатая'):
+        build(data, {**Q, 'view': 'pie'})
+
+
+def test_any_views_on_any_axes(data):
+    rows = [{**Q, 'view': 'bar'}, {**Q, 'view': 'area', 'axis': 'y2'}, {**Q, 'view': 'step', 'axis': 'y3'},
+            {'dataset': 'operations', 'y': 'p_wellhead', 'wells': ['1'], 'view': 'points', 'axis': 'y'},
+            {'dataset': 'operations', 'y': 'p_wellhead', 'wells': ['1'], 'view': 'line_points', 'axis': 'y4'}]
+    c = build(data, *rows).charts[0]
+    assert [(s.kind, s.axis) for s in c.series] == [('bar', 'y'), ('line', 'y2'), ('line', 'y3'), ('points', 'y'), ('line', 'y4')]
+    assert c.y.from_zero and c.y2.from_zero and not c.y3.from_zero      # столбцы и области — шкала от нуля
+
+
+def test_manual_minimum_beats_zero_for_bars(data):
+    c = build(data, {**Q, 'view': 'bar'}, axis_style={'y': {'min': '50'}}).charts[0]
+    assert c.y.minimum == 50 and not c.y.from_zero
+
+
+def test_stack_aligned_on_common_x(data):
+    # у скважины 2 нет точек 01.01 с q > 0? есть все 4; сделаем разные X: ряд 2 только с 02.01
+    rows = [{**Q, 'view': 'bar', 'stack': 'А'}, {'dataset': 'production', 'y': 'q', 'wells': ['2'], 'view': 'bar', 'stack': 'А',
+                                                  'date_from': '2025-01-02'}]
+    a, b = build(data, *rows).charts[0].series
+    assert a.stack == b.stack == 'А' and len(a.x) == len(b.x) == 4          # X общий — стопка по номеру точки верна
+    assert np.isnan(b.y[0]) and list(b.y[1:]) == [60.0, 70.0, 80.0]
+    assert b.ids is None                                                      # у добавленной точки нет id
+
+
+def test_stack_split_by_kind_and_axis_with_note(data):
+    rows = [{**Q, 'view': 'bar', 'stack': 'S'}, {**Q, 'view': 'area', 'stack': 'S'}, {**Q, 'view': 'bar', 'stack': 'S', 'axis': 'y2'}]
+    r = build(data, *rows)
+    names = [s.stack for s in r.charts[0].series]
+    assert len(set(names)) == 3 and all(n.startswith('S · ') for n in names)
+    assert 'складываются отдельно' in text(r)
+
+
+def test_stack_ignored_for_line_with_note(data):
+    r = build(data, {**Q, 'view': 'line', 'stack': 'S'})
+    assert r.charts[0].series[0].stack == '' and 'только у столбцов и областей' in text(r)
+
+
+def test_bars_no_gap_break_and_area_breaks(data):
+    days = pd.date_range('2025-03-01', periods=3, freq='D').append(pd.date_range('2025-04-20', periods=3, freq='D'))
+    d = Data({K.PRODUCTION: pd.DataFrame({'well': '1', 'date': days, 'kind': 'withdrawal', 'q': [1e3] * 6})})
+    bar = builder.build(d, {'series': [{**Q, 'view': 'bar'}]}).charts[0].series[0]
+    area = builder.build(d, {'series': [{**Q, 'view': 'area'}]}).charts[0].series[0]
+    assert len(bar.x) == 6 and len(area.x) == 7 and np.isnan(area.y[3])
+
+
+def test_opacity_is_fill_for_area_and_bar(data):
+    area = build(data, {**Q, 'view': 'area', 'look': {'opacity': .3, 'color': '#112233'}}).charts[0].series[0]
+    line = build(data, {**Q, 'view': 'line', 'look': {'opacity': .3}}).charts[0].series[0]
+    assert area.opacity == 1 and area.look['opacity'] == .3      # заливка, линия не бледнеет
+    assert line.opacity == .3
+
+
+def test_contract_json_has_fill_step_and_old_series_unchanged():
+    from atlas.contract import Series, _series_json
+    out = _series_json(Series('a', [1], [2], 'line', fill=True, step=True))
+    assert out['fill'] is True and out['step'] is True
+    old = Series('b', [1], [2], 'bar')
+    assert old.fill is False and old.step is False

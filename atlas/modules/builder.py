@@ -113,7 +113,8 @@ SKIP = {'np', '_row'}             # служебные числовые коло
 KINDS = {'withdrawal': 'Отбор', 'injection': 'Закачка'}
 KEYS = {'well_date': 'скважина + дата', 'date': 'дата', 'well': 'скважина', 'nearest': 'ближайшая дата'}
 AXES = ('y', 'y2', 'y3', 'y4', 'y5')
-VIEWS = ('line', 'points')
+VIEWS = {'line': 'линия', 'points': 'точки', 'line_points': 'линия с точками', 'bar': 'столбцы', 'area': 'область', 'step': 'ступенчатая'}
+STACKABLE = ('bar', 'area')       # стопка («Стопка» в ряду) — у столбцов и областей; у остальных видов поле не действует
 MAX_DAYS = 366
 MANY_SERIES = 200
 SPARSE = 60                       # столько точек и меньше — линия с маркерами
@@ -208,6 +209,7 @@ class Row:
     kind: str                   # режим (отбор / закачка); пусто — все
     axis: str
     view: str
+    stack: str
     key: str
     days: int
     name: str
@@ -249,7 +251,7 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
         if axis not in AXES:
             raise ParamError(f'Ряд {i}: ось — одна из Y1–Y5')
         if view not in VIEWS:
-            raise ParamError(f'Ряд {i}: вид — линия или точки')
+            raise ParamError(f'Ряд {i}: вид — {", ".join(VIEWS.values())}')
         if key not in KEYS:
             raise ParamError(f'Ряд {i}: ключ связи — {", ".join(KEYS.values())}')
         try:
@@ -262,7 +264,7 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
         if not isinstance(wells, list):
             raise ParamError(f'Ряд {i}: скважины — список')
         out.append(Row(i, dataset, str(r.get('y') or ''), x_dataset, str(r.get('x') or 'date'), [str(w) for w in wells],
-                       _date(r.get('date_from'), i), _date(r.get('date_to'), i), str(r.get('kind') or ''), axis, view, key,
+                       _date(r.get('date_from'), i), _date(r.get('date_to'), i), str(r.get('kind') or ''), axis, view, str(r.get('stack') or '').strip()[:60], key,
                        days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i)))
     axes = layout.get('axes') or {}
     labels = {'title': str(layout.get('title') or '')[:300], 'x_label': str(layout.get('x_label') or '')[:200],
@@ -490,29 +492,44 @@ def build(data: Data, layout: Any) -> Result:
     chart = Chart('builder', title, x_axis, axes['y'], crosshair=x_kind == 'date',
                   y2=axes.get('y2'), y3=axes.get('y3'), y4=axes.get('y4'), y5=axes.get('y5'), style=labels['chart_style'])
     total = 0
+    items: list[tuple[Row, str, str, pd.DataFrame]] = []
     for r, p in built:
-        frame = p.frame
         entity_kind = _entity(data[r.dataset])
-        groups = [(e, g) for e, g in frame.groupby('entity', sort=False)] if entity_kind else [('', frame)]
+        groups = [(e, g) for e, g in p.frame.groupby('entity', sort=False)] if entity_kind else [('', p.frame)]
         groups.sort(key=lambda eg: natural_key(eg[0]))
-        many = len(groups) > 1
         for entity, g in groups:
             g = g.sort_values('x', kind='stable')
-            if r.view == 'line' and x_kind == 'date':
+            if r.view in BROKEN and x_kind == 'date':
                 g = _break_gaps(g)
-            points = int(g['y'].notna().sum())
-            total += points
-            name = _series_name(r, entity_kind, str(entity), many)
-            facets = {'Ряд': f'{r.index}. {r.name or meta(r.dataset, r.y).label}'}
-            if entity_kind and entity:
-                facets['Скважина' if entity_kind == 'well' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else str(entity)
-            ids = g['id'].tolist() if g['id'].notna().all() and len(g) else None
-            chart.series.append(Series(
-                name, g['x'].to_numpy(), g['y'].to_numpy(), 'line' if r.view == 'line' else 'points',
-                group=f'{r.index}:{entity}', axis=place[r.axis], markers=r.view == 'line' and points <= SPARSE,
-                ids=ids, dataset=r.dataset if ids else None, facets=facets))
-            if r.look:
-                _style_series(chart.series[-1], r.look)
+            items.append((r, entity_kind, str(entity), g))
+    stacks = _stack_names(built, place, result.notes)
+    union: dict[str, pd.Index] = {}      # стопка складывается по номеру точки: у всех её рядов общий список X
+    for r, _, _, g in items:
+        if r.index in stacks:
+            union[stacks[r.index]] = union.get(stacks[r.index], pd.Index([])).union(pd.Index(g['x'].dropna().unique()))
+    per_row = {r.index: sum(1 for o, *_ in items if o.index == r.index) for r, *_ in items}
+    for r, entity_kind, entity, g in items:
+        stack = stacks.get(r.index, '')
+        if stack:
+            g = _on_grid(g, union[stack])
+        points = int(g['y'].notna().sum())
+        total += points
+        name = _series_name(r, entity_kind, entity, per_row[r.index] > 1)
+        facets = {'Ряд': f'{r.index}. {r.name or meta(r.dataset, r.y).label}'}
+        if entity_kind and entity:
+            facets['Скважина' if entity_kind == 'well' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
+        ids = g['id'].tolist() if g['id'].notna().all() and len(g) else None
+        kind = 'points' if r.view == 'points' else 'bar' if r.view == 'bar' else 'line'
+        chart.series.append(Series(
+            name, g['x'].to_numpy(), g['y'].to_numpy(), kind,
+            group=f'{r.index}:{entity}', axis=place[r.axis], markers=kind == 'line' and r.view in ('line', 'step') and points <= SPARSE,
+            ids=ids, dataset=r.dataset if ids else None, facets=facets, stack=stack,
+            fill=r.view == 'area', step=r.view == 'step'))
+        _style_series(chart.series[-1], r.look, r.view)
+    for key, axis in axes.items():      # столбцы и области растут от нуля: шкала с нулём, если границу не задали вручную
+        if axis.scale == 'value' and axis.minimum is None and any(
+                s.axis == key and (s.kind == 'bar' or s.fill) for s in chart.series):
+            axis.from_zero = True
     result.charts.append(chart)
     if len(chart.series) > MANY_SERIES:
         result.notes.append(Note(f'На графике {len(chart.series)} кривых — его трудно читать. Выберите меньше скважин в рядах.', 'warning'))
@@ -521,12 +538,17 @@ def build(data: Data, layout: Any) -> Result:
     return result
 
 
-def _style_series(s: Series, look: dict[str, Any]) -> None:
-    """Ручной вид ряда: на экране и в выгрузке действует ``Series.look``; прозрачность и маркеры линии — и в полях серии."""
-    s.look = dict(look)
-    if 'opacity' in look:
+def _style_series(s: Series, look: dict[str, Any], view: str = 'line') -> None:
+    """Ручной вид ряда: на экране и в выгрузке действует ``Series.look``; прозрачность и маркеры линии — и в полях серии.
+    «Линия с точками» всегда с маркерами (если не выключены вручную); у области и столбцов прозрачность относится к заливке."""
+    look = dict(look)
+    if view == 'line_points':
+        look.setdefault('marker', True)       # не через ``markers``: плотная линия сглаживается без отметок
+    if look:
+        s.look = look
+    if 'opacity' in look and not (s.fill or s.kind == 'bar'):
         s.opacity = look['opacity']
-    if s.kind == 'line' and 'marker' in look:
+    if s.kind == 'line' and 'marker' in look and view != 'line_points':
         s.markers = look['marker']
 
 
@@ -560,6 +582,39 @@ def _style_axis(axis: Axis, spec: dict[str, Any], title: str, values: list[pd.Se
             axis.step = bound(spec['step'], f'Ось {title}, шаг', False)
             if axis.step <= 0:
                 raise ParamError(f'Ось {title}, шаг: больше нуля')
+
+
+BROKEN = ('line', 'line_points', 'area', 'step')      # виды с линией: по датам рвётся на перерывах
+
+
+def _stack_names(built: list[tuple[Row, Pairs]], place: dict[str, str], notes: list[Note]) -> dict[int, str]:
+    """Имя стопки по номеру ряда (только столбцы и области). Столбцы и области, а также разные шкалы Y складываются раздельно:
+    одинаковое имя на них разводится суффиксом, об этом заметка."""
+    groups: dict[str, set[tuple[str, str]]] = {}
+    for r, _ in built:
+        if r.stack and r.view in STACKABLE:
+            groups.setdefault(r.stack, set()).add((r.view, place[r.axis]))
+    out = {}
+    for r, _ in built:
+        if not r.stack:
+            continue
+        if r.view not in STACKABLE:
+            notes.append(Note(f'Ряд {r.index}: стопка «{r.stack}» задана для вида «{VIEWS[r.view]}» — она действует только у столбцов и областей.'))
+        elif len(groups[r.stack]) > 1:
+            out[r.index] = f'{r.stack} · {VIEWS[r.view]} · {_axis_title(place[r.axis])}'
+        else:
+            out[r.index] = r.stack
+    for name, parts in groups.items():
+        if len(parts) > 1:
+            notes.append(Note(f'Стопка «{name}»: столбцы и области, а также ряды разных осей складываются отдельно друг от друга.'))
+    return out
+
+
+def _on_grid(g: pd.DataFrame, grid: pd.Index) -> pd.DataFrame:
+    """Ряд на общем списке X стопки: где у ряда нет точки — пропуск."""
+    out = g.drop_duplicates('x').set_index('x').reindex(grid.sort_values())
+    out['entity'] = g['entity'].iloc[0] if len(g) else ''
+    return out.rename_axis('x').reset_index()
 
 
 def _break_gaps(g: pd.DataFrame) -> pd.DataFrame:
