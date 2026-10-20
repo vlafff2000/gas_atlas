@@ -150,3 +150,21 @@ def test_elpro_by_day_sum_keeps_gap_and_zero_apart():
     e = ed.elpro_by_day(elpro, 'withdrawal').set_index(['date', 'well'])
     assert np.isnan(e.loc[(days[2], '103'), 'elpro_q'])     # 03.06 у 103 — пропуск расхода, не ноль
     assert e.loc[(days[1], '101'), 'elpro_q'] == 0.0        # 02.06 у 101 — ноль в ЭЛПРО
+
+
+def test_others_median_vectorized_matches_per_row_reference():
+    rng = np.random.default_rng(3)
+    n = 400
+    e = pd.DataFrame({'well': rng.choice([f'w{i}' for i in range(8)], n),
+                      'date': pd.to_datetime(rng.choice(pd.date_range('2025-01-01', periods=30), n)),
+                      't': np.where(rng.random(n) < 0.2, np.nan, rng.normal(15, 2, n))})
+    e = e.drop_duplicates(['well', 'date']).reset_index(drop=True)
+    expected = pd.Series(np.nan, index=e.index)              # эталон: по строкам, как раньше
+    for _, grp in e.dropna(subset=['t']).groupby('date'):
+        if len(grp) < 3:
+            continue
+        for i, idx in enumerate(grp.index):
+            expected[idx] = np.median(np.delete(grp.t.to_numpy(), i))
+    got = ed.others_median(e)
+    assert (got.isna() == expected.isna()).all()
+    assert np.allclose(got.dropna(), expected.dropna())
