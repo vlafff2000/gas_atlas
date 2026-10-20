@@ -21,10 +21,13 @@ def _download(content: bytes, name: str, mime: str) -> Response:
 
 def routes(projects, E) -> list[Route]:
     def settings_of(request):
-        return projects.manifest(request.path_params['pid']).get('settings', {})
+        m = projects.manifest(request.path_params['pid'])
+        if not hasattr(request.state, 'revision'):
+            request.state.revision = m.get('revision')      # версия, на которой правим: параллельная правка не затирается молча
+        return m.get('settings', {})
 
     def save(request, cfg, details):
-        projects._commit(request.path_params['pid'], cfg, None, ACTION, details)
+        projects._commit(request.path_params['pid'], cfg, getattr(request.state, 'revision', None), ACTION, details)
 
     def listing(request, body):
         return {'items': lib.listing(settings_of(request))}

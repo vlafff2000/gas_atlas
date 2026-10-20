@@ -31,7 +31,7 @@ def items_of(settings: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Макеты из настроек проекта; испорченная запись пропускается, а не роняет проект."""
     store = settings.get(KEY)
     raw = store.get('items') if isinstance(store, Mapping) else None
-    return [i for i in raw or [] if isinstance(i, Mapping) and i.get('id') and isinstance(i.get('layout'), Mapping)]
+    return [i for i in raw or [] if isinstance(i, Mapping) and i.get('id') and isinstance(i.get('name'), str) and isinstance(i.get('layout'), Mapping)]
 
 
 def _with(settings: Mapping[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:

@@ -139,3 +139,14 @@ def test_layout_in_an_report(env):
     assert 'Чужой' in notes and 'Пустой' in notes
     plain = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {}}).json()
     assert len(plain['charts']) == len(ids) - 1                  # без макетов отчёт прежний
+
+
+def test_item_without_name_is_skipped_and_save_checks_revision(env):
+    client, pid, projects = env
+    assert lib.items_of({'builder_layouts': {'items': [{'id': 'a', 'layout': {'series': []}}]}}) == []     # испорченная запись без имени
+    seen = []
+    real = projects._commit
+    projects._commit = lambda pid_, cfg, expected, *a, **k: (seen.append(expected), real(pid_, cfg, expected, *a, **k))[1]
+    revision = projects.manifest(pid)['revision']
+    assert client.post(url(pid), json={'name': 'Дебит', 'layout': LAYOUT}).status_code == 200
+    assert seen == [revision]       # запись идёт с проверкой версии, а не поверх чужих правок
