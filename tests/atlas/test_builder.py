@@ -199,3 +199,11 @@ def test_line_breaks_on_long_gap_not_on_zero():
     s = build(Data({K.PRODUCTION: prod}), {'dataset': 'production', 'y': 'q'}).charts[0].series[0]
     assert len(s.x) == 6 and np.isnan(s.y[3]) and s.y[1] == 0.0       # разрыв между 03.01 и 01.03, ноль — точка
     assert s.ids[3] == '' and s.ids[1] == 'b'
+
+
+def test_missing_well_is_not_a_separate_none_series():
+    """Строка без номера скважины не даёт кривую «скв. nan/None»: она идёт без подписи скважины."""
+    prod = pd.DataFrame({'well': ['1', None], 'date': D(['2025-01-01', '2025-01-02']), 'q': [1000.0, 2000.0]})
+    result = builder.build(Data({K.PRODUCTION: prod}), {'series': [{'dataset': 'production', 'y': 'q'}]})
+    names = [s.name for s in result.charts[0].series]
+    assert not any('None' in n or 'nan' in n for n in names)

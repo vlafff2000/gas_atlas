@@ -324,7 +324,7 @@ def pairs(data: Data, row: Row) -> Pairs:
             return Pairs(empty, 0, [Note(f'{label}: в наборе «{kind.label}» нет числового поля «{column}» ({what}). Выберите поле в дереве слева.', 'warning')], False)
     ys = _select(data[row.dataset], row)
     entity = _entity(data[row.dataset])
-    y = pd.DataFrame({'entity': ys[entity].astype(str) if entity else '', 'y': _values(ys, row.dataset, row.y),
+    y = pd.DataFrame({'entity': ys[entity].fillna('').astype(str) if entity else '', 'y': _values(ys, row.dataset, row.y),
                       'id': ys['_point_id'].astype(str) if '_point_id' in ys and row.dataset != K.ELPRO else None},
                      index=ys.index)
     if 'date' in ys:
@@ -356,7 +356,7 @@ def _join(data: Data, row: Row, y: pd.DataFrame, y_entity: str) -> tuple[pd.Data
     label = f'Ряд {row.index}'
     xs = _select(data[row.x_dataset], row)
     x_entity = _entity(data[row.x_dataset])
-    x = pd.DataFrame({'entity': xs[x_entity].astype(str) if x_entity else '', 'x': _values(xs, row.x_dataset, row.x)},
+    x = pd.DataFrame({'entity': xs[x_entity].fillna('').astype(str) if x_entity else '', 'x': _values(xs, row.x_dataset, row.x)},
                      index=xs.index)
     if x_entity == 'group' and y_entity == 'group':
         x['entity'] = x['entity'].map(group_key)
