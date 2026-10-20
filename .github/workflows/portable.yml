@@ -147,7 +147,7 @@ jobs:
           for image in centos:7 almalinux:8; do
             echo "== $image"
             docker run --rm -v "$PWD/t/PXG_Unified:/app" "$image" \
-              bash -c 'cd /app && PYTHONNOUSERSITE=1 python/bin/python3.13 -s -c "import atlas, pxg_hub, pxg_base, gsp_maps, schedule_pxg, pandas, numpy, openpyxl, xlsxwriter, odf, plotly; print(\"imports ok\")"'
+              bash -c 'cd /app && PYTHONNOUSERSITE=1 python/bin/python3.13 -s -c "import atlas, pxg_hub, pxg_base, gsp_maps, schedule_pxg, pandas, numpy, openpyxl, xlsxwriter, odf, plotly, matplotlib; print(\"imports ok\")"'
           done
       - uses: actions/upload-artifact@v4
         with:
