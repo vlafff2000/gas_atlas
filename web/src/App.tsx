@@ -401,6 +401,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             Все таблицы XLSX
           </button>
         )}
+        {result && (
+          <button type="button" className="quiet" title="Данные вкладки с учётом исключённых точек, в структуре книги импорта"
+            onClick={() => saveLink(projectsApi.correctedDbUrl(project.id, spec.id))}>Исправленная БД XLSX</button>
+        )}
       </div>
 
       {status.kind === 'error' && (
