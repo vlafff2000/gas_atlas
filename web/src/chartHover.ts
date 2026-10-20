@@ -3,10 +3,13 @@
 // чтобы не зависеть от отрисовки и работать на миллионе точек: поиск двоичный, пиксели считаются только у кандидатов.
 import type { Axis, Cell, Series } from './api'
 
+/** Порядок шкал Y: основная и правые (как Y_NAMES в chartAxes). */
+const Y_ORDER = ['y', 'y2', 'y3', 'y4', 'y5']
+
 export interface Track {
   index: number                 // номер серии в chart.series и в option.series
   series: Series
-  axis: 0 | 1 | 2               // 1 — вторая шкала справа, 2 — третья (правее второй)
+  axis: number                  // 0 — основная шкала, 1 — вторая справа, 2 — третья (правее второй) и так далее
   xs: Float64Array              // x без пустых, по возрастанию, если monotonic
   ys: Float64Array              // NaN — разрыв линии
   src: Uint32Array              // номер исходной точки (для ids и labels)
@@ -18,7 +21,7 @@ export interface Track {
 }
 
 export interface View {
-  toPixel: (x: number, y: number, axis: 0 | 1 | 2) => [number, number]
+  toPixel: (x: number, y: number, axis: number) => [number, number]
   fromPixel: (px: number, py: number) => [number, number]
   visible: (t: Track) => boolean
 }
@@ -65,7 +68,7 @@ export function buildTracks(series: Series[], x: Axis, yCount: number, marked: (
       monotonic = true
     }
     const track: Track = {
-      index, series: s, axis: s.axis === 'y3' && yCount > 2 ? 2 : s.axis === 'y2' && yCount > 1 ? 1 : 0,
+      index, series: s, axis: Math.max(0, Y_ORDER.indexOf(s.axis ?? 'y')) < yCount ? Math.max(0, Y_ORDER.indexOf(s.axis ?? 'y')) : 0,
       xs: xs.subarray(0, m), ys: ys.subarray(0, m), src: src.subarray(0, m), monotonic,
       curve: s.kind === 'line', bar: s.kind === 'bar',
       points: s.kind === 'points' || (s.kind === 'line' && marked(s)),
@@ -103,7 +106,7 @@ export type HoverMode = 'smooth' | 'facts'
 const FACT_RADIUS = 32        // в режиме замеров кривая показывается, если её замер не дальше этого по x
 
 export function hover(tracks: Track[], view: View, px: number, py: number, scaleX: Axis['scale'],
-  scaleY: (axis: 0 | 1 | 2) => Axis['scale'], mode: HoverMode = 'smooth'): Hover {
+  scaleY: (axis: number) => Axis['scale'], mode: HoverMode = 'smooth'): Hover {
   const [dx] = view.fromPixel(px, py)
   const [dxR] = view.fromPixel(px + POINT_RADIUS, py)
   const [dxL] = view.fromPixel(px - POINT_RADIUS, py)

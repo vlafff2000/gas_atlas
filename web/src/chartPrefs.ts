@@ -70,7 +70,7 @@ export const tableBars = pref<boolean>('atlas.table.bars', true)
 export const zoomSync = pref<boolean>('atlas.chart.zoomSync', true)
 
 /** Ручные границы шкал Y по графикам (ключ — заголовок и подписи осей): помнятся между запусками. */
-export const savedRanges = pref<Record<string, { y: [number, number] | null; y2: [number, number] | null; y3?: [number, number] | null }>>('atlas.chart.ranges', {})
+export const savedRanges = pref<Record<string, Partial<Record<'y' | 'y2' | 'y3' | 'y4' | 'y5', [number, number] | null>>>>('atlas.chart.ranges', {})
 /** Личный вид рядов по графикам («Настройка»): ключ графика → ключ ряда → вид. Помнится между запусками. */
 export const chartLooks = pref<Record<string, Record<string, Look>>>('atlas.chart.looks', {})
 /** Границы Y, разосланные всем графикам раздела с той же подписью и единицей оси (не хранится). */
