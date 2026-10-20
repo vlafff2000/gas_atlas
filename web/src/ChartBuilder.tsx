@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { MultiSelect } from './MultiSelect'
+import type { ChartStyle } from './api'
+import type { Look } from './chartStyle'
+import { AxisDialog, ChartDialog, SeriesDialog, type AxisFmt, type AxisItem, type AxisKey } from './BuilderDialogs'
 import './builder.css'
 
 // Конструктор графиков: дерево полей, ряды-карточки, ручные подписи. Макет — параметр раздела ``layout``
@@ -24,8 +27,13 @@ export interface BuilderRow {
   id: string; dataset: string; y: string; x_dataset: string; x: string; wells: string[]
   date_from: string; date_to: string; kind: string; axis: AxisName; view: 'line' | 'points'
   key: string; days: number; name: string; hidden?: boolean
+  look?: Look            // ручной вид ряда (окно «Ряд»); пусто — авто
 }
-export interface BuilderLayout { series: BuilderRow[]; title: string; x_label: string; axes: Partial<Record<AxisName, string>> }
+export interface BuilderLayout {
+  series: BuilderRow[]; title: string; x_label: string; axes: Partial<Record<AxisName, string>>
+  axis_style?: Partial<Record<AxisKey, AxisFmt>>      // окно «Ось»: границы, шаг, шрифт…; старые макеты без него открываются как раньше
+  chart_style?: ChartStyle                            // окно «График»: заголовок, легенда, сетка, фон
+}
 
 const AXES: AxisName[] = ['y', 'y2', 'y3', 'y4', 'y5']
 const axisTitle = (a: AxisName) => (a === 'y' ? 'Y1' : 'Y' + a.slice(1))
@@ -38,6 +46,7 @@ export function layoutOf(value: unknown): BuilderLayout {
   return {
     series: Array.isArray(v.series) ? v.series.map(r => ({ ...r, id: r.id || newId() })) : [],
     title: v.title ?? '', x_label: v.x_label ?? '', axes: v.axes ?? {},
+    ...(v.axis_style ? { axis_style: v.axis_style } : {}), ...(v.chart_style ? { chart_style: v.chart_style } : {}),
   }
 }
 
@@ -59,7 +68,7 @@ function rowFor(field: BuilderField, ds: BuilderDataset | undefined, axis: AxisN
     kind: !ds?.kinds.length ? '' : base && (base.kind === '' || ds.kinds.some(k => k.value === base.kind)) ? base.kind
       : ds.kinds.some(k => k.value === 'withdrawal') ? 'withdrawal' : '',
     axis: base?.axis ?? axis, view: base?.view ?? 'line', key: base?.key ?? 'well_date', days: base?.days ?? 3,
-    name: '', hidden: base?.hidden,
+    name: '', hidden: base?.hidden, look: base?.look,
   }
 }
 
@@ -70,6 +79,8 @@ export function ChartBuilder({ project, revision, value, onChange }:
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [active, setActive] = useState<string | null>(layout.series[layout.series.length - 1]?.id ?? null)
+  const [dialog, setDialog] = useState<'row' | 'axis' | 'chart' | null>(null)
+  const [axisKey, setAxisKey] = useState<AxisKey>('x')
 
   useEffect(() => {
     let alive = true
@@ -123,6 +134,11 @@ export function ChartBuilder({ project, revision, value, onChange }:
     .map(r => fieldOf(r.dataset, r.y)?.label ?? r.y))].join(', ')
   const autoX = [...new Set(layout.series.map(r => withUnit(fieldOf(r.x_dataset, r.x)) || r.x))].join(', ')
   const activeRow = layout.series.find(r => r.id === active)
+  const axes: AxisItem[] = [
+    { key: 'x', title: 'X', label: layout.x_label, auto: autoX, time: layout.series.some(r => fieldOf(r.x_dataset, r.x)?.kind === 'date') },
+    ...used.map(a => ({ key: a as AxisKey, title: axisTitle(a), label: layout.axes[a] ?? '', auto: autoAxis(a),
+      time: layout.series.some(r => r.axis === a && fieldOf(r.dataset, r.y)?.kind === 'date') })),
+  ]
 
   return (
     <div className="builder-side">
@@ -154,6 +170,16 @@ export function ChartBuilder({ project, revision, value, onChange }:
 
       <section className="builder-rows" aria-label="Ряды графика">
         <h2>Ряды</h2>
+        {layout.series.length > 0 && (
+          <div className="builder-tools" role="toolbar" aria-label="Настройка графика">
+            <span className="tools-label">Настройка:</span>
+            {([['row', 'Ряд', 'Линия, маркеры, цвет, прозрачность выбранного ряда'], ['axis', 'Ось', 'Подпись, границы, шаг, логарифм, формат чисел и шрифт оси'],
+              ['chart', 'График', 'Заголовок, шрифты, легенда, сетка, фон']] as const).map(([id, label, hint]) => (
+              <button key={id} type="button" className="quiet" aria-pressed={dialog === id} title={hint}
+                onClick={() => setDialog(d => (d === id ? null : id))}>{label}</button>
+            ))}
+          </div>
+        )}
         {layout.series.map((r, i) => (
           <RowCard key={r.id} index={i} row={r} catalog={catalog} datasets={datasets} open={r.id === active}
             onOpen={() => setActive(r.id === active ? null : r.id)} onChange={patch => setRow(r.id, patch)}
@@ -176,6 +202,22 @@ export function ChartBuilder({ project, revision, value, onChange }:
           </fieldset>
         )}
       </section>
+      {dialog === 'row' && layout.series.length > 0 && (
+        <SeriesDialog activeId={active} onActive={setActive} onClose={() => setDialog(null)}
+          rows={layout.series.map((r, i) => ({ id: r.id, view: r.view, look: r.look ?? {},
+            title: r.name || fieldOf(r.dataset, r.y)?.label || `ряд ${i + 1}` }))}
+          onChange={(id, look) => setRow(id, { look: Object.keys(look).length ? look : undefined })} />
+      )}
+      {dialog === 'axis' && layout.series.length > 0 && (
+        <AxisDialog activeKey={axes.some(a => a.key === axisKey) ? axisKey : 'x'} onActive={setAxisKey} axes={axes} fmt={layout.axis_style ?? {}}
+          onLabel={(k, v) => (k === 'x' ? set({ x_label: v }) : set({ axes: { ...layout.axes, [k]: v } }))}
+          onChange={(k, f) => { const next = { ...layout.axis_style }; if (Object.keys(f).length) next[k] = f; else delete next[k]; set({ axis_style: next }) }}
+          onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'chart' && layout.series.length > 0 && (
+        <ChartDialog title={layout.title} autoTitle={[...new Set(layout.series.map(r => fieldOf(r.dataset, r.y)?.label ?? r.y))].join(', ')}
+          style={layout.chart_style ?? {}} onTitle={t => set({ title: t })} onChange={s => set({ chart_style: s })} onClose={() => setDialog(null)} />
+      )}
     </div>
   )
 }

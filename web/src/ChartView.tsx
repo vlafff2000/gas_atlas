@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
 import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { Axis, Chart, ChartEvent, Series, WindowReply } from './api'
+import type { ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
-import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
+import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { chartLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
@@ -139,7 +140,7 @@ const hasBars = (chart: Chart, key: YName) => chart.series.some(s => s.kind === 
 
 function alignedYAxes(chart: Chart, base: Chart): Record<YName, { min: number; max: number; step: number }> | null {
   const names = Y_NAMES.slice(0, yCount(chart))
-  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value')) return null
+  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value' || (chart.id === 'builder' && yAxisAt(chart, i).step))) return null      // в конструкторе заданный вручную шаг важнее общей сетки
   const out = {} as Record<YName, { min: number; max: number; step: number }>
   const hasData = base.series.some(s => s.kind !== 'box' && s.y.some(v => typeof v === 'number' && Number.isFinite(v)))
   if (!hasData) return null
@@ -206,6 +207,11 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const axisBase = (a: Axis, position: 'x' | YName) => {
     const y = position !== 'x'
     const zero = a.from_zero || (y && hasBars(chart, position))
+    const as = a.style ?? {}, cs = chart.style ?? {}
+    const family = as.font || cs.font ? fontCss(as.font ?? cs.font) : undefined
+    const ink = a.color || cs.text_color || tk.muted
+    const showGrid = !cs.grid || cs.grid === 'both' || cs.grid === (y ? 'h' : 'v')
+    const dateFormat = as.date_format ? as.date_format.replace(/(dd|MM|yyyy)/g, '{$1}') : null
     return {
       type: a.scale, inverse: a.inverse, scale: !zero,
       min: a.scale === 'category' ? undefined : a.minimum ?? (zero ? 0 : undefined),
@@ -216,18 +222,18 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       // подпись шкалы Y — горизонтально над осью, читается без наклона головы
       nameLocation: y ? (a.inverse ? 'start' : 'end') : 'middle', nameGap: y ? 14 : 30,
       nameTextStyle: y
-        ? { color: a.color || tk.muted, fontSize: 12, align: position === 'y' ? 'left' : 'right', padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0] }
-        : { color: tk.muted, fontSize: 12 },
+        ? { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, align: position === 'y' ? 'left' : 'right', padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0] }
+        : { color: ink, fontSize: as.title_size ?? 12, fontFamily: family },
       axisLine: { show: !y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color, lineStyle: { color: a.color || tk.axis } },
       ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
       axisTick: { show: false },
       axisLabel: {
-        color: a.color || tk.muted, fontSize: 11, hideOverlap: true, margin: 10,
+        color: ink, fontSize: as.tick_size ?? 11, fontFamily: family, hideOverlap: true, margin: 10,
         ...(a.scale === 'time'
-          ? { formatter: { year: '{yyyy}', month: '{MM}.{yyyy}', day: '{dd}.{MM}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', none: '{dd}.{MM}.{yyyy}' } }
-          : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(v) }),
+          ? dateFormat ? { formatter: dateFormat } : { formatter: { year: '{yyyy}', month: '{MM}.{yyyy}', day: '{dd}.{MM}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', none: '{dd}.{MM}.{yyyy}' } }
+          : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(v, as.decimals ?? null) }),
       },
-      splitLine: { show: (position === 'y' || position === 'x') && (y || a.scale !== 'category'), lineStyle: { color: tk.grid, width: 1 } },
+      splitLine: { show: showGrid && (position === 'y' || position === 'x') && (y || a.scale !== 'category'), lineStyle: { color: chart.style?.grid_color || tk.grid, width: 1 } },
     }
   }
 
@@ -239,7 +245,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   return {
     animation: false,
     useUTC: true,
-    textStyle: { fontFamily: FONT, color: tk.ink },
+    textStyle: { fontFamily: chart.style?.font ? fontCss(chart.style.font) : FONT, color: chart.style?.text_color || tk.ink },
     grid: { left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20, top: 34, bottom: navigator ? 80 : 44 },
     xAxis: axis(chart.x, 'x'),
     yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
@@ -1207,10 +1213,36 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     if (name) ch.dispatchAction({ type: 'highlight', seriesName: name })
   }
 
+  const legendEl = chart.style?.legend === 'hide' ? null : (
+    <ChartLegend model={legend} position={chart.style?.legend} fmt={chart.style} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
+        offEvents={offEvents} onHighlight={highlight}
+        onToggle={(name, only) => setHidden(h => {
+          if (only) {
+            const others = legend.items.map(i => i.name).filter(n => n !== name)
+            const isolated = !h.has(name) && others.every(n => h.has(n))
+            return isolated ? new Set() : new Set(others)
+          }
+          const n = new Set(h); if (n.has(name)) n.delete(name); else n.add(name); return n
+        })}
+        onFacet={(facet, value, only) => setFacetOff(off => {
+          const values = legend.facets.find(f => f.name === facet)?.values.map(v => v.value) ?? []
+          const id = (v: string) => facet + '\u0001' + v
+          const n = new Set(off)
+          if (only) {
+            const isolated = !off.has(id(value)) && values.filter(v => v !== value).every(v => off.has(id(v)))
+            for (const v of values) { if (isolated || v === value) n.delete(id(v)); else n.add(id(v)) }
+            return n
+          }
+          if (n.has(id(value))) n.delete(id(value)); else n.add(id(value))
+          return n
+        })}
+        onEvent={kind => hiddenEvents.set(offEvents.includes(kind) ? offEvents.filter(k => k !== kind) : [...offEvents, kind])} />
+  )
+
   return (
     <figure className={'chart' + (excludeMode ? ' exclude-mode' : '')}>
       <figcaption>
-        <span title={chart.title}>{chart.title}</span>
+        <span title={chart.title} style={titleStyle(chart.style)}>{chart.title}</span>
         <span className="chart-actions">
           {chart.x.scale !== 'category' && <>
             <span className="chart-tools">
@@ -1247,12 +1279,12 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
                 title="Только фактические замеры, точки видны на линиях">Замеры</button>
             </span>
           </>}
-          <span className="chart-tools">
+          {chart.id !== 'builder' && <span className="chart-tools">
             <button type="button" className={'icon' + (settings ? ' on' : '')} aria-pressed={settings} onClick={() => setSettings(v => !v)}
               title="Настройка графика: цвет, толщина и стиль линии, маркеры (форма, размер, цвет) для каждого ряда — как в Excel">
               <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.9M8 12.3v1.9M1.8 8h1.9M12.3 8h1.9M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" /></svg>
             </button>
-          </span>
+          </span>}
           {onCopy && <CopyButton onCopy={onCopy} />}
           <DownloadMenu onDownload={onDownload} />
         </span>
@@ -1260,7 +1292,9 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       {settings && createPortal(<ChartSettings title={chart.title} series={chart.series} colorOf={colorOf(chart)} looks={looks ?? {}}
         onChange={setLooks} onClose={() => setSettings(false)} />, document.body)}
       {thinned.length > 0 && <ThinNote chart={chart} thinned={thinned.map(([, i]) => i)} windowed={!!patch && patch.base === given} patch={patch} />}
-      <div className="chart-stage" ref={stage}>
+      {legendEl && chart.style?.legend === 'top' && legendEl}
+      <div className={chart.style?.legend === 'right' && legendEl ? 'chart-body legend-right' : 'chart-body'}>
+      <div className="chart-stage" ref={stage} style={chart.style?.background ? { background: chart.style.background } : undefined}>
         <div ref={box} className="chart-canvas" role="img" aria-label={chart.title} />
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
         <div ref={tip} className="atlas-tip floating" hidden />
@@ -1280,31 +1314,35 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
           </span>
         </form>}
       </div>
-      <ChartLegend model={legend} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
-        offEvents={offEvents} onHighlight={highlight}
-        onToggle={(name, only) => setHidden(h => {
-          if (only) {
-            const others = legend.items.map(i => i.name).filter(n => n !== name)
-            const isolated = !h.has(name) && others.every(n => h.has(n))
-            return isolated ? new Set() : new Set(others)
-          }
-          const n = new Set(h); if (n.has(name)) n.delete(name); else n.add(name); return n
-        })}
-        onFacet={(facet, value, only) => setFacetOff(off => {
-          const values = legend.facets.find(f => f.name === facet)?.values.map(v => v.value) ?? []
-          const id = (v: string) => facet + '\u0001' + v
-          const n = new Set(off)
-          if (only) {
-            const isolated = !off.has(id(value)) && values.filter(v => v !== value).every(v => off.has(id(v)))
-            for (const v of values) { if (isolated || v === value) n.delete(id(v)); else n.add(id(v)) }
-            return n
-          }
-          if (n.has(id(value))) n.delete(id(value)); else n.add(id(value))
-          return n
-        })}
-        onEvent={kind => hiddenEvents.set(offEvents.includes(kind) ? offEvents.filter(k => k !== kind) : [...offEvents, kind])} />
+      {legendEl && chart.style?.legend === 'right' && legendEl}
+      </div>
+      {legendEl && chart.style?.legend !== 'top' && chart.style?.legend !== 'right' && legendEl}
     </figure>
   )
+}
+
+// ---------- ручное оформление (конструктор) ----------
+
+/** Стиль заголовка графика из настроек: шрифт, размер, жирность, цвет, выравнивание. Пусто — как задано стилями страницы. */
+function titleStyle(st: ChartStyle | undefined): CSSProperties | undefined {
+  if (!st) return undefined
+  const out: CSSProperties = {}
+  if (st.title_font || st.font) out.fontFamily = fontCss(st.title_font ?? st.font)
+  if (st.title_size) out.fontSize = st.title_size
+  if (st.title_bold !== undefined) out.fontWeight = st.title_bold ? 700 : 400
+  if (st.title_color || st.text_color) out.color = st.title_color ?? st.text_color
+  if (st.title_align) out.textAlign = st.title_align
+  return Object.keys(out).length ? out : undefined
+}
+
+/** Шрифт и размер легенды: размер — переменная CSS, её читают пункты легенды. */
+function legendStyle(st: ChartStyle | undefined): CSSProperties | undefined {
+  if (!st) return undefined
+  const out: Record<string, string | number> = {}
+  if (st.legend_font || st.font) out.fontFamily = fontCss(st.legend_font ?? st.font)
+  if (st.legend_size) out['--legend-size'] = st.legend_size + 'px'
+  if (st.text_color) out.color = st.text_color
+  return Object.keys(out).length ? out as CSSProperties : undefined
 }
 
 // ---------- легенда ----------
@@ -1377,9 +1415,10 @@ interface LegendProps {
   model: LegendModel; hidden: Set<string>; facetOff: Set<string>; events: ChartEvent[]; offEvents: string[]
   onToggle: (name: string, only: boolean) => void; onFacet: (facet: string, value: string, only: boolean) => void
   onEvent: (kind: string) => void; onHighlight: (name: string | null) => void
+  position?: ChartStyle['legend']; fmt?: ChartStyle      // ручное оформление: положение, шрифт, размер
 }
 
-function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onFacet, onEvent, onHighlight }: LegendProps) {
+function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onFacet, onEvent, onHighlight, position, fmt }: LegendProps) {
   const [open, setOpen] = useState(false)
   const [overflow, setOverflow] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -1392,7 +1431,7 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
   if (model.items.length < 2 && !kinds.length) return null
   const hint = 'Щелчок — скрыть или показать, двойной щелчок — только этот'
   return (
-    <div className="chart-legend-wrap">
+    <div className={'chart-legend-wrap' + (position === 'right' ? ' side' : '')} style={legendStyle(fmt)}>
       <div ref={root} className={'chart-legend' + (open ? ' open' : '')}>
         {model.facets.map(f => (
           <div key={f.name} className="legend-row">

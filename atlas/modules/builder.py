@@ -11,7 +11,7 @@ X — любое поле: дата или число. Если X и Y из ра
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 import numpy as np
@@ -21,6 +21,7 @@ from atlas.engine.core.config import NODATA, natural_key
 from atlas.engine.core.import_rules import FIELDS as IMPORT_FIELDS
 from atlas.engine.core.loader import group_key
 
+from ..chart_style import bound, clean_axes, clean_chart, clean_look
 from ..contract import Axis, Chart, Data, Module, ModuleSpec, Note, Param, ParamError, Result, Series, Stat
 from ..domain import DatasetKind
 
@@ -211,6 +212,7 @@ class Row:
     days: int
     name: str
     hidden: bool
+    look: dict[str, Any] = field(default_factory=dict)     # ручной вид ряда (atlas/chart_style.py)
 
 
 def _kind(value: Any, what: str, index: int) -> DatasetKind:
@@ -261,10 +263,11 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
             raise ParamError(f'Ряд {i}: скважины — список')
         out.append(Row(i, dataset, str(r.get('y') or ''), x_dataset, str(r.get('x') or 'date'), [str(w) for w in wells],
                        _date(r.get('date_from'), i), _date(r.get('date_to'), i), str(r.get('kind') or ''), axis, view, key,
-                       days, str(r.get('name') or '')[:200], bool(r.get('hidden'))))
+                       days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i)))
     axes = layout.get('axes') or {}
     labels = {'title': str(layout.get('title') or '')[:300], 'x_label': str(layout.get('x_label') or '')[:200],
-              'axes': {a: str(axes.get(a) or '')[:200] for a in AXES} if isinstance(axes, Mapping) else {}}
+              'axes': {a: str(axes.get(a) or '')[:200] for a in AXES} if isinstance(axes, Mapping) else {},
+              'axis_style': clean_axes(layout.get('axis_style')), 'chart_style': clean_chart(layout.get('chart_style'))}
     return out, labels
 
 
@@ -479,9 +482,13 @@ def build(data: Data, layout: Any) -> Result:
     x_axis = Axis(labels['x_label'] or _join_labels(x_labels) or 'X', scale='time' if x_kind == 'date' else 'value')
     if labels['x_label'] or x_kind == 'date':
         x_axis.unit = ''
+    values = {'x': [p.frame['x'] for _, p in built], **{a: [p.frame['y'] for r, p in built if r.axis == a] for a in used}}
+    for name, spec in labels['axis_style'].items():
+        if name == 'x' or name in place:
+            _style_axis(x_axis if name == 'x' else axes[place[name]], spec, 'X' if name == 'x' else _axis_title(name), values[name], result.notes)
     title = labels['title'] or _join_labels([r.name or meta(r.dataset, r.y).label for r, _ in built])
     chart = Chart('builder', title, x_axis, axes['y'], crosshair=x_kind == 'date',
-                  y2=axes.get('y2'), y3=axes.get('y3'), y4=axes.get('y4'), y5=axes.get('y5'))
+                  y2=axes.get('y2'), y3=axes.get('y3'), y4=axes.get('y4'), y5=axes.get('y5'), style=labels['chart_style'])
     total = 0
     for r, p in built:
         frame = p.frame
@@ -504,12 +511,55 @@ def build(data: Data, layout: Any) -> Result:
                 name, g['x'].to_numpy(), g['y'].to_numpy(), 'line' if r.view == 'line' else 'points',
                 group=f'{r.index}:{entity}', axis=place[r.axis], markers=r.view == 'line' and points <= SPARSE,
                 ids=ids, dataset=r.dataset if ids else None, facets=facets))
+            if r.look:
+                _style_series(chart.series[-1], r.look)
     result.charts.append(chart)
     if len(chart.series) > MANY_SERIES:
         result.notes.append(Note(f'На графике {len(chart.series)} кривых — его трудно читать. Выберите меньше скважин в рядах.', 'warning'))
     result.summary = [Stat('Рядов', str(len(built))), Stat('Кривых', str(len(chart.series))),
                       Stat('Точек', f'{total:,}'.replace(',', ' '), 'точки, где есть и X, и Y')]
     return result
+
+
+def _style_series(s: Series, look: dict[str, Any]) -> None:
+    """Ручной вид ряда: на экране и в выгрузке действует ``Series.look``; прозрачность и маркеры линии — и в полях серии."""
+    s.look = dict(look)
+    if 'opacity' in look:
+        s.opacity = look['opacity']
+    if s.kind == 'line' and 'marker' in look:
+        s.markers = look['marker']
+
+
+def _style_axis(axis: Axis, spec: dict[str, Any], title: str, values: list[pd.Series], notes: list[Note]) -> None:
+    """Ручные границы, шаг, логарифм, направление и оформление оси; то, что к оси не подходит, пропускается с заметкой."""
+    time = axis.scale == 'time'
+    if 'color' in spec:
+        axis.color = spec['color']
+    axis.style = {k: v for k, v in spec.items() if k in ('decimals', 'date_format', 'font', 'tick_size', 'title_size')}
+    if spec.get('inverse'):
+        axis.inverse = True
+    if spec.get('from_zero') and axis.scale == 'value':
+        axis.from_zero = True
+    low = bound(spec['min'], f'Ось {title}, минимум', time) if 'min' in spec else None
+    high = bound(spec['max'], f'Ось {title}, максимум', time) if 'max' in spec else None
+    if low is not None and high is not None and low >= high:
+        raise ParamError(f'Ось {title}: минимум должен быть меньше максимума')
+    if spec.get('log'):
+        positive = all((v.dropna() > 0).all() for v in values if not pd.api.types.is_datetime64_any_dtype(v))
+        if time:
+            notes.append(Note(f'Ось {title}: логарифмическая шкала не применяется к датам.'))
+        elif not positive or (low is not None and low <= 0):
+            notes.append(Note(f'Ось {title}: логарифмическая шкала возможна только для положительных значений — оставлена линейная.'))
+        else:
+            axis.scale = 'log'
+    axis.minimum, axis.maximum = low, high
+    if 'step' in spec:
+        if axis.scale not in ('value', 'log'):
+            notes.append(Note(f'Ось {title}: шаг делений задаётся для чисел; у дат деления подбираются сами.'))
+        else:
+            axis.step = bound(spec['step'], f'Ось {title}, шаг', False)
+            if axis.step <= 0:
+                raise ParamError(f'Ось {title}, шаг: больше нуля')
 
 
 def _break_gaps(g: pd.DataFrame) -> pd.DataFrame:
