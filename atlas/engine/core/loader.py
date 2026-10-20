@@ -375,7 +375,8 @@ def detect_layout(head,module='auto'):
     return {'module':detected,'mapping':mapping if detected else {},'wide':wide,'header':header if detected else 0}
 
 def load_file(path, module='auto', production_kind='withdrawal', production_unit='м³/сут',
-              gdi_unit='тыс. м³/сут', progress=None, chunk_size=50000, sheet_options=None, encoding='auto', delimiter='auto'):
+              gdi_unit='тыс. м³/сут', progress=None, chunk_size=50000, sheet_options=None, encoding='auto', delimiter='auto',
+              duplicates='flow'):
     result = ImportResult(); collected = {}; filename=Path(path).name
     for sheet, iterator in iter_sheets(path,encoding=encoding,delimiter=delimiter):
         iterator=iter(iterator); head=list(islice(iterator,31)); detected=None; mapping={}; wide=False; header=-1
@@ -578,9 +579,9 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             frame=frame[~flagged].drop(columns='_reject').reset_index(drop=True)
         if frame.empty: continue
         if name=='production':
-            frame,dropped=prefer_flow(frame)
+            frame,dropped=prefer_flow(frame,duplicates)
             if dropped:
-                result.issue(frame['file'].iloc[0],frame['sheet'].iloc[0],1,f'Дубли суток одной скважины: {dropped} строк убрано, оставлена строка с расходом (нулевая не затирает замер).','предупреждение')
+                result.issue(frame['file'].iloc[0],frame['sheet'].iloc[0],1,f'Дубли суток одной скважины: {dropped} строк убрано ({DUPLICATE_RULES[duplicates]}).','предупреждение')
         if name in ('production','gdi','response') and 'well' in frame:
             frame=split_combined_wells(frame,name,result,frame['file'].iloc[0] if 'file' in frame else '',frame['sheet'].iloc[0] if 'sheet' in frame else '')
         if name=='object_pressure': frame=average_object_pressure(frame,result)
@@ -591,12 +592,18 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
         result.issues.append({'Файл':filename,'Лист':'','Строка':0,'Уровень':'предупреждение','Причина':f'Ещё {result.omitted} замечаний не показаны: в журнале первые 2000.'})
     return result
 
-def prefer_flow(frame):
-    """Дубли суток одной скважины внутри загрузки: строка с расходом важнее строки с нулём (иначе нулевая «затирает» замер).
+DUPLICATE_RULES={'flow':'оставлена строка с расходом, нулевая не затирает замер','first':'оставлена первая строка','last':'оставлена последняя строка'}
 
-    Среди равных по смыслу остаётся последняя. Возвращает таблицу и число убранных строк."""
+def prefer_flow(frame,rule='flow'):
+    """Дубли суток одной скважины внутри загрузки. Правило выбирает инженер в окне импорта.
+
+    flow — строка с расходом важнее строки с нулём (иначе нулевая «затирает» замер), среди равных остаётся последняя;
+    first / last — остаётся первая или последняя строка суток как есть. Возвращает таблицу и число убранных строк."""
     keys=[k for k in ('kind','well','date') if k in frame]
     if 'q' not in frame or len(keys)<3 or not frame.duplicated(keys).any(): return frame,0
+    if rule in ('first','last'):
+        out=frame.drop_duplicates(keys,keep=rule).reset_index(drop=True)
+        return out,len(frame)-len(out)
     ordered=frame.assign(_o=np.arange(len(frame)),_nz=frame['q'].fillna(0).gt(0))
     ordered=ordered.sort_values(['_nz','_o'],kind='stable').drop_duplicates(keys,keep='last').sort_values('_o')
     return ordered.drop(columns=['_o','_nz']).reset_index(drop=True),len(frame)-len(ordered)
