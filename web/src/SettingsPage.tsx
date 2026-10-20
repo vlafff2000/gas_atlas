@@ -1,4 +1,5 @@
 // Раздел «Настройки» (5.8: страница «Настройки» в app/main.py и «Оформление графиков» боковой панели).
+import { PageList } from './PageList'
 import { useCallback, useEffect, useState } from 'react'
 import { pickLocalFiles } from './FilePicker'
 import { api } from './api'
@@ -168,17 +169,9 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
         <h2>Разделы меню</h2>
         {pages && details ? (
           <>
-            <div className="check-grid">
-              {details.pages.map(p => (
-                <label key={p} className="toggle">
-                  <input type="checkbox" checked={p === 'Настройки' || pages.includes(p)} disabled={p === 'Настройки'}
-                    onChange={e => setPages(e.target.checked ? details.pages.filter(x => x === p || pages.includes(x)) : pages.filter(x => x !== p))} />
-                  <span>{p}</span>
-                </label>
-              ))}
-            </div>
-            <p className="muted small-text">Настройки остаются доступными при любом выборе. Скрытые разделы сохраняют данные и параметры.
-              Состав меню общий с версией 5.8; разделы, которых еще нет в 6, учитываются, когда появятся.</p>
+            <PageList items={details.pages} checked={pages} locked={details.always_pages} onChange={setPages} />
+            <p className="muted small-text">Настройки и Импорт данных остаются доступными всегда. Скрытые разделы сохраняют данные и параметры.
+              Выбор как в обычном списке: клик, Shift+клик — диапазон, Ctrl+клик — добавить, стрелки — перемещение, пробел — включить или выключить выделенные.</p>
             <div className="form-row">
               <button type="button" className="quiet" onClick={() => save({ visible_pages: pages }, 'Состав меню сохранен.')}>Сохранить состав меню</button>
               <button type="button" className="quiet" onClick={() => save({ visible_pages: null }, 'Восстановлено меню по умолчанию.')}>Восстановить меню по умолчанию</button>

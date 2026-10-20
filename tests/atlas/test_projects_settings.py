@@ -59,9 +59,9 @@ def test_menu_composition_like_58(env):
     pages = ['ГДИ', 'Динамика', 'Экспорт']           # старое имя страницы переводится, как ALIASES в 5.8
     r = client.patch(f'/api/projects/{pid}/settings', json={'values': {'visible_pages': pages}})
     s = store.manifest(pid)['settings']
-    assert s['visible_pages'] == ['ГДИ', 'Производительность скважин', 'Экспорт'] and s['pressure_module_menu_seen'] is True
+    assert s['visible_pages'] == ['Газодинамические исследования', 'Производительность скважин', 'Экспорт'] and s['pressure_module_menu_seen'] is True
     assert last_action(store, pid)['Действие'] == 'Состав меню'
-    assert r.json()['menu'] == navigation.visible(s) == ['Производительность скважин', 'ГДИ', 'Экспорт', 'Настройки']
+    assert r.json()['menu'] == navigation.visible(s) == ['Импорт данных', 'Производительность скважин', 'Газодинамические исследования', 'Экспорт', 'Настройки']
     client.patch(f'/api/projects/{pid}/settings', json={'values': {'visible_pages': None}})    # «по умолчанию»
     assert store.manifest(pid)['settings']['visible_pages'] == navigation.DEFAULT
     details = client.get(f'/api/projects/{pid}/details').json()
@@ -173,3 +173,11 @@ def test_season_schedule_setting_roundtrip_and_errors(env):
     assert client.patch(url, json={'values': {'season_schedule': ''}}).status_code == 200
     assert store.manifest(pid)['settings']['season_schedule'] is None
     assert store.manifest(pid)['settings']['peak_windows'] is None
+
+
+def test_default_menu_and_old_projects():
+    assert navigation.visible({}) == ['Импорт данных', 'Производительность скважин', 'Вынос воды и водный фактор', 'Газодинамические исследования',
+                                      'ГГХ', 'Графики реагирования', 'Экспорт', 'Настройки']
+    saved = navigation.visible({'visible_pages': ['ГДИ', 'Группы']})      # сохранённый выбор не трогаем (+ «Кроссплот» старого проекта)
+    assert saved == ['Импорт данных', 'Газодинамические исследования', 'Кроссплот давлений', 'Группы', 'Настройки']
+    assert navigation.visible({'visible_pages': ['Группы'], 'pressure_module_menu_seen': True}) == ['Импорт данных', 'Группы', 'Настройки']

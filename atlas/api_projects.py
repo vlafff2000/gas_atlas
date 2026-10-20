@@ -134,6 +134,7 @@ def details(projects: Projects, pid: str) -> dict:
         'version': m.get('version'),
         'panels': settings.get('panels', {}),
         'pages': list(navigation.PAGES),
+        'always_pages': list(navigation.ALWAYS),
         'default_pages': list(navigation.DEFAULT),
         'visible_pages': [navigation.ALIASES.get(p, p) for p in settings.get('visible_pages', navigation.DEFAULT)],
         'exports': saved_exports(projects, pid),
