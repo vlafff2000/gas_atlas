@@ -230,3 +230,9 @@ def test_formula_empty_and_empty_input_are_notes(data):
 def test_formula_chain(data):
     r = run(data, {**Q, 'wells': ['2'], 'hidden': True}, F('A*2', hidden=True), F('B - A'))
     assert same(list(curves(r).values())[0], [50, 60, 70, 80])
+
+
+def test_formula_unicode_digits_rejected_like_client():
+    """Цифры других письменностей (٣) в числе — ошибка разбора, как в web/src/builderFormula.ts (там только 0-9)."""
+    with pytest.raises(ParamError):
+        calc.parse_formula('٣*A', 2, 2)
