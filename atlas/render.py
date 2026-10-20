@@ -106,8 +106,8 @@ def has_bars(chart: Chart) -> bool:
 def align_y_axes(fig, chart: Chart) -> None:
     """Две оси Y: одинаковое число делений, деления строго друг напротив друга — одна основная сетка на обе."""
     specs = {'y': chart.y, **dict(chart.right_axes())}
-    if chart.y2 is None or any(a.scale != 'value' for a in specs.values()) or any(a.step for a in specs.values()):
-        return      # заданный вручную шаг делений важнее общей сетки
+    if chart.y2 is None or any(a.scale != 'value' for a in specs.values()) or (chart.id == 'builder' and any(a.step for a in specs.values())):
+        return      # в конструкторе заданный вручную шаг делений важнее общей сетки
     extents = {key: axis_extent(chart, key) for key in specs}
     if all(e is None for e in extents.values()):
         return
@@ -207,7 +207,7 @@ def to_plotly(chart: Chart):
             shape = SYMBOLS[look.get('shape', s.symbol)]
             symbol = shape + ('-open' if s.hollow else '')
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='markers', name=s.name, showlegend=s.legend,
-                                     yaxis=s.axis, meta=look_meta(look),
+                                     yaxis=s.axis, meta=look_meta(look), opacity=s.opacity,
                                      marker={'color': look.get('markerColor') or color, 'symbol': symbol, 'size': look.get('size', 9),
                                              'opacity': s.opacity,
                                              'line': {'color': look.get('markerColor') or color, 'width': 2 if s.hollow or shape in ('cross', 'x') else 0}}))

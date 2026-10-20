@@ -140,7 +140,7 @@ const hasBars = (chart: Chart, key: YName) => chart.series.some(s => s.kind === 
 
 function alignedYAxes(chart: Chart, base: Chart): Record<YName, { min: number; max: number; step: number }> | null {
   const names = Y_NAMES.slice(0, yCount(chart))
-  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value' || yAxisAt(chart, i).step)) return null      // заданный вручную шаг важнее общей сетки
+  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value' || (chart.id === 'builder' && yAxisAt(chart, i).step))) return null      // в конструкторе заданный вручную шаг важнее общей сетки
   const out = {} as Record<YName, { min: number; max: number; step: number }>
   const hasData = base.series.some(s => s.kind !== 'box' && s.y.some(v => typeof v === 'number' && Number.isFinite(v)))
   if (!hasData) return null

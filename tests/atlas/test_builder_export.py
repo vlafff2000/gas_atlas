@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from atlas import render
+from atlas import contract, render
 from atlas.contract import Data
 from atlas.modules import builder
 from tests.atlas.test_builder import frames
@@ -55,3 +55,14 @@ def test_no_style_figures_of_other_modules_unchanged():
     c.id = 'other-chart'
     meta = render.to_plotly(c).layout.meta
     assert 'style' not in meta and 'format' not in meta
+
+
+def test_step_skips_alignment_only_in_builder():
+    """Шаг делений у чужих модулей (ГГХ, давление) не отключает общую сетку двух осей; в конструкторе шаг важнее."""
+    c = chart()
+    c.y2 = c.y2 or contract.Axis('Y2', '')
+    c.y.step = c.y2.step = 10
+    c.id = 'other-chart'
+    assert render.to_plotly(c).layout.yaxis.autorange is False      # выровнены
+    c.id = 'builder'
+    assert render.to_plotly(c).layout.yaxis.autorange is not False  # шаг задан вручную, выравнивания нет
