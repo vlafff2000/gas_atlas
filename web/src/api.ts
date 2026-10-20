@@ -70,8 +70,17 @@ export interface Table {
   header?: [string, number][][]   // объединённая шапка над подписями колонок: (подпись, пролёт)
   deferred?: boolean   // большая свёрнутая таблица: строки подгружаются при раскрытии (count — сколько их всего)
 }
+/** Ручное оформление оси; пусто — авто (atlas/chart_style.py). */
+export interface AxisStyle { decimals?: number; date_format?: string; font?: string; tick_size?: number; title_size?: number }
+/** Ручное оформление графика: заголовок, шрифты, легенда, сетка, фон (atlas/chart_style.py). */
+export interface ChartStyle {
+  title_font?: string; title_size?: number; title_bold?: boolean; title_color?: string; title_align?: 'left' | 'center' | 'right'
+  font?: string; text_color?: string; legend?: 'bottom' | 'top' | 'right' | 'hide'; legend_font?: string; legend_size?: number
+  grid?: 'both' | 'h' | 'v' | 'none'; grid_color?: string; background?: string; plot_background?: string
+}
 export interface Axis {
   color?: string                       // цвет правой шкалы под один ряд; пусто — по умолчанию
+  style?: AxisStyle                    // ручное оформление оси (конструктор): знаки, шрифт, размеры
   label: string; unit: string; scale: 'value' | 'log' | 'time' | 'category'; inverse: boolean; from_zero: boolean
   step: number | null; categories: string[] | null; minimum: number | null; maximum: number | null
 }
@@ -93,6 +102,7 @@ export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | '
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean
   events?: ChartEvent[]
+  style?: ChartStyle
 }
 export interface Stat { label: string; value: string; hint: string }
 export interface Note { text: string; level: 'info' | 'warning' }

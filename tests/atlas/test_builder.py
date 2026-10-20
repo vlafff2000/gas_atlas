@@ -207,3 +207,69 @@ def test_missing_well_is_not_a_separate_none_series():
     result = builder.build(Data({K.PRODUCTION: prod}), {'series': [{'dataset': 'production', 'y': 'q'}]})
     names = [s.name for s in result.charts[0].series]
     assert not any('None' in n or 'nan' in n for n in names)
+
+
+# ---------- окна настройки: ряд, ось, график ----------
+
+ROW = {'dataset': 'production', 'y': 'q', 'wells': ['1']}
+
+
+def test_old_layout_has_no_style(data):
+    c = build(data, ROW).charts[0]
+    assert c.style == {} and c.x.style == {} and c.series[0].look is None and c.y.minimum is None and not c.y.step
+
+
+def test_series_look_goes_to_series(data):
+    look = {'color': '#ff0000', 'width': 4, 'dash': 'dot', 'marker': True, 'shape': 'star', 'size': 12, 'opacity': 0.5, 'bogus': 1}
+    s = build(data, {**ROW, 'look': look}).charts[0].series[0]
+    assert s.look == {k: v for k, v in look.items() if k != 'bogus'} and s.opacity == 0.5 and s.markers is True
+    off = build(data, {**ROW, 'look': {'line': False, 'marker': False, 'color': ''}}).charts[0].series[0]
+    assert off.look == {'line': False, 'marker': False} and off.markers is False       # пустое поле — авто, «нет» — выбор
+    with pytest.raises(ParamError, match='Ряд 1, цвет'):
+        build(data, {**ROW, 'look': {'color': 'красный'}})
+    with pytest.raises(ParamError, match='Ряд 1, форма'):
+        build(data, {**ROW, 'look': {'shape': 'hexagon'}})
+
+
+def test_axis_style_bounds_step_log_inverse_format(data):
+    r = build(data, ROW, {'dataset': 'operations', 'y': 'p_wellhead', 'axis': 'y2'}, axis_style={
+        'y': {'min': '0', 'max': '300,5', 'step': '50', 'inverse': True, 'color': '#aa0000', 'decimals': 1, 'tick_size': 14, 'font': 'times'},
+        'y2': {'log': True, 'from_zero': True},
+        'x': {'min': '02.01.2025', 'max': '2025-01-04', 'date_format': 'MM.yyyy', 'step': '5'}})
+    c = r.charts[0]
+    assert (c.y.minimum, c.y.maximum, c.y.step, c.y.inverse, c.y.color) == (0.0, 300.5, 50.0, True, '#aa0000')
+    assert c.y.style == {'decimals': 1, 'tick_size': 14, 'font': 'times'} and c.y2.scale == 'log'
+    assert c.x.minimum == pd.Timestamp('2025-01-02').value / 1e6 and c.x.maximum == pd.Timestamp('2025-01-04').value / 1e6
+    assert c.x.step is None and 'у дат деления подбираются сами' in text(r) and c.x.style == {'date_format': 'MM.yyyy'}
+    with pytest.raises(ParamError, match='Ось Y1, минимум'):
+        build(data, ROW, axis_style={'y': {'min': 'abc'}})
+    with pytest.raises(ParamError, match='минимум должен быть меньше'):
+        build(data, ROW, axis_style={'y': {'min': '10', 'max': '5'}})
+    with pytest.raises(ParamError, match='Ось X, минимум'):
+        build(data, ROW, axis_style={'x': {'min': 'вчера'}})
+
+
+def test_log_axis_needs_positive_values(data):
+    r = build(data, ROW, axis_style={'y': {'log': True}})       # в данных есть ноль простоя
+    assert r.charts[0].y.scale == 'value' and 'только для положительных' in text(r)
+
+
+def test_axis_style_follows_axis_after_compaction(data):
+    """Настройки Y3 при пустых Y1 и Y2 едут вместе с рядом на сжатую шкалу."""
+    r = build(data, {**ROW, 'axis': 'y3'}, axis_style={'y3': {'color': '#00aa00'}})
+    assert r.charts[0].y.color == '#00aa00'
+
+
+def test_chart_style_and_api_roundtrip(tmp_path):
+    style = {'title_font': 'times', 'title_size': 20, 'title_bold': False, 'legend': 'top', 'grid': 'h', 'background': '#fffbe6'}
+    cleaned = builder.build(Data(frames()), {'series': [ROW], 'chart_style': {**style, 'junk': 1, 'legend_size': ''}}).charts[0].style
+    assert cleaned == style
+    with pytest.raises(ParamError, match='График, легенда'):
+        builder.build(Data(frames()), {'series': [ROW], 'chart_style': {'legend': 'внутри'}})
+    projects = Projects(tmp_path)
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    layout = {'series': [{'dataset': 'production', 'y': 'q', 'look': {'color': '#ff0000'}}], 'chart_style': {'title_size': 18},
+              'axis_style': {'y': {'decimals': 2}}}
+    chart = client.post('/api/modules/builder/run', json={'project': pid, 'params': {'layout': layout}}).json()['charts'][0]
+    assert chart['style'] == {'title_size': 18} and chart['y']['style'] == {'decimals': 2} and chart['series'][0]['look'] == {'color': '#ff0000'}

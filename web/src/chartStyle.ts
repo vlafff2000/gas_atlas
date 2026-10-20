@@ -14,6 +14,7 @@ export interface Look {
   shape?: MarkerShape
   size?: number           // размер отметки, px
   markerColor?: string    // цвет отметок линии, если отличается от линии
+  opacity?: number        // прозрачность линии и отметок: 1 — непрозрачно
 }
 
 export const MARKER_SHAPES: { value: MarkerShape; label: string }[] = [
@@ -56,5 +57,13 @@ export const seriesLookKey = (s: Series) => `${s.group || s.name}|${s.kind}`
 /** График с личным видом рядов: у каждого ряда, для которого он задан, появляется поле look. */
 export function applyLooks(chart: Chart, looks: Record<string, Look> | undefined): Chart {
   if (!looks || Object.keys(looks).length === 0) return chart
-  return { ...chart, series: chart.series.map(s => { const look = looks[seriesLookKey(s)]; return look ? { ...s, look } : s }) }
+  return {
+    ...chart,
+    series: chart.series.map(s => {
+      const own = looks[seriesLookKey(s)]
+      if (!own) return s
+      const look = { ...s.look, ...own }      // вид из макета (конструктор) дополняется личным видом браузера
+      return { ...s, look, ...(look.opacity !== undefined ? { opacity: look.opacity } : {}) }
+    }),
+  }
 }

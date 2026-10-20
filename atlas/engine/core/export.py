@@ -256,7 +256,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     dash={'solid':'-','dash':'--','dot':':','dashdot':'-.','longdash':'--'}.get(t.line.dash,'-')
                     mode=t.mode or 'lines';color=t.line.color or t.marker.color or '#2563eb'
                     symbol=t.marker.symbol or 'circle';hollow='open' in str(symbol)
-                    marker={'square':'s','diamond':'D','triangle-up':'^'}.get(str(symbol).replace('-open',''),'o') if 'markers' in mode else None
+                    marker={'square':'s','diamond':'D','triangle-up':'^','cross':'+','x':'x','star':'*'}.get(str(symbol).replace('-open',''),'o') if 'markers' in mode else None
                     edge=t.marker.line.color or color
                     face='white' if hollow else t.marker.color or color
                     own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set()      # задано в «Оформлении графиков» (atlas/chart_format.py)
@@ -264,7 +264,8 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     twidth=t.line.width if isinstance(t.line.width,(int,float)) and t.line.width>0 else None
                     ln,=target.plot(x,y,label=label,color=color,linestyle=dash if 'lines' in mode else 'None',marker=marker,
                         markerfacecolor=face,markeredgecolor=edge,markeredgewidth=t.marker.line.width or .7,
-                        markersize=msize/2 if msize and 'size' in own else 3,linewidth=twidth if twidth and 'width' in own else 1.2)
+                        markersize=msize/2 if msize and 'size' in own else 3,linewidth=twidth if twidth and 'width' in own else 1.2,
+                        alpha=t.opacity if 'alpha' in own and isinstance(t.opacity,(int,float)) else None)
                     ln._own=own
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
             title=re.sub('<[^>]+>','',fig.layout.title.text or '')
@@ -321,6 +322,9 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=5 if compact else 7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))
             if fo.get('axes'):manual_axes(ax,secondary,fo['axes'],date_axis,bool(bars or boxes) and not numeric_bars)
             if fo.get('angle') not in (None,'auto'):x_labels(ax,float(fo['angle']),width_mm,base,date_axis,not (fo.get('axes') or {}).get('x',{}).get('major'),bool(bars or boxes) and not numeric_bars)
+            if isinstance(fig.layout.meta,dict) and fig.layout.meta.get('style'):
+                from .export_style import apply_style
+                apply_style(f,ax,rights,fig.layout.meta['style'],title,k,base,date_axis)      # ручное оформление конструктора: последнее слово за инженером
             buf=io.BytesIO();f.savefig(buf,format=fmt,dpi=dpi)
             return buf.getvalue()
         finally:plt.close(f)

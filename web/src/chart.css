@@ -76,11 +76,18 @@
 .chart-legend-wrap { padding: 2px 4px 4px; }
 .chart-legend { display: grid; gap: 2px; max-height: 76px; overflow: hidden; }
 .chart-legend.open { max-height: none; }
+/* легенда справа от графика (настройка «График → Легенда») */
+.chart-body.legend-right { display: flex; gap: 8px; align-items: flex-start; }
+.chart-body.legend-right .chart-stage { flex: 1 1 auto; min-width: 0; }
+.chart-legend-wrap.side { flex: 0 0 200px; max-width: 30%; padding-top: 34px; }
+.chart-legend-wrap.side .chart-legend { max-height: none; }
+.chart-legend-wrap.side .legend-row { display: grid; }
+.chart-legend-wrap.side .legend-item { white-space: normal; text-align: left; }
 .legend-row { display: flex; flex-wrap: wrap; align-items: center; column-gap: 4px; row-gap: 0; }
-.legend-title { font-size: 12px; color: var(--chart-muted); min-width: 74px; padding-right: 4px; }
+.legend-title { font-size: var(--legend-size, 12px); color: var(--chart-muted); min-width: 74px; padding-right: 4px; }
 .legend-item {
   display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 6px; border-radius: 4px;
-  font-size: 12px; color: var(--chart-ink); cursor: pointer; white-space: nowrap;
+  font-size: var(--legend-size, 12px); color: var(--chart-ink); cursor: pointer; white-space: nowrap; font-family: inherit;
 }
 .legend-item:hover { background: var(--chart-grid); }
 .legend-item[aria-pressed='false'] { color: var(--chart-faint); }
@@ -156,6 +163,7 @@
 .cs-editor select { font: inherit; padding: 3px 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
 .cs-range { display: flex; align-items: center; gap: 8px; }
 .cs-range input { flex: 1; min-width: 0; }
+.cs-range input[type='color'] { flex: 0 0 44px; }
 .cs-range output { min-width: 48px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cs-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .cs-actions button { font: inherit; font-size: 12px; padding: 4px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
@@ -165,3 +173,10 @@
   .cs-body { grid-template-columns: 1fr; }
   .cs-list { border-right: 0; border-bottom: 1px solid var(--line); max-height: 120px; }
 }
+
+.cs-editor .cs-auto { font: inherit; font-size: 12px; padding: 1px 8px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.cs-editor .cs-auto:disabled { opacity: .5; cursor: default; }
+.cs-editor input[type='text'], .cs-editor input[type='number'] { font: inherit; padding: 3px 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; min-width: 0; }
+.cs-hint { margin: 0; font-size: 12px; color: var(--muted); }
+.cs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cs-row label { grid-template-columns: 1fr; gap: 2px; }
