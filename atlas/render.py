@@ -20,6 +20,7 @@ from .contract import Chart, Series, Table
 
 SYMBOLS = {'circle': 'circle', 'square': 'square', 'diamond': 'diamond', 'triangle': 'triangle-up', 'plus': 'cross', 'x': 'x', 'star': 'star'}
 LOOK_DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'dot'}
+FILL_ALPHA = 0.6        # прозрачность заливки области, если не задана вручную
 WIDTH_PT = 0.6          # px на экране → пт в выгрузке (2 px по умолчанию = 1,2 пт)
 STYLE_AXES = ('x', 'y', 'y2', 'y3', 'y4', 'y5')
 FORMATS = {'svg': 'image/svg+xml', 'pdf': 'application/pdf', 'png': 'image/png'}
@@ -136,6 +137,13 @@ def right_position(count: int, k: int) -> float:
     return plot_right_edge(count) + 0.06 * (k - 1)
 
 
+def rgba(color: str, alpha: float) -> str:
+    c = color.lstrip('#')
+    if len(c) != 6:
+        return color
+    return f'rgba({int(c[0:2], 16)},{int(c[2:4], 16)},{int(c[4:6], 16)},{alpha})'
+
+
 def look_meta(look: dict) -> dict:
     """Что задано вручную (``Series.look``): статический рендер берёт эти значения вместо своих по умолчанию (``own``)."""
     own = [name for name, key in (('width', 'width'), ('size', 'size'), ('alpha', 'opacity')) if key in look]
@@ -168,7 +176,8 @@ def to_plotly(chart: Chart):
     palette = group_colors(chart)
     fig = go.Figure()
     stacked_bars = any(s.kind == 'bar' and s.stack for s in chart.series)
-    for s in chart.series:
+    combo = chart.id == 'builder'      # виды конструктора: область, ступенчатая, стопка (atlas/engine/core/export.py читает meta['combo'])
+    for n, s in enumerate(chart.series):
         look = s.look or {}
         color = look.get('color') or (series_color(s.color) if s.color else palette[s.group or s.name])
         if s.kind == 'box':
@@ -181,13 +190,27 @@ def to_plotly(chart: Chart):
                                      showlegend=s.legend and first, marker_color=color, boxpoints=False))
                 first = False
         elif s.kind == 'bar':
-            fig.add_trace(go.Bar(x=list(s.x) if stacked_bars else [str(v) for v in s.x], y=list(s.y), name=s.name,
-                                 showlegend=s.legend, marker_color=color))
+            extra = {}
+            if combo:       # конструктор: столбцы на своей оси, рядом или стопкой по имени, дата остаётся датой
+                extra = dict(yaxis=s.axis, offsetgroup=s.stack or f'bar{n}', opacity=look.get('opacity'),
+                             meta={'combo': True, 'stack': s.stack})
+            fig.add_trace(go.Bar(x=list(s.x) if stacked_bars or combo else [str(v) for v in s.x], y=list(s.y), name=s.name,
+                                 showlegend=s.legend, marker_color=color, **extra))
         elif s.kind == 'line':
             dash = LOOK_DASH.get(look.get('dash', ''), s.dash or ('dash' if s.dashed else 'solid'))
             shown = look.get('line', True)
             markers = look.get('marker', s.markers)
             extra = {'meta': look_meta(look)}
+            line_extra: dict = {}
+            if combo:
+                extra['meta'].update(combo=True, stack=s.stack, fill=s.fill, step=s.step)
+                if s.step:
+                    line_extra['shape'] = 'hv'      # значение держится до следующей точки, как на экране
+                if s.fill:
+                    alpha = look.get('opacity', FILL_ALPHA)
+                    extra['fillcolor'] = rgba(color, alpha)
+                    extra['meta']['alpha'] = alpha
+                    extra['fill'] = 'tonexty' if s.stack else 'tozeroy'
             if markers:
                 shape = SYMBOLS[look.get('shape', s.symbol)]
                 mcolor = look.get('markerColor') or color
@@ -195,13 +218,16 @@ def to_plotly(chart: Chart):
                                    'line': {'color': mcolor, 'width': 1.8 if s.hollow or shape in ('cross', 'x') else 0}}
             if s.stack:      # линии одной стопки складываются по значению X (дате), как на экране
                 extra['stackgroup'] = s.stack
-            if not shown and not markers:
+            if not shown and not markers and not s.fill:
                 extra['visible'] = False         # у ряда нет ни линии, ни маркеров — в файл не попадает
-            mode = ('lines' if shown else '') + ('+' if shown and markers else '') + ('markers' if markers else '')
+            if not shown and s.fill:
+                line_extra['width'] = 0           # область без линии: остаётся заливка
+            mode = ('lines' if shown or s.fill else '') + ('+' if (shown or s.fill) and markers else '') + ('markers' if markers else '')
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode=mode or 'lines',
                                      name=s.name, showlegend=s.legend, yaxis=s.axis,
                                      connectgaps=False, opacity=s.opacity,
-                                     line={'color': color, 'dash': dash, 'width': round(look['width'] * WIDTH_PT, 2) if 'width' in look else s.width or 2},
+                                     line={'color': color, 'dash': dash, 'width': round(look['width'] * WIDTH_PT, 2) if 'width' in look else s.width or 2,
+                                           **line_extra},
                                      **extra))
         else:
             shape = SYMBOLS[look.get('shape', s.symbol)]

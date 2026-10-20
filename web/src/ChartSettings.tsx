@@ -15,7 +15,7 @@ const KIND: Record<Series['kind'], string> = { line: 'линия', points: 'то
 export const HEX = /^#[0-9a-f]{6}$/i
 
 
-type LookSeries = Pick<Series, 'kind' | 'dash' | 'dashed' | 'width' | 'markers' | 'symbol' | 'opacity'>
+type LookSeries = Pick<Series, 'kind' | 'dash' | 'dashed' | 'width' | 'markers' | 'symbol' | 'opacity'> & { fill?: boolean }
 
 /** Цвет с кнопкой «авто»: пока цвет не задан вручную, он берётся из палитры или модуля. */
 function ColorField({ label, value, shown, onChange }: { label: string; value: string | undefined; shown: string; onChange: (c: string | undefined) => void }) {
@@ -33,12 +33,12 @@ function ColorField({ label, value, shown, onChange }: { label: string; value: s
 export function SeriesLookFields({ s, color, look, onChange }: { s: LookSeries; color: string; look: Look; onChange: (patch: Partial<Look>) => void }) {
   const baseDash: LineStyleName = LINE_STYLES.some(d => d.value === s.dash) ? s.dash as LineStyleName : s.dashed ? 'dash' : 'solid'
   const hasLine = s.kind === 'line'
-  const hasMarker = s.kind === 'line' || s.kind === 'points'
+  const hasMarker = (s.kind === 'line' && !s.fill) || s.kind === 'points'      // у области отметок нет, у столбцов нет ни линии, ни отметок
   const markerColor = look.markerColor ?? color
   const marker = look.marker ?? !!s.markers
   const size = look.size ?? (s.kind === 'points' ? 9 : 7)
   const shape: MarkerShape = look.shape ?? (s.symbol as MarkerShape)
-  const opacity = look.opacity ?? (s.opacity ?? 1)
+  const opacity = look.opacity ?? (s.fill ? 0.6 : s.opacity ?? 1)
   const setLook = onChange
   return (
     <>
@@ -71,7 +71,7 @@ export function SeriesLookFields({ s, color, look, onChange }: { s: LookSeries; 
       </fieldset>}
       <fieldset>
         <legend>Прозрачность</legend>
-        <label>Непрозрачность <span className="cs-range"><input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={e => setLook({ opacity: Number(e.target.value) })} /><output>{Math.round(opacity * 100)} %</output></span></label>
+        <label>{s.fill ? 'Непрозрачность заливки' : 'Непрозрачность'} <span className="cs-range"><input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={e => setLook({ opacity: Number(e.target.value) })} /><output>{Math.round(opacity * 100)} %</output></span></label>
       </fieldset>
     </>
   )
