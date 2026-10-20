@@ -126,3 +126,27 @@ def test_dynamic_params_match_frontend_shape():
                 assert isinstance(p.default, str), (module.spec.id, p.name)
     well = next(p for p in ed.ElproDailyModule.spec.params if p.name == 'well')
     assert well.kind == 'choice' and well.dynamic and well.default == ''
+
+
+def test_others_median_cached_per_dataset_and_same_result(monkeypatch):
+    prod, elpro, _ = frames()
+    direct = ed.elpro_by_day(elpro, 'withdrawal')
+    direct['t_others'] = ed.others_median(direct)
+    calls = []
+    real = ed.others_median
+    monkeypatch.setattr(ed, 'others_median', lambda e: calls.append(1) or real(e))
+    first = ed.sensitivity(prod, elpro, 'withdrawal', threshold=1.5, tol=1.0, start=None, end=None)
+    again = ed.sensitivity(prod, elpro, 'withdrawal', threshold=1.5, tol=1.0, start=None, end=None)
+    assert len(calls) == 1                                  # второй запуск берёт готовую таблицу
+    pd.testing.assert_frame_equal(first, again)
+    pd.testing.assert_frame_equal(ed.elpro_with_others(elpro, 'withdrawal'), direct)
+    other = elpro.copy()                                    # новый набор (загрузка, правка) — пересчёт
+    ed.sensitivity(prod, other, 'withdrawal', threshold=1.5, tol=1.0, start=None, end=None)
+    assert len(calls) == 2
+
+
+def test_elpro_by_day_sum_keeps_gap_and_zero_apart():
+    prod, elpro, days = frames()
+    e = ed.elpro_by_day(elpro, 'withdrawal').set_index(['date', 'well'])
+    assert np.isnan(e.loc[(days[2], '103'), 'elpro_q'])     # 03.06 у 103 — пропуск расхода, не ноль
+    assert e.loc[(days[1], '101'), 'elpro_q'] == 0.0        # 02.06 у 101 — ноль в ЭЛПРО

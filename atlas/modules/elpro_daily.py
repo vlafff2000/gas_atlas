@@ -77,8 +77,11 @@ def elpro_by_day(elpro: pd.DataFrame, kind: str, well: str | None = None) -> pd.
     frame = pd.DataFrame({'date': _day(d['date']).to_numpy(), 'well': d['well'].astype(str).to_numpy(),
                           'elpro_q': d['q'].to_numpy(), 't': d['t'].to_numpy(), 'p': d['p'].to_numpy(),
                           'cru': d['y'].clip(0, 100).to_numpy()})
-    return frame.groupby(['date', 'well']).agg(elpro_q=('elpro_q', lambda v: v.sum(min_count=1)), t=('t', 'mean'),
-                                               p=('p', 'mean'), cru=('cru', 'mean')).reset_index()
+    # векторно: sum без lambda (на полном наборе lambda — несколько секунд); сутки без расхода — пропуск, не ноль
+    g = frame.groupby(['date', 'well'])
+    out = g.agg(elpro_q=('elpro_q', 'sum'), t=('t', 'mean'), p=('p', 'mean'), cru=('cru', 'mean'))
+    out['elpro_q'] = out['elpro_q'].where(g['elpro_q'].count().to_numpy() > 0)
+    return out.reset_index()
 
 
 def daily(prod: pd.DataFrame, elpro: pd.DataFrame, kind: str, well: str, start, end) -> pd.DataFrame:
@@ -120,14 +123,29 @@ def others_median(e: pd.DataFrame) -> pd.Series:
     return out
 
 
+_OTHERS: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}   # режим -> (набор ЭЛПРО, суточная таблица с медианой)
+
+
+def elpro_with_others(elpro: pd.DataFrame, kind: str) -> pd.DataFrame:
+    """Суточная таблица ЭЛПРО режима с медианой по остальным скважинам. Считается один раз на набор: медиана по
+    остальным — самая тяжёлая часть вкладки (несколько секунд на полном наборе). Ключ — сам объект набора: при новой
+    загрузке или правке проекта набор другой, и таблица пересчитывается. Таблицу не менять — её читают без копии."""
+    hit = _OTHERS.get(kind)
+    if hit is not None and hit[0] is elpro:
+        return hit[1]
+    e = elpro_by_day(elpro, kind)
+    e['t_others'] = others_median(e)
+    _OTHERS[kind] = (elpro, e)
+    return e
+
+
 def sensitivity(prod: pd.DataFrame, elpro: pd.DataFrame, kind: str, threshold: float, tol: float,
                 start, end) -> pd.DataFrame:
     """По скважинам: сутки работы по БД расходов, сутки ниже порога ЭЛПРО, из них с температурой как у других."""
     c = prod[prod['kind'].eq(kind)]
     c = pd.DataFrame({'well': c['well'].astype(str).to_numpy(), 'date': _day(c['date']).to_numpy(),
                       'classic': (c['q'] / 1000).to_numpy()}).groupby(['well', 'date']).classic.sum(min_count=1).reset_index()
-    e = elpro_by_day(elpro, kind)
-    e['t_others'] = others_median(e)
+    e = elpro_with_others(elpro, kind)
     both = c.merge(e, on=['well', 'date'], how='outer')
     if start is not None:
         both = both[both.date >= start]
