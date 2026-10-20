@@ -102,8 +102,7 @@ def has_bars(chart: Chart) -> bool:
 
 def align_y_axes(fig, chart: Chart) -> None:
     """Две оси Y: одинаковое число делений, деления строго друг напротив друга — одна основная сетка на обе."""
-    specs = {'y': chart.y, 'y2': chart.y2, 'y3': chart.y3}
-    specs = {k: v for k, v in specs.items() if v is not None}
+    specs = {'y': chart.y, **dict(chart.right_axes())}
     if chart.y2 is None or any(a.scale != 'value' for a in specs.values()):
         return
     extents = {key: axis_extent(chart, key) for key in specs}
@@ -115,11 +114,23 @@ def align_y_axes(fig, chart: Chart) -> None:
             lo, hi = min(lo, 0.0), max(hi, 0.0)
         start, step = aligned_range(lo, hi, spec.minimum, spec.maximum)
         end = start + TICK_INTERVALS * step
-        axis = getattr(fig.layout, {'y': 'yaxis', 'y2': 'yaxis2', 'y3': 'yaxis3'}[key])
+        axis = getattr(fig.layout, 'yaxis' if key == 'y' else 'yaxis' + key[1:])
         axis.range = [end, start] if spec.inverse else [start, end]
         axis.autorange = False
         axis.rangemode = 'normal'
         axis.tick0, axis.dtick = start, step
+
+
+def plot_right_edge(count: int) -> float:
+    """Правый край области графика, если справа есть ``count`` шкал: остальное — под подписи шкал."""
+    return 0.88 if count == 2 else 1 - 0.06 * count
+
+
+def right_position(count: int, k: int) -> float:
+    """Положение k-й правой шкалы (от 1) по доле ширины: шаг 0,09 при двух шкалах, 0,06 при больше."""
+    if count == 2:
+        return 0.88 + 0.09 * (k - 1)
+    return plot_right_edge(count) + 0.06 * (k - 1)
 
 
 def to_plotly(chart: Chart):
@@ -163,15 +174,22 @@ def to_plotly(chart: Chart):
     module = chart.id.split('-', 1)[0]
     fig.update_layout(title={'text': chart.title}, meta={'module': module}, barmode='stack' if stacked_bars else 'group')
     axes = [(fig.layout.xaxis, chart.x), (fig.layout.yaxis, chart.y)]
-    if chart.y2 is not None:
-        fig.update_layout(yaxis2={'overlaying': 'y', 'side': 'right', 'showgrid': False})
-        axes.append((fig.layout.yaxis2, chart.y2))
-    if chart.y3 is not None and chart.y2 is not None:
-        fig.update_layout(xaxis={'domain': [0, 0.88]},
-                          yaxis3={'overlaying': 'y', 'side': 'right', 'anchor': 'free', 'position': 0.97, 'showgrid': False})
-        axes.append((fig.layout.yaxis3, chart.y3))
+    right = chart.right_axes()
+    if len(right) > 1:      # место под подписи нескольких правых шкал; одна правая шкала — как раньше, на всю ширину
+        fig.update_layout(xaxis={'domain': [0, plot_right_edge(len(right))]})
+    for k, (name, spec) in enumerate(right, start=1):
+        # первая правая шкала у графика, следующие — снаружи от предыдущей (как на экране)
+        layout = {'overlaying': 'y', 'side': 'right', 'showgrid': False}
+        if len(right) > 1:
+            layout.update(anchor='free', position=right_position(len(right), k))
+        fig.update_layout(**{'yaxis' + name[1:]: layout})
+        axes.append((getattr(fig.layout, 'yaxis' + name[1:]), spec))
     for n, (axis, spec) in enumerate(axes):
         axis.title = {'text': axis_title(spec.label, spec.unit)}
+        if spec.color:      # правая шкала под один ряд: подписи, название и линия оси — цветом ряда
+            axis.title = {'text': axis_title(spec.label, spec.unit), 'font': {'color': spec.color}}
+            axis.tickfont = {'color': spec.color}
+            axis.linecolor, axis.showline = spec.color, True
         axis.type = {'time': 'date', 'log': 'log', 'category': 'category'}.get(spec.scale, 'linear')
         if spec.scale == 'category' and spec.categories:
             axis.categoryorder = 'array'
@@ -214,10 +232,9 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
     from openpyxl.styles import Alignment, Font
 
     xl, yl = axis_title(chart.x.label, chart.x.unit), axis_title(chart.y.label, chart.y.unit)
-    y2l = axis_title(chart.y2.label, chart.y2.unit) if chart.y2 else yl
-    y3l = axis_title(chart.y3.label, chart.y3.unit) if chart.y3 else y2l
-    unit_of = {'y': chart.y.unit, 'y2': chart.y2.unit if chart.y2 else chart.y.unit, 'y3': chart.y3.unit if chart.y3 else chart.y.unit}
-    title_of = {'y': yl, 'y2': y2l, 'y3': y3l}
+    right = chart.right_axes()
+    unit_of = {'y': chart.y.unit, **{name: spec.unit for name, spec in right}}
+    title_of = {'y': yl, **{name: axis_title(spec.label, spec.unit) for name, spec in right}}
     wb = Workbook()
     data = wb.active
     data.title = 'Данные'
@@ -229,7 +246,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         for r, c in enumerate(cats, 2):
             data.cell(r, 1, c)
         for k, s in enumerate(chart.series, 2):
-            data.cell(1, k, f'{s.name}, {unit_of[s.axis]}'.rstrip(', '))
+            data.cell(1, k, f'{s.name}, {unit_of.get(s.axis, chart.y.unit)}'.rstrip(', '))
             by = {str(x): y for x, y in zip(s.x, s.y)}
             for r, c in enumerate(cats, 2):
                 data.cell(r, k, _cell(by.get(c)))
@@ -239,7 +256,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         col = 1
         for s in chart.series:
             data.cell(1, col, f'{s.name} · {xl}')
-            data.cell(1, col + 1, f'{s.name} · {title_of[s.axis]}')
+            data.cell(1, col + 1, f'{s.name} · {title_of.get(s.axis, yl)}')
             extra = [s.labels] if s.labels is not None else []
             if extra:
                 data.cell(1, col + 2, f'{s.name} · подсказка')
@@ -304,15 +321,15 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         main.height, main.width = 11, 20
         if not category and chart.x.scale == 'time':
             main.x_axis.number_format = 'DD.MM.YYYY'
-        # в Excel у диаграммы одна правая ось: ряды y2 и y3 идут на неё, единицы каждого ряда — в заголовке листа «Данные»
-        second = [i for i in drawable if i[0].axis != 'y'] if chart.y2 and any(i[0].axis == 'y' for i in drawable) else []
+        # в Excel у диаграммы одна правая ось: все правые шкалы идут на неё, единицы каждого ряда — в заголовке листа «Данные»
+        second = [i for i in drawable if i[0].axis != 'y'] if right and any(i[0].axis == 'y' for i in drawable) else []
         if second:
-            right = build(second, True)
-            right.y_axis.axId = 200
-            right.y_axis.title = y2l if not chart.y3 else f'{y2l} · {y3l}'
-            right.y_axis.crosses = 'max'
-            right.y_axis.delete = False
-            main += right
+            secondary = build(second, True)
+            secondary.y_axis.axId = 200
+            secondary.y_axis.title = ' · '.join(title_of[name] for name, _ in right)
+            secondary.y_axis.crosses = 'max'
+            secondary.y_axis.delete = False
+            main += secondary
         sheet = wb.create_sheet('График')
         sheet.add_chart(main, 'A1')
     return_name = f'{safe_name(chart.title)}.xlsx'

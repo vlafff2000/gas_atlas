@@ -32,13 +32,13 @@ COLOR = {'q': '#1f4e8c', 'elpro': '#ff5a1f', 'hours': '#149ba5', 'cru': '#169b62
          'median': '#8c8c8c', 'threshold': '#dc3545'}
 NOTE = ('Расход и часы — из БД расходов, КРУ, давление и температура — из ЭЛПРО. Пропуск в БД расходов (нет записи) — '
         'ноль, пропуск в ЭЛПРО — разрыв. КРУ ограничено диапазоном 0–100 %.')
-# Ряды, которые можно добавить к графику расхода: каждый на своей оси справа. У графика две правые оси (y2, y3).
+# Ряды, которые можно добавить к графику расхода: каждый на своей оси справа (до четырёх правых шкал графика).
 EXTRAS = (('hours', 'Часы работы'), ('cru', 'КРУ, %'), ('p', 'Давление, кгс/см²'), ('t', 'Температура, °C'))
 EXTRA_SERIES = {'hours': ('Часы работы', 'hours', {'dashed': True, 'color': COLOR['hours']}),
                 'cru': ('КРУ', 'cru', {'width': 2, 'color': COLOR['cru']}),
                 'p': ('Давление ЭЛПРО', 'p', {'color': COLOR['p']}),
                 't': ('Температура газа', 't', {'width': 2, 'color': COLOR['t']})}
-MAX_RIGHT_AXES = 2
+MAX_RIGHT_AXES = 4
 
 
 def _day(values) -> pd.Series:
@@ -46,19 +46,19 @@ def _day(values) -> pd.Series:
 
 
 def picked_extras(extras) -> list[str]:
-    """Выбранные ряды без повторов и неизвестных ключей; не больше двух — на графике только две правые оси."""
+    """Выбранные ряды без повторов и неизвестных ключей; у графика не больше ``MAX_RIGHT_AXES`` правых шкал."""
     return [e for e in dict.fromkeys(extras or []) if e in EXTRA_SERIES][:MAX_RIGHT_AXES]
 
 
 def extra_axis(key: str) -> Axis:
-    """Ось Y справа для ряда: своя шкала и единица у каждого ряда."""
+    """Ось Y справа для ряда: своя шкала, единица и цвет ряда у каждого ряда."""
     if key == 'hours':
-        return Axis('Часы работы', 'ч', from_zero=True, minimum=0, maximum=24)
+        return Axis('Часы работы', 'ч', from_zero=True, minimum=0, maximum=24, color=COLOR['hours'])
     if key == 'cru':
-        return Axis('Степень открытия КРУ, %', '%', minimum=0, maximum=100)
+        return Axis('Степень открытия КРУ, %', '%', minimum=0, maximum=100, color=COLOR['cru'])
     if key == 'p':
-        return Axis('Давление газа', 'кгс/см²', from_zero=True)
-    return Axis('Температура газа, °C')
+        return Axis('Давление газа', 'кгс/см²', from_zero=True, color=COLOR['p'])
+    return Axis('Температура газа, °C', color=COLOR['t'])
 
 
 def classic_by_day(prod: pd.DataFrame, kind: str, well: str) -> pd.DataFrame:
@@ -174,8 +174,7 @@ class ElproDailyModule(Module):
                   help='Температура скважины в пределах допуска от медианы по скважинам ЭЛПРО режима.'),
             Param('extras', 'Ряды на графике расхода', 'multi', default=['hours'],
                   options=tuple(Option(key, label) for key, label in EXTRAS), section=SECTION,
-                  help='Каждый ряд — на своей оси справа. На одном графике не больше двух правых осей: '
-                       'первые два выбранных.'),
+                  help='Каждый ряд — на своей оси справа, со смещением и цветом ряда.'),
         ),
     )
 
@@ -210,9 +209,6 @@ class ElproDailyModule(Module):
             return result
         median = median_by_day(elpro_by_day(data[ELPRO], kind)).reindex(frame.index)
         extras = params.get('extras') or []
-        if len(picked_extras(extras)) < len(set(extras) & set(EXTRA_SERIES)):
-            result.notes.append(Note(f'На графике расхода не больше {MAX_RIGHT_AXES} рядов на правых осях: показаны первые два.',
-                                     'warning'))
         result.charts += [self.flow_chart(frame, well, kind, threshold, extras), self.cru_chart(frame, well),
                           self.temp_chart(frame, well, median.to_numpy())]
         result.summary += [Stat('Суток с расходом по БД', f'{int(frame.q.gt(0).sum())}'),
@@ -247,16 +243,17 @@ class ElproDailyModule(Module):
         x = frame.index.to_numpy()
         what = 'закачка' if kind == 'injection' else 'отбор'
         picked = picked_extras(extras)
+        # каждый ряд — на своей правой шкале: y2 у графика, дальше y3, y4 (Chart.right_axes)
+        scales = {f'y{n}': extra_axis(key) for n, key in enumerate(picked, start=2)}
         chart = Chart(f'elpro-flow-{well}', f'Скважина {well}: суточный расход ({what}) и ряды', Axis('Дата', scale='time'),
-                      Axis(f'Расход, {UNIT_Q}', UNIT_Q, from_zero=True), crosshair=True,
-                      y2=extra_axis(picked[0]) if picked else None, y3=extra_axis(picked[1]) if len(picked) > 1 else None)
+                      Axis(f'Расход, {UNIT_Q}', UNIT_Q, from_zero=True), crosshair=True, **scales)
         chart.series.append(Series('Расход, БД расходов', x, frame.q.to_numpy(), 'line', color=COLOR['q'], width=2))
         chart.series.append(Series('Расход, ЭЛПРО', x, frame.elpro_q.to_numpy(), 'line', color=COLOR['elpro']))
         chart.series.append(Series(f'Порог ЭЛПРО {threshold:g}', x, np.full(len(x), threshold), 'line', color=COLOR['threshold'],
                                    dashed=True, legend=True))
         for n, key in enumerate(picked):
             name, column, style = EXTRA_SERIES[key]
-            chart.series.append(Series(name, x, frame[column].to_numpy(), 'line', axis='y2' if n == 0 else 'y3', **style))
+            chart.series.append(Series(name, x, frame[column].to_numpy(), 'line', axis=f'y{n + 2}', **style))
         return chart
 
     @staticmethod

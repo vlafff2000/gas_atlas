@@ -232,6 +232,7 @@ class Axis:
     categories: list[str] | None = None   # для scale='category': порядок подписей
     minimum: float | None = None      # заданные границы оси (None — автоматически)
     maximum: float | None = None
+    color: str = ''                   # цвет подписей и линии оси (правая шкала под один ряд); пусто — цвет по умолчанию
 
 
 @dataclass
@@ -254,7 +255,7 @@ class Series:
     ids: Sequence[str] | None = None  # идентификаторы точек: по ним щелчок исключает точку
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
     markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
-    axis: Literal['y', 'y2', 'y3'] = 'y'   # 'y2' — правая ось Chart.y2, 'y3' — вторая правая (Chart.y3)
+    axis: Literal['y', 'y2', 'y3', 'y4', 'y5'] = 'y'   # правые оси по порядку: y2 — у графика, дальше y3, y4, y5 (смещение и цвет по ряду)
     stack: str = ''                  # одинаковое значение: столбцы или линии с заливкой складываются стопкой
     total: int = 0                   # сколько точек было до прореживания самим модулем (0 — столько, сколько в x)
     # Признаки серии для легенды по рядам: {'Скважина': '№ 101', 'Период': '2023/2024'}. Легенда графика
@@ -290,7 +291,29 @@ class Chart:
     crosshair: bool = False
     y2: Axis | None = None           # вторая шкала справа (две шкалы Y)
     y3: Axis | None = None           # третья шкала: вторая справа, снаружи от y2 (требует y2)
+    y4: Axis | None = None           # четвёртая шкала справа, снаружи от y3 (требует y3)
+    y5: Axis | None = None           # пятая шкала справа, снаружи от y4 (требует y4)
     events: list[Event] = field(default_factory=list)   # отметки: дата на оси времени, число на числовой оси (накопленный объём)
+
+    def right_axes(self) -> list[tuple[str, Axis]]:
+        """Правые шкалы по порядку от графика наружу: [('y2', ...), ('y3', ...), ...]; идут подряд, без пропусков."""
+        out = []
+        for name in ('y2', 'y3', 'y4', 'y5'):
+            axis = getattr(self, name)
+            if axis is None:
+                break
+            out.append((name, axis))
+        return out
+
+    def axis_names(self) -> list[str]:
+        """Имена всех шкал Y по порядку: 'y' и правые шкалы."""
+        return ['y'] + [name for name, _ in self.right_axes()]
+
+    def axis_at(self, name: str) -> Axis:
+        """Шкала по имени; неизвестное или отсутствующее имя — основная шкала 'y'."""
+        if name == 'y':
+            return self.y
+        return dict(self.right_axes()).get(name, self.y)
 
 
 @dataclass
@@ -493,6 +516,7 @@ def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
     kept = thinning.screen_indices(c) if thin else {}
     return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
             'y2': asdict(c.y2) if c.y2 else None, 'y3': asdict(c.y3) if c.y3 else None,
+            'y4': asdict(c.y4) if c.y4 else None, 'y5': asdict(c.y5) if c.y5 else None,
             'series': [_series_json(s, kept.get(i)) for i, s in enumerate(c.series)],
             'events': [{'x': _event_x(e.x), 'label': e.label, 'kind': e.kind,
                         'well': e.well} for e in c.events]}

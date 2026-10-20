@@ -28,7 +28,8 @@ def _axis(layout_axis) -> Axis:
     flipped = bool(value and scale == 'value' and rng[0] > rng[1])     # выровненная ось с обратным направлением: range = [верх, низ]
     if flipped:
         rng = [rng[1], rng[0]]
-    return Axis(label=_text(layout_axis.title), scale=scale, inverse=flipped or layout_axis.autorange == 'reversed',
+    tick_color = layout_axis.tickfont.color if layout_axis.tickfont is not None and layout_axis.showline else None
+    return Axis(label=_text(layout_axis.title), scale=scale, inverse=flipped or layout_axis.autorange == 'reversed', color=tick_color or '',
                 from_zero=layout_axis.rangemode == 'tozero', step=layout_axis.dtick if scale == 'value' and isinstance(layout_axis.dtick, (int, float)) else None,
                 categories=list(layout_axis.categoryarray) if scale == 'category' and layout_axis.categoryarray is not None else None,
                 minimum=float(rng[0]) if value and scale == 'value' else None, maximum=float(rng[1]) if value and scale == 'value' else None)
@@ -45,8 +46,13 @@ def _values(values, scale: str) -> list[Any]:
 def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
     layout = fig.layout
     x, y = _axis(layout.xaxis), _axis(layout.yaxis)
-    y2 = _axis(layout.yaxis2) if any(t.yaxis in ('y2', 'y3') for t in fig.data) else None
-    y3 = _axis(layout.yaxis3) if any(t.yaxis == 'y3' for t in fig.data) else None
+    right = {}
+    for n, name in enumerate(('y2', 'y3', 'y4', 'y5'), start=2):      # правые шкалы подряд: без пропусков
+        if not any(t.yaxis == name for t in fig.data):
+            break
+        right[name] = _axis(getattr(layout, 'yaxis' + str(n)))
+    y2, y3 = right.get('y2'), right.get('y3')
+    y4, y5 = right.get('y4'), right.get('y5')
     series = []
     for t in fig.data:
         meta = t.meta if isinstance(t.meta, dict) else {}
@@ -76,6 +82,6 @@ def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
             legend=t.showlegend is not False, color=color, opacity=float(t.opacity if t.opacity is not None else 1.0),
             symbol=_SYMBOL.get(str(t.marker.symbol or 'circle').replace('-open', ''), 'circle') if t.marker is not None else 'circle',
             hollow='open' in str(t.marker.symbol or '') if t.marker is not None else False,
-            markers=mark == 'line' and 'markers' in (t.mode or ''), axis=t.yaxis if t.yaxis in ('y2', 'y3') else 'y',
+            markers=mark == 'line' and 'markers' in (t.mode or ''), axis=t.yaxis if t.yaxis in right else 'y',
             ids=ids, dataset=dataset))
-    return Chart(id=chart_id, title=_text(layout.title), x=x, y=y, y2=y2, y3=y3, series=series)
+    return Chart(id=chart_id, title=_text(layout.title), x=x, y=y, y2=y2, y3=y3, y4=y4, y5=y5, series=series)

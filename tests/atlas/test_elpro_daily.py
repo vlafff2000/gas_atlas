@@ -81,21 +81,19 @@ def test_module_runs_and_builds_charts():
     assert flow.y2 is not None
 
 
-def test_flow_chart_extras_each_on_own_axis_max_two():
+def test_flow_chart_extras_each_on_own_axis():
     prod, elpro, days = frames()
     module = ed.ElproDailyModule()
     data = data_of(prod, elpro)
-    # три ряда выбраны, на графике — только две правые оси: КРУ и давление; температура — заметкой
-    result = module.run(data, module.spec.coerce({'kind': 'withdrawal', 'well': '101', 'extras': ['cru', 'p', 't']}))
+    result = module.run(data, module.spec.coerce({'kind': 'withdrawal', 'well': '101', 'extras': ['cru', 'p', 't', 'hours']}))
     flow = result.charts[0]
-    assert flow.y2.label == 'Степень открытия КРУ, %' and flow.y3.label == 'Давление газа'
+    # каждый выбранный ряд — на своей правой шкале, по порядку от графика наружу
+    assert [a.label for _, a in flow.right_axes()] == ['Степень открытия КРУ, %', 'Давление газа', 'Температура газа, °C', 'Часы работы']
     axes = {s.name: s.axis for s in flow.series}
-    assert axes['КРУ'] == 'y2' and axes['Давление ЭЛПРО'] == 'y3'
-    assert 'Температура газа' not in axes and 'Часы работы' not in axes
-    assert any('не больше 2 рядов' in n.text for n in result.notes)
+    assert axes['КРУ'] == 'y2' and axes['Давление ЭЛПРО'] == 'y3' and axes['Температура газа'] == 'y4' and axes['Часы работы'] == 'y5'
     # пусто — график расхода без правых осей
     plain = module.run(data, module.spec.coerce({'kind': 'withdrawal', 'well': '101', 'extras': []})).charts[0]
-    assert plain.y2 is None and plain.y3 is None
+    assert plain.right_axes() == []
 
 
 def test_export_builds_flow_chart_per_well_with_chosen_rows():
