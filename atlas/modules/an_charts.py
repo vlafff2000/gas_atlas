@@ -55,30 +55,84 @@ def group_pressure_chart(kind: str, period: str, reference: pd.DataFrame | None,
     return chart
 
 
-def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None) -> Chart | None:
-    """Суточный расход объекта по накопленному объёму за сезон; Рпл — на правой оси (точки по датам замеров).
-    Число работающих скважин — в подсказке к точке."""
-    if daily.empty:
-        return None
-    noun, genitive, _ = WHAT[kind]
-    cum = daily.cumsum() / 1e6
-    chart = Chart(f'an-curve-{kind}-{period}', f'Расход, давление и скважины от накопленного объёма {genitive} · {period}',
-                  Axis(f'Накопленный {noun} за сезон', 'млн м³', from_zero=True),
-                  Axis('Суточный расход', Q_UNIT, from_zero=True), y2=Axis('Рпл, абс.', P_UNIT))
-    labels = [f'{d:%d.%m.%Y} · скважин в работе: {int(wells[d])}' for d in daily.index]
-    chart.series.append(Series('Суточный расход', cum.to_numpy(), (daily / 1000).to_numpy(), 'line', labels=labels, width=1.0))
-    p = pressure_points(pressure, daily.index.min(), daily.index.max())
-    if p is not None:
-        x = [cum[cum.index <= d].iloc[-1] if d >= cum.index[0] else 0.0 for d in p.date]
-        chart.series.append(Series('Рпл, абс.', x, p.pressure.to_numpy(), 'points', axis='y2'))
-    return chart
-
-
 SHOW = (('rate', 'Суточный расход'), ('pressure', 'Среднее Рпл (замеры)'), ('wells', 'Скважин в работе'),
         ('cumulative', 'Накопленный объём'), ('water', 'Вынос воды'), ('wf', 'Водный фактор, суточный'),
         ('wf_cum', 'Водный фактор, накопленный'), ('gas', 'Объём газа в пласте'))
 SHOW_DEFAULT = ('Суточный расход', 'Среднее Рпл (замеры)', 'Скважин в работе')      # в списке параметра значения — подписи
 SHOW_KEY = {label: key for key, label in SHOW}
+# Ряды режима «от накопленного объёма»: по оси X — накопленный объём, поэтому накопленный объём и газ в пласте не выводятся.
+CURVE_SHOW = tuple(s for s in SHOW if s[0] not in ('cumulative', 'gas'))
+CURVE_SHOW_DEFAULT = ('Суточный расход', 'Среднее Рпл (замеры)')
+WATER_LINES = (('water', 'water_day', 'Вынос воды', 'м³/сут', 'Вынос воды', {}),
+               ('wf', 'wf', 'Водный фактор', 'л/тыс. м³', 'Водный фактор, суточный', {'dashed': True}),
+               ('wf_cum', 'wf_cum', 'Водный фактор', 'л/тыс. м³', 'Водный фактор, накопленный', {}))
+
+
+def _cum_at(cum: pd.Series, dates: Any) -> np.ndarray:
+    """Накопленный объём (млн м³) на даты: значение за последние сутки не позже даты; до начала сезона — ноль."""
+    pos = cum.index.searchsorted(pd.DatetimeIndex(dates), side='right') - 1
+    return np.where(pos >= 0, cum.to_numpy()[np.maximum(pos, 0)], 0.0)
+
+
+def _water_items(water: pd.DataFrame | None, show: list[str], start: Any, stop: Any, x_of: Any) -> list[tuple[str, str, str, Series]]:
+    """Вынос воды и водный фактор за сезон из «Выноса воды по объекту»; ``x_of`` переводит даты в координаты X."""
+    if water is None or water.empty:
+        return []
+    w = water[water.date.between(start, stop)].sort_values('date')
+    items = []
+    for key, col, label, unit, name, line in WATER_LINES:
+        if key not in show:
+            continue
+        part = w[w[col].notna()]
+        if not part.empty:
+            items.append((key, label, unit, Series(name, x_of(part.date), part[col].to_numpy(float), 'line', width=1.0, **line)))
+    return items
+
+
+def _place(items: list[tuple[str, str, str, Series]]) -> tuple[Axis, Axis | None, Axis | None, list[Series]]:
+    """Раскладка рядов по осям: величины в порядке первого появления; первая — левая шкала, вторая — y2 справа,
+    третья и следующие делят y3 (единицы — в подписи оси)."""
+    families = list(dict.fromkeys((label, unit) for _, label, unit, _ in items))
+    main = families[0]
+    side = {fam: ('y2' if n == 0 else 'y3') for n, fam in enumerate(families[1:])}
+
+    def merged(axis: str) -> Axis:
+        fams = [f for f, a in side.items() if a == axis]
+        return Axis(' · '.join(dict.fromkeys(label for label, _ in fams)), ' · '.join(dict.fromkeys(unit for _, unit in fams)))
+
+    series = [replace(s, axis=side[(label, unit)]) if (label, unit) != main else s for _, label, unit, s in items]
+    y2 = merged('y2') if 'y2' in side.values() else None
+    y3 = merged('y3') if 'y3' in side.values() else None
+    return Axis(main[0], main[1], from_zero=True), y2, y3, series
+
+
+def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None,
+                show: tuple[str, ...] | list[str] = CURVE_SHOW_DEFAULT, water: pd.DataFrame | None = None) -> Chart | None:
+    """Суточный расход объекта по накопленному объёму за сезон; остальные ряды на выбор (``show``), все — по накопленному объёму.
+    Рпл — по датам замеров; число работающих скважин — в подсказке к точке (и отдельным рядом, если выбрано)."""
+    if daily.empty:
+        return None
+    noun, genitive, _ = WHAT[kind]
+    cum = daily.cumsum() / 1e6
+    start, stop = daily.index.min(), daily.index.max()
+    show = [SHOW_KEY.get(v, v) for v in show]
+    items: list[tuple[str, str, str, Series]] = []
+    if 'rate' in show:
+        labels = [f'{d:%d.%m.%Y} · скважин в работе: {int(wells[d])}' for d in daily.index]
+        items.append(('rate', 'Суточный расход', Q_UNIT, Series('Суточный расход', cum.to_numpy(), (daily / 1000).to_numpy(), 'line',
+                                                              labels=labels, width=1.0)))
+    p = pressure_points(pressure, start, stop) if 'pressure' in show else None
+    if p is not None:
+        items.append(('pressure', 'Рпл, абс.', P_UNIT, Series('Рпл, абс.', _cum_at(cum, p.date), p.pressure.to_numpy(), 'points')))
+    if 'wells' in show:
+        items.append(('wells', 'Скважин в работе', 'скв.', Series('Скважин в работе', _cum_at(cum, wells.index), wells.to_numpy(float),
+                                                                    'points', symbol='square')))
+    items += _water_items(water, show, start, stop, lambda dates: _cum_at(cum, dates))
+    if not items:
+        return None
+    y, y2, y3, series = _place(items)
+    return Chart(f'an-curve-{kind}-{period}', f'Расход, давление и скважины от накопленного объёма {genitive} · {period}',
+                 Axis(f'Накопленный {noun} за сезон', 'млн м³', from_zero=True), y, y2=y2, y3=y3, series=series)
 
 
 def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None,
@@ -104,14 +158,7 @@ def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, well
     if 'wells' in show:
         items.append(('wells', 'Скважин в работе', 'скв.', Series('Скважин в работе', wells.index.to_numpy(), wells.to_numpy(float),
                                                                     'points', symbol='square')))
-    if water is not None and not water.empty:
-        w = water[water.date.between(start, stop)].sort_values('date')
-        for key, col, label, unit, name, line in (('water', 'water_day', 'Вынос воды', 'м³/сут', 'Вынос воды', {}),
-                                                  ('wf', 'wf', 'Водный фактор', 'л/тыс. м³', 'Водный фактор, суточный', {'dashed': True}),
-                                                  ('wf_cum', 'wf_cum', 'Водный фактор', 'л/тыс. м³', 'Водный фактор, накопленный', {})):
-            part = w[w[col].notna()] if key in show else w.iloc[0:0]
-            if not part.empty:
-                items.append((key, label, unit, Series(name, part.date.to_numpy(), part[col].to_numpy(float), 'line', width=1.0, **line)))
+    items += _water_items(water, show, start, stop, lambda dates: dates.to_numpy())
     if 'gas' in show and factor is not None and 'gas_in_place' in factor and not factor.empty:
         f = factor.assign(date=pd.to_datetime(factor.date), gas=pd.to_numeric(factor.gas_in_place, errors='coerce'))
         f = f[f.date.between(start, stop) & f.gas.notna()].sort_values('date')
@@ -120,22 +167,9 @@ def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, well
                                                                           (f.gas / 1e6).to_numpy(float), 'line', width=1.2)))
     if not items:
         return None
-    families = list(dict.fromkeys((label, unit) for _, label, unit, _ in items))        # величины в порядке первого появления
-    main = families[0]
-    side = {fam: ('y2' if n == 0 else 'y3') for n, fam in enumerate(families[1:])}       # третья и следующие величины делят ось y3
-
-    def merged(keys):
-        return Axis(' · '.join(dict.fromkeys(label for label, _ in keys)), ' · '.join(dict.fromkeys(unit for _, unit in keys)))
-
-    chart = Chart(f'an-canvas-{kind}-{period}', f'Сезон {genitive}: ряды по суткам · {period}',
-                  Axis('Дата', scale='time'), Axis(main[0], main[1], from_zero=True),
-                  y2=merged([f for f, a in side.items() if a == 'y2']) if side else None,
-                  y3=merged([f for f, a in side.items() if a == 'y3']) if 'y3' in side.values() else None)
-    for _, label, unit, series in items:
-        if (label, unit) != main:
-            series = replace(series, axis=side[(label, unit)])
-        chart.series.append(series)
-    return chart
+    y, y2, y3, series = _place(items)
+    return Chart(f'an-canvas-{kind}-{period}', f'Сезон {genitive}: ряды по суткам · {period}', Axis('Дата', scale='time'), y,
+                 y2=y2, y3=y3, series=series)
 
 
 def _cum_frames(rates: pd.DataFrame) -> dict[str, pd.Series]:

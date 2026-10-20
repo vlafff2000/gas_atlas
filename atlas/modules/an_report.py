@@ -357,6 +357,10 @@ class AuthorReportModule(Module):
                   options=PRESSURE_SOURCES, help='Откуда берётся Рпл объекта и динамика по группам. «Авто» — столбец БД, иначе опорная сетка.'),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
                   show_if={'view': 'canvas'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.SHOW)),
+            Param('show_curve', 'Ряды на графике «от накопленного объёма»', 'multi', default=list(an_charts.CURVE_SHOW_DEFAULT),
+                  section='Вид', empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.CURVE_SHOW),
+                  help='Для графика «Расход от накопленного объёма» (основного или правого). По оси X — накопленный объём. '
+                       'Рпл — точки по датам замеров; скважины — в подсказке к точке и отдельным рядом.'),
             Param('groups', 'Группы', 'multi', default=[], dynamic=True, depends=('kind', 'periods'), auto='first:1',
                   empty='ничего', section='Вид', show_if={'view': 'group_months'},
                   help='Группы для графика накопленного объёма по месяцам: по графику на группу.'),
@@ -582,7 +586,9 @@ class AuthorReportModule(Module):
                 water = water_table(factor) if factor is not None and not factor.empty and kind == 'withdrawal' else None
                 return [an_charts.canvas_chart(kind, period, show, daily, wells, pressure, water, factor)]
             if view == 'curve':
-                return [an_charts.curve_chart(kind, period, daily, wells, pressure)]
+                show = list(params['show_curve']) if 'show_curve' in params else list(an_charts.CURVE_SHOW_DEFAULT)
+                water = water_table(factor) if factor is not None and not factor.empty and kind == 'withdrawal' else None
+                return [an_charts.curve_chart(kind, period, daily, wells, pressure, show, water)]
             if view == 'group_mean':
                 return [an_charts.group_means_chart(kind, period, means)]
             if view == 'group_mean_months':
