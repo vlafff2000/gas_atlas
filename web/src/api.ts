@@ -7,7 +7,7 @@ export interface Option { value: unknown; label: string }
 export interface Param {
   name: string
   label: string
-  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map' | 'file'
+  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map' | 'file' | 'json'
   default: unknown
   help: string
   formula: string
@@ -173,6 +173,8 @@ export const api = {
     request<Project>(`/api/projects/${id}/state/${module}`, json('POST', { params, panel })),
   paramOptions: (module: string, project: string, param: string, params: Params, signal?: AbortSignal) =>
     request<string[]>(`/api/modules/${module}/options`, json('POST', { project, param, params }, signal)),
+  catalog: <T,>(module: string, project: string) =>
+    request<T>(`/api/modules/${module}/catalog`, json('POST', { project })),
   window: (module: string, project: string, params: Params, chart: string, x0: number, x1: number, raw: boolean, revision: number) =>
     request<WindowReply>(`/api/modules/${module}/window`, json('POST', { project, params, chart, x0, x1, raw, revision })),
   table: (module: string, project: string, params: Params, id: string) =>

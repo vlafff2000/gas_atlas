@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, ClassVar, Literal, Mapping, Sequence
@@ -16,7 +17,8 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text', 'map', 'file']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text', 'map', 'file', 'json']
+JSON_LIMIT = 200_000      # json: предел размера значения, символов
 
 
 from atlas.engine.core.config import DataRangeError  # noqa: E402,F401  (перевыпуск для api)
@@ -128,6 +130,16 @@ class Param:
                     raise ParamError(f'«{self.label}»: «{key}» — число не меньше {self.minimum or 0:g}')
                 out[str(key)] = number
             return out
+        if self.kind == 'json':    # объект или список (макет раздела); проверяет модуль, здесь — только форма и размер
+            if not isinstance(value, (Mapping, list)):
+                raise ParamError(f'«{self.label}»: ожидается объект JSON')
+            try:
+                text = json.dumps(value, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError):
+                raise ParamError(f'«{self.label}»: значение не переводится в JSON') from None
+            if len(text) > JSON_LIMIT:
+                raise ParamError(f'«{self.label}»: слишком большое значение (больше {JSON_LIMIT} символов)')
+            return json.loads(text)
         raise ParamError(f'Неизвестный тип параметра {self.kind}')
 
 
@@ -396,6 +408,10 @@ class Module:
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         """Варианты для параметра с ``dynamic=True``; ``params`` — текущие значения остальных параметров."""
         raise KeyError(f'У модуля {self.spec.id} нет списка {name}')
+
+    def catalog(self, data: Data) -> dict[str, Any]:
+        """Справочник раздела по данным проекта (``POST /api/modules/{id}/catalog``): например, поля для конструктора графиков."""
+        raise KeyError(f'У модуля {self.spec.id} нет справочника')
 
     def panel_key(self, panel: int = 0) -> str:
         """Ключ сохранённого вида в settings.panels. Для нескольких панелей — свой на каждую."""

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
+import { ChartBuilder } from './ChartBuilder'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
 import { PassportPage } from './PassportPage'
@@ -255,6 +256,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
   const [resets, setResets] = useState(0)
   const controller = useRef<AbortController | null>(null)
   const hasAuto = spec.params.some(p => p.auto)
+  const builder = spec.id === 'builder'      // конструктор графиков: свой макет слева вместо панели параметров
 
   // Начальные параметры: последние в 6 → сохранённый вид проекта (общий с 5.8) → умолчания.
   useEffect(() => {
@@ -372,7 +374,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
 
       <ChartKinds spec={spec} values={params} onChange={changeParams} />
 
-      <ParamBar key={resets} spec={spec} project={project.id} panel={panel} values={params} onChange={changeParams} />
+      {!builder && <ParamBar key={resets} spec={spec} project={project.id} panel={panel} values={params} onChange={changeParams} />}
 
       <div className="toolbar">
         {selectable && (
@@ -401,12 +403,16 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             Все таблицы XLSX
           </button>
         )}
-        {result && (
+        {result && !builder && (
           <button type="button" className="quiet" title="Данные вкладки с учётом исключённых точек, в структуре книги импорта"
             onClick={() => saveLink(projectsApi.correctedDbUrl(project.id, spec.id))}>Исправленная БД XLSX</button>
         )}
       </div>
 
+      <div className={builder ? 'builder-layout' : 'panel-output'}>
+      {builder && <ChartBuilder key={resets} project={project.id} revision={project.revision} value={params.layout}
+        onChange={layout => changeParams({ ...params, layout })} />}
+      <div className={builder ? 'builder-chart' : 'panel-output'}>
       {status.kind === 'error' && (
         <div className={'note ' + (status.missing ? 'info' : 'warning')} role="alert">
           {status.message}
@@ -468,6 +474,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
           ))}
         </div>
       )}
+      </div>
+      </div>
 
       {toast && (
         <div className="toast" role="status">
