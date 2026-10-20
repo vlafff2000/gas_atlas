@@ -344,7 +344,7 @@ class AuthorReportModule(Module):
         group='Авторский надзор',
         description='Статистика сезона для глав отчёта АН: даты, нейтральный период, средние по объекту и группам, пик, вода.',
         needs=(PRODUCTION,),
-        optional=tuple(k for k in DatasetKind if k != PRODUCTION),     # все наборы: макеты конструктора берут любые поля
+        optional=(OBJECT, FACTOR, PLAN, WATER, ANNULUS, RESPONSE, MATCH),
         order=110,
         save_label='Сохранить вид',
         params=(
