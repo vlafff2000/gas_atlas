@@ -94,3 +94,37 @@ def test_dynamic_params_match_frontend_shape():
                 assert isinstance(p.default, str), (module.spec.id, p.name)
     well = next(p for p in ed.ElproDailyModule.spec.params if p.name == 'well')
     assert well.kind == 'choice' and well.dynamic and well.default == ''
+
+
+def test_flow_chart_extras_each_on_own_axis_max_two():
+    prod, elpro, days = frames()
+    module = ed.ElproDailyModule()
+    data = data_of(prod, elpro)
+    # три ряда выбраны, на графике — только две правые оси: КРУ и давление; температура — заметкой
+    result = module.run(data, module.spec.coerce({'kind': 'withdrawal', 'well': '101', 'extras': ['cru', 'p', 't']}))
+    flow = result.charts[0]
+    assert flow.y2.label == 'Степень открытия КРУ, %' and flow.y3.label == 'Давление газа'
+    axes = {s.name: s.axis for s in flow.series}
+    assert axes['КРУ'] == 'y2' and axes['Давление ЭЛПРО'] == 'y3'
+    assert 'Температура газа' not in axes and 'Часы работы' not in axes
+    assert any('не больше 2 рядов' in n.text for n in result.notes)
+    # пусто — график расхода без правых осей
+    plain = module.run(data, module.spec.coerce({'kind': 'withdrawal', 'well': '101', 'extras': []})).charts[0]
+    assert plain.y2 is None and plain.y3 is None
+
+
+def test_export_builds_flow_chart_per_well_with_chosen_rows():
+    from atlas.api_export import options_from, with_elpro
+
+    class Plan:                                  # план экспорта: только список заданий
+        jobs = []
+
+    prod, elpro, _ = frames()
+    data = data_of(prod, elpro)
+    form = {'modules': ['elpro_daily'], 'elpro_daily_wells': ['101', '102'], 'elpro_daily_hours': False,
+            'elpro_daily_cru': True, 'elpro_daily_p': True}
+    options, _, _ = options_from(form, data)
+    assert options['elpro_daily']['extras'] == ['cru', 'p']
+    plan = with_elpro(Plan(), data, options)
+    assert len(plan.jobs) == 2                           # по графику на скважину, таблицы в выгрузку не идут
+    assert all(job.module == 'elpro_daily' for job in plan.jobs)
