@@ -500,6 +500,9 @@ class Imports:
         punit = body.get('production_unit') or 'м³/сут'
         gunit = body.get('gdi_unit') or 'тыс. м³/сут'
         pressure_unit = body.get('pressure_unit') or 'кгс/см²'
+        duplicates = body.get('production_duplicates') or 'flow'
+        if duplicates not in ('flow', 'first', 'last'):
+            raise ParamError('Неизвестное правило дублей суток')
         if mode not in rules.MODULE_CHOICES or kind not in ('withdrawal', 'injection') \
                 or punit not in ('м³/сут', 'тыс. м³/сут') or gunit not in ('м³/сут', 'тыс. м³/сут') \
                 or pressure_unit not in ('кгс/см²', 'МПа'):
@@ -533,7 +536,7 @@ class Imports:
                                                       self.tables(item.token, opts['encoding'], opts['delimiter']))
                     else:
                         r = load_file(path, mode, kind, punit, gunit, sheet_options=opts['sheets'],
-                                      encoding=opts['encoding'], delimiter=opts['delimiter'])
+                                      encoding=opts['encoding'], delimiter=opts['delimiter'], duplicates=duplicates)
                     if pressure_unit == 'МПа':
                         rules.to_kgf(r.frames, skip=r.by_header)
                     for module, frame in r.frames.items():

@@ -245,6 +245,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const [punit, setPunit] = useState('м³/сут')
   const [gunit, setGunit] = useState('тыс. м³/сут')
   const [pressureUnit, setPressureUnit] = useState('кгс/см²')
+  const [duplicates, setDuplicates] = useState('flow')
   const [fileOpts, setFileOpts] = useState<Record<string, FileOptions>>({})
   const [choices, setChoices] = useState<Record<string, Record<string, SheetChoice>>>({})
   const [simple, setSimple] = useState<SimpleInspect | null>(null)
@@ -263,7 +264,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const opts = (token: string) => fileOpts[token] ?? AUTO
 
   // Любое изменение входа делает прежнюю проверку недействительной (как подпись в 5.8).
-  useEffect(() => { setPending(null); setAccept(false); setKeepRejected(false); setFixing(null) }, [files, view, mode, kind, punit, gunit, pressureUnit, fileOpts, choices, detailed, books])
+  useEffect(() => { setPending(null); setAccept(false); setKeepRejected(false); setFixing(null) }, [files, view, mode, kind, punit, gunit, pressureUnit, duplicates, fileOpts, choices, detailed, books])
 
   useEffect(() => {
     if (!files.length) { setSimple(null); setInfos(null); return }
@@ -295,7 +296,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const blocked = !files.length || (view === 'simple' ? !simple || simple.blocked : detailedBlocked || !infos)
 
   const body = () => ({
-    view, mode, kind, production_unit: punit, gdi_unit: gunit, pressure_unit: pressureUnit,
+    view, mode, kind, production_unit: punit, gdi_unit: gunit, pressure_unit: pressureUnit, production_duplicates: duplicates,
     files: files.map((f): CheckFile => {
       const base = { token: f.token, ...opts(f.token) }
       if (view === 'simple') return { ...base, choices: choices[f.token] ?? {} }
@@ -368,6 +369,9 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
         </label>
         <label className="field">Единицы давлений
           <select value={pressureUnit} onChange={e => setPressureUnit(e.target.value)}><option>кгс/см²</option><option>МПа</option></select>
+        </label>
+        <label className="field">Дубли суток одной скважины
+          <select value={duplicates} onChange={e => setDuplicates(e.target.value)}><option value="flow">Оставить строку с расходом</option><option value="first">Оставить первую строку</option><option value="last">Оставить последнюю строку</option></select>
         </label>
       </div>
       <p className="muted small">Давления внутри проекта: кгс/см². При выборе МПа пересчитываются давления, ΔP² и коэффициенты БД.
