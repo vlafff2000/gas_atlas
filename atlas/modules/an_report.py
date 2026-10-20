@@ -27,7 +27,7 @@ import pandas as pd
 from atlas.engine.core.config import ordered
 from atlas.engine.core.loader import canonical_gsp, unify_groups
 
-from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
+from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series, Stat, Table
 from ..domain import DatasetKind
 from . import an_annulus, an_charts, an_wells
 from ._production import KINDS, NEUTRAL_PREFIXES, group_of, periods_of, visible_periods
@@ -364,6 +364,8 @@ class AuthorReportModule(Module):
             Param('groups', 'Группы', 'multi', default=[], dynamic=True, depends=('kind', 'periods'), auto='first:1',
                   empty='ничего', section='Вид', show_if={'view': 'group_months'},
                   help='Группы для графика накопленного объёма по месяцам: по графику на группу.'),
+            Param('builder_layouts', 'Макеты конструктора в отчёте', 'multi', default=[], dynamic=True, empty='ничего', section='Вид',
+                  help='Сохранённые макеты «Конструктора графиков» проекта: каждый идёт в конце отчёта как отдельный рисунок.'),
             Param('annulus', 'Сезоны замеров МКД', 'multi', default=[], dynamic=True, auto='last:1',
                   empty='ничего', section='Выбор данных'),
         ),
@@ -372,6 +374,9 @@ class AuthorReportModule(Module):
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         if name == 'annulus':
             return sorted(data[ANNULUS]['season'].dropna().unique()) if ANNULUS in data else []
+        if name == 'builder_layouts':
+            from .. import builder_library
+            return sorted(i['name'] for i in builder_library.items_of(data.settings))
         if name == 'groups':
             kind = params.get('kind') or 'withdrawal'
             d = data[PRODUCTION]
@@ -441,7 +446,32 @@ class AuthorReportModule(Module):
         if kind == 'injection' and summaries:
             result.notes.append(Note(CHAPTER2_SKIPPED, 'warning'))
         self.annulus_details(result, data, params.get('annulus') or [])
+        self.builder_charts(result, data, params.get('builder_layouts') or [])
         return result
+
+    def builder_charts(self, result: Result, data: Data, names: list[str]) -> None:
+        """Макеты конструктора графиков проекта как произвольные рисунки отчёта (после остальных графиков)."""
+        from .. import builder_library
+        saved = {i['name']: i for i in builder_library.items_of(data.settings)}
+        for name in names:
+            item = saved.get(name)
+            if item is None:
+                result.notes.append(Note(f'Макет конструктора «{name}» не найден в проекте — рисунок пропущен.', 'warning'))
+                continue
+            try:
+                chart, notes = builder_library.chart_of(data, item['layout'])
+            except ParamError as e:
+                result.notes.append(Note(f'Макет «{name}»: {e}', 'warning'))
+                continue
+            lost = builder_library.missing_of(data, item['layout'])
+            result.notes += [Note(f'Макет «{name}»: {text}.', 'warning') for text in lost]
+            if chart is None:
+                result.notes.append(Note(f'Макет «{name}»: нет данных для графика' + (f' ({notes[0]})' if notes else '') + ' — рисунок пропущен.', 'warning'))
+                continue
+            chart.id = 'builder-' + item['id']
+            if not chart.title:
+                chart.title = name
+            result.charts.append(chart)
 
     def annulus_details(self, result: Result, data: Data, seasons: list[str]) -> None:
         """Результаты замеров МКД: межколонные давления и расход из МКП по выбранным сезонам замеров + текст под таблицей."""

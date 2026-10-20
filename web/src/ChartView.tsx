@@ -141,7 +141,7 @@ const hasBars = (chart: Chart, key: YName) => chart.series.some(s => (s.kind ===
 
 function alignedYAxes(chart: Chart, base: Chart): Record<YName, { min: number; max: number; step: number }> | null {
   const names = Y_NAMES.slice(0, yCount(chart))
-  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value' || (chart.id === 'builder' && yAxisAt(chart, i).step))) return null      // в конструкторе заданный вручную шаг важнее общей сетки
+  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value' || (chart.id.startsWith('builder') && yAxisAt(chart, i).step))) return null      // в конструкторе заданный вручную шаг важнее общей сетки
   const out = {} as Record<YName, { min: number; max: number; step: number }>
   const hasData = base.series.some(s => s.kind !== 'box' && s.y.some(v => typeof v === 'number' && Number.isFinite(v)))
   if (!hasData) return null
@@ -322,7 +322,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         silent: custom, emphasis, blur: blurred, ...(s.stack ? { stack: s.stack } : {}) }
       if (s.kind === 'bar') {
         // столбцы под линиями и точками (z), у соседних рядов зазор, у стопки одна колонка
-        const own = chart.id === 'builder'
+        const own = chart.id.startsWith('builder')
         return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : { barMaxWidth: 24 }), barGap: '12%',
           itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : {}) },
           emphasis: { focus: 'none', itemStyle: { color: c } } }
@@ -1284,7 +1284,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
                 title="Только фактические замеры, точки видны на линиях">Замеры</button>
             </span>
           </>}
-          {chart.id !== 'builder' && <span className="chart-tools">
+          {!chart.id.startsWith('builder') && <span className="chart-tools">
             <button type="button" className={'icon' + (settings ? ' on' : '')} aria-pressed={settings} onClick={() => setSettings(v => !v)}
               title="Настройка графика: цвет, толщина и стиль линии, маркеры (форма, размер, цвет) для каждого ряда — как в Excel">
               <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.9M8 12.3v1.9M1.8 8h1.9M12.3 8h1.9M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" /></svg>

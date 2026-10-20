@@ -103,3 +103,20 @@
 .formula-help { flex: 1 1 100%; font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; }
 .formula-help p { margin: 4px 0; }
 .formula-help code { font-size: 12.5px; }
+
+/* Библиотека макетов и выгрузка (этап 5) */
+.builder-library {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.builder-library > summary { cursor: pointer; font-weight: 700; font-size: 14px; }
+.builder-library[open] > summary { margin-bottom: 6px; }
+.builder-library h3 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 8px 0 0; }
+.lib-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.lib-row.wrap { flex-wrap: wrap; }
+.lib-row select, .lib-row input { flex: 1; min-width: 0; }
+.lib-hint { font-size: 12px; margin: 0 0 4px; }
+.lib-word { margin-top: 2px; }
+.lib-word summary { cursor: pointer; font-size: 14px; }
+.lib-word .field { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; font-size: 13px; }
+.builder-library .note ul { margin: 4px 0 0; padding-left: 18px; }

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
 
 import math
@@ -107,7 +108,7 @@ def has_bars(chart: Chart) -> bool:
 def align_y_axes(fig, chart: Chart) -> None:
     """Две оси Y: одинаковое число делений, деления строго друг напротив друга — одна основная сетка на обе."""
     specs = {'y': chart.y, **dict(chart.right_axes())}
-    if chart.y2 is None or any(a.scale != 'value' for a in specs.values()) or (chart.id == 'builder' and any(a.step for a in specs.values())):
+    if chart.y2 is None or any(a.scale != 'value' for a in specs.values()) or (chart.id.startswith('builder') and any(a.step for a in specs.values())):
         return      # в конструкторе заданный вручную шаг делений важнее общей сетки
     extents = {key: axis_extent(chart, key) for key in specs}
     if all(e is None for e in extents.values()):
@@ -176,7 +177,7 @@ def to_plotly(chart: Chart):
     palette = group_colors(chart)
     fig = go.Figure()
     stacked_bars = any(s.kind == 'bar' and s.stack for s in chart.series)
-    combo = chart.id == 'builder'      # виды конструктора: область, ступенчатая, стопка (atlas/engine/core/export.py читает meta['combo'])
+    combo = chart.id.startswith('builder')      # виды конструктора: область, ступенчатая, стопка (atlas/engine/core/export.py читает meta['combo'])
     for n, s in enumerate(chart.series):
         look = s.look or {}
         color = look.get('color') or (series_color(s.color) if s.color else palette[s.group or s.name])
@@ -239,7 +240,7 @@ def to_plotly(chart: Chart):
                                              'line': {'color': look.get('markerColor') or color, 'width': 2 if s.hollow or shape in ('cross', 'x') else 0}}))
     module = chart.id.split('-', 1)[0]
     meta: dict = {'module': module}
-    if chart.id == 'builder' or chart.style or any(a.style for a in (chart.x, chart.y, *(a for _, a in chart.right_axes()))):
+    if chart.id.startswith('builder') or chart.style or any(a.style for a in (chart.x, chart.y, *(a for _, a in chart.right_axes()))):
         meta['style'] = style_meta(chart)
         if chart.style.get('legend'):
             meta['format'] = {'legend': chart.style['legend']}
@@ -409,11 +410,27 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
     return buffer.getvalue(), return_name, XLSX
 
 
+def chart_csv(chart: Chart) -> tuple[bytes, str, str]:
+    """Данные графика: по строке на точку — ряд, ось, X, Y (CSV как в 5.8: «;», запятая в дробях, UTF-8 с BOM)."""
+    frames = []
+    for s in chart.series:
+        if s.kind == 'box' or len(s.x) != len(s.y):
+            continue
+        frames.append(pd.DataFrame({'Ряд': s.name, 'Ось': s.axis, 'X': list(s.x), 'Y': list(s.y)}))
+    frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=['Ряд', 'Ось', 'X', 'Y'])
+    for col in ('X', 'Y'):
+        if frame[col].map(lambda v: isinstance(v, (pd.Timestamp, dt.datetime, dt.date))).any():
+            frame[col] = frame[col].map(lambda v: pd.Timestamp(v).strftime('%Y-%m-%d') if v is not None and not pd.isna(v) else '')
+    return csv_bytes(frame), f'{safe_name(chart.title)}.csv', 'text/csv; charset=utf-8'
+
+
 def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_size=None) -> tuple[bytes, str, str]:
     if fmt == 'xlsx':
         return chart_xlsx(chart)
+    if fmt == 'csv':
+        return chart_csv(chart)
     if fmt not in FORMATS:
-        raise ValueError('Формат графика: svg, pdf, png или xlsx')
+        raise ValueError('Формат графика: svg, pdf, png, xlsx или csv')
     return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
 
 

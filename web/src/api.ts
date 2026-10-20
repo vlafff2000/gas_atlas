@@ -201,3 +201,25 @@ export const api = {
 export function defaults(spec: ModuleSpec): Params {
   return Object.fromEntries(spec.params.map(p => [p.name, p.default]))
 }
+
+// ---- Конструктор графиков: библиотека макетов проекта и выгрузка (этап 5) ----
+export interface LayoutItem { id: string; name: string; created: string; updated: string; series: number; title: string }
+export interface OpenedLayout { id?: string; name?: string; layout: unknown; missing: string[] }
+const lib = (project: string, tail = '') => `/api/projects/${project}/builder/layouts${tail}`
+export const builderApi = {
+  list: (project: string) => request<{ items: LayoutItem[] }>(lib(project)).then(r => r.items),
+  save: (project: string, name: string, layout: unknown) =>
+    request<{ item: LayoutItem; items: LayoutItem[] }>(lib(project), json('POST', { name, layout })),
+  open: (project: string, id: string) => request<Required<OpenedLayout>>(lib(project, '/' + id)),
+  update: (project: string, id: string, patch: { name?: string; layout?: unknown }) =>
+    request<{ item: LayoutItem; items: LayoutItem[] }>(lib(project, '/' + id), json('PATCH', patch)),
+  duplicate: (project: string, id: string) => request<{ item: LayoutItem; items: LayoutItem[] }>(lib(project, `/${id}/duplicate`), json('POST', {})),
+  remove: (project: string, id: string) => request<{ items: LayoutItem[] }>(lib(project, '/' + id), { method: 'DELETE' }),
+  importFile: (project: string, content: string, fileName: string) =>
+    request<{ item: LayoutItem; items: LayoutItem[]; layout: unknown; missing: string[] }>(lib(project, '/import'), json('POST', { content, file_name: fileName })),
+  exportFile: (project: string, name: string, layout: unknown) => download(lib(project, '/file'), { name, layout }),
+  word: (project: string, body: { layout: unknown; title: string; caption: string; orientation: string }) =>
+    download(`/api/projects/${project}/builder/word`, body),
+  data: (project: string, layout: unknown, format: 'xlsx' | 'csv') =>
+    download('/api/modules/builder/export', { project, params: { layout }, target: 'chart', id: 'builder', format, dpi: 300 }),
+}
