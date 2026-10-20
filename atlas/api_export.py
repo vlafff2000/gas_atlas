@@ -34,27 +34,24 @@ from atlas.engine.core.export import figure_bytes
 
 from . import VERSION, chart_format, chart_labels, word_export
 from .contract import Data, ParamError
+from .modules._elpro_series import EXTRAS as ELPRO_EXTRAS
 from .projects import Conflict, Projects
 
 log = logging.getLogger(__name__)
 
-ELPRO_DAILY = 'elpro_daily'      # «Суточный график скважины: ЭЛПРО и расход» (модуль Атласа 6)
 ORDER = ('production', 'histograms', 'gdi', 'response', 'object_pressure', 'well_dashboard',
-         'operations', 'water', 'bottom', 'construction', 'pressure_match', 'waterfactor', ELPRO_DAILY)
+         'operations', 'water', 'bottom', 'construction', 'pressure_match', 'waterfactor')
 WATERFACTOR = 'waterfactor'      # «Вынос воды и водный фактор» (модуль Атласа 6, в 5.8 его не было)
-ELPRO_EXTRAS = (('hours', 'Часы работы'), ('cru', 'КРУ, %'), ('p', 'Давление, кгс/см²'), ('t', 'Температура, °C'))
-EXTRA_MODULES = {WATERFACTOR: 'Вынос воды и водный фактор', ELPRO_DAILY: 'Суточный график скважины: ЭЛПРО и расход'}
+EXTRA_MODULES = {WATERFACTOR: 'Вынос воды и водный фактор'}
 EXTRA_CAPTIONS = {WATERFACTOR: {'section': '11', 'start': 1,
-                                'template': 'Рисунок {раздел}.{номер} - Вынос воды и водный фактор: {период}'},
-                  ELPRO_DAILY: {'section': '12', 'start': 1,
-                                'template': 'Рисунок {раздел}.{номер} - Суточный расход скважины с рядами ЭЛПРО: {скважина}'}}
+                                'template': 'Рисунок {раздел}.{номер} - Вынос воды и водный фактор: {период}'}}
 DEFAULT_MODULES = ('production', 'gdi', 'response', 'object_pressure')
 STYLE_FIELDS = (('points', 'Экспорт: точки'), ('legend', 'Экспорт: легенда'), ('grid', 'Экспорт: сетка'))
 GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'), ('db', 'db_curves'),
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
 PRESET_FIELDS = ('look', 'modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
-PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_', 'waterfactor_', 'elpro_daily_')
+PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_', 'waterfactor_')
 
 
 # Пакет графиков по фонду («Приложение»): режим → (раздел, слово в подписи).
@@ -92,7 +89,6 @@ def available(raw: Mapping[str, pd.DataFrame]) -> list[str]:
     """Вкладки модулей экспорта — тот же отбор, что в 5.8."""
     water = 'water_factor' in raw or ('production' in raw and ('water' in raw or 'operations' in raw))
     return [m for m in ORDER if (m == 'histograms' and 'production' in raw) or (m == WATERFACTOR and water)
-            or (m == ELPRO_DAILY and 'elpro' in raw and 'production' in raw)
             or (m == 'well_dashboard' and any(k != 'object_pressure' for k in raw)) or m in raw]
 
 
@@ -101,7 +97,7 @@ def group_of(mapping, well) -> str:
 
 
 def well_choices(module: str, raw: Mapping[str, pd.DataFrame]) -> list[str]:
-    real = 'production' if module == 'histograms' else 'elpro' if module == ELPRO_DAILY else module
+    real = 'production' if module == 'histograms' else module
     if real == 'well_dashboard':
         return ordered(w for k, d in raw.items() if k != 'ggh' and 'well' in d for w in d.well.dropna().unique())
     d = raw.get(real)
@@ -238,6 +234,9 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
                                   'view': v.get('view', view), 'direction': v.get('direction', direction),
                                   'histaxis': v.get('histaxis', 'well'), 'hist_size': v.get('hist_size', 'Авто'), 'split': 'all'}
                                  for v in [current.get(prefix + '_0'), current.get(prefix + '_1')] if v]
+            elpro = [key for key, _ in ELPRO_EXTRAS if form.get('production_elpro_' + key)] if module == 'production' else []
+            if elpro:
+                cfg['elpro'] = elpro
             if split == 'group_total':
                 cfg['metric'] = form.get('production_metric', 'daily')
                 cfg['overlay'] = pick('production_overlay', ws, [])
@@ -247,9 +246,6 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             if module == 'histograms':
                 cfg['histaxis'] = form.get('histograms_histaxis', 'well')
                 cfg['hist_size'] = str(form.get('histograms_hist_size', 'Авто'))
-        elif module == ELPRO_DAILY:
-            cfg['kind'] = form.get('elpro_daily_kind') if form.get('elpro_daily_kind') in ('withdrawal', 'injection') else 'withdrawal'
-            cfg['extras'] = [key for key, _ in ELPRO_EXTRAS if form.get('elpro_daily_' + key, key == 'hours')]
         elif module == 'gdi':
             cfg['n'] = int(form.get('gdi_n', 3))
             cfg['orientation'] = form.get('gdi_orientation', 'standard')
@@ -333,26 +329,35 @@ def with_water(plan, data: Data, options: Mapping[str, Any]):
 
 
 def with_elpro(plan, data: Data, options: Mapping[str, Any]):
-    """Суточные графики ЭЛПРО с выбранными рядами — по одному на скважину; модуль Атласа 6 (код 5.8 о нём не знает)."""
+    """Суточные графики скважин «Производительность» с выбранными рядами ЭЛПРО — по одному на скважину и режим.
+    Тот же модуль Атласа 6, что на экране: 5.8 рядов ЭЛПРО не знает."""
     from functools import partial
     from atlas.engine.core.reporting import FigureJob
-    from .modules.elpro_daily import ElproDailyModule
+    from .modules.production import ProductionModule
     from .render import to_plotly
-    if ELPRO_DAILY not in options['modules']:
+    cfg = options.get('production') or {}
+    if not cfg.get('elpro') or 'production' not in options['modules']:
         return plan
-    cfg = options[ELPRO_DAILY]
-    module = ElproDailyModule()
+    module = ProductionModule()
 
-    def figure(chart, well):
+    def figure(chart, well, periods):
         fig = to_plotly(chart)
-        fig.update_layout(meta={'module': ELPRO_DAILY, 'wells': [well], 'periods': []})
+        fig.update_layout(meta={'module': 'production', 'wells': [well], 'periods': periods})
         return fig
-    for well in cfg['wells']:
-        result = module.run(data, module.spec.coerce({'kind': cfg['kind'], 'well': well, 'extras': cfg['extras']}))
-        plan.jobs.extend(FigureJob('Суточный график ЭЛПРО · ' + chart.title, partial(figure, chart, well), options.get('style', {}),
-                                   ELPRO_DAILY)
-                         for chart in result.charts if chart.id.startswith('elpro-flow-'))
+    for kind, values in cfg['periods'].items():
+        for well in cfg['wells'] if values else []:
+            params = module.spec.coerce({'mode': 'individual', 'kind': kind, 'groups': cfg['groups'], 'wells': [well],
+                                         'periods': values, 'elpro': cfg['elpro'], 'view': 'curve',
+                                         'direction': cfg.get('direction', 'number')})
+            result = module.run(data, params)
+            plan.jobs.extend(FigureJob(f'Производительность с рядами ЭЛПРО · скважина № {well} · {kind_name(kind)}',
+                                       partial(figure, chart, well, values), options.get('style', {}), 'production')
+                             for chart in result.charts if chart.id == 'production-curve')
     return plan
+
+
+def kind_name(kind: str) -> str:
+    return 'Отбор' if kind == 'withdrawal' else 'Закачка'
 
 
 def pressure_cfg(form: Mapping[str, Any], data: Data) -> dict[str, Any]:

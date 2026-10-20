@@ -25,6 +25,7 @@ const SIZES: [string, string, number | null][] = [
 ]
 const SIZE_WIDTH: Record<string, number> = { auto: 220, 'a4-width': 170, 'a4-half': 170, 'a4-page': 190, 'a4-land': 270, '16x9': 254, '4x3': 240, column: 85, square: 150 }
 const KINDS = [['withdrawal', 'Отбор'], ['injection', 'Закачка']] as const
+const ELPRO_ROWS: [string, string][] = [['hours', 'Часы работы'], ['cru', 'КРУ, %'], ['p', 'Давление, кгс/см²'], ['t', 'Температура, °C']]
 /** Вкладки экспорта, которые строят готовые документы, а не перечень графиков: включаются в выгрузку так же, как модули. */
 const EXTRAS = ['pack', 'ggh']
 
@@ -753,21 +754,16 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
               options={['Авто', '10', '20', '50', 'Все'].map(v => [v, v] as Opt)} />
           </>}
         </Section>
+        {module === 'production' && (
+          <Section title="Ряды ЭЛПРО на суточных графиках">
+            {ELPRO_ROWS.map(([key, name]) => (
+              <Check key={key} {...F} field={'production_elpro_' + key} label={name} def={false} />
+            ))}
+            <p className="muted pad">Отдельный график на скважину и режим: суточный расход и выбранные ряды, каждый на своей
+              оси справа.</p>
+          </Section>
+        )}
         {split === 'group_total' && <p className="muted pad">Сумма включает весь состав группы; список наложения меняет только отдельные кривые.</p>}
-      </>
-    )
-  } else if (module === 'elpro_daily') {
-    body = (
-      <>
-        <Section title="Ряды ЭЛПРО">
-          <Select {...F} field="elpro_daily_kind" label="Режим" def="withdrawal"
-            options={[['withdrawal', 'Отбор'], ['injection', 'Закачка']]} />
-          {([['hours', 'Часы работы'], ['cru', 'КРУ, %'], ['p', 'Давление, кгс/см²'], ['t', 'Температура, °C']] as [string, string][]).map(([key, name]) => (
-            <Check key={key} {...F} field={'elpro_daily_' + key} label={name} def={key === 'hours'} />
-          ))}
-        </Section>
-        <p className="muted pad">Один график на скважину: расход из БД расходов и ЭЛПРО и выбранные ряды. Каждый ряд — на своей оси справа,
-          цветом ряда.</p>
       </>
     )
   } else if (module === 'gdi') {

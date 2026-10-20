@@ -22,8 +22,9 @@ from ..contract import Axis, Chart, Column, Data, Module, Note, Option, Result, 
 from ..domain import DatasetKind
 from ._group_charts import object_days
 from ._events import gdi_events, on_cumulative, regime_events
+from ._elpro_series import COLOR, LABEL, daily_values, extra_axis, hours_values, picked_extras
 
-PRODUCTION, GDI = DatasetKind.PRODUCTION, DatasetKind.GDI
+PRODUCTION, GDI, ELPRO = DatasetKind.PRODUCTION, DatasetKind.GDI, DatasetKind.ELPRO
 KINDS = (Option('withdrawal', 'Отбор'), Option('injection', 'Закачка'))
 DIRECTIONS = (Option('number', 'По номеру'), Option('desc', 'Больший дебит слева'), Option('asc', 'Больший дебит справа'))
 POINT_BUDGET = 20000          # как в 5.8: бюджет точек на график, делится между кривыми
@@ -101,6 +102,7 @@ class Selection:
         self.groups = [g for g in params['groups'] if g in groups_of(self.df, self.mapping)]
         self.params = params
         self.gdi = data[GDI] if GDI in data else None      # даты ГДИ — отметки на графике по дате
+        self.elpro = data[ELPRO] if ELPRO in data else None  # ряды ЭЛПРО: КРУ, давление, температура
 
     def choices(self) -> list[str]:
         return [w for w in wells_of(self.df) if group_of(self.mapping, w) in self.groups]
@@ -124,7 +126,9 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
     x_axis = (Axis('Накопленный объем объекта', 'млн м³', from_zero=True,
                    step=x_step(float(data.cumulative.max())) if not data.empty else None)
               if by_cumulative else Axis('Дата', scale='time'))
-    chart = Chart(chart_id, well_title(ws), x_axis, Axis('Суточный расход', Q_UNIT, from_zero=True))
+    extras = picked_extras(sel.params.get('elpro'))           # каждый ряд — на своей правой оси (y2…y5)
+    chart = Chart(chart_id, well_title(ws), x_axis, Axis('Суточный расход', Q_UNIT, from_zero=True),
+                  **{f'y{n}': extra_axis(key) for n, key in enumerate(extras, start=2)})
     if data.empty:
         return chart
     colors, palette = legacy.period_colors(sel.df, sel.kind), well_colors(ws)
@@ -150,6 +154,8 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
             dash='solid' if single or not by_well else DASH[sel.periods.index(period) % len(DASH)], width=2.0,
             labels=labels.tolist(), ids=ids.tolist(), dataset=PRODUCTION, total=points,
             facets={'Скважина': f'№ {well}', 'Период': str(period)} if by_well and not single else None))
+    if extras:
+        chart.series += elpro_series(sel, groups, extras, by_cumulative)
     gap = pd.concat(gaps) if gaps else pd.DataFrame()
     if len(gap):
         names = 'Нет записи: показан 0 · № ' + gap._well.astype(str) + ' · ' + gap._period.astype(str)
@@ -163,6 +169,25 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
     else:
         chart.events = regime_events(sel.df, start, end) + gdi_events(sel.gdi, ws, start, end)
     return chart
+
+
+def elpro_series(sel: Selection, groups, extras: list[str], by_cumulative: bool) -> list[Series]:
+    """Выбранные ряды по каждой скважине и периоду: даты и накопленный объем — те же, что у кривой расхода.
+    Сутки без записи ЭЛПРО — разрыв линии; часы берутся из БД расходов."""
+    daily: dict[str, pd.DataFrame] = {}
+    single = len(sel.periods) == 1
+    out: list[Series] = []
+    for (well, period), g in groups:
+        if well not in daily:
+            daily[well] = hours_values(sel.df, sel.kind, well)
+            if sel.elpro is not None:
+                daily[well] = daily[well].join(daily_values(sel.elpro, sel.kind, well), how='outer')
+        x = g.cumulative.to_numpy() if by_cumulative else g.date.to_numpy()
+        for n, key in enumerate(extras, start=2):
+            name = f'{LABEL[key]}, № {well}' + ('' if single else f' · {period}')
+            values = daily[well][key].reindex(g.date.to_numpy()).to_numpy() if key in daily[well] else np.full(len(g), np.nan)
+            out.append(Series(name, x, values, 'line', axis=f'y{n}', color=COLOR[key], width=2))
+    return out
 
 
 def ordered_periods(sel: Selection) -> list[str]:
