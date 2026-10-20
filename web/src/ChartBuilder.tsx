@@ -5,6 +5,7 @@ import type { ChartStyle } from './api'
 import type { Look } from './chartStyle'
 import { AxisDialog, ChartDialog, SeriesDialog, VIEWS, type AxisFmt, type AxisItem, type AxisKey, type BuilderView } from './BuilderDialogs'
 import { FUNCTIONS, checkFormula, findCycle, letter, renumber } from './builderFormula'
+import { BuilderLibrary } from './BuilderLibrary'
 import './builder.css'
 
 // Конструктор графиков: дерево полей, ряды-карточки, ручные подписи. Макет — параметр раздела ``layout``
@@ -60,7 +61,11 @@ const newId = () => Math.random().toString(36).slice(2, 10)
 export function layoutOf(value: unknown): BuilderLayout {
   const v = (value && typeof value === 'object' ? value : {}) as Partial<BuilderLayout>
   return {
-    series: Array.isArray(v.series) ? v.series.map(r => ({ ...r, id: r.id || newId() })) : [],
+    series: Array.isArray(v.series) ? v.series.filter(r => r && typeof r === 'object').map(r => ({
+      ...r, id: r.id || newId(), dataset: r.dataset ?? '', y: r.y ?? '', x_dataset: r.x_dataset ?? r.dataset ?? '', x: r.x ?? 'date',
+      wells: Array.isArray(r.wells) ? r.wells : [], date_from: r.date_from ?? '', date_to: r.date_to ?? '', kind: r.kind ?? '',
+      axis: r.axis ?? 'y', view: r.view ?? 'line', key: r.key ?? 'well_date', days: r.days ?? 3, name: r.name ?? '',   // файл мог быть написан вручную
+    })) : [],
     title: v.title ?? '', x_label: v.x_label ?? '', axes: v.axes ?? {},
     ...(v.axis_style ? { axis_style: v.axis_style } : {}), ...(v.chart_style ? { chart_style: v.chart_style } : {}),
   }
@@ -210,6 +215,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
       </section>
 
       <section className="builder-rows" aria-label="Ряды графика">
+        <BuilderLibrary project={project} layout={layout} onOpen={v => { const next = layoutOf(v); onChange(next); setActive(next.series[0]?.id ?? null); return next }} />
         <h2>Ряды</h2>
         {layout.series.length > 0 && (
           <div className="builder-tools" role="toolbar" aria-label="Настройка графика">
