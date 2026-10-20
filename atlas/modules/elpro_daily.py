@@ -19,7 +19,7 @@ import pandas as pd
 from atlas.engine.core.config import ordered
 from atlas.engine.core.loader import canonical_gsp
 
-from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Param, Result, Series, Stat, Table
+from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
 from ._production import KINDS, group_of
 
@@ -32,10 +32,33 @@ COLOR = {'q': '#1f4e8c', 'elpro': '#ff5a1f', 'hours': '#149ba5', 'cru': '#169b62
          'median': '#8c8c8c', 'threshold': '#dc3545'}
 NOTE = ('Расход и часы — из БД расходов, КРУ, давление и температура — из ЭЛПРО. Пропуск в БД расходов (нет записи) — '
         'ноль, пропуск в ЭЛПРО — разрыв. КРУ ограничено диапазоном 0–100 %.')
+# Ряды, которые можно добавить к графику расхода: каждый на своей оси справа. У графика две правые оси (y2, y3).
+EXTRAS = (('hours', 'Часы работы'), ('cru', 'КРУ, %'), ('p', 'Давление, кгс/см²'), ('t', 'Температура, °C'))
+EXTRA_SERIES = {'hours': ('Часы работы', 'hours', {'dashed': True, 'color': COLOR['hours']}),
+                'cru': ('КРУ', 'cru', {'width': 2, 'color': COLOR['cru']}),
+                'p': ('Давление ЭЛПРО', 'p', {'color': COLOR['p']}),
+                't': ('Температура газа', 't', {'width': 2, 'color': COLOR['t']})}
+MAX_RIGHT_AXES = 2
 
 
 def _day(values) -> pd.Series:
     return pd.to_datetime(values).dt.normalize()
+
+
+def picked_extras(extras) -> list[str]:
+    """Выбранные ряды без повторов и неизвестных ключей; не больше двух — на графике только две правые оси."""
+    return [e for e in dict.fromkeys(extras or []) if e in EXTRA_SERIES][:MAX_RIGHT_AXES]
+
+
+def extra_axis(key: str) -> Axis:
+    """Ось Y справа для ряда: своя шкала и единица у каждого ряда."""
+    if key == 'hours':
+        return Axis('Часы работы', 'ч', from_zero=True, minimum=0, maximum=24)
+    if key == 'cru':
+        return Axis('Степень открытия КРУ, %', '%', minimum=0, maximum=100)
+    if key == 'p':
+        return Axis('Давление газа', 'кгс/см²', from_zero=True)
+    return Axis('Температура газа, °C')
 
 
 def classic_by_day(prod: pd.DataFrame, kind: str, well: str) -> pd.DataFrame:
@@ -149,6 +172,10 @@ class ElproDailyModule(Module):
                   section=SECTION, help='Ниже порога ЭЛПРО расход не видит. По паспорту ЭЛПРО — 1500–3000 м³/сут.'),
             Param('tolerance', 'Допуск температуры', 'number', default=TOLERANCE, minimum=0, unit='°C', section=SECTION,
                   help='Температура скважины в пределах допуска от медианы по скважинам ЭЛПРО режима.'),
+            Param('extras', 'Ряды на графике расхода', 'multi', default=['hours'],
+                  options=tuple(Option(key, label) for key, label in EXTRAS), section=SECTION,
+                  help='Каждый ряд — на своей оси справа. На одном графике не больше двух правых осей: '
+                       'первые два выбранных.'),
         ),
     )
 
@@ -182,7 +209,11 @@ class ElproDailyModule(Module):
             result.notes.append(Note(f'По скважине {well} нет данных за выбранный период.', 'warning'))
             return result
         median = median_by_day(elpro_by_day(data[ELPRO], kind)).reindex(frame.index)
-        result.charts += [self.flow_chart(frame, well, kind, threshold), self.cru_chart(frame, well),
+        extras = params.get('extras') or []
+        if len(picked_extras(extras)) < len(set(extras) & set(EXTRA_SERIES)):
+            result.notes.append(Note(f'На графике расхода не больше {MAX_RIGHT_AXES} рядов на правых осях: показаны первые два.',
+                                     'warning'))
+        result.charts += [self.flow_chart(frame, well, kind, threshold, extras), self.cru_chart(frame, well),
                           self.temp_chart(frame, well, median.to_numpy())]
         result.summary += [Stat('Суток с расходом по БД', f'{int(frame.q.gt(0).sum())}'),
                            Stat('Суток ЭЛПРО ниже порога', f'{int((frame.elpro_q.notna() & (frame.elpro_q < threshold) & frame.q.gt(0)).sum())}')]
@@ -212,18 +243,20 @@ class ElproDailyModule(Module):
                            'ЭЛПРО режима. Низкое КРУ при этом — штуцирование; низкое КРУ с низкой температурой — ремонт.'))
 
     @staticmethod
-    def flow_chart(frame: pd.DataFrame, well: str, kind: str, threshold: float) -> Chart:
+    def flow_chart(frame: pd.DataFrame, well: str, kind: str, threshold: float, extras=('hours',)) -> Chart:
         x = frame.index.to_numpy()
         what = 'закачка' if kind == 'injection' else 'отбор'
-        chart = Chart(f'elpro-flow-{well}', f'Скважина {well}: суточный расход ({what}) и часы работы', Axis('Дата', scale='time'),
+        picked = picked_extras(extras)
+        chart = Chart(f'elpro-flow-{well}', f'Скважина {well}: суточный расход ({what}) и ряды', Axis('Дата', scale='time'),
                       Axis(f'Расход, {UNIT_Q}', UNIT_Q, from_zero=True), crosshair=True,
-                      y2=Axis('Часы работы', 'ч', from_zero=True, minimum=0, maximum=24))
+                      y2=extra_axis(picked[0]) if picked else None, y3=extra_axis(picked[1]) if len(picked) > 1 else None)
         chart.series.append(Series('Расход, БД расходов', x, frame.q.to_numpy(), 'line', color=COLOR['q'], width=2))
         chart.series.append(Series('Расход, ЭЛПРО', x, frame.elpro_q.to_numpy(), 'line', color=COLOR['elpro']))
         chart.series.append(Series(f'Порог ЭЛПРО {threshold:g}', x, np.full(len(x), threshold), 'line', color=COLOR['threshold'],
                                    dashed=True, legend=True))
-        chart.series.append(Series('Часы работы', x, frame.hours.to_numpy(), 'line', color=COLOR['hours'], dashed=True,
-                                   axis='y2'))
+        for n, key in enumerate(picked):
+            name, column, style = EXTRA_SERIES[key]
+            chart.series.append(Series(name, x, frame[column].to_numpy(), 'line', axis='y2' if n == 0 else 'y3', **style))
         return chart
 
     @staticmethod

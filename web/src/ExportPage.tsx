@@ -756,6 +756,20 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
         {split === 'group_total' && <p className="muted pad">Сумма включает весь состав группы; список наложения меняет только отдельные кривые.</p>}
       </>
     )
+  } else if (module === 'elpro_daily') {
+    body = (
+      <>
+        <Section title="Ряды ЭЛПРО">
+          <Select {...F} field="elpro_daily_kind" label="Режим" def="withdrawal"
+            options={[['withdrawal', 'Отбор'], ['injection', 'Закачка']]} />
+          {([['hours', 'Часы работы'], ['cru', 'КРУ, %'], ['p', 'Давление, кгс/см²'], ['t', 'Температура, °C']] as [string, string][]).map(([key, name]) => (
+            <Check key={key} {...F} field={'elpro_daily_' + key} label={name} def={key === 'hours'} />
+          ))}
+        </Section>
+        <p className="muted pad">Один график на скважину: расход из БД расходов и ЭЛПРО и выбранные ряды. Каждый ряд — на своей оси справа;
+          на графике не больше двух правых осей (первые два выбранных).</p>
+      </>
+    )
   } else if (module === 'gdi') {
     body = (
       <Section title="ГДИ">
