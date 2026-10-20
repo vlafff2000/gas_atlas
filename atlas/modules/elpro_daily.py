@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -112,14 +113,30 @@ def median_by_day(e: pd.DataFrame) -> pd.Series:
 
 def others_median(e: pd.DataFrame) -> pd.Series:
     """Медиана температуры по остальным скважинам ЭЛПРО в ту же сутку (сама скважина не входит).
-    Нужно не менее двух остальных скважин с температурой; иначе пусто."""
+    Нужно не менее двух остальных скважин с температурой; иначе пусто.
+
+    Векторно: таблица «сутки × скважины», для каждой скважины её столбец временно пустеет и медиана берётся по строкам
+    (цикл по скважинам, не по строкам таблицы: строк на полном наборе — десятки тысяч)."""
     out = pd.Series(np.nan, index=e.index)
-    for _, grp in e.dropna(subset=['t']).groupby('date'):
-        if len(grp) < 3:
-            continue
-        t = grp.t.to_numpy()
-        for i, idx in enumerate(grp.index):
-            out.at[idx] = np.median(np.delete(t, i))
+    valid = e.dropna(subset=['t'])
+    if valid.empty:
+        return out
+    wide = valid.pivot_table(index='date', columns='well', values='t', aggfunc='mean')
+    vals = wide.to_numpy(dtype=float)
+    present = ~np.isnan(vals)
+    others_count = present.sum(axis=1, keepdims=True) - present       # у каждой ячейки — число других скважин с t
+    med = np.full(vals.shape, np.nan)
+    with warnings.catch_warnings():                                  # сутки без других значений — пусто, без предупреждений
+        warnings.simplefilter('ignore', RuntimeWarning)
+        for j in range(vals.shape[1]):
+            col = vals[:, j].copy()
+            vals[:, j] = np.nan
+            med[:, j] = np.nanmedian(vals, axis=1)
+            vals[:, j] = col
+    med = np.where(present & (others_count >= 2), med, np.nan)
+    rows = wide.index.get_indexer(valid['date'])
+    cols = wide.columns.get_indexer(valid['well'])
+    out.loc[valid.index] = med[rows, cols]
     return out
 
 
