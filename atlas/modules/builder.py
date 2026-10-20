@@ -23,6 +23,7 @@ from atlas.engine.core.loader import group_key
 
 from ..chart_style import bound, clean_axes, clean_chart, clean_look
 from ..contract import Axis, Chart, Data, Module, ModuleSpec, Note, Param, ParamError, Result, Series, Stat
+from . import builder_calc as calc
 from ..domain import DatasetKind
 
 K = DatasetKind
@@ -112,6 +113,7 @@ FIELDS: dict[tuple[DatasetKind, str], FieldMeta] = {
 SKIP = {'np', '_row'}             # служебные числовые колонки: номер строки файла, № п/п ЭЛПРО
 KINDS = {'withdrawal': 'Отбор', 'injection': 'Закачка'}
 KEYS = {'well_date': 'скважина + дата', 'date': 'дата', 'well': 'скважина', 'nearest': 'ближайшая дата'}
+SOURCES = {'field': 'поле данных', 'formula': 'формула'}
 AXES = ('y', 'y2', 'y3', 'y4', 'y5')
 VIEWS = {'line': 'линия', 'points': 'точки', 'line_points': 'линия с точками', 'bar': 'столбцы', 'area': 'область', 'step': 'ступенчатая'}
 STACKABLE = ('bar', 'area')       # стопка («Стопка» в ряду) — у столбцов и областей; у остальных видов поле не действует
@@ -215,6 +217,10 @@ class Row:
     name: str
     hidden: bool
     look: dict[str, Any] = field(default_factory=dict)     # ручной вид ряда (atlas/chart_style.py)
+    source: str = 'field'       # 'field' — поле данных, 'formula' — формула по другим рядам (этап 4)
+    formula: calc.Formula | None = None
+    transform: calc.Transform = field(default_factory=calc.Transform)
+    unit: str = ''              # ручная единица; пусто — по полю и преобразованию
 
 
 def _kind(value: Any, what: str, index: int) -> DatasetKind:
@@ -243,8 +249,14 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
     for i, r in enumerate(rows, start=1):
         if not isinstance(r, Mapping):
             raise ParamError(f'Ряд {i}: ожидается объект')
-        dataset = _kind(r.get('dataset'), 'Y', i)
-        x_dataset = _kind(r.get('x_dataset') or dataset.value, 'X', i)
+        source = str(r.get('source') or 'field')
+        if source not in SOURCES:
+            raise ParamError(f'Ряд {i}: источник — {" или ".join(SOURCES.values())}')
+        if source == 'formula' and not r.get('dataset'):
+            dataset = x_dataset = next(iter(DatasetKind))      # у формулы набор не нужен: данные — из рядов формулы
+        else:
+            dataset = _kind(r.get('dataset'), 'Y', i)
+            x_dataset = _kind(r.get('x_dataset') or dataset.value, 'X', i)
         axis = str(r.get('axis') or 'y')
         view = str(r.get('view') or 'line')
         key = str(r.get('key') or 'well_date')
@@ -265,7 +277,13 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
             raise ParamError(f'Ряд {i}: скважины — список')
         out.append(Row(i, dataset, str(r.get('y') or ''), x_dataset, str(r.get('x') or 'date'), [str(w) for w in wells],
                        _date(r.get('date_from'), i), _date(r.get('date_to'), i), str(r.get('kind') or ''), axis, view, str(r.get('stack') or '').strip()[:60], key,
-                       days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i)))
+                       days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i),
+                       source, None, calc.clean_transform(r.get('transform'), i), str(r.get('unit') or '').strip()[:40]))
+    for row, r in zip(out, rows):
+        text = str(r.get('formula') or '').strip()
+        if row.source == 'formula' and text:
+            row.formula = calc.parse_formula(text, row.index, len(out))
+    calc.check_cycles({row.index: row.formula for row in out if row.formula is not None})
     axes = layout.get('axes') or {}
     labels = {'title': str(layout.get('title') or '')[:300], 'x_label': str(layout.get('x_label') or '')[:200],
               'axes': {a: str(axes.get(a) or '')[:200] for a in AXES} if isinstance(axes, Mapping) else {},
@@ -419,13 +437,63 @@ def _join_labels(values: list[str]) -> str:
     return ', '.join(unique[:3]) + (' …' if len(unique) > 3 else '')
 
 
-def _series_name(row: Row, entity_kind: str, entity: str, many: bool) -> str:
-    base = row.name or meta(row.dataset, row.y).label
-    if row.kind and not row.name:
+def _series_name(row: Row, base: str, entity_kind: str, entity: str, many: bool) -> str:
+    base = row.name or base
+    if row.kind and not row.name and row.source == 'field':
         base += f' ({KINDS.get(row.kind, row.kind).lower()})'
     if not entity_kind or not entity or (row.name and not many):
         return base
     return f'{base} · скв. {entity}' if entity_kind == 'well' else f'{base} · {entity}'
+
+
+@dataclass
+class Calc:
+    """Посчитанный ряд: точки после преобразования, подпись и единица Y, подпись X."""
+    frame: pd.DataFrame
+    entity_kind: str
+    label: str
+    unit: str
+    x_label: str
+
+
+def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc | None], notes: list[Note]) -> Calc | None:
+    """Ряд по полю или формуле с преобразованием; ряды формулы (в том числе скрытые) считаются один раз."""
+    if row.index in cache:
+        return cache[row.index]
+    cache[row.index] = None
+    out: Calc | None = None
+    if row.source == 'formula':
+        if row.formula is None:
+            return None
+        parts: dict[int, calc.Part | None] = {}
+        refs: dict[int, Calc | None] = {}
+        for i in row.formula.refs:
+            refs[i] = _calc_row(data, rows[i], rows, cache, notes)
+            parts[i] = calc.Part(refs[i].frame, refs[i].entity_kind) if refs[i] else None
+        part, more = calc.compute(row.formula, parts, row.key, row.days, row.index)
+        notes += more
+        base = refs[row.formula.refs[0]]
+        if part is not None and base is not None:
+            out = Calc(part.frame, part.entity_kind, row.formula.text, '', base.x_label)
+    elif row.y:
+        p = pairs(data, row)
+        notes.extend(p.notes)
+        m, xm = meta(row.dataset, row.y), meta(row.x_dataset, row.x)
+        entity = _entity(data[row.dataset]) if row.dataset in data else ''
+        out = Calc(p.frame, entity, m.label, m.unit, xm.label + (f', {xm.unit}' if xm.unit else ''))
+    if out is not None and not out.frame.empty:
+        word = 'группам' if out.entity_kind == 'group' else 'скважинам'
+        out.label, out.unit = calc.describe(row.transform, out.label, out.unit, word)
+        x_date = pd.api.types.is_datetime64_any_dtype(out.frame['x'])
+        before = '' if row.source == 'formula' else meta(row.dataset, row.y).unit     # у формулы единица — только ручная
+        out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date)
+        notes += more
+        if row.transform.op == 'group':
+            out.entity_kind = ''
+    if out is not None and row.unit:
+        out.unit = row.unit
+    cache[row.index] = out
+    return out
 
 
 def build(data: Data, layout: Any) -> Result:
@@ -436,20 +504,26 @@ def build(data: Data, layout: Any) -> Result:
         result.notes.append(Note('Добавьте ряд: выберите поле в дереве слева или нажмите «+ Добавить ряд».'))
         return result
     for r in shown:
-        if not r.y:
+        if r.source == 'field' and not r.y:
             result.notes.append(Note(f'Ряд {r.index}: выберите поле Y в дереве слева.'))
-    shown = [r for r in shown if r.y]
-    built: list[tuple[Row, Pairs]] = []
+        if r.source == 'formula' and r.formula is None:
+            result.notes.append(Note(f'Ряд {r.index}: введите формулу по рядам, например A/B или (A-B)/A*100.'))
+    shown = [r for r in shown if (r.y if r.source == 'field' else r.formula)]
+    by_index = {r.index: r for r in rows}
+    cache: dict[int, Calc | None] = {}
+    built: list[tuple[Row, Calc]] = []
     x_kind: str | None = None
     x_labels: list[str] = []
     for r in shown:
-        p = pairs(data, r)
-        result.notes += p.notes
-        if p.frame.empty:
-            result.notes.append(Note(f'Ряд {r.index} «{meta(r.dataset, r.y).label}»: нет точек с выбранными скважинами, '
-                                     'периодом и режимом. Расширьте выбор.'))
+        c = _calc_row(data, r, by_index, cache, result.notes)
+        if c is None or c.frame.empty:
+            if r.source == 'field':
+                result.notes.append(Note(f'Ряд {r.index} «{meta(r.dataset, r.y).label}»: нет точек с выбранными скважинами, '
+                                         'периодом и режимом. Расширьте выбор.'))
+            elif c is not None:
+                result.notes.append(Note(f'Ряд {r.index}: у формулы «{r.formula.text}» нет точек.'))
             continue
-        kind = 'date' if pd.api.types.is_datetime64_any_dtype(p.frame['x']) else 'number'
+        kind = 'date' if pd.api.types.is_datetime64_any_dtype(c.frame['x']) else 'number'
         if x_kind is None:
             x_kind = kind
         elif kind != x_kind:
@@ -457,9 +531,8 @@ def build(data: Data, layout: Any) -> Result:
                                      f'{"дата" if x_kind == "date" else "число"}; на одном графике ось X одна. '
                                      'Ряд не показан: выберите для него X того же вида.', 'warning'))
             continue
-        m = meta(r.x_dataset, r.x)
-        x_labels.append(m.label + (f', {m.unit}' if m.unit else ''))
-        built.append((r, p))
+        x_labels.append(c.x_label)
+        built.append((r, c))
     if not built:
         return result
 
@@ -473,12 +546,11 @@ def build(data: Data, layout: Any) -> Result:
 
     axes: dict[str, Axis] = {}
     for a in used:
-        on_axis = [r for r, _ in built if r.axis == a]
-        metas = [meta(r.dataset, r.y) for r in on_axis]
-        units = {m.unit for m in metas}
+        on_axis = [c for r, c in built if r.axis == a]
+        units = {c.unit for c in on_axis}
         manual = labels['axes'].get(a, '')
-        is_time = any(pd.api.types.is_datetime64_any_dtype(p.frame['y']) for r, p in built if r.axis == a)
-        axes[place[a]] = Axis(manual or _join_labels([m.label for m in metas]) or 'Значение',
+        is_time = any(pd.api.types.is_datetime64_any_dtype(c.frame['y']) for c in on_axis)
+        axes[place[a]] = Axis(manual or _join_labels([c.label for c in on_axis]) or 'Значение',
                               '' if manual or len(units) != 1 else units.pop(), scale='time' if is_time else 'value')
 
     x_axis = Axis(labels['x_label'] or _join_labels(x_labels) or 'X', scale='time' if x_kind == 'date' else 'value')
@@ -488,13 +560,14 @@ def build(data: Data, layout: Any) -> Result:
     for name, spec in labels['axis_style'].items():
         if name == 'x' or name in place:
             _style_axis(x_axis if name == 'x' else axes[place[name]], spec, 'X' if name == 'x' else _axis_title(name), values[name], result.notes)
-    title = labels['title'] or _join_labels([r.name or meta(r.dataset, r.y).label for r, _ in built])
+    title = labels['title'] or _join_labels([r.name or c.label for r, c in built])
     chart = Chart('builder', title, x_axis, axes['y'], crosshair=x_kind == 'date',
                   y2=axes.get('y2'), y3=axes.get('y3'), y4=axes.get('y4'), y5=axes.get('y5'), style=labels['chart_style'])
     total = 0
     items: list[tuple[Row, str, str, pd.DataFrame]] = []
+    label_of = {r.index: c.label for r, c in built}
     for r, p in built:
-        entity_kind = _entity(data[r.dataset])
+        entity_kind = p.entity_kind
         groups = [(e, g) for e, g in p.frame.groupby('entity', sort=False)] if entity_kind else [('', p.frame)]
         groups.sort(key=lambda eg: natural_key(eg[0]))
         for entity, g in groups:
@@ -514,8 +587,8 @@ def build(data: Data, layout: Any) -> Result:
             g = _on_grid(g, union[stack])
         points = int(g['y'].notna().sum())
         total += points
-        name = _series_name(r, entity_kind, entity, per_row[r.index] > 1)
-        facets = {'Ряд': f'{r.index}. {r.name or meta(r.dataset, r.y).label}'}
+        name = _series_name(r, label_of[r.index], entity_kind, entity, per_row[r.index] > 1)
+        facets = {'Ряд': f'{r.index}. {r.name or label_of[r.index]}'}
         if entity_kind and entity:
             facets['Скважина' if entity_kind == 'well' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
         ids = g['id'].tolist() if g['id'].notna().all() and len(g) else None
@@ -587,7 +660,7 @@ def _style_axis(axis: Axis, spec: dict[str, Any], title: str, values: list[pd.Se
 BROKEN = ('line', 'line_points', 'area', 'step')      # виды с линией: по датам рвётся на перерывах
 
 
-def _stack_names(built: list[tuple[Row, Pairs]], place: dict[str, str], notes: list[Note]) -> dict[int, str]:
+def _stack_names(built: list[tuple[Row, Any]], place: dict[str, str], notes: list[Note]) -> dict[int, str]:
     """Имя стопки по номеру ряда (только столбцы и области). Столбцы и области, а также разные шкалы Y складываются раздельно:
     одинаковое имя на них разводится суффиксом, об этом заметка."""
     groups: dict[str, set[tuple[str, str]]] = {}

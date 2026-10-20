@@ -88,3 +88,18 @@
 .builder-tools .tools-label { font-size: 12px; color: var(--muted); margin-right: 2px; }
 .builder-tools button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
 @media (max-width: 720px) { .chart-settings.builder-dialog { left: 8px; right: 8px; } }
+
+/* этап 4: формулы и преобразования */
+.ref-chip {
+  display: inline-block; min-width: 1.4em; text-align: center; border-radius: var(--radius); padding: 0 4px;
+  background: var(--accent-soft); border: 1px solid var(--accent); font-size: 12px; font-weight: 700;
+}
+.formula-input { font-family: ui-monospace, Consolas, monospace; }
+.formula-input.bad { border-color: var(--danger); }
+.formula-error { flex: 1 1 100%; color: var(--danger); font-size: 13px; }
+.formula-ok { flex: 1 1 100%; color: var(--muted); font-size: 12.5px; }
+.formula-refs { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 4px; }
+.formula-refs button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.formula-help { flex: 1 1 100%; font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; }
+.formula-help p { margin: 4px 0; }
+.formula-help code { font-size: 12.5px; }
