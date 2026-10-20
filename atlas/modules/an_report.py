@@ -301,9 +301,10 @@ class AuthorReportModule(Module):
             Param('side', 'Правый график', 'choice', default='fund', section='Вид', chart_kind=True, options=SIDES),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
                   show_if={'view': 'canvas'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.SHOW)),
-            Param('show_curve', 'Ряды на графике', 'multi', default=list(an_charts.CURVE_SHOW_DEFAULT), section='Вид',
-                  show_if={'view': 'curve'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.CURVE_SHOW),
-                  help='По оси X — накопленный объём. Рпл — точки по датам замеров; скважины — в подсказке к точке и отдельным рядом.'),
+            Param('show_curve', 'Ряды на графике «от накопленного объёма»', 'multi', default=list(an_charts.CURVE_SHOW_DEFAULT),
+                  section='Вид', empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.CURVE_SHOW),
+                  help='Для графика «Расход от накопленного объёма» (основного или правого). По оси X — накопленный объём. '
+                       'Рпл — точки по датам замеров; скважины — в подсказке к точке и отдельным рядом.'),
             Param('groups', 'Группы', 'multi', default=[], dynamic=True, depends=('kind', 'periods'), auto='first:1',
                   empty='ничего', section='Вид', show_if={'view': 'group_months'},
                   help='Группы для графика накопленного объёма по месяцам: по графику на группу.'),

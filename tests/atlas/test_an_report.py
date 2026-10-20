@@ -222,6 +222,9 @@ def test_group_series_views():
     assert 'an-monthly-groups-injection-2024' in ids(view='group_mean_months')
     assert 'an-canvas-injection-2024' in ids(view='canvas', show=['rate'])
     assert [s.name for s in module.run(data, {**base, 'view': 'curve', 'show_curve': ['Скважин в работе'], 'side': 'none'}).charts[0].series] == ['Скважин в работе']
+    right = module.run(data, {**base, 'view': 'canvas', 'side': 'curve', 'show_curve': ['Скважин в работе']}).charts
+    assert [c.id for c in right] == ['an-canvas-injection-2024', 'an-curve-injection-2024']
+    assert [s.name for s in right[1].series] == ['Скважин в работе']
     assert 'an-fund-injection-2024' in ids()                          # правый график по умолчанию — фонд
     assert 'an-fund-injection-2024' not in ids(side='none')
     side = ids(side='cum_months')
