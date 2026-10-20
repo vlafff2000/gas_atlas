@@ -195,6 +195,12 @@ def create_app(projects: Projects | None = None) -> Starlette:
                    if p.name in param.depends}
         return module.options(name, data, current)
 
+    def module_catalog(request, body):
+        """Справочник модуля по данным проекта: ``Module.catalog`` (поля конструктора графиков)."""
+        module = module_of(request)
+        data = projects.select(body.get('project'), module.spec.needs, module.spec.optional)
+        return module.catalog(data)
+
     # --- расчёт и экспорт ---
     def run(request, body):
         module = module_of(request)
@@ -289,6 +295,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/modules/{mid}/window', E(window), methods=['POST']),
         Route('/api/modules/{mid}/table', E(table), methods=['POST']),
         Route('/api/modules/{mid}/options', E(param_options), methods=['POST']),
+        Route('/api/modules/{mid}/catalog', E(module_catalog), methods=['POST']),
         Route('/api/projects', E(list_projects)),
         Route('/api/projects/demo', E(create_demo), methods=['POST']),
         Route('/api/projects/{pid}', E(project)),

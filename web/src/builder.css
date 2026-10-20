@@ -1,0 +1,82 @@
+/* Конструктор графиков: дерево полей | ряды | график */
+.panel-output { display: contents; }
+.builder-layout {
+  display: grid; grid-template-columns: minmax(0, 620px) minmax(0, 1fr); gap: 16px; align-items: start;
+}
+.builder-side { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 12px; align-items: start; }
+.builder-chart { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.builder-chart .chart-grid { grid-template-columns: minmax(0, 1fr); }
+.builder-side h2 {
+  font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
+}
+
+.builder-tree {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px;
+  max-height: calc(100vh - 140px); overflow: auto; position: sticky; top: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.builder-tree input[type='search'] {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 5px 8px; background: var(--bg);
+}
+.builder-tree details { border-top: 1px solid var(--line-soft); padding-top: 4px; }
+.builder-tree summary { cursor: pointer; font-weight: 700; font-size: 14px; padding: 2px 0; }
+.builder-tree summary .muted { font-weight: 400; font-size: 12px; }
+.builder-tree ul { list-style: none; margin: 2px 0 4px; padding: 0; }
+.builder-tree li { display: flex; align-items: stretch; gap: 2px; }
+.tree-field {
+  flex: 1; min-width: 0; text-align: left; background: none; border: 1px solid transparent; border-radius: var(--radius);
+  padding: 3px 6px; cursor: pointer; display: grid; line-height: 1.25;
+}
+.tree-field span { font-size: 14px; }
+.tree-field small { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-field:hover { border-color: var(--line); background: var(--row-hover); }
+.tree-x {
+  background: none; border: 1px solid var(--line); border-radius: var(--radius); color: var(--muted);
+  font-size: 12px; padding: 0 6px; cursor: pointer;
+}
+.tree-x:hover { color: var(--ink); border-color: var(--accent); }
+.tree-hint { font-size: 12px; margin-top: 4px; }
+
+.builder-rows { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.row-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px;
+}
+.row-card.open { border-color: var(--accent); background: var(--accent-soft); }
+.row-card.hidden-row { opacity: .6; }
+.row-card header { display: flex; flex-direction: column; gap: 4px; }
+.row-head {
+  width: 100%; min-width: 0; text-align: left; background: none; border: 0; padding: 0; cursor: pointer; font-size: 14px;
+  line-height: 1.4;
+}
+.row-sub { display: block; color: var(--muted); font-size: 13px; }
+.axis-chip {
+  display: inline-block; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 0 6px;
+  background: var(--surface); color: var(--ink);
+}
+.row-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.row-actions button.quiet.small { padding: 1px 8px; font-size: 12.5px; }
+.row-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: stretch; }
+.row-form .field { background: var(--surface); }
+.row-form .field.wide { flex: 1 1 100%; }
+.row-form .field.wide select, .row-form .field.wide input { width: 100%; }
+.row-form .kind-group { flex: 1 1 100%; }
+.add-row { align-self: flex-start; }
+
+.builder-labels {
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; margin: 4px 0 0;
+  display: flex; flex-direction: column; gap: 6px; background: var(--surface);
+}
+.builder-labels legend { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 0 4px; }
+.builder-labels p { font-size: 12px; margin: 0; }
+.label-input input { width: 100%; }
+.label-input input::placeholder { color: var(--muted); font-weight: 400; }
+
+@media (max-width: 1500px) {
+  .builder-layout { grid-template-columns: minmax(0, 380px) minmax(0, 1fr); }
+  .builder-side { grid-template-columns: minmax(0, 1fr); }
+  .builder-tree { position: static; max-height: 320px; }
+}
+@media (max-width: 900px) {
+  .builder-layout { grid-template-columns: minmax(0, 1fr); }
+}
