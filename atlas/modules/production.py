@@ -12,6 +12,7 @@ from atlas.engine.core.config import implausible_dates
 
 from ..contract import Data, ModuleSpec, Note, Option, Param, Result, Stat
 from ..domain import DatasetKind
+from ._elpro_series import EXTRAS as ELPRO_EXTRAS
 from ._group_charts import SHARE_METRICS, hybrid_chart, object_days, pareto_chart, share_chart, vs_object_chart, well_days
 from ._production import (DIRECTIONS, OVERLAY_METRICS, GROUP_NOTE, KINDS, CURVE_NOTE, OBJECT_NOTE, PRODUCTION, Q_UNIT, ProductionBase,
                           Selection, curve_chart, kind_label, object_season_chart, period_stat, group_chart, group_table, groups_overlay_chart,
@@ -29,7 +30,7 @@ class ProductionModule(ProductionBase):
         group='Эксплуатация',
         description='Сравнение периодов и расходов выбранных скважин и групп.',
         needs=(PRODUCTION,),
-        optional=(DatasetKind.GDI,),       # даты ГДИ — отметки на графике по дате
+        optional=(DatasetKind.GDI, DatasetKind.ELPRO),   # даты ГДИ — отметки на графике; ЭЛПРО — ряды на графике
         order=10,
         panels=2,
         params=(
@@ -51,6 +52,10 @@ class ProductionModule(ProductionBase):
                 Option('curve', 'Q / накопленный объем объекта'), Option('time', 'Q / дата'))),
             Param('direction', 'Порядок скважин', 'choice', default='number', options=DIRECTIONS,
                   section=SECTION_VIEW, show_if=INDIVIDUAL),
+            Param('elpro', 'Ряды ЭЛПРО на графике', 'multi', default=[], options=tuple(Option(k, n) for k, n in ELPRO_EXTRAS),
+                  section=SECTION_VIEW, show_if=INDIVIDUAL,
+                  help='Каждый ряд — на своей оси справа (до четырёх), со своим цветом. Пропуск в ЭЛПРО — разрыв линии. '
+                       'Часы работы — из БД расходов'),
             Param('seasonx', 'Ось X', 'choice', default='date', section=SECTION_VIEW, show_if=OBJECT_MODE, chart_kind=True,
                   options=(Option('date', 'Дата'), Option('object', 'Накопленный отбор объекта')),
                   help='Накопленный отбор считается с начала каждого сезона по всему объекту'),

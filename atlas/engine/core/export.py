@@ -211,17 +211,22 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
     with LOCK,plt.rc_context({'font.family':family_for(font),'font.size':base,'svg.fonttype':'none','pdf.fonttype':42}):
         f,ax=plt.subplots(figsize=(width_mm/25.4,height_mm/25.4),layout='constrained')
         try:
-            secondary=ax.twinx() if any(t.yaxis in ('y2','y3') for t in traces) else None
-            third=None
-            if any(t.yaxis=='y3' for t in traces):
-                third=ax.twinx();third.spines['right'].set_position(('axes',1.12));third.spines['right'].set_visible(True)
+            # правые шкалы по порядку: y2 у графика, y3 — снаружи от неё (1,12), дальше по 0,12
+            rights={}
+            for name in ('y2','y3','y4','y5'):
+                if any(t.yaxis==name for t in traces):
+                    rights[name]=ax.twinx()
+                    if name!='y2':rights[name].spines['right'].set_position(('axes',1+.12*(int(name[1])-2)));rights[name].spines['right'].set_visible(True)
+                    shade=getattr(fig.layout,'yaxis'+name[1:]).tickfont.color if getattr(fig.layout,'yaxis'+name[1:]).showline else None
+                    if shade:rights[name].tick_params(axis='y',colors=shade);rights[name].spines['right'].set_color(shade);rights[name].yaxis.label.set_color(shade)
+            secondary=rights.get('y2')
             bars=[t for t in traces if t.type=='bar'];boxes=[t for t in traces if t.type=='box'];categories=[];date_axis=fig.layout.xaxis.type=='date'
             numeric_bars=bool(bars) and fig.layout.xaxis.type=='linear'
             if (bars or boxes) and not date_axis and not numeric_bars:
                 categories=list(fig.layout.xaxis.categoryarray or [])
                 if not categories:categories=list(dict.fromkeys(str(x) for t in (bars or boxes) for x in (t.x if t.x is not None else [t.name])))
             for t in traces:
-                target=third if third is not None and t.yaxis=='y3' else secondary if secondary is not None and t.yaxis=='y2' else ax
+                target=rights.get(t.yaxis,ax)
                 x=list(decode_arrays(t.x)) if t.x is not None else [];y=np.array(decode_arrays(t.y),dtype=float) if t.y is not None else np.array([])
                 label=t.name if t.showlegend is not False else '_nolegend_'
                 if t.type=='box':
@@ -270,14 +275,10 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             ax.set_xlabel(fig.layout.xaxis.title.text or '');ax.set_ylabel(fig.layout.yaxis.title.text or '')
             if fig.layout.xaxis.autorange=='reversed' and not date_axis:ax.invert_xaxis()
             if fig.layout.yaxis.autorange=='reversed':ax.invert_yaxis()
-            if secondary is not None:
-                secondary.set_ylabel(fig.layout.yaxis2.title.text or '')
-                if fig.layout.yaxis2.autorange=='reversed':secondary.invert_yaxis()
-                secondary.grid(False);secondary.spines['top'].set_visible(False)
-            if third is not None:
-                third.set_ylabel(fig.layout.yaxis3.title.text or '')
-                if fig.layout.yaxis3.autorange=='reversed':third.invert_yaxis()
-                third.grid(False);third.spines['top'].set_visible(False)
+            for name,twin in rights.items():
+                twin.set_ylabel(getattr(fig.layout,'yaxis'+name[1:]).title.text or '')
+                if getattr(fig.layout,'yaxis'+name[1:]).autorange=='reversed':twin.invert_yaxis()
+                twin.grid(False);twin.spines['top'].set_visible(False)
             if not date_axis and isinstance(fig.layout.xaxis.dtick,(int,float)) and fig.layout.xaxis.dtick>0:
                 lo,hi=ax.get_xlim();step=fig.layout.xaxis.dtick
                 if (hi-lo)/step<=150:ax.xaxis.set_major_locator(MultipleLocator(step))
@@ -292,28 +293,27 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             if fig.layout.xaxis.range is not None:ax.set_xlim(*fig.layout.xaxis.range)
             if fig.layout.yaxis.range is not None:ax.set_ylim(*fig.layout.yaxis.range)
             # две оси Y выровнены в Plotly-описании: одинаковое число делений строго друг напротив друга
-            for target,layout in ((ax,fig.layout.yaxis),(secondary,fig.layout.yaxis2 if secondary is not None else None),(third,fig.layout.yaxis3 if third is not None else None)):
+            for target,layout in [(ax,fig.layout.yaxis)]+[(twin,getattr(fig.layout,'yaxis'+name[1:])) for name,twin in rights.items()]:
                 if target is not None and layout.range is not None and layout.dtick and layout.tick0 is not None:
                     a,b=layout.range;target.set_ylim(a,b)
                     from matplotlib.ticker import FixedLocator
                     target.yaxis.set_major_locator(FixedLocator([layout.tick0+i*layout.dtick for i in range(int(round(abs(b-a)/layout.dtick))+1)]))
-            if secondary is not None and fig.layout.yaxis2.range is not None:secondary.set_ylim(*fig.layout.yaxis2.range)
-            if third is not None and fig.layout.yaxis3.range is not None:third.set_ylim(*fig.layout.yaxis3.range)
+            for name,twin in rights.items():
+                if getattr(fig.layout,'yaxis'+name[1:]).range is not None:twin.set_ylim(*getattr(fig.layout,'yaxis'+name[1:]).range)
             ax.set_axisbelow(True);ax.spines[['top','right']].set_visible(False)
             if excel:excel_finish(f,ax,secondary,title,k,date_axis,bool(bars or boxes) and not numeric_bars)     # до легенды: её значки копируют цвета рядов
             if fo.get('legend')=='hide':legend=[]
             if legend:
                 handles,labels=ax.get_legend_handles_labels()
-                for extra in (secondary,third):
-                    if extra is not None:
-                        h,l=extra.get_legend_handles_labels();handles+=h;labels+=l
+                for extra in rights.values():
+                    h,l=extra.get_legend_handles_labels();handles+=h;labels+=l
                 if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=wrap_at)) for v in labels]
                 if handles:
                     where={'top':'outside upper center','right':'outside center right'}.get(fo.get('legend'),'outside lower center')
                     f.legend(handles,labels,loc=where,ncol=1 if where.endswith('right') else ncols,fontsize=(9 if excel else 6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6,labelcolor=XL_TEXT if excel else None)
             if compact:
                 from matplotlib.ticker import MaxNLocator
-                for axis in (ax.xaxis,ax.yaxis)+((secondary.yaxis,) if secondary is not None else ())+((third.yaxis,) if third is not None else ()):
+                for axis in (ax.xaxis,ax.yaxis)+tuple(twin.yaxis for twin in rights.values()):
                     if axis is ax.xaxis and date_axis:continue
                     axis.set_major_locator(MaxNLocator(nbins=6 if width_mm>=120 else 5,steps=[1,2,2.5,5,10]));axis.set_major_formatter(StrMethodFormatter('{x:.10g}'))
                 if not excel:ax.grid(True,color='#c9ced6',linewidth=.5,linestyle='--');ax.tick_params(length=2.5,pad=2)

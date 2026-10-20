@@ -1,5 +1,32 @@
+import type { Axis, Chart } from './api'
 // Ручная правка осей графика: зоны осей, масштаб колесом, сдвиг перетаскиванием, ввод границ.
-export type AxisName = 'x' | 'y' | 'y2' | 'y3'
+/** Шкалы Y по порядку: основная слева, затем правые от графика наружу. */
+export const Y_NAMES = ['y', 'y2', 'y3', 'y4', 'y5'] as const
+export type YName = (typeof Y_NAMES)[number]
+export type AxisName = 'x' | YName
+
+/** Правые шкалы графика по порядку от графика наружу (идут подряд, без пропусков). */
+export function rightAxes(chart: Chart): Axis[] {
+  const out: Axis[] = []
+  for (const name of Y_NAMES.slice(1)) {
+    const axis = chart[name]
+    if (!axis) break
+    out.push(axis)
+  }
+  return out
+}
+
+/** Шкалы Y графика: основная и правые. */
+export const yAxesOf = (chart: Chart): Axis[] => [chart.y, ...rightAxes(chart)]
+
+/** Номер шкалы Y (0 — основная) для ряда с именем шкалы; ряд на несуществующей шкале уходит на основную. */
+export function yIndex(name: string | undefined, yCount: number): number {
+  const i = Y_NAMES.indexOf((name ?? 'y') as YName)
+  return i > 0 && i < yCount ? i : 0
+}
+
+/** Смещение правой шкалы от сетки: вторая и дальше отступают полосой Y_BAND. */
+export const rightOffset = (index: number) => Math.max(0, index - 1) * Y_BAND
 export type Range = [number, number]
 export interface Rect { x: number; y: number; width: number; height: number }
 
@@ -10,7 +37,8 @@ const BELT = 30      // высота полосы подписей оси X по
 export function axisAt(px: number, py: number, r: Rect, width: number, yCount: number, hasX: boolean): AxisName | null {
   if (py >= r.y && py <= r.y + r.height) {
     if (px >= 0 && px < r.x) return 'y'
-    if (yCount > 1 && px > r.x + r.width && px <= width) return yCount > 2 && px > r.x + r.width + Y_BAND ? 'y3' : 'y2'
+    // правые шкалы — полосами Y_BAND одна за другой: полоса считается от правого края сетки
+    if (yCount > 1 && px > r.x + r.width && px <= width) return Y_NAMES[Math.min(yCount - 1, Math.ceil((px - r.x - r.width) / Y_BAND))]
   } else if (hasX && px >= r.x && px <= r.x + r.width && py > r.y + r.height && py <= r.y + r.height + BELT) return 'x'
   return null
 }
