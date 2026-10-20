@@ -24,6 +24,7 @@ export interface Param {
   depends: string[]
   auto: string
   prefix: string
+  requires_dataset: string
   empty: string
   show_if: Record<string, unknown> | null
   chart_kind: boolean

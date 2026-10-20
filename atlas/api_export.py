@@ -164,6 +164,7 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
                       'points': {w: int(n) for w, n in g.well.astype(str).value_counts().items()}}
     panels = settings.get('panels', {})
     out['two_panels'] = {'production': bool(panels.get('prod_1')), 'histograms': bool(panels.get('hist_1'))}
+    out['has_elpro'] = 'elpro' in raw       # ряды ЭЛПРО в разделе «Производительность» — только при загруженной БД ЭЛПРО
     if WATERFACTOR in mods:
         from .modules.water import WaterModule
         out['water'] = {'periods': WaterModule().options('periods', data, {})}
@@ -336,7 +337,7 @@ def with_elpro(plan, data: Data, options: Mapping[str, Any]):
     from .modules.production import ProductionModule
     from .render import to_plotly
     cfg = options.get('production') or {}
-    if not cfg.get('elpro') or 'production' not in options['modules']:
+    if not cfg.get('elpro') or 'production' not in options['modules'] or 'elpro' not in data:
         return plan
     module = ProductionModule()
 

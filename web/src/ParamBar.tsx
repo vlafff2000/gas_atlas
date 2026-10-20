@@ -65,6 +65,8 @@ export function paramSummary(params: Param[], values: Params, options: Record<st
 export function ParamBar({ spec, project, panel, values, onChange }: Props) {
   const [options, setOptions] = useState<Record<string, string[]>>({})
   const [dynamic, setDynamic] = useState<Record<string, string[] | undefined>>({})
+  // параметр с requires_dataset показываем, только если набор данных есть в проекте (проверяем тем же списком значений)
+  const [hasData, setHasData] = useState<Record<string, boolean>>({})
   const collapsed = usePref(paramsCollapsed)
   const latest = useRef(values)
   latest.current = values
@@ -72,7 +74,13 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
   useEffect(() => {
     let alive = true
     setOptions({})
+    setHasData({})
     for (const p of spec.params) {
+      if (p.requires_dataset) {
+        api.options(project, p.requires_dataset, 'well')
+          .then(list => { if (alive) setHasData(h => ({ ...h, [p.name]: list.length > 0 })) })
+          .catch(() => { if (alive) setHasData(h => ({ ...h, [p.name]: false })) })
+      }
       if (!p.source || p.dynamic) continue
       api.options(project, p.source.dataset, p.source.column)
         .then(list => { if (alive) setOptions(o => ({ ...o, [p.name]: list })) })
@@ -90,6 +98,7 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
   const sections: [string, Param[]][] = []
   for (const p of spec.params) {
     if (p.chart_kind || !visible(p, values)) continue
+    if (p.requires_dataset && hasData[p.name] !== true) continue
     const last = sections[sections.length - 1]
     if (last && last[0] === p.section) last[1].push(p); else sections.push([p.section, [p]])
   }
