@@ -8,7 +8,7 @@ import type { Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
-import { Y_BAND, axisAt, formatBound, parseBound, shiftRange, wheelFactor, zoomRange, type AxisName, type Range } from './chartAxes'
+import { Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { chartLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { applyLooks, chartLookKey, markerSymbol, type Look } from './chartStyle'
 import { ChartSettings } from './ChartSettings'
@@ -56,16 +56,14 @@ interface Props {
 /** Подгруженное окно: серии с точками в границах [from, to] поверх прореженного графика `base`. */
 interface Patch { base: Chart; from: number; to: number; raw: boolean; series: WindowReply['series'] }
 /** Оси после подгрузки окна остаются прежними: X — на весь график (сброс масштаба возвращает всё), Y — как её видел пользователь. */
-type Manual = { y: Range | null; y2: Range | null; y3: Range | null }      // границы шкал Y, заданные вручную
-type AxisPin = { x: [number, number] | null; y: [number, number] | null; y2: [number, number] | null; y3: [number, number] | null }
+type Manual = Record<YName, Range | null>      // границы шкал Y, заданные вручную
+type AxisPin = { x: [number, number] | null } & Record<YName, [number, number] | null>
 
-const Y_NAMES = ['y', 'y2', 'y3'] as const
-type YName = (typeof Y_NAMES)[number]
-const NO_RANGES: Manual = { y: null, y2: null, y3: null }
+const NO_RANGES: Manual = { y: null, y2: null, y3: null, y4: null, y5: null }
 /** Шкалы Y, которые есть у графика, по порядку: левая, затем правые. */
-const yCount = (chart: Chart) => (chart.y2 ? (chart.y3 ? 3 : 2) : 1)
-const yAxisAt = (chart: Chart, index: number): Axis => (index === 2 ? chart.y3 : index === 1 ? chart.y2 : chart.y) ?? chart.y
-const yIndexOf = (chart: Chart, name: string | undefined): 0 | 1 | 2 => (name === 'y3' && chart.y3 ? 2 : name === 'y2' && chart.y2 ? 1 : 0)
+const yCount = (chart: Chart) => yAxesOf(chart).length
+const yAxisAt = (chart: Chart, index: number): Axis => yAxesOf(chart)[index] ?? chart.y
+const yIndexOf = (chart: Chart, name: string | undefined): number => yIndex(name, yCount(chart))
 
 const key = (s: Series) => s.group || s.name
 /** Отметки замеров на линии: заданы модулем, нужны для исключения кликом или включён вид «Замеры».
@@ -218,13 +216,13 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       // подпись шкалы Y — горизонтально над осью, читается без наклона головы
       nameLocation: y ? (a.inverse ? 'start' : 'end') : 'middle', nameGap: y ? 14 : 30,
       nameTextStyle: y
-        ? { color: tk.muted, fontSize: 12, align: position === 'y' ? 'left' : 'right', padding: position === 'y' ? [0, 0, 0, -44] : [0, position === 'y3' ? -8 - Y_BAND : -8, 0, 0] }
+        ? { color: a.color || tk.muted, fontSize: 12, align: position === 'y' ? 'left' : 'right', padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0] }
         : { color: tk.muted, fontSize: 12 },
-      axisLine: { show: !y || position === 'y3', lineStyle: { color: tk.axis } },
-      ...(position === 'y3' ? { offset: Y_BAND } : {}),
+      axisLine: { show: !y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color, lineStyle: { color: a.color || tk.axis } },
+      ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
       axisTick: { show: false },
       axisLabel: {
-        color: tk.muted, fontSize: 11, hideOverlap: true, margin: 10,
+        color: a.color || tk.muted, fontSize: 11, hideOverlap: true, margin: 10,
         ...(a.scale === 'time'
           ? { formatter: { year: '{yyyy}', month: '{MM}.{yyyy}', day: '{dd}.{MM}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', none: '{dd}.{MM}.{yyyy}' } }
           : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(v) }),
@@ -244,7 +242,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     textStyle: { fontFamily: FONT, color: tk.ink },
     grid: { left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20, top: 34, bottom: navigator ? 80 : 44 },
     xAxis: axis(chart.x, 'x'),
-    yAxis: chart.y2 ? [axis(chart.y, 'y'), axis(chart.y2, 'y2'), ...(chart.y3 ? [axis(chart.y3, 'y3')] : [])] : axis(chart.y, 'y'),
+    yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
     legend: { show: false, data: legend },
     tooltip: custom ? { show: false } : {
@@ -270,7 +268,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     dataZoom: category ? [] : [
       // Ctrl + колесо — масштаб, перетаскивание — сдвиг; страница при этом прокручивается колесом как обычно
       { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false },
-      ...(time ? [] : [{ type: 'inside', yAxisIndex: chart.y2 ? [0, 1, ...(chart.y3 ? [2] : [])] : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false }]),
+      ...(time ? [] : [{ type: 'inside', yAxisIndex: yCount(chart) > 1 ? Array.from({ length: yCount(chart) }, (_, i) => i) : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false }]),
       // навигатор: весь период тенью и выбранное окно, его края и середину можно тянуть
       ...(navigator ? [{
         type: 'slider', xAxisIndex: 0, filterMode: 'none', height: 22, bottom: 8, left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20,
@@ -372,7 +370,7 @@ function tipHtml(head: string, rows: TipRow[], extra: string[], foot = '') {
 const MAX_ROWS = 10
 
 /** Закреплённая подсказка; off — сдвиг карточки от её точки в пикселях, если карточку перетащили. */
-interface Pin { x: number; y: number; axis: 0 | 1 | 2; html: string; el: HTMLDivElement; off: [number, number] | null
+interface Pin { x: number; y: number; axis: number; html: string; el: HTMLDivElement; off: [number, number] | null
   token: number; shared: boolean; own: boolean }   // token — запись в общем списке; own — закреплена на этом графике, а не пришла с другого
 
 /** Ближайшая к точке (px, py) точка прямоугольника карточки — конец линии-выноски. */
@@ -407,7 +405,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     applyZoom: (() => {}) as () => void,
     excludeMode, onExclude, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
-    mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: [(v: number) => v, (v: number) => v, (v: number) => v] as [(v: number) => number, (v: number) => number, (v: number) => number] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1, y3: 1 }, blur: true, draw: (() => {}) as () => void,
+    mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: Y_NAMES.map(() => (v: number) => v) as ((v: number) => number)[] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1, y3: 1, y4: 1, y5: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
     renderPins: (() => {}) as () => void, reconcile: (() => {}) as () => void,
   })
@@ -428,7 +426,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const syncZoom = usePref(zoomSync)
   const pinSyncAll = usePref(pinSync)
   const kind = pinSyncKind(chart), pinsOn = pinSyncAll[kind]
-  const rangeKey = `${given.title}|${given.y.label}|${given.y2?.label ?? ''}${given.y3 ? '|' + given.y3.label : ''}`
+  const rangeKey = `${given.title}|${given.y.label}|${rightAxes(given).map(a => a.label).join('|')}`
   const yKey = `${given.y.label}|${given.y.unit}`
   const [ranges, setRangesState] = useState<Manual>(() => ({ ...NO_RANGES, ...savedRanges.get()[rangeKey] }))      // ручные границы Y: переживают обновление данных и перезапуск
   const setLooks = (next: Record<string, Look>) => {
@@ -444,7 +442,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   state.current.setRanges = (r: Manual) => {
     setRangesState(r)
     const all = { ...savedRanges.get() }
-    if (r.y || r.y2 || r.y3) { delete all[rangeKey]; all[rangeKey] = r } else delete all[rangeKey]
+    if (Y_NAMES.some(n => r[n])) { delete all[rangeKey]; all[rangeKey] = r } else delete all[rangeKey]
     const keys = Object.keys(all)
     for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete all[k]
     savedRanges.set(all)
@@ -465,7 +463,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     state.current.setRanges(NO_RANGES)
     instance.current?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
   }
-  const manual = !!(ranges.y || ranges.y2 || ranges.y3)
+  const manual = Y_NAMES.some(n => ranges[n])
   const commitEditor = (autoAxis: boolean) => {
     if (!editor) return
     const a = editor.axis, ax = a === 'x' ? chart.x : yAxisAt(chart, Y_NAMES.indexOf(a))
@@ -529,7 +527,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       const [x0, y0] = corner(0, left, bottom), [x1, y1] = corner(0, right, top)
       st.map.x = line(left, right, x0, x1, chart.x.scale === 'log')
       st.map.y[0] = line(bottom, top, y0, y1, chart.y.scale === 'log')
-      for (const i of [1, 2]) {
+      for (let i = 1; i < Y_NAMES.length; i++) {
         if (i < yCount(chart)) {
           const [, u0] = corner(i, left, bottom), [, u1] = corner(i, right, top)
           st.map.y[i] = line(bottom, top, u0, u1, yAxisAt(chart, i).scale === 'log')
@@ -538,8 +536,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     }
 
     const fmtX = () => formatter(st.chart.x, st.spans.x)
-    const fmtY = (a: 0 | 1 | 2) => formatter(yAxisAt(st.chart, a), st.spans[Y_NAMES[a]])
-    const unit = (a: 0 | 1 | 2) => yAxisAt(st.chart, a).unit
+    const fmtY = (a: number) => formatter(yAxisAt(st.chart, a), st.spans[Y_NAMES[a]])
+    const unit = (a: number) => yAxisAt(st.chart, a).unit
 
     /** Закреплённые подсказки: номер, карточка, разница с первой, крестик. */
     const renderPins = () => {
@@ -561,7 +559,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       })
     }
     st.renderPins = renderPins
-    const addPin = (x: number, y: number, axis: 0 | 1 | 2) => {
+    const addPin = (x: number, y: number, axis: number) => {
       if (card.hidden || !card.innerHTML) return
       const copy = document.createElement('div')
       copy.innerHTML = card.innerHTML
@@ -1080,7 +1078,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       const id = ++seq
       load(from, to, raw).then(reply => {
         if (id !== seq || st.base !== base) return
-        st.pin = { x: [lo, hi], y: axisExtent(0), y2: base.y2 ? axisExtent(1) : null, y3: base.y3 ? axisExtent(2) : null }
+        st.pin = { x: [lo, hi], ...Object.fromEntries(Y_NAMES.map((n, i) => [n, i < yCount(base) ? axisExtent(i) : null])) } as AxisPin
         const next: Patch = { base, from, to, raw, series: reply.series }
         st.patch = next
         setPatch(next)
@@ -1155,7 +1153,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       for (const tr of t) for (const v of f(tr)) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v }
       return hi - lo
     }
-    st.spans = { x: span(st.tracks, t => t.xs), y: span(st.tracks.filter(t => t.axis === 0), t => t.ys), y2: span(st.tracks.filter(t => t.axis === 1), t => t.ys), y3: span(st.tracks.filter(t => t.axis === 2), t => t.ys) }
+    st.spans = { x: span(st.tracks, t => t.xs), ...Object.fromEntries(Y_NAMES.map((n, i) => [n, span(st.tracks.filter(t => t.axis === i), t => t.ys)])) } as Record<'x' | YName, number>
     st.blur = chart.series.reduce((n, s) => n + s.x.length, 0) <= BLUR_LIMIT
     st.focused = -1
     const view = (st.patch && st.patch.base === given) || st.lastChart === chart ? st.edges() : null      // масштаб сохраняется при подмене точек окна и смене границ осей
@@ -1271,7 +1269,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
         {editor && <form className="axis-editor" style={{ left: editor.at[0], top: editor.at[1] }}
           onSubmit={e => { e.preventDefault(); commitEditor(false) }}
           onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setEditor(null) } }}>
-          <b>{editor.axis === 'x' ? 'Ось X' : editor.axis === 'y3' ? 'Ось Y справа (третья)' : editor.axis === 'y2' ? 'Ось Y справа' : 'Ось Y'}</b>
+          <b>{editor.axis === 'x' ? 'Ось X' : editor.axis === 'y' ? 'Ось Y' : Y_NAMES.indexOf(editor.axis as YName) === 1 ? 'Ось Y справа' : `Ось Y справа (${['', '', 'третья', 'четвёртая', 'пятая'][Y_NAMES.indexOf(editor.axis as YName)]})`}</b>
           <label>Минимум<input autoFocus value={editor.lo} onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, lo: e.target.value, error: '' })} /></label>
           <label>Максимум<input value={editor.hi} onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, hi: e.target.value, error: '' })} /></label>
           {editor.error && <span className="axis-error">{editor.error}</span>}

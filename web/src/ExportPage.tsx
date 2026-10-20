@@ -766,8 +766,8 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
             <Check key={key} {...F} field={'elpro_daily_' + key} label={name} def={key === 'hours'} />
           ))}
         </Section>
-        <p className="muted pad">Один график на скважину: расход из БД расходов и ЭЛПРО и выбранные ряды. Каждый ряд — на своей оси справа;
-          на графике не больше двух правых осей (первые два выбранных).</p>
+        <p className="muted pad">Один график на скважину: расход из БД расходов и ЭЛПРО и выбранные ряды. Каждый ряд — на своей оси справа,
+          цветом ряда.</p>
       </>
     )
   } else if (module === 'gdi') {

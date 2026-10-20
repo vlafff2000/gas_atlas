@@ -71,6 +71,7 @@ export interface Table {
   deferred?: boolean   // большая свёрнутая таблица: строки подгружаются при раскрытии (count — сколько их всего)
 }
 export interface Axis {
+  color?: string                       // цвет правой шкалы под один ряд; пусто — по умолчанию
   label: string; unit: string; scale: 'value' | 'log' | 'time' | 'category'; inverse: boolean; from_zero: boolean
   step: number | null; categories: string[] | null; minimum: number | null; maximum: number | null
 }
@@ -79,7 +80,7 @@ export interface Series {
   legend: boolean; tooltip: string
   color: string; symbol: 'circle' | 'square' | 'diamond' | 'triangle'; hollow: boolean; opacity: number
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null
-  markers: boolean; axis: 'y' | 'y2' | 'y3'; stack?: string
+  markers: boolean; axis: 'y' | 'y2' | 'y3' | 'y4' | 'y5'; stack?: string
   total: number      // точек в серии на самом деле; если больше x.length — линия прорежена (М4: пики и провалы сохранены)
   facets: Record<string, string> | null     // признаки для легенды рядами: {'Скважина': '№ 101', 'Период': '2024'}
   captions?: string[] | null                // текст над каждой точкой (подписи причин отсутствия замеров)
@@ -90,7 +91,7 @@ export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'total'> 
 export interface WindowReply { chart: string; revision: number; series: Record<string, WindowSeries> }
 export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'peak' | 'other'; well: string }
 export interface Chart {
-  id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; series: Series[]; crosshair: boolean
+  id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean
   events?: ChartEvent[]
 }
 export interface Stat { label: string; value: string; hint: string }
