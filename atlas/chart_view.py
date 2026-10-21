@@ -70,6 +70,10 @@ def apply_view(chart: Chart, view: Any) -> Chart:
         if bounds is None or name not in out.axis_names():
             continue
         out = dataclasses.replace(out, **{name: _limited(out.axis_at(name), bounds)})
+    for name, axis in out.right_axes():       # цвет правой шкалы следует за цветом её рядов, как на экране
+        colors = {(s.look or {}).get('color') for s in out.series if s.axis == name}
+        if axis.color and len(colors) == 1 and None not in colors:
+            out = dataclasses.replace(out, **{name: dataclasses.replace(axis, color=colors.pop())})
     window = _range(view.get('x'))
     if window is not None and out.x.scale in ('value', 'time'):
         out = dataclasses.replace(out, x=_limited(out.x, window))

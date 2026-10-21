@@ -57,13 +57,21 @@ export const seriesLookKey = (s: Series) => `${s.group || s.name}|${s.kind}`
 /** График с личным видом рядов: у каждого ряда, для которого он задан, появляется поле look. */
 export function applyLooks(chart: Chart, looks: Record<string, Look> | undefined): Chart {
   if (!looks || Object.keys(looks).length === 0) return chart
-  return {
-    ...chart,
-    series: chart.series.map(s => {
-      const own = looks[seriesLookKey(s)]
-      if (!own) return s
-      const look = { ...s.look, ...own }      // вид из макета (конструктор) дополняется личным видом браузера
-      return { ...s, look, ...(look.opacity !== undefined ? { opacity: look.opacity } : {}) }
-    }),
+  const series = chart.series.map(s => {
+    const own = looks[seriesLookKey(s)]
+    if (!own) return s
+    const look = { ...s.look, ...own }      // вид из макета (конструктор) дополняется личным видом браузера
+    return { ...s, look, ...(look.opacity !== undefined ? { opacity: look.opacity } : {}) }
+  })
+  // цвет правой шкалы следует за цветом её рядов: когда у всех рядов шкалы задан один цвет, шкала берёт его
+  const out: Chart = { ...chart, series }
+  for (const name of ['y2', 'y3', 'y4', 'y5'] as const) {
+    const axis = chart[name]
+    if (!axis?.color) continue
+    const mine = series.filter(s => (s.axis ?? 'y') === name)
+    const colors = new Set(mine.map(s => s.look?.color))
+    const only = colors.size === 1 ? [...colors][0] : undefined
+    if (only) out[name] = { ...axis, color: only }
   }
+  return out
 }

@@ -92,7 +92,7 @@ const dashOf = (s: Series) => DASH[s.dash || (s.dashed ? 'dash' : 'solid')]
 function colorOf(chart: Chart) {
   const groups = [...new Set(chart.series.map(key))]
   const p = palette()
-  return (s: Series) => s.color ? seriesColor(s.color) : p[groups.indexOf(key(s)) % p.length]
+  return (s: Series) => s.look?.color ? s.look.color : s.color ? seriesColor(s.color) : p[groups.indexOf(key(s)) % p.length]
 }
 
 /** Подпись значения оси: время — дата, остальное — число с точностью по размаху оси. */
