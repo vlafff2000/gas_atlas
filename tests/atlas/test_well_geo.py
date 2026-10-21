@@ -88,3 +88,13 @@ def test_folder_roles_and_special_book_detection(tmp_path):
     assert found == {'Глубины_перфораций.xlsx': 'geo', 'координаты_tNav.txt': 'geo', 'XY скважин.txt': 'geo',
                      'БД_расходы.xlsx': 'production'}
     assert base_book({'Данные': pd.DataFrame([['Скважина', 'X', 'Y']])}).startswith('файл положения')
+
+
+def test_well_water_book_keeps_water_factor_column(tmp_path):
+    from atlas.engine.core.loader import load_file
+    path = tmp_path / 'БД_замеров_воды.xlsx'
+    pd.DataFrame({'Скважина': [56, 57], 'Дата': pd.to_datetime(['2025-01-01', '2025-01-01']), 'Водопроявление': ['Да', 'Нет'],
+                  'Расход воды': [0.8, 0.0], 'Водный фактор': [12.5, 0.0], 'Примечание': ['Ок', 'Ок']}
+                 ).to_excel(path, sheet_name='Данные', index=False)
+    frame = load_file(path).frames['water']
+    assert frame.set_index('well').loc['56', 'water_factor_l'] == 12.5 and frame.set_index('well').loc['56', 'water_rate'] == 0.8

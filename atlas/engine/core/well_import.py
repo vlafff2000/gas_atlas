@@ -7,6 +7,7 @@ ALIASES={
  'gas_volume_m3':['Объем газа','Суточный объем газа','gas_volume_m3'],
  'water_volume_m3':['Объем воды','Суточный объем воды','water_volume_m3'],
  'water_rate':['Расход воды','water_rate'],
+ 'water_factor_l':['Водный фактор','Водный фактор, л/1000 м3','water_factor_l'],
  'water_flag':['Обводненность','Водопроявление','Наличие воды','water_flag'],
  'salinity_g_l':['Минерализация','salinity_g_l'],
  'bottom_m':['Текущий забой','Отбитый забой','Низ интервала','bottom_m'],
@@ -22,7 +23,7 @@ ALIASES={
  'comment':['Комментарий','Примечание','comment']}
 REQUIRED={'operations':{'well','date'},'water':{'well','date'},
           'bottom':{'well','date','bottom_m'},'construction':{'well','date','element','top_m','bottom_m'}}
-NUMERIC=['work_hours','gas_volume_m3','water_volume_m3','water_rate','salinity_g_l','bottom_m','top_m',
+NUMERIC=['work_hours','gas_volume_m3','water_volume_m3','water_rate','water_factor_l','salinity_g_l','bottom_m','top_m',
          'tool_diameter_mm','diameter_mm','inner_diameter_mm','p_wellhead','p_line','temperature']
 
 def detect(mapping):
