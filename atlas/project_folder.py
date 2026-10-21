@@ -46,6 +46,7 @@ ROLES = {
     'water': 'Вода',
     'elpro': 'ЭЛПРО (параметры работы ГСП)',
     'gas': 'БД по учету газа',
+    'geo': 'Положение и перфорация скважин (X, Y, альтитуды, перфорация)',
     'other': 'Прочее',
 }
 # Результаты Базы ПХГ (all_scripts, pxg_base): имя → роль, нормирована ли база, что это. Порядок важен: длинные раньше.
@@ -75,7 +76,7 @@ KNOWN_RESULTS = (
 # Нормированная база — итог Базы ПХГ: рядом с ней исходная база расходов роли не получает, иначе сутки загрузятся дважды.
 SUPERSEDED = 'Есть нормированная база расходов: эта исходная не загружается (роль можно назначить вручную)'
 # Роль по словам в имени, если файл не известный результат и манифеста нет.
-NAME_HINTS = (('расход', 'production'), ('давлен', 'pressure'), ('гди', 'gdi'), ('вода', 'water'), ('воды', 'water'))
+NAME_HINTS = (('глубин', 'geo'), ('перфорац', 'geo'), ('координат', 'geo'), ('альтитуд', 'geo'), ('xy', 'geo'), ('tnav', 'geo'), ('расход', 'production'), ('давлен', 'pressure'), ('гди', 'gdi'), ('вода', 'water'), ('воды', 'water'))
 
 
 def _norm(name: str) -> str:
@@ -280,6 +281,8 @@ def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy:
             applied = imports.elpro_load(pid, name, path.read_bytes(), policy)
         elif role == 'gas':
             applied = imports.gas_db_load(pid, name, path.read_bytes(), policy)
+        elif role == 'geo':
+            applied = imports.geo_load(pid, name, path.read_bytes(), policy)
         else:
             up = imports.upload(name, path.read_bytes())
             if up['error']:
