@@ -11,7 +11,7 @@ X — любое поле: дата или число. Если X и Y из ра
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
 import numpy as np
@@ -223,6 +223,12 @@ class Row:
     transform: calc.Transform = field(default_factory=calc.Transform)
     unit: str = ''              # ручная единица; пусто — по полю и преобразованию
     well_mode: str = 'fixed'    # 'fixed' — скважины ряда (wells), 'current' — скважина макета (layout.current_well)
+    x_transform: calc.Transform = field(default_factory=calc.Transform)    # преобразование X (накопленное и т. п.)
+    x_scope: str = 'curve'      # откуда X: 'curve' — как в наборе, 'group' — сумма по группе скважины, 'object' — по всем скважинам
+
+
+X_SCOPES = {'curve': 'как в наборе (по каждой скважине)', 'group': 'сумма по группе скважины', 'object': 'сумма по объекту'}
+X_OPS = ('none', 'cumsum', 'mul', 'div', 'add', 'diff')
 
 
 def _kind(value: Any, what: str, index: int) -> DatasetKind:
@@ -239,6 +245,20 @@ def _date(value: Any, index: int) -> str:
         return pd.Timestamp(str(value)).strftime('%Y-%m-%d')
     except (TypeError, ValueError):
         raise ParamError(f'Ряд {index}: дата периода — ГГГГ-ММ-ДД') from None
+
+
+def _x_transform(raw: Any, index: int) -> calc.Transform:
+    t = calc.clean_transform(raw, index)
+    if t.op not in X_OPS:
+        raise ParamError(f'Ряд {index}: преобразование X — одно из: {", ".join(calc.TRANSFORMS[o] for o in X_OPS)}')
+    return t
+
+
+def _x_scope(value: Any, index: int) -> str:
+    scope = str(value or 'curve')
+    if scope not in X_SCOPES:
+        raise ParamError(f'Ряд {index}: сводка X — {", ".join(X_SCOPES.values())}')
+    return scope
 
 
 def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
@@ -281,7 +301,8 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
                        _date(r.get('date_from'), i), _date(r.get('date_to'), i), str(r.get('kind') or ''), axis, view, str(r.get('stack') or '').strip()[:60], key,
                        days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i),
                        source, None, calc.clean_transform(r.get('transform'), i), str(r.get('unit') or '').strip()[:40],
-                       'current' if str(r.get('wells_mode') or '') == 'current' else 'fixed'))
+                       'current' if str(r.get('wells_mode') or '') == 'current' else 'fixed',
+                       _x_transform(r.get('x_transform'), i), _x_scope(r.get('x_scope'), i)))
     for row, r in zip(out, rows):
         text = str(r.get('formula') or '').strip()
         if row.source == 'formula' and text:
@@ -349,7 +370,8 @@ class Pairs:
     frame: pd.DataFrame         # entity, x, y, id
     pairs: int                  # точек, где есть и X, и Y
     notes: list[Note]
-    joined: bool                # X из другого набора
+    joined: bool                # X из другого набора или X обработан (накопленное, сводка по группе или объекту)
+    x_label: str | None = None  # подпись X после преобразования; None — по полю
 
 
 def pairs(data: Data, row: Row) -> Pairs:
@@ -369,12 +391,14 @@ def pairs(data: Data, row: Row) -> Pairs:
                      index=ys.index)
     if 'date' in ys:
         y['date'] = _day(ys['date'])
-    joined = row.x_dataset != row.dataset
+    prepared = row.x_scope != 'curve' or row.x_transform.op != 'none'
+    joined = row.x_dataset != row.dataset or prepared
+    x_label = None
     if not joined:
         y['x'] = _values(ys, row.dataset, row.x)
         out = y
     else:
-        out, more = _join(data, row, y, entity)
+        out, more, x_label = _join(data, row, y, entity)
         notes += more
     out = out[out['x'].notna()]
     if row.view == 'points':
@@ -383,29 +407,131 @@ def pairs(data: Data, row: Row) -> Pairs:
     if joined:
         notes.append(Note(f'{label}: X «{meta(row.x_dataset, row.x).label}» ({row.x_dataset.label}) сопоставлен с Y '
                           f'по ключу «{_key_label(row)}» — найдено пар: {count}.'))
-    return Pairs(out.reset_index(drop=True), count, notes, joined)
+        if not count:
+            notes += _hint_keys(data, row, y, entity)
+    return Pairs(out.reset_index(drop=True), count, notes, joined, x_label)
+
+
+def _hint_keys(data: Data, row: Row, y: pd.DataFrame, y_entity: str) -> list[Note]:
+    """Пар нет: проверить остальные ключи связи и подсказать тот, при котором пары находятся (выбор остаётся за инженером)."""
+    label = f'Ряд {row.index}'
+    x, x_entity, _, _ = _x_side(data, row, label)
+    if x.empty:
+        return [Note(f'{label}: в X «{meta(row.x_dataset, row.x).label}» нет значений для выбранных скважин, периода и режима.', 'warning')]
+    found = []
+    for key in KEYS:
+        if key == row.key:
+            continue
+        probe = replace(row, key=key, days=max(row.days, 30) if key == 'nearest' else row.days)
+        out, notes = _merge(data, probe, y, y_entity, x, x_entity, label)
+        if any(n.level == 'warning' for n in notes):
+            continue
+        count = int((out['x'].notna() & out['y'].notna()).sum()) if 'x' in out else 0
+        if count:
+            found.append(f'«{KEYS[key]}»{" ±" + str(probe.days) + " дн." if key == "nearest" else ""} — пар: {count}')
+    hint = ('При другом ключе связи пары находятся: ' + '; '.join(found) + '. Выберите его в поле «Связь X и Y».') if found else \
+        'Ни один ключ связи не даёт пар: у наборов нет общих скважин или дат. Проверьте периоды и режим ряда.'
+    return [Note(f'{label}: нет ни одной пары X и Y. {hint}', 'warning')]
 
 
 def _key_label(row: Row) -> str:
     return f'ближайшая дата ±{row.days} дн.' if row.key == 'nearest' else KEYS[row.key]
 
 
-def _join(data: Data, row: Row, y: pd.DataFrame, y_entity: str) -> tuple[pd.DataFrame, list[Note]]:
-    """X из другого набора на строки Y по ключу ряда. Несколько значений X на ключ — среднее (дата — первая)."""
+def _x_side(data: Data, row: Row, label: str) -> tuple[pd.DataFrame, str, str | None, list[Note]]:
+    """Строки X-набора для связи: entity, x, date. Сводка по группе или объекту и преобразование X (накопленное и т. п.)
+    считаются по строкам X-набора до связи с Y. Возвращает также подпись X после преобразования (None — по полю)."""
     notes: list[Note] = []
-    label = f'Ряд {row.index}'
-    xs = _select(data[row.x_dataset], row)
-    x_entity = _entity(data[row.x_dataset])
-    x = pd.DataFrame({'entity': xs[x_entity].fillna('').astype(str) if x_entity else '', 'x': _values(xs, row.x_dataset, row.x)},
-                     index=xs.index)
-    if x_entity == 'group' and y_entity == 'group':
-        x['entity'] = x['entity'].map(group_key)
+    frame = data[row.x_dataset]
+    entity = _entity(frame)
+    scope, t = row.x_scope, row.x_transform
+    # свод по группе и объекту берёт скважины набора целиком; период ряда режет и Y, и X (накопленное идёт с начала периода)
+    xs = _select(frame, replace(row, wells=[]) if scope != 'curve' else row)
+    x = pd.DataFrame({'entity': xs[entity].fillna('').astype(str) if entity else '', 'x': _values(xs, row.x_dataset, row.x)}, index=xs.index)
     if 'date' in xs:
         x['date'] = _day(xs['date'])
     x = x[x['x'].notna()]
-    shared = bool(y_entity) and y_entity == x_entity
+    if entity == 'group':
+        x['entity'] = x['entity'].map(group_key)
+    if scope == 'curve' and t.op == 'none':
+        return x, entity, None, notes
+    m = meta(row.x_dataset, row.x)
+    if pd.api.types.is_datetime64_any_dtype(x['x']) or 'date' not in x:
+        notes.append(Note(f'{label}: сводка и преобразование X работают только для числового поля с датами; X оставлен как в наборе.', 'warning'))
+        return x, entity, None, notes
+    kinds = frame['kind'].dropna().astype(str).nunique() if 'kind' in frame else 0
+    if scope != 'curve' and kinds > 1 and not row.kind:
+        notes.append(Note(f'{label}: в наборе «{row.x_dataset.label}» отбор и закачка вместе — выберите «Режим» в ряду, '
+                          'иначе в сводку X попадут оба.', 'warning'))
+    out_entity = entity
+    if scope in ('group', 'object'):
+        x = x.dropna(subset=['date'])
+        wells = x['entity'].nunique() if entity else 0
+        additive = m.unit in calc.CUMULATIVE or m.unit.endswith('/сут')
+        how = 'sum' if additive else 'mean'
+        if scope == 'group':
+            if entity == 'well':
+                groups = data.mapping
+                x['entity'] = x['entity'].map(lambda w: group_key(groups.get(w, {}).get('group') or 'Без группы'))
+            elif entity == 'group':
+                x['entity'] = x['entity'].map(group_key)
+            else:
+                notes.append(Note(f'{label}: в наборе «{row.x_dataset.label}» нет ни скважин, ни групп — сводка по группе не нужна, X как в наборе.'))
+                scope = 'curve'
+        if scope == 'group':
+            out_entity = 'group'
+            by = ['entity', 'date']
+        else:
+            x['entity'] = ''
+            out_entity = ''
+            by = ['date']
+        if scope != 'curve':
+            agg = x.groupby(by, sort=True)['x'].sum(min_count=1) if how == 'sum' else x.groupby(by, sort=True)['x'].mean()
+            x = agg.reset_index()
+            if 'entity' not in x:
+                x['entity'] = ''
+            notes.append(Note(f'{label}: X «{m.label}» — {"сумма" if how == "sum" else "среднее"} по '
+                              f'{"группе скважины" if scope == "group" else "объекту"}'
+                              f'{f" ({wells} скв. набора)" if wells else ""}.'))
+    new_label = m.label + (f', {m.unit}' if m.unit else '')
+    if t.op != 'none':
+        f = pd.DataFrame({'entity': x['entity'], 'x': x['date'], 'y': x['x']})
+        f, more = calc.apply(f, t, m.unit, f'{label}, X', True)
+        notes += more
+        word = 'группам' if out_entity == 'group' else 'скважинам'
+        text, unit = calc.describe(t, m.label, m.unit, word)
+        new_label = text + (f', {unit}' if unit else '')
+        x = pd.DataFrame({'entity': f['entity'], 'x': f['y'], 'date': f['x']})
+        x = x[x['x'].notna()]
+    where = {'group': ', по группе', 'object': ', по объекту'}.get(row.x_scope, '')
+    return x, out_entity, new_label + where, notes
+
+
+def _y_group_keys(data: Data, y: pd.DataFrame, y_entity: str) -> pd.Series:
+    if y_entity == 'well':
+        return y['entity'].map(lambda w: group_key(data.mapping.get(w, {}).get('group') or 'Без группы'))
+    return y['entity'].map(group_key)
+
+
+def _join(data: Data, row: Row, y: pd.DataFrame, y_entity: str) -> tuple[pd.DataFrame, list[Note], str | None]:
+    """X из другого набора (или обработанный X) на строки Y по ключу ряда. Несколько значений X на ключ — среднее (дата — первая)."""
+    label = f'Ряд {row.index}'
+    x, x_entity, x_label, notes = _x_side(data, row, label)
+    out, more = _merge(data, row, y, y_entity, x, x_entity, label)
+    return out, notes + more, x_label
+
+
+def _merge(data: Data, row: Row, y: pd.DataFrame, y_entity: str, x: pd.DataFrame, x_entity: str, label: str) -> tuple[pd.DataFrame, list[Note]]:
+    notes: list[Note] = []
+    by_group = row.x_scope == 'group' and x_entity == 'group' and y_entity in ('well', 'group')
+    shared = bool(y_entity) and (y_entity == x_entity or by_group)
     has_dates = 'date' in y and 'date' in x
     key = row.key
+    if row.x_scope == 'object' and key == 'well_date':
+        key = 'date'                       # X один на весь объект: скважину для связи брать не из чего
+    if row.x_scope == 'object' and key == 'well':
+        notes.append(Note(f'{label}: X — сумма по объекту, у неё нет скважин. Выберите ключ «дата» или «ближайшая дата».', 'warning'))
+        return y.iloc[0:0].assign(x=np.nan), notes
     if key in ('well_date', 'well') and not shared:
         if key == 'well' or not has_dates:
             notes.append(Note(f'{label}: у наборов «{row.dataset.label}» и «{row.x_dataset.label}» нет общей колонки скважин — '
@@ -416,7 +542,7 @@ def _join(data: Data, row: Row, y: pd.DataFrame, y_entity: str) -> tuple[pd.Data
     if key in ('well_date', 'date', 'nearest') and not has_dates:
         notes.append(Note(f'{label}: в одном из наборов нет дат — выберите ключ «скважина».', 'warning'))
         return y.iloc[0:0].assign(x=np.nan), notes
-    y_key = y.assign(entity=y['entity'].map(group_key)) if y_entity == 'group' else y
+    y_key = y.assign(entity=_y_group_keys(data, y, y_entity)) if by_group or y_entity == 'group' else y
     if key == 'nearest':
         by = ['entity'] if shared else []
         left = y_key[y_key['date'].notna()].reset_index().sort_values('date', kind='stable')
@@ -504,7 +630,7 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         notes.extend(p.notes)
         m, xm = meta(row.dataset, row.y), meta(row.x_dataset, row.x)
         entity = _entity(data[row.dataset]) if row.dataset in data else ''
-        out = Calc(p.frame, entity, m.label, m.unit, xm.label + (f', {xm.unit}' if xm.unit else ''))
+        out = Calc(p.frame, entity, m.label, m.unit, p.x_label or xm.label + (f', {xm.unit}' if xm.unit else ''))
     if out is not None and not out.frame.empty:
         word = 'группам' if out.entity_kind == 'group' else 'скважинам'
         out.label, out.unit = calc.describe(row.transform, out.label, out.unit, word)
