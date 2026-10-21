@@ -192,7 +192,8 @@ def catalog(data: Data) -> dict[str, Any]:
                          'date_max': dates.max().strftime('%Y-%m-%d') if len(dates) else None})
     categories = [{'id': c, 'label': label, 'fields': sorted(by_category[c], key=lambda f: (f['label'], f['dataset_label']))}
                   for c, label in CATEGORIES if by_category[c]]
-    return {'categories': categories, 'datasets': datasets,
+    wells = sorted({w for d in datasets if d['entity'] == 'well' for w in d['entities']}, key=natural_key)
+    return {'categories': categories, 'datasets': datasets, 'wells': wells,
             'keys': [{'value': k, 'label': v} for k, v in KEYS.items()]}
 
 
@@ -221,6 +222,7 @@ class Row:
     formula: calc.Formula | None = None
     transform: calc.Transform = field(default_factory=calc.Transform)
     unit: str = ''              # ручная единица; пусто — по полю и преобразованию
+    well_mode: str = 'fixed'    # 'fixed' — скважины ряда (wells), 'current' — скважина макета (layout.current_well)
 
 
 def _kind(value: Any, what: str, index: int) -> DatasetKind:
@@ -278,7 +280,8 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
         out.append(Row(i, dataset, str(r.get('y') or ''), x_dataset, str(r.get('x') or 'date'), [str(w) for w in wells],
                        _date(r.get('date_from'), i), _date(r.get('date_to'), i), str(r.get('kind') or ''), axis, view, str(r.get('stack') or '').strip()[:60], key,
                        days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i),
-                       source, None, calc.clean_transform(r.get('transform'), i), str(r.get('unit') or '').strip()[:40]))
+                       source, None, calc.clean_transform(r.get('transform'), i), str(r.get('unit') or '').strip()[:40],
+                       'current' if str(r.get('wells_mode') or '') == 'current' else 'fixed'))
     for row, r in zip(out, rows):
         text = str(r.get('formula') or '').strip()
         if row.source == 'formula' and text:
@@ -287,8 +290,22 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
     axes = layout.get('axes') or {}
     labels = {'title': str(layout.get('title') or '')[:300], 'x_label': str(layout.get('x_label') or '')[:200],
               'axes': {a: str(axes.get(a) or '')[:200] for a in AXES} if isinstance(axes, Mapping) else {},
-              'axis_style': clean_axes(layout.get('axis_style')), 'chart_style': clean_chart(layout.get('chart_style'))}
+              'axis_style': clean_axes(layout.get('axis_style')), 'chart_style': clean_chart(layout.get('chart_style')),
+              'current_well': str(layout.get('current_well') or '').strip()[:120]}
     return out, labels
+
+
+PLACEHOLDER = '{скважина}'
+
+
+def uses_current(layout: Any) -> bool:
+    """В макете есть ряд в режиме «Текущая скважина»: такой макет переключается по скважинам и выгружается серией."""
+    rows = layout.get('series') if isinstance(layout, Mapping) else None
+    return any(isinstance(r, Mapping) and r.get('wells_mode') == 'current' for r in rows or [])
+
+
+def _put_well(text: str, well: str) -> str:
+    return text.replace(PLACEHOLDER, well or '…') if PLACEHOLDER in text else text
 
 
 # ---------- выбор данных ----------
@@ -456,12 +473,19 @@ class Calc:
     x_label: str
 
 
+def _no_well(row: Row) -> bool:
+    """Ряд «Текущая скважина», а скважина не выбрана: пустой список скважин означал бы «все», поэтому ряд не считается."""
+    return row.well_mode == 'current' and not row.wells
+
+
 def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc | None], notes: list[Note]) -> Calc | None:
     """Ряд по полю или формуле с преобразованием; ряды формулы (в том числе скрытые) считаются один раз."""
     if row.index in cache:
         return cache[row.index]
     cache[row.index] = None
     out: Calc | None = None
+    if _no_well(row):
+        return None
     if row.source == 'formula':
         if row.formula is None:
             return None
@@ -496,9 +520,20 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
     return out
 
 
-def build(data: Data, layout: Any) -> Result:
+def build(data: Data, layout: Any, well: str | None = None) -> Result:
+    """График макета. ``well`` — скважина для рядов «Текущая скважина» (иначе ``layout.current_well``); {скважина} в подписях заменяется ею."""
     rows, labels = parse_layout(layout)
+    well = str(well if well is not None else labels['current_well']).strip()
+    labels['title'] = _put_well(labels['title'], well)
+    labels['x_label'] = _put_well(labels['x_label'], well)
+    labels['axes'] = {a: _put_well(t, well) for a, t in labels['axes'].items()}
     result = Result()
+    for r in rows:
+        r.name = _put_well(r.name, well)
+        if r.well_mode == 'current':
+            r.wells = [well] if well else []
+            if not well and not r.hidden:
+                result.notes.append(Note(f'Ряд {r.index}: не выбрана скважина макета — выберите её над рядами.', 'warning'))
     shown = [r for r in rows if not r.hidden]
     if not shown:
         result.notes.append(Note('Добавьте ряд: выберите поле в дереве слева или нажмите «+ Добавить ряд».'))
@@ -508,7 +543,7 @@ def build(data: Data, layout: Any) -> Result:
             result.notes.append(Note(f'Ряд {r.index}: выберите поле Y в дереве слева.'))
         if r.source == 'formula' and r.formula is None:
             result.notes.append(Note(f'Ряд {r.index}: введите формулу по рядам, например A/B или (A-B)/A*100.'))
-    shown = [r for r in shown if (r.y if r.source == 'field' else r.formula)]
+    shown = [r for r in shown if (r.y if r.source == 'field' else r.formula) and not _no_well(r)]
     by_index = {r.index: r for r in rows}
     cache: dict[int, Calc | None] = {}
     built: list[tuple[Row, Calc]] = []

@@ -183,9 +183,10 @@ def missing_of(data: Data, layout: Any) -> list[str]:
     return out
 
 
-def chart_of(data: Data, layout: Any):
-    """Готовый график макета (контракт ``Chart``) и заметки расчёта; ``None``, если рядов на графике нет."""
-    result = builder.build(data, layout)
+def chart_of(data: Data, layout: Any, well: str | None = None):
+    """Готовый график макета (контракт ``Chart``) и заметки расчёта; ``None``, если рядов на графике нет.
+    ``well`` — скважина для рядов «Текущая скважина» (иначе ``layout.current_well``)."""
+    result = builder.build(data, layout, well)
     return (result.charts[0] if result.charts else None), [n.text for n in result.notes]
 
 
@@ -201,3 +202,93 @@ def word_file(chart, title: str, caption: str, orientation: str = 'landscape', f
     cap_h = word_export.caption_height(layout, item.text, layout.cell())
     item.png, item.w, item.h = word_export.render_png(render.to_plotly(chart), layout, cap_h, font, font_size)
     return word_export.build_docx([item], layout, title or chart.title), f'{chart.title or "График"}.docx'
+
+
+# ---------- серия графиков по скважинам ----------
+
+MAX_WELLS = 200
+SERIES_FORMATS = {'png': 'PNG (zip, по файлу на скважину)', 'pdf': 'PDF, страница на скважину', 'docx': 'Word, график на странице'}
+ZIP = 'application/zip'
+PDF = 'application/pdf'
+DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+
+def wells_info(data: Data, layout: Any) -> dict[str, Any]:
+    """Скважины проекта для режима «Текущая скважина»: все, группы и те, у кого есть точки хотя бы в одном ряду этого режима."""
+    import dataclasses
+    from .modules.an_report import well_scopes
+    rows, _ = builder.parse_layout(layout)
+    wells = builder.catalog(data)['wells']
+    current = [r for r in rows if r.well_mode == 'current' and r.source == 'field' and r.y and not r.hidden]
+    have: set[str] = set()
+    for r in current:
+        p = builder.pairs(data, dataclasses.replace(r, wells=[], well_mode='fixed'))
+        f = p.frame
+        if p.frame.empty:
+            continue
+        have |= {str(e) for e in f.loc[f['x'].notna() & f['y'].notna(), 'entity'] if str(e)}
+    groups: dict[str, list[str]] = {}
+    mapping = getattr(data, 'mapping', None) or {}
+    for w, g in well_scopes(mapping, wells).items():
+        groups.setdefault(str(g), []).append(w)
+    return {'enabled': builder.uses_current(layout), 'wells': wells, 'with_data': [w for w in wells if w in have],
+            'groups': [{'name': g, 'wells': ws} for g, ws in sorted(groups.items(), key=lambda kv: kv[0].casefold())]}
+
+
+def series_file(data: Data, layout: Any, wells: list[str], fmt: str, title: str = '', orientation: str = 'landscape',
+                dpi: int = 200) -> tuple[bytes, str, str, list[str]]:
+    """Файл с графиком макета по каждой выбранной скважине: (содержимое, имя файла, тип, заметки). Скважины без данных пропускаются."""
+    import io
+    import zipfile
+    from . import render
+    from .engine.core.export import safe_name
+    if fmt not in SERIES_FORMATS:
+        raise ParamError('Формат серии: PNG (архив zip), PDF или Word')
+    if not builder.uses_current(layout):
+        raise ParamError('В макете нет рядов в режиме «Текущая скважина»: включите его в карточке ряда, и серию можно будет выгрузить.')
+    picked = list(dict.fromkeys(str(w).strip() for w in wells if str(w).strip()))
+    if not picked:
+        raise ParamError('Выберите хотя бы одну скважину для серии.')
+    if len(picked) > MAX_WELLS:
+        raise ParamError(f'За один раз можно выгрузить не больше {MAX_WELLS} скважин, выбрано {len(picked)}. Разделите выбор на части.')
+    charts, skipped = [], []
+    for w in picked:
+        chart, _ = chart_of(data, layout, w)
+        if chart is None or not chart.series:
+            skipped.append(w)
+        else:
+            charts.append((w, chart))
+    notes = [f'Нет данных для скважин, они пропущены ({len(skipped)}): ' + ', '.join(skipped[:30]) + (' и др.' if len(skipped) > 30 else '')] if skipped else []
+    if not charts:
+        raise ParamError('Ни у одной из выбранных скважин нет данных для графика макета. ' + (notes[0] if notes else ''))
+    raw = str(layout.get('title') or '') if isinstance(layout, Mapping) else ''
+    raw = '' if builder.PLACEHOLDER in raw else raw          # у заголовка с номером скважины имя файла общее
+    base = safe_name(title or raw or 'Серия по скважинам')[:80]
+    if fmt == 'png':
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+            for n, (w, chart) in enumerate(charts, start=1):
+                z.writestr(f'{n:03d}_скв_{safe_name(w)}.png', render.chart_file(chart, 'png', dpi)[0])
+        return buf.getvalue(), base + '.zip', ZIP, notes
+    labelled = [(w, chart, _caption(chart, w)) for w, chart in charts]
+    if fmt == 'pdf':
+        from .engine.core.documents import grid_pdf
+        buf = io.BytesIO()
+        grid_pdf([(render.chart_file(chart, 'png', dpi)[0], text) for _, chart, text in labelled], buf, columns=1, rows=1,
+                 metadata={'Title': base, 'Author': 'Газовый атлас'}, dpi=dpi)
+        return buf.getvalue(), base + '.pdf', PDF, notes
+    from . import word_export
+    from .word_export import Item, Layout
+    lay = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', per_page=1, title=bool(title), title_text=title, dpi=dpi)
+    items = []
+    for n, (_, chart, text) in enumerate(labelled, start=1):
+        item = Item(chart.title or 'График', 'Рисунок ', n, ' – ' + text, module='builder')
+        cap_h = word_export.caption_height(lay, item.text, lay.cell())
+        item.png, item.w, item.h = word_export.render_png(render.to_plotly(chart), lay, cap_h)
+        items.append(item)
+    return word_export.build_docx(items, lay, title or base), base + '.docx', DOCX, notes
+
+
+def _caption(chart, well: str) -> str:
+    text = ' '.join(str(chart.title or 'График').split())
+    return text if well in text else f'{text}, скважина {well}'
