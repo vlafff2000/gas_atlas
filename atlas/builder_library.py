@@ -12,7 +12,7 @@ import json
 import uuid
 from typing import Any, Mapping
 
-from .contract import Data, ParamError
+from .contract import Data, Note, ParamError, Result
 from .domain import DatasetKind
 from .modules import builder
 
@@ -188,6 +188,74 @@ def chart_of(data: Data, layout: Any, well: str | None = None):
     ``well`` — скважина для рядов «Текущая скважина» (иначе ``layout.current_well``)."""
     result = builder.build(data, layout, well)
     return (result.charts[0] if result.charts else None), [n.text for n in result.notes]
+
+
+# ---------- макеты проекта в результате раздела ----------
+
+MAX_WELL_CHARTS = 12        # графиков одного макета «Текущая скважина» в разделе; остальные скважины — заметка
+
+
+def layout_names(data: Data) -> list[str]:
+    """Имена макетов проекта: варианты параметра раздела ``builder_layouts``."""
+    return sorted(i['name'] for i in items_of(data.settings))
+
+
+def add_layout_charts(result: Result, data: Data, names: list[str], wells: list[str] | None = None, limit: int = MAX_WELL_CHARTS,
+                      noun: str = 'график') -> None:
+    """Выбранные макеты проекта графиками раздела (после основных), id ``builder-<id>`` (``builder-<id>-<скважина>``).
+
+    Работает с наборами, которые раздел и так загрузил: чего не хватает — предупреждение «Макет «…»: …», раздел не падает.
+    Макет «Текущая скважина»: ``wells`` — скважины раздела (график на каждую, не больше ``limit``); ``wells=None`` —
+    скважина самого макета (``current_well``), без неё рисунок пропускается (отчёт АН). Остальные макеты — один график.
+    """
+    saved = {i['name']: i for i in items_of(data.settings)}
+    for name in dict.fromkeys(names):
+        item = saved.get(name)
+        if item is None:
+            result.notes.append(Note(f'Макет конструктора «{name}» не найден в проекте — {noun} пропущен.', 'warning'))
+            continue
+        layout = item['layout']
+        try:
+            lost = missing_of(data, layout)
+        except ParamError as e:
+            result.notes.append(Note(f'Макет «{name}»: {e}', 'warning'))
+            continue
+        result.notes += [Note(f'Макет «{name}»: {text}.', 'warning') for text in lost]
+        targets: list[str | None] = [None]
+        if builder.uses_current(layout):
+            if wells is None:
+                if not str(layout.get('current_well') or '').strip():
+                    result.notes.append(Note(f'Макет «{name}»: не выбрана скважина — {noun} пропущен. Откройте макет в конструкторе, выберите '
+                                             'скважину макета и нажмите «Обновить».', 'warning'))
+                    continue
+            elif not wells:
+                result.notes.append(Note(f'Макет «{name}» строится по скважинам, а скважины в разделе не выбраны — {noun} пропущен.', 'warning'))
+                continue
+            else:
+                targets = list(wells[:limit])
+                if len(wells) > limit:
+                    result.notes.append(Note(f'Макет «{name}»: показаны первые {limit} скважин из {len(wells)}. Остальные — в конструкторе '
+                                             '(«Серия по скважинам») или выберите меньше скважин.'))
+        empty: list[str] = []
+        for well in targets:
+            try:
+                chart, notes = chart_of(data, layout, well)
+            except ParamError as e:
+                result.notes.append(Note(f'Макет «{name}»: {e}', 'warning'))
+                break
+            if chart is None or not chart.series:
+                empty.append(well or '')
+                if well is None:
+                    result.notes.append(Note(f'Макет «{name}»: нет данных для графика' + (f' ({notes[0]})' if notes else '') + f' — {noun} пропущен.', 'warning'))
+                continue
+            chart.id = 'builder-' + item['id'] + (f'-{well}' if well else '')
+            if not chart.title:
+                chart.title = name
+            if well and well not in chart.title:
+                chart.title = f'{chart.title}, скважина {well}'
+            result.charts.append(chart)
+        if empty and targets != [None]:
+            result.notes.append(Note(f'Макет «{name}»: нет данных по скважинам {", ".join(empty)} — графики пропущены.', 'warning'))
 
 
 # ---------- Word: один график с заголовком и подписью ----------

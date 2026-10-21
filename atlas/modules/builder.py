@@ -530,7 +530,11 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
     result = Result()
     for r in rows:
         r.name = _put_well(r.name, well)
-        if r.well_mode == 'current':
+        if r.well_mode == 'current' and not r.hidden and r.source == 'field' and r.dataset in data and _entity(data[r.dataset]) == 'group':
+            r.hidden = True
+            result.notes.append(Note(f'Ряд {r.index}: набор «{r.dataset.label}» — по группам, а не по скважинам; режим «Текущая скважина» к нему '
+                                     'не применяется. Ряд не показан: выберите «фиксированные скважины» (группы) в карточке ряда.', 'warning'))
+        elif r.well_mode == 'current':
             r.wells = [well] if well else []
             if not well and not r.hidden:
                 result.notes.append(Note(f'Ряд {r.index}: не выбрана скважина макета — выберите её над рядами.', 'warning'))

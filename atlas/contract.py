@@ -143,6 +143,16 @@ class Param:
         raise ParamError(f'Неизвестный тип параметра {self.kind}')
 
 
+BUILDER_LAYOUTS = 'builder_layouts'
+
+
+def builder_layouts_param(label: str = 'Макеты конструктора', help: str = '') -> 'Param':
+    """Параметр «Макеты конструктора»: имена сохранённых макетов проекта (варианты — ``Module.options``)."""
+    return Param(BUILDER_LAYOUTS, label, 'multi', default=[], dynamic=True, empty='ничего', section='Вид',
+                 help=help or 'Сохранённые макеты «Конструктора графиков» проекта: графики добавляются после основных. '
+                              'Макет «Текущая скважина» строится по каждой выбранной скважине.')
+
+
 @dataclass(frozen=True)
 class ModuleSpec:
     id: str                          # стабильный идентификатор, латиница: 'gdi'
@@ -156,6 +166,11 @@ class ModuleSpec:
     order: int = 100                 # порядок в навигации
     panels: int = 1                  # сколько независимых панелей можно открыть рядом (2 — «две панели»)
     save_label: str = 'Сохранить фильтры'   # подпись кнопки сохранения вида
+    builder_layouts: bool = False    # раздел принимает макеты «Конструктора графиков» (параметр builder_layouts добавляется сам)
+
+    def __post_init__(self) -> None:
+        if self.builder_layouts and not any(p.name == BUILDER_LAYOUTS for p in self.params):
+            object.__setattr__(self, 'params', (*self.params, builder_layouts_param()))
 
     def coerce(self, raw: Mapping[str, Any] | None) -> dict[str, Any]:
         raw = dict(raw or {})
@@ -412,6 +427,9 @@ class Module:
 
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         """Варианты для параметра с ``dynamic=True``; ``params`` — текущие значения остальных параметров."""
+        if name == BUILDER_LAYOUTS:
+            from .builder_library import layout_names
+            return layout_names(data)
         raise KeyError(f'У модуля {self.spec.id} нет списка {name}')
 
     def catalog(self, data: Data) -> dict[str, Any]:
