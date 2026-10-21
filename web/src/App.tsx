@@ -447,8 +447,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
                     onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({
                       ...params, view: 'dynamics', wells: [well], groups: [], scope_groups: [], scope_wells: [], focus: `${well}|${date}` }) : undefined}
                     fetchWindow={(x0, x1, raw) => api.window(spec.id, project.id, params, c.id, x0, x1, raw, result.revision)}
-                    onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
-                    onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
+                    onCopy={view => api.chartPng(spec.id, project.id, params, c.id, view)}
+                    onDownload={(format, dpi, view) => api.exportChart(spec.id, project.id, params, c.id, format, dpi, view)} />
                 ))}
               </div>
               {result.charts.length > 1 && (

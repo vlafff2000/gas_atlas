@@ -20,7 +20,7 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, R
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import VERSION, api_exclusions, registry, render, season_format, thinning
+from . import VERSION, api_exclusions, chart_view, registry, render, season_format, thinning
 from . import api_builder, api_corrected, api_export, api_projects
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
@@ -252,6 +252,8 @@ def create_app(projects: Projects | None = None) -> Starlette:
             (result, _), _, _ = compute(module, body.get('project'), body.get('params'))
         if target == 'chart':
             chart, _ = full_chart(module, body)
+            if body.get('format') != 'csv':
+                chart = chart_view.apply_view(chart, body.get('view'))     # вид с экрана: оформление рядов, границы осей, масштаб, легенда
             try:
                 dpi = int(body.get('dpi', 300))
             except (TypeError, ValueError):
