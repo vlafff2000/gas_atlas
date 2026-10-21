@@ -458,6 +458,10 @@ class AuthorReportModule(Module):
             if item is None:
                 result.notes.append(Note(f'Макет конструктора «{name}» не найден в проекте — рисунок пропущен.', 'warning'))
                 continue
+            if builder_library.builder.uses_current(item['layout']) and not str(item['layout'].get('current_well') or '').strip():
+                result.notes.append(Note(f'Макет «{name}»: не выбрана скважина — рисунок пропущен. Откройте макет в конструкторе, выберите '
+                                         'скважину макета и нажмите «Обновить».', 'warning'))
+                continue
             try:
                 chart, notes = builder_library.chart_of(data, item['layout'])
             except ParamError as e:

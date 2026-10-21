@@ -139,7 +139,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const json = (method: string, body: unknown, signal?: AbortSignal): RequestInit =>
   ({ method, signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
-async function download(path: string, body: unknown) {
+/** Скачивает файл; возвращает заметку ядра из заголовка X-Atlas-Notes (например, какие скважины пропущены). */
+async function downloadNotes(path: string, body: unknown): Promise<string> {
   const response = await send(path, json('POST', body))
   const header = response.headers.get('Content-Disposition') ?? ''
   const match = /filename\*=UTF-8''([^;]+)/.exec(header)
@@ -148,6 +149,11 @@ async function download(path: string, body: unknown) {
   const a = document.createElement('a')
   a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return decodeURIComponent(response.headers.get('X-Atlas-Notes') ?? '')
+}
+
+async function download(path: string, body: unknown): Promise<void> {
+  await downloadNotes(path, body)
 }
 
 /** PNG графика для буфера обмена: тот же рисунок, что и «Скачать» (цвета, легенда, подписи), без сохранения файла. */
@@ -206,7 +212,14 @@ export function defaults(spec: ModuleSpec): Params {
 export interface LayoutItem { id: string; name: string; created: string; updated: string; series: number; title: string }
 export interface OpenedLayout { id?: string; name?: string; layout: unknown; missing: string[] }
 const lib = (project: string, tail = '') => `/api/projects/${project}/builder/layouts${tail}`
+export interface SeriesWells {
+  enabled: boolean; wells: string[]; with_data: string[]; groups: { name: string; wells: string[] }[]; limit: number; formats: Record<string, string>
+}
 export const builderApi = {
+  seriesWells: (project: string, layout: unknown) =>
+    request<SeriesWells>(`/api/projects/${project}/builder/series/wells`, json('POST', { layout })),
+  series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string }) =>
+    downloadNotes(`/api/projects/${project}/builder/series`, body),
   list: (project: string) => request<{ items: LayoutItem[] }>(lib(project)).then(r => r.items),
   save: (project: string, name: string, layout: unknown) =>
     request<{ item: LayoutItem; items: LayoutItem[] }>(lib(project), json('POST', { name, layout })),

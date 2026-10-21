@@ -6,6 +6,7 @@ import type { Look } from './chartStyle'
 import { AxisDialog, ChartDialog, SeriesDialog, VIEWS, type AxisFmt, type AxisItem, type AxisKey, type BuilderView } from './BuilderDialogs'
 import { FUNCTIONS, checkFormula, findCycle, letter, renumber } from './builderFormula'
 import { BuilderLibrary } from './BuilderLibrary'
+import { SeriesDialog as SeriesExport, WellPicker } from './BuilderWells'
 import './builder.css'
 
 // Конструктор графиков: дерево полей, ряды-карточки, ручные подписи. Макет — параметр раздела ``layout``
@@ -22,11 +23,13 @@ export interface BuilderDataset {
 export interface BuilderCatalog {
   categories: { id: string; label: string; fields: BuilderField[] }[]
   datasets: BuilderDataset[]
+  wells?: string[]        // скважины проекта (для «Скважины макета»)
   keys: { value: string; label: string }[]
 }
 export type AxisName = 'y' | 'y2' | 'y3' | 'y4' | 'y5'
 export interface BuilderRow {
   id: string; dataset: string; y: string; x_dataset: string; x: string; wells: string[]
+  wells_mode?: 'fixed' | 'current'   // «текущая скважина»: ряд берёт layout.current_well; старые макеты — фиксированные
   date_from: string; date_to: string; kind: string; axis: AxisName; view: BuilderView
   stack?: string         // общее имя: столбцы и области с одним именем складываются стопкой
   key: string; days: number; name: string; hidden?: boolean
@@ -49,6 +52,7 @@ const EXAMPLES = ['A/B', '(A-B)/A*100', 'A-B', 'sqrt(A^2 - B^2)', 'max(A; B)']
 const isFormula = (r: BuilderRow) => r.source === 'formula'
 export interface BuilderLayout {
   series: BuilderRow[]; title: string; x_label: string; axes: Partial<Record<AxisName, string>>
+  current_well?: string                               // скважина макета для рядов «Текущая скважина»; нет в старых макетах
   axis_style?: Partial<Record<AxisKey, AxisFmt>>      // окно «Ось»: границы, шаг, шрифт…; старые макеты без него открываются как раньше
   chart_style?: ChartStyle                            // окно «График»: заголовок, легенда, сетка, фон
 }
@@ -67,6 +71,7 @@ export function layoutOf(value: unknown): BuilderLayout {
       axis: r.axis ?? 'y', view: r.view ?? 'line', key: r.key ?? 'well_date', days: r.days ?? 3, name: r.name ?? '',   // файл мог быть написан вручную
     })) : [],
     title: v.title ?? '', x_label: v.x_label ?? '', axes: v.axes ?? {},
+    ...(v.current_well ? { current_well: v.current_well } : {}),
     ...(v.axis_style ? { axis_style: v.axis_style } : {}), ...(v.chart_style ? { chart_style: v.chart_style } : {}),
   }
 }
@@ -89,7 +94,7 @@ function rowFor(field: BuilderField, ds: BuilderDataset | undefined, axis: AxisN
     kind: !ds?.kinds.length ? '' : base && (base.kind === '' || ds.kinds.some(k => k.value === base.kind)) ? base.kind
       : ds.kinds.some(k => k.value === 'withdrawal') ? 'withdrawal' : '',
     axis: base?.axis ?? axis, view: base?.view ?? 'line', stack: base?.stack, key: base?.key ?? 'well_date', days: base?.days ?? 3,
-    name: '', hidden: base?.hidden, look: base?.look, ...(base?.transform ? { transform: base.transform } : {}),
+    name: '', hidden: base?.hidden, look: base?.look, ...(base?.wells_mode ? { wells_mode: base.wells_mode } : {}), ...(base?.transform ? { transform: base.transform } : {}),
   }
 }
 
@@ -102,6 +107,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
   const [active, setActive] = useState<string | null>(layout.series[layout.series.length - 1]?.id ?? null)
   const [dialog, setDialog] = useState<'row' | 'axis' | 'chart' | null>(null)
   const [axisKey, setAxisKey] = useState<AxisKey>('x')
+  const [seriesOpen, setSeriesOpen] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -216,6 +222,9 @@ export function ChartBuilder({ project, revision, value, onChange }:
 
       <section className="builder-rows" aria-label="Ряды графика">
         <BuilderLibrary project={project} layout={layout} onOpen={v => { const next = layoutOf(v); onChange(next); setActive(next.series[0]?.id ?? null); return next }} />
+        {catalog?.wells?.length ? (
+          <WellPicker wells={catalog.wells} value={layout.current_well ?? ''} onChange={w => set({ current_well: w })} onSeries={() => setSeriesOpen(true)} />
+        ) : null}
         <h2>Ряды</h2>
         {layout.series.length > 0 && (
           <div className="builder-tools" role="toolbar" aria-label="Настройка графика">
@@ -240,7 +249,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
         {layout.series.length > 0 && (
           <fieldset className="builder-labels">
             <legend>Подписи</legend>
-            <p className="muted">Пусто — по названиям полей и единицам.</p>
+            <p className="muted">Пусто — по названиям полей и единицам. <code>{'{скважина}'}</code> заменится номером скважины макета.</p>
             <LabelInput label="Заголовок" value={layout.title} auto={[...new Set(layout.series.filter(r => !r.hidden).map(r => r.name || rowLabel(r)))].join(', ')}
               onChange={v => set({ title: v })} />
             <LabelInput label="Ось X" value={layout.x_label} auto={autoX} onChange={v => set({ x_label: v })} />
@@ -251,6 +260,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
           </fieldset>
         )}
       </section>
+      {seriesOpen && <SeriesExport project={project} layout={layout} onClose={() => setSeriesOpen(false)} />}
       {dialog === 'row' && layout.series.length > 0 && (
         <SeriesDialog activeId={active} onActive={setActive} onClose={() => setDialog(null)}
           rows={layout.series.map((r, i) => ({ id: r.id, view: r.view, look: r.look ?? {},
@@ -309,7 +319,7 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
       <header>
         <button type="button" className="row-head" onClick={onOpen} aria-expanded={open} title={open ? 'Свернуть' : 'Изменить ряд'}>
           <strong>Ряд {index + 1}</strong> <span className="ref-chip" title="Буква ряда в формулах">{letter(index + 1)}</span>
-          {' · '}{formula ? (row.name || (row.formula ? '= ' + row.formula : 'формула не задана')) : <>{row.name || y?.label || 'поле не выбрано'}, {wells}</>}
+          {' · '}{formula ? (row.name || (row.formula ? '= ' + row.formula : 'формула не задана')) : <>{row.name || y?.label || 'поле не выбрано'}, {row.wells_mode === 'current' ? 'текущая скважина' : wells}</>}
           <span className="row-sub">
             {formula ? <>формула · связь рядов: {keyLabel}{row.key === 'nearest' ? ` ±${row.days} дн.` : ''}</> : <>
             {ds?.label ?? row.dataset} → {y?.label ?? row.y} · X: {x?.label ?? row.x}{joined ? ` (${xs?.label ?? row.x_dataset}, ${keyLabel})` : ''}
@@ -378,7 +388,16 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
                 onChange={e => { const n = Math.round(Number(e.target.value)); if (Number.isFinite(n) && n >= 0 && n <= 366) onChange({ days: n }) }} />
             </label>
           )}
-          {ds?.entity && (
+          {ds?.entity === 'well' && (
+            <label className="field">
+              <span className="field-label">Скважины ряда</span>
+              <select value={row.wells_mode === 'current' ? 'current' : 'fixed'} onChange={e => onChange({ wells_mode: e.target.value as 'fixed' | 'current' })}>
+                <option value="fixed">фиксированные скважины</option>
+                <option value="current">текущая скважина (макета)</option>
+              </select>
+            </label>
+          )}
+          {ds?.entity && !(ds.entity === 'well' && row.wells_mode === 'current') && (
             <MultiSelect label={entity} options={ds.entities} value={row.wells} onChange={w => onChange({ wells: w })}
               prefix={ds.entity === 'well' ? '№ ' : ''} />
           )}

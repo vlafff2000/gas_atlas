@@ -92,6 +92,25 @@ def routes(projects, E) -> list[Route]:
         content, name = lib.word_file(chart, title, caption, orientation)
         return _download(content, safe_name(title or name.removesuffix('.docx')) + '.docx', DOCX)
 
+    def series_wells(request, body):
+        data = projects.select(request.path_params['pid'], (), tuple(lib.DatasetKind))
+        return {**lib.wells_info(data, body.get('layout')), 'limit': lib.MAX_WELLS, 'formats': lib.SERIES_FORMATS}
+
+    def series(request, body):
+        data = projects.select(request.path_params['pid'], (), tuple(lib.DatasetKind))
+        wells = body.get('wells')
+        if not isinstance(wells, list):
+            raise ParamError('Выберите скважины для серии')
+        orientation = body.get('orientation') or 'landscape'
+        if orientation not in ('landscape', 'portrait'):
+            raise ParamError('Ориентация листа: альбомная или книжная')
+        content, name, mime, notes = lib.series_file(data, body.get('layout'), [str(w) for w in wells], str(body.get('format') or 'png'),
+                                                     str(body.get('title') or '').strip()[:300], orientation)
+        response = _download(content, name, mime)
+        if notes:
+            response.headers['X-Atlas-Notes'] = quote(' '.join(notes))
+        return response
+
     base = '/api/projects/{pid}/builder'
     return [
         Route(base + '/layouts', E(listing), methods=['GET']),
@@ -103,4 +122,6 @@ def routes(projects, E) -> list[Route]:
         Route(base + '/layouts/{lid}', E(delete), methods=['DELETE']),
         Route(base + '/layouts/{lid}/duplicate', E(duplicate), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
+        Route(base + '/series/wells', E(series_wells), methods=['POST']),
+        Route(base + '/series', E(series), methods=['POST']),
     ]
