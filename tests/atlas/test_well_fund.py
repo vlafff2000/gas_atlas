@@ -97,10 +97,37 @@ def test_fund_section_through_api(tmp_path):
                           'kind': 'withdrawal', 'q': prod.q.to_numpy() / 1000, 'p': 50.0, 't': 20.0,
                           'y': rng.uniform(20, 90, len(prod)).round(1), 'group': 'ГСП-1'})
     projects.store.commit(pid, frames={**frames, 'elpro': elpro}, action='Тест фонда по сезонам')
-    r = client.post('/api/modules/wells/run', json={'project': pid, 'params': {'section': SECTION_FUND, 'seasons_n': 2}})
+    r = client.post('/api/modules/wells/run', json={'project': pid, 'params': {'section': SECTION_FUND, 'seasons_n': 2,
+                                                                                'wells': ['31']}})
     assert r.status_code == 200, r.text
     body = r.json()
     table = next(t for t in body['tables'] if t['id'] == 'fund-seasons')
     wells = set(table['rows'][0])                           # первый столбец — скважина
     assert len(table['rows'][0]) == 2 * len(wells)          # все скважины × два сезона, пустой сезон — строкой
+    chart_ids = {c['id'] for c in body['charts']}
+    assert {'fund-daily-31', 'fund-seasons-31'} <= chart_ids
+    assert any(t['id'] == 'fund-studies-31' for t in body['tables']) or 'Нет ГДИ в выбранных сезонах.' in str(body['notes'])
     assert not any('ЭЛПРО' in n['text'] for n in body['notes'])
+
+
+def test_daily_series_zero_for_missing_day_and_gap_for_missing_kru():
+    rows = season_rows('1', 'A', '2023-11-01', 5, lambda i: 100.0)
+    rows.append(('2', pd.Timestamp('2023-11-03'), 'A', 'ГСП-1', 50.0 * 1000))   # у скважины 1 нет записи 3 ноября
+    rows = [r for r in rows if not (r[0] == '1' and r[1] == pd.Timestamp('2023-11-03'))]
+    d = daily_frame(rows)
+    elpro = pd.DataFrame({'well': '1', 'date': pd.to_datetime(['2023-11-01', '2023-11-02']), 'y': [30.0, 150.0]})
+    s = fund.daily_series(d, elpro, '1', ['A'])
+    assert list(s.rate) == [100.0, 100.0, 0.0, 100.0, 100.0]     # без записи — 0, не пропуск
+    assert list(s.kru.iloc[:2]) == [30.0, 100.0]                  # КРУ ограничен 0–100, без записи — пропуск
+    assert s.kru.iloc[2:].isna().all()
+
+
+def test_studies_assigned_to_season_by_object_dates():
+    d = daily_frame(season_rows('1', 'A', '2023-11-01', 30, lambda i: 100.0)
+                    + season_rows('1', 'B', '2024-11-01', 30, lambda i: 100.0))
+    hist = pd.DataFrame({'well': ['1', '1'], 'date': pd.to_datetime(['2023-11-10', '2024-11-10']), 'method': 'м1',
+                         'study': ['s1', 's2'], 'a': 0.5, 'b': 0.01, 'r2': 0.99, 'distinct_q': 4,
+                         'reliable': [True, False], 'reference_dp2': 500.0, 'q_reference': [100.0, np.nan],
+                         'q_free': [120.0, 130.0]})
+    out = fund.studies_by_season(hist, d, ['A', 'B'])
+    assert list(out.period) == ['A', 'B'] and list(out.study) == ['s1', 's2']
