@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.core import elpro_import as elpro
-from atlas.engine.core import gas_db_import
+from atlas.engine.core import gas_db_import, well_geo_import
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
@@ -71,6 +71,8 @@ def base_book(tables: dict[str, pd.DataFrame]) -> str:
         return 'база ЭЛПРО'
     if {'Режим', 'Дата', 'Файл', 'Лист'} <= head('БД'):
         return '«БД по учету газа»'
+    if well_geo_import.looks_like(tables):
+        return 'файл положения и перфорации скважин'
     return ''
 
 
@@ -351,7 +353,7 @@ class Imports:
         special = base_book(tables)
         if not special:
             raise ParamError('Это не «БД_ЭЛПРО» и не «БД по учету газа» Базы ПХГ.')
-        load = self.elpro_load if special == 'база ЭЛПРО' else self.gas_db_load
+        load = self.elpro_load if special == 'база ЭЛПРО' else self.geo_load if special.startswith('файл положения') else self.gas_db_load
         out = load(pid, item.name, item.content, policy)
         with self.lock:
             self.files.pop(item.token, None)
@@ -398,7 +400,7 @@ class Imports:
                 rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
                              'status': f'Это {special} из Базы ПХГ: у неё свой разбор. Нажмите «Загрузить в проект» справа (или загрузите её через блок «Источники»)',
-                             'base': 'elpro' if special == 'база ЭЛПРО' else 'gas'})
+                             'base': 'elpro' if special == 'база ЭЛПРО' else 'geo' if special.startswith('файл положения') else 'gas'})
                 continue
             sheets, any_rows, auto_use = {}, False, False
             for sheet, raw in tables.items():
@@ -866,6 +868,33 @@ class Imports:
         self._forget(p)
         return {'message': f'Сохранено: {len(data)} строк, объектов {data.object.nunique()}',
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def geo_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+        """Положение (X, Y), альтитуды и перфорация скважин → таблица ``well_geo``, одна строка на скважину.
+        Разбор — atlas/engine/core/well_geo_import.py. Пустое значение нового файла не стирает прежнее; правило
+        «оставить прежние» (``old``) сохраняет уже загруженные значения скважины, новые только заполняют пропуски."""
+        if policy not in POLICIES:
+            raise ParamError('Неизвестное правило повторов')
+        try:
+            new, warnings = well_geo_import.build(name, content)
+        except (ValueError, OSError) as e:
+            raise ParamError(f'«{name}»: файл не прочитан ({e})') from e
+        if new.empty:
+            raise ParamError(f'«{name}»: не нашлось строк «скважина, X, Y» или перфорации и альтитуд. '
+                             'Нужны номер скважины и хотя бы координаты, альтитуда или интервал перфорации.')
+        m = self.projects.manifest(pid)
+        raw = self._raw_frames(pid, m)
+        final = well_geo_import.merge(raw.get('well_geo'), new, keep_old=policy == 'old')
+        frames = dict(raw)
+        frames['well_geo'] = final
+        have = {c: int(new[c].notna().sum()) for c in well_geo_import.VALUES}
+        message = (f'Положение скважин «{name}»: скважин {len(new)} (координаты {min(have["x"], have["y"])}, '
+                   f'альтитуды {have["altitude"]}, перфорация {min(have["perf_top"], have["perf_bottom"])}); '
+                   f'в проекте всего {len(final)}')
+        saved = self._commit(pid, frames, m['revision'], 'Импорт положения и перфорации скважин',
+                             details={'file': name, 'rows': len(new)})
+        self._keep_originals(pid, [(name, content)])
+        return {'message': message, 'warnings': warnings, 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     # ---------- ГГХ: газогидрохимические исследования ----------
     def ggh_inspect(self, pid: str, body: dict) -> dict[str, Any]:

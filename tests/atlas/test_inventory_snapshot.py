@@ -23,6 +23,7 @@ DATASET_KINDS = [
     'production', 'gdi', 'response', 'object_pressure', 'operations', 'water', 'water_factor',
     'bottom', 'construction', 'pressure_match', 'plan', 'ggh', 'elpro', 'annulus',
     'gas_db',
+    'well_geo',
 ]
 
 # Сколько пунктов со статусом ✅ стоит в каждом чек-листе паритета (docs/parity/*.md).
