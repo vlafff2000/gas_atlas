@@ -338,6 +338,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     onProject(await api.assignCategories(project.id, changes))
     setToast({ text: `Сохранено категорий: ${Object.keys(changes).length}. Их видит и версия 5.8.`, undo: false })
   }
+  const assignWellCategories = async (changes: Assignments) => {
+    onProject(await api.assignWellCategories(project.id, changes))
+    setToast({ text: `Сохранено категорий скважин: ${Object.keys(changes).length}. Снятая правка возвращает подсказку.`, undo: false })
+  }
   const undo = async () => {
     try {
       const r = await api.undo(project.id)
@@ -470,7 +474,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               onDownload={format => api.exportTables(spec.id, project.id, params, t.id, format)}
               onLoad={t.deferred ? () => api.table(spec.id, project.id, params, t.id) : undefined}
               onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
-              onAssign={t.action?.kind !== 'assign' ? undefined : t.action.target === 'object-categories' ? assignCategories : assignGroups} />
+              onAssign={t.action?.kind !== 'assign' ? undefined : t.action.target === 'object-categories' ? assignCategories
+                : t.action.target === 'well-categories' ? assignWellCategories : assignGroups} />
           ))}
         </div>
       )}
