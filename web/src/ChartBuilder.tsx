@@ -94,7 +94,7 @@ function rowFor(field: BuilderField, ds: BuilderDataset | undefined, axis: AxisN
     kind: !ds?.kinds.length ? '' : base && (base.kind === '' || ds.kinds.some(k => k.value === base.kind)) ? base.kind
       : ds.kinds.some(k => k.value === 'withdrawal') ? 'withdrawal' : '',
     axis: base?.axis ?? axis, view: base?.view ?? 'line', stack: base?.stack, key: base?.key ?? 'well_date', days: base?.days ?? 3,
-    name: '', hidden: base?.hidden, look: base?.look, ...(base?.wells_mode ? { wells_mode: base.wells_mode } : {}), ...(base?.transform ? { transform: base.transform } : {}),
+    name: '', hidden: base?.hidden, look: base?.look, ...(base?.wells_mode && ds?.entity === 'well' ? { wells_mode: base.wells_mode } : {}), ...(base?.transform ? { transform: base.transform } : {}),
   }
 }
 
