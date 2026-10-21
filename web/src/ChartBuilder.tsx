@@ -38,6 +38,8 @@ export interface BuilderRow {
   formula?: string
   transform?: RowTransform       // преобразование Y; нет — без преобразования (старые макеты)
   unit?: string                  // ручная единица; пусто — по полю и преобразованию
+  x_scope?: 'curve' | 'group' | 'object'   // откуда X: как в наборе, сумма по группе скважины, сумма по объекту
+  x_transform?: RowTransform               // преобразование X (накопленное и т. п.); нет — без преобразования
 }
 export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; norm?: 'first' | 'max' | 'value'; value?: string }
 type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
@@ -47,6 +49,10 @@ const TRANSFORMS: [TransformOp, string][] = [
   ['day', 'по суткам'], ['month', 'по месяцам'], ['group', 'по скважинам выборки (одна кривая)'], ['norm', 'нормировка'],
   ['mul', 'умножить на число'], ['div', 'разделить на число'], ['add', 'прибавить число'], ['diff', 'разность соседних значений'],
 ]
+const X_SCOPES: [NonNullable<BuilderRow['x_scope']>, string][] = [
+  ['curve', 'как в наборе (по каждой скважине)'], ['group', 'сумма по группе скважины'], ['object', 'сумма по объекту'],
+]
+const X_TRANSFORMS = TRANSFORMS.filter(([v]) => ['none', 'cumsum', 'mul', 'div', 'add', 'diff'].includes(v))
 const AGGS: [Agg, string][] = [['mean', 'среднее'], ['sum', 'сумма'], ['max', 'максимум'], ['min', 'минимум']]
 const EXAMPLES = ['A/B', '(A-B)/A*100', 'A-B', 'sqrt(A^2 - B^2)', 'max(A; B)']
 const isFormula = (r: BuilderRow) => r.source === 'formula'
@@ -95,6 +101,7 @@ function rowFor(field: BuilderField, ds: BuilderDataset | undefined, axis: AxisN
       : ds.kinds.some(k => k.value === 'withdrawal') ? 'withdrawal' : '',
     axis: base?.axis ?? axis, view: base?.view ?? 'line', stack: base?.stack, key: base?.key ?? 'well_date', days: base?.days ?? 3,
     name: '', hidden: base?.hidden, look: base?.look, ...(base?.wells_mode && ds?.entity === 'well' ? { wells_mode: base.wells_mode } : {}), ...(base?.transform ? { transform: base.transform } : {}),
+    ...(keepX && base?.x_scope ? { x_scope: base.x_scope } : {}), ...(keepX && base?.x_transform ? { x_transform: base.x_transform } : {}),
   }
 }
 
@@ -300,7 +307,7 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
   const y = ds?.fields.find(f => f.field === row.y)
   const xs = datasets.get(row.x_dataset)
   const x = xs?.fields.find(f => f.field === row.x)
-  const joined = row.x_dataset !== row.dataset
+  const joined = row.x_dataset !== row.dataset || (row.x_scope ?? 'curve') !== 'curve' || (row.x_transform?.op ?? 'none') !== 'none'
   const entity = ds?.entity === 'group' ? 'Группы' : 'Скважины'
   const wells = row.wells.length ? (ds?.entity === 'well' ? 'скв. ' : '') + row.wells.slice(0, 3).join(', ') + (row.wells.length > 3 ? ` +${row.wells.length - 3}` : '')
     : ds?.entity ? (ds.entity === 'well' ? 'все скважины' : 'все группы') : 'объект'
@@ -313,6 +320,11 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
     onChange({ transform: next.op === 'none' ? undefined : next })
   }
   const opLabel = TRANSFORMS.find(o => o[0] === t.op)?.[1]
+  const xt: RowTransform = row.x_transform ?? { op: 'none' }
+  const setXT = (patch: Partial<RowTransform>) => {
+    const next = { ...xt, ...patch }
+    onChange({ x_transform: next.op === 'none' ? undefined : next })
+  }
 
   return (
     <article className={'row-card' + (open ? ' open' : '') + (row.hidden ? ' hidden-row' : '')}>
@@ -363,7 +375,7 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
           <label className="field wide">
             <span className="field-label">Поле X</span>
             <select value={`${row.x_dataset}.${row.x}`} onChange={e => {
-              const [d, ...f] = e.target.value.split('.'); onChange({ x_dataset: d, x: f.join('.') })
+              const [d, ...f] = e.target.value.split('.'); onChange({ x_dataset: d, x: f.join('.'), ...(f.join('.') === 'date' ? { x_scope: undefined, x_transform: undefined } : {}) })
             }}>
               {!x && <option value={`${row.x_dataset}.${row.x}`}>{row.x}</option>}
               {catalog?.datasets.map(d => (
@@ -373,6 +385,29 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
               ))}
             </select>
           </label>
+          {x?.kind === 'number' && (
+            <>
+              <label className="field">
+                <span className="field-label">X: свод</span>
+                <select value={row.x_scope ?? 'curve'} title="Суточный расход по объекту или группе — сумма по их скважинам за каждую дату"
+                  onChange={e => onChange({ x_scope: e.target.value === 'curve' ? undefined : e.target.value as BuilderRow['x_scope'] })}>
+                  {X_SCOPES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">X: преобразование</span>
+                <select value={xt.op} onChange={e => setXT({ op: e.target.value as TransformOp })}>
+                  {X_TRANSFORMS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                </select>
+              </label>
+              {(xt.op === 'mul' || xt.op === 'div' || xt.op === 'add') && (
+                <label className="field number">
+                  <span className="field-label">X: число</span>
+                  <input type="text" inputMode="decimal" value={xt.value ?? ''} placeholder="1000" onChange={e => setXT({ value: e.target.value })} />
+                </label>
+              )}
+            </>
+          )}
           {joined && (
             <label className="field">
               <span className="field-label">Связь X и Y</span>
