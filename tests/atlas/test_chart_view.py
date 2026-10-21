@@ -37,3 +37,13 @@ def test_export_png_uses_view():
     plain = render.chart_file(sample(), 'svg', 150)[0]
     shown = render.chart_file(apply_view(sample(), {'looks': {'ГСП-1|line': {'color': '#12ab34'}}, 'ranges': {'y': [0, 50]}}), 'svg', 150)[0]
     assert b'12ab34' not in plain and b'12ab34' in shown
+
+
+def test_right_axis_color_follows_series_color():
+    chart = sample()
+    chart.y2 = Axis('P', 'МПа', color='#111111')
+    chart.series[1].axis = 'y2'
+    out = apply_view(chart, {'looks': {'B|points': {'color': '#22aa22'}}})
+    assert out.y2.color == '#22aa22'
+    chart.series.append(Series('C', [1], [1], kind='points', axis='y2'))     # у части рядов цвет не задан — шкала не меняется
+    assert apply_view(chart, {'looks': {'B|points': {'color': '#22aa22'}}}).y2.color == '#111111'
