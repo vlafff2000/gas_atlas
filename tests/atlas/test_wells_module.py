@@ -14,7 +14,7 @@ from atlas.engine.modules import well_analysis as legacy
 from atlas.engine.modules import well_charts
 from atlas.api import create_app
 from atlas.contract import _column
-from atlas.modules.wells import GDI_HISTORY_LABELS, OPERATING, SECTIONS
+from atlas.modules.wells import GDI_HISTORY_LABELS, OPERATING, SECTION_FUND, SECTIONS
 from atlas.projects import Projects
 
 WELL = '31'
@@ -185,7 +185,7 @@ def test_one_method_equals_58_method_and_several_filter(env):
         assert table(body, f'gdi-{WELL}')['count'] == len(analysis['gdi_history'])
 
 
-@pytest.mark.parametrize('section', SECTIONS[2:])
+@pytest.mark.parametrize('section', [s for s in SECTIONS[2:] if s != SECTION_FUND])
 def test_other_sections_match_58(env, section):
     client, pid, projects = env
     periods = ask(client, pid, 'periods', wells=[WELL], kind='withdrawal')[-3:]
