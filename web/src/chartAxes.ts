@@ -88,3 +88,38 @@ export function parseBound(text: string, time: boolean): number | null {
   const n = Number(s.replace(/\s/g, '').replace(',', '.'))
   return Number.isFinite(n) ? n : null
 }
+
+const NAME_LABEL_LINES = 3      // строк на название шкалы (единицы — отдельной строкой снизу)
+
+export interface AxisName2 { text: string; lines: number; cut: boolean }
+
+/**
+ * Название правой шкалы в полосе width пикселей: название переносится по словам (до трёх строк, дальше «…»),
+ * единицы измерения — отдельной строкой, всегда целиком (длинные слова режутся по ширине). Ширина знака — оценка по кеглю.
+ */
+export function fitAxisName(label: string, unit: string, width: number, fontSize: number): AxisName2 {
+  const cap = Math.max(4, Math.floor(width / (fontSize * 0.58)))
+  const split = (text: string) => {      // перенос по словам; слово длиннее строки режется
+    const out: string[] = []
+    let cur = ''
+    for (let word of text.split(/\s+/).filter(Boolean)) {
+      while (word.length > cap) {
+        if (cur) { out.push(cur); cur = '' }
+        out.push(word.slice(0, cap)); word = word.slice(cap)
+      }
+      if (cur && (cur + ' ' + word).length > cap) { out.push(cur); cur = word } else cur = cur ? cur + ' ' + word : word
+    }
+    if (cur) out.push(cur)
+    return out
+  }
+  let lines = split(label.trim()), cut = false
+  if (lines.length > NAME_LABEL_LINES) {
+    cut = true
+    const rest = lines[NAME_LABEL_LINES - 1]
+    lines = lines.slice(0, NAME_LABEL_LINES)
+    lines[NAME_LABEL_LINES - 1] = (rest.length >= cap ? rest.slice(0, cap - 1) : rest) + '…'
+  }
+  const u = unit.trim() ? split(unit.trim()) : []
+  const all = [...lines, ...u]
+  return { text: all.join('\n'), lines: all.length, cut }
+}

@@ -9,7 +9,7 @@ import type { ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from '.
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
-import { Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
+import { Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { chartLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { applyLooks, chartLookKey, markerSymbol, type Look } from './chartStyle'
 import { ChartSettings } from './ChartSettings'
@@ -200,6 +200,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   // две оси Y: одинаковое число делений строго друг напротив друга — одна основная сетка на обе
   const dual = alignedYAxes(chart, base)
   const twin = yCount(chart) > 1 && Y_NAMES.slice(0, yCount(chart)).every((_, i) => yAxisAt(chart, i).scale === 'value')      // ручные границы тоже делятся на 5
+  const manyRight = rightAxes(chart).length > 1
+  const rightNames = yAxesOf(chart).map(a => fitAxisName(a.label, a.unit, Y_BAND - 8, a.style?.title_size ?? 12))
+  const nameLines = manyRight ? Math.max(...rightNames.slice(1).map(n => n.lines)) : 1
   const axis = (a: Axis, position: 'x' | YName) => {
     const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position !== 'x' ? dual?.[position] : undefined
     if (fixed) return { ...plain, min: fixed[0], max: fixed[1], ...(twin ? { interval: (fixed[1] - fixed[0]) / TICK_INTERVALS } : {}) }
@@ -207,6 +210,8 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   }
   const axisBase = (a: Axis, position: 'x' | YName) => {
     const y = position !== 'x'
+    // при нескольких правых шкалах названия не помещаются в полосу: перенос по строкам, единицы — отдельной строкой
+    const narrow = y && position !== 'y' && manyRight ? rightNames[Y_NAMES.indexOf(position)] : null
     const zero = a.from_zero || (y && hasBars(chart, position))
     const as = a.style ?? {}, cs = chart.style ?? {}
     const family = as.font || cs.font ? fontCss(as.font ?? cs.font) : undefined
@@ -219,11 +224,12 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       max: a.scale === 'category' ? undefined : a.maximum ?? undefined,
       interval: a.step && a.scale === 'value' ? a.step : undefined,
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
-      name: axisTitle(a.label, a.unit),
+      name: narrow ? narrow.text : axisTitle(a.label, a.unit),
       // подпись шкалы Y — горизонтально над осью, читается без наклона головы
       nameLocation: y ? (a.inverse ? 'start' : 'end') : 'middle', nameGap: y ? 14 : 30,
+      ...(narrow?.cut ? { triggerEvent: true, tooltip: { show: true, formatter: () => escapeHtml(axisTitle(a.label, a.unit)) } } : {}),
       nameTextStyle: y
-        ? { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, align: position === 'y' ? 'left' : 'right', padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0] }
+        ? { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 15 } : {}), padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0] }
         : { color: ink, fontSize: as.title_size ?? 12, fontFamily: family },
       axisLine: { show: !y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color, lineStyle: { color: a.color || tk.axis } },
       ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
@@ -247,7 +253,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     animation: false,
     useUTC: true,
     textStyle: { fontFamily: chart.style?.font ? fontCss(chart.style.font) : FONT, color: chart.style?.text_color || tk.ink },
-    grid: { left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20, top: 34, bottom: navigator ? 80 : 44 },
+    grid: { left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20, top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44 },
     xAxis: axis(chart.x, 'x'),
     yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
