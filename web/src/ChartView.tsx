@@ -5,7 +5,7 @@ import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
 import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
+import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
@@ -47,9 +47,10 @@ interface Props {
   onOpenWell?: (well: string, date: string) => void
   /** Адрес на Карты ГСП для скважины из подсказки; null — скважины нет в проекте, кнопки нет. */
   mapLink?: (well: string) => string | null
-  onDownload: (format: string, dpi: number) => Promise<void>
+  /** Выгрузка файла; `view` — вид графика на экране (настройка рядов, границы осей, масштаб, легенда): файл должен совпасть с экраном. */
+  onDownload: (format: string, dpi: number, view: ChartExportView) => Promise<void>
   /** PNG графика для буфера обмена (как при выгрузке): кнопка «Копировать» для вставки в презентацию или письмо. */
-  onCopy?: () => Promise<Blob>
+  onCopy?: (view: ChartExportView) => Promise<Blob>
   /** Точки линий в окне оси X: при увеличении (и в режимах «Замеры» / «Исключать точки») прореженная линия заменяется точками окна. */
   fetchWindow?: (x0: number, x1: number, raw: boolean) => Promise<WindowReply>
 }
@@ -453,6 +454,19 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     const keys = Object.keys(all)
     for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete all[k]
     chartLooks.set(all)
+  }
+  /** Что видит инженер: личный вид рядов, ручные границы Y, текущее окно по X, скрытые пункты легенды. */
+  const screenView = (): ChartExportView => {
+    const st = state.current, view: ChartExportView = {}
+    if (looks && Object.keys(looks).length) view.looks = looks
+    const picked = Object.fromEntries(Y_NAMES.filter(n => ranges[n]).map(n => [n, ranges[n]!])) as ChartExportView['ranges']
+    if (picked && Object.keys(picked).length) view.ranges = picked
+    const z = (instance.current?.getOption() as { dataZoom?: { start?: number; end?: number }[] } | undefined)?.dataZoom?.[0]
+    const edges = st.edges()
+    if (edges && z && ((z.start ?? 0) > 0 || (z.end ?? 100) < 100)) view.x = edges
+    if (hidden.size) view.hidden = [...hidden]
+    if (facetOff.size) view.facets = [...facetOff]
+    return view
   }
   const [editor, setEditor] = useState<{ axis: AxisName; lo: string; hi: string; at: [number, number]; error: string } | null>(null)
   state.current.ranges = ranges
@@ -1296,8 +1310,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
               <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.9M8 12.3v1.9M1.8 8h1.9M12.3 8h1.9M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" /></svg>
             </button>
           </span>}
-          {onCopy && <CopyButton onCopy={onCopy} />}
-          <DownloadMenu onDownload={onDownload} />
+          {onCopy && <CopyButton onCopy={() => onCopy(screenView())} />}
+          <DownloadMenu onDownload={(format, dpi) => onDownload(format, dpi, screenView())} />
         </span>
       </figcaption>
       {settings && createPortal(<ChartSettings title={chart.title} series={chart.series} colorOf={colorOf(chart)} looks={looks ?? {}}

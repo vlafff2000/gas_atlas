@@ -156,6 +156,15 @@ async function download(path: string, body: unknown): Promise<void> {
   await downloadNotes(path, body)
 }
 
+/** Вид графика на экране для выгрузки: оформление рядов, границы осей, масштаб по времени, скрытые пункты легенды (atlas/chart_view.py). */
+export interface ChartExportView {
+  looks?: Record<string, unknown>
+  ranges?: Partial<Record<'y' | 'y2' | 'y3' | 'y4' | 'y5', [number, number]>>
+  x?: [number, number]
+  hidden?: string[]
+  facets?: string[]
+}
+
 /** PNG графика для буфера обмена: тот же рисунок, что и «Скачать» (цвета, легенда, подписи), без сохранения файла. */
 async function chartPng(path: string, body: unknown): Promise<Blob> {
   return (await send(path, json('POST', body))).blob()
@@ -196,10 +205,10 @@ export const api = {
     request<WindowReply>(`/api/modules/${module}/window`, json('POST', { project, params, chart, x0, x1, raw, revision })),
   table: (module: string, project: string, params: Params, id: string) =>
     request<Table>(`/api/modules/${module}/table`, json('POST', { project, params, id })),
-  exportChart: (module: string, project: string, params: Params, chart: string, format: string, dpi: number) =>
-    download(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format, dpi }),
-  chartPng: (module: string, project: string, params: Params, chart: string) =>
-    chartPng(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format: 'png', dpi: 300 }),
+  exportChart: (module: string, project: string, params: Params, chart: string, format: string, dpi: number, view?: ChartExportView) =>
+    download(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format, dpi, view }),
+  chartPng: (module: string, project: string, params: Params, chart: string, view?: ChartExportView) =>
+    chartPng(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format: 'png', dpi: 300, view }),
   exportTables: (module: string, project: string, params: Params, table?: string, format: 'xlsx' | 'csv' = 'xlsx') =>
     download(`/api/modules/${module}/export`, { project, params, target: 'tables', id: table, format }),
 }
