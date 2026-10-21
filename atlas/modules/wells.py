@@ -82,6 +82,7 @@ FUND_COLUMNS = {  # ключ таблицы → (подпись, знаков п
     'prev_period': ('Предыдущий сезон', None), 'd_rate': ('Изменение расхода, %', 1),
     'd_high': ('Изменение при высоком КРУ, %', 1), 'd_group': ('Изменение расхода группы, %', 1),
     'd_object': ('Изменение расхода объекта, %', 1)}
+FUND_COLORS = {'rate': '#1f4e8c', 'kru': '#169b62', 'group': '#ed8b23'}
 FILTER_NOTE = 'Отметьте «Исключить» и примените изменения. Исходные значения сохраняются; снятый флажок восстанавливает точку.'
 
 
@@ -228,15 +229,44 @@ class WellsModule(Module):
         else:
             result.notes.append(Note('Нет данных ЭЛПРО: раскрытие КРУ не рассчитано. Загрузите ЭЛПРО через «Источники».',
                                      'warning'))
-        table = fund.seasonal(daily, seasons, elpro=elpro, gdi=self.gdi_history(data, wells, params),
-                              wells=wells, high_kru=float(params['high_kru']))
-        frame = table[list(FUND_COLUMNS)].rename(columns={k: v[0] for k, v in FUND_COLUMNS.items()})
-        columns = [Column(label, label, '', decimals, 'number' if decimals is not None else 'text')
-                   for label, decimals in FUND_COLUMNS.values()]
-        result.tables.append(Table('fund-seasons', 'Фонд по сезонам', frame.reset_index(drop=True), columns,
-                                   note=FUND_NOTE))
+        history = self.gdi_history(data, wells, params)
+        table = fund.seasonal(daily, seasons, elpro=elpro, gdi=history, wells=wells, high_kru=float(params['high_kru']))
+        result.tables.append(fund_table('fund-seasons', 'Фонд по сезонам', table, FUND_NOTE))
         result.notes.append(Note(f'Скважин: {len(wells)}. Сезоны: {", ".join(seasons)}.'))
-        result.notes.append(Note(FUND_NOTE))
+        for well in [w for w in params['wells'] if w in set(wells)][:MAX_WELLS]:
+            self.fund_well(result, daily, elpro, seasons, table, history, well)
+
+    @staticmethod
+    def fund_well(result: Result, daily: pd.DataFrame, elpro: pd.DataFrame | None, seasons: list[str], table: pd.DataFrame,
+                  history: pd.DataFrame | None, well: str) -> None:
+        """Графики и таблицы одной скважины фонда: суточный расход с КРУ, расход по сезонам, сопоставление, ГДИ."""
+        head = f'Скважина №{well} · '
+        series = fund.daily_series(daily, elpro, well, seasons)
+        daily_chart = Chart(f'fund-daily-{well}', head + 'Суточный расход и раскрытие КРУ', Axis('Дата', scale='time'),
+                            Axis('Расход, тыс. м³/сут', from_zero=True), crosshair=True)
+        daily_chart.series.append(Series('Расход, тыс. м³/сут', series.date.to_numpy(), series.rate.to_numpy(), 'line',
+                                         color=FUND_COLORS['rate']))
+        if series.kru.notna().any():
+            daily_chart.y2 = Axis('Раскрытие КРУ, %', '%', minimum=0, maximum=100, color=FUND_COLORS['kru'])
+            daily_chart.series.append(Series('КРУ, %', series.date.to_numpy(), series.kru.to_numpy(), 'line',
+                                             color=FUND_COLORS['kru'], axis='y2'))
+        result.charts.append(daily_chart)
+        mine = table[table.well.eq(well)]
+        bars = Chart(f'fund-seasons-{well}', head + 'Расход по сезонам', Axis('Сезон', scale='category', categories=seasons),
+                     Axis('Расход, тыс. м³/сут', from_zero=True), crosshair=True)
+        periods = list(mine.period)
+        bars.series += [Series('Средний расход', periods, list(mine.mean_rate), 'bar', color=FUND_COLORS['rate']),
+                        Series('Расход при высоком КРУ', periods, list(mine.rate_high), 'bar', color=FUND_COLORS['kru']),
+                        Series('Расход группы', periods, list(mine.group_rate), 'line', color=FUND_COLORS['group'])]
+        result.charts.append(bars)
+        result.tables.append(fund_table(f'fund-well-{well}', head + 'Сопоставление по сезонам', mine, ''))
+        studies = fund.studies_by_season(history[history.well.eq(well)] if history is not None else None, daily, seasons)
+        if studies.empty:
+            result.notes.append(Note(head + 'Нет ГДИ в выбранных сезонах.'))
+        else:
+            frame = studies.drop(columns='well').rename(columns=GDI_HISTORY_LABELS | {'period': 'Сезон'})
+            result.tables.append(Table(f'fund-studies-{well}', head + 'ГДИ по сезонам', frame.reset_index(drop=True),
+                                       note=GDI_NOTE))
 
     @staticmethod
     def gdi_history(data: Data, wells: list[str], params: Mapping[str, Any]) -> pd.DataFrame | None:
@@ -516,6 +546,14 @@ def raw_table(data: Data, kind: DatasetKind, well: str, head: str) -> Table | No
     return Table(f'raw-{kind.value}-{well}', f'{head}Ручной фильтр · {kind.label} · №{well}', source, columns,
                  note=FILTER_NOTE, collapsed=True,
                  action=TableAction('exclude', kind, '_point_id', 'Применить ручной фильтр', checked_column='_excluded'))
+
+
+def fund_table(tid: str, title: str, frame: pd.DataFrame, note: str) -> Table:
+    """Таблица фонда: подписи и знаки из ``FUND_COLUMNS``; пустая строка сезона — пропуски, а не нули."""
+    columns = [Column(label, label, '', decimals, 'number' if decimals is not None else 'text')
+               for label, decimals in FUND_COLUMNS.values()]
+    return Table(tid, title, frame[list(FUND_COLUMNS)].rename(columns={k: v[0] for k, v in FUND_COLUMNS.items()})
+                 .reset_index(drop=True), columns, note=note)
 
 
 def chart_of(analysis: dict, name: str, settings: Mapping[str, Any], cid: str, data: Data) -> Chart:

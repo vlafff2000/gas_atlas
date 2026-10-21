@@ -153,3 +153,40 @@ def _compare(res: pd.DataFrame, object_rate: dict, group_rate: dict, seasons: li
         if pd.notna(r.mean_rate):
             last[r.well] = r
     return res.drop(columns='_order')[COLUMNS]
+
+
+def daily_series(daily: pd.DataFrame, elpro: pd.DataFrame | None, well: str, seasons: list[str]) -> pd.DataFrame:
+    """Суточный ряд скважины по сезонам: date, period, rate (тыс. м³/сут), kru (%).
+
+    Сутки объекта без записи скважины — расход 0 (точка падает на ось X, это не разрыв). Пропуск КРУ в ЭЛПРО остаётся
+    пропуском: раскрытие не подставляется.
+    """
+    dates = daily[daily.period.isin(seasons)][['date', 'period']].drop_duplicates('date').sort_values('date')
+    mine = daily[daily.well.astype(str).eq(str(well)) & daily.period.isin(seasons)]
+    rate = mine.assign(rate=mine.gas_volume_m3 / 1000).groupby('date').rate.first()
+    frame = dates.assign(rate=dates.date.map(rate).fillna(0.0), kru=np.nan)
+    if elpro is not None and not elpro.empty:
+        e = elpro[elpro.well.astype(str).eq(str(well))]
+        kru = e.assign(date=pd.to_datetime(e.date).dt.normalize()).groupby('date').y.mean().clip(0, 100)
+        frame['kru'] = frame.date.map(kru)
+    return frame.reset_index(drop=True)
+
+
+def studies_by_season(history: pd.DataFrame | None, daily: pd.DataFrame, seasons: list[str]) -> pd.DataFrame:
+    """Исследования ГДИ скважин по сезонам: сезон — по датам объекта; строки истории ГДИ, с признаком надёжности."""
+    columns = ['well', 'period', 'date', 'method', 'study', 'a', 'b', 'r2', 'distinct_q', 'reliable', 'reference_dp2',
+               'q_reference', 'q_free']
+    if history is None or history.empty or not seasons:
+        return pd.DataFrame(columns=columns)
+    spans = daily[daily.period.isin(seasons)].groupby('period').date.agg(['min', 'max'])
+    parts = []
+    for period, span in spans.iterrows():
+        part = history[history.date.between(span['min'], span['max'])].assign(period=period)
+        parts.append(part)
+    if not parts:
+        return pd.DataFrame(columns=columns)
+    out = pd.concat(parts, ignore_index=True)
+    out['well'] = out.well.astype(str)
+    out['_order'] = out.period.map({p: i for i, p in enumerate(seasons)})
+    out = out.sort_values(['well', '_order', 'date']).drop(columns='_order')
+    return out.reindex(columns=columns)
