@@ -14,6 +14,7 @@ export function WellPicker({ wells, value, onChange, onSeries }:
   const at = wells.indexOf(value)
   const go = (step: number) => { if (wells.length) onChange(wells[Math.min(wells.length - 1, Math.max(0, at < 0 ? (step > 0 ? 0 : wells.length - 1) : at + step))]) }
   const keys = (e: KeyboardEvent) => {
+    if (!(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLButtonElement)) return   // в поле поиска стрелки двигают курсор
     if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1) } else if (e.key === 'ArrowRight') { e.preventDefault(); go(1) }
   }
   return (
