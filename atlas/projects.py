@@ -365,6 +365,12 @@ class Projects:
         return self.summary(self._commit(pid, settings, expected, CATEGORIES_JOURNAL,
                                          {'object_groups': settings['panels']['pressure_match']['object_groups']}))
 
+    def assign_well_categories(self, pid: str, changes: Mapping[str, Any], expected: int | None = None) -> dict[str, Any]:
+        """Ручные категории скважин фонда по сезонам (``settings``): инженер может поменять подсказку."""
+        from .modules.wells import WELL_CATEGORIES_JOURNAL, with_well_categories
+        settings = with_well_categories(self.manifest(pid).get('settings', {}), changes)
+        return self.summary(self._commit(pid, settings, expected, WELL_CATEGORIES_JOURNAL, {'wells': len(changes)}))
+
     # --- сохранённые параметры и расчёты ---
     def saved_state(self, pid: str, module, panel_index: int = 0) -> dict[str, Any]:
         m = self.manifest(pid)

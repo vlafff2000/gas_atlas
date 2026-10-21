@@ -213,7 +213,8 @@ class TableAction:
     уходят в проект (``group``, ``subgroup``), ``editable`` — какие из них правятся в ячейках.
     ``submit='all'`` отправляет все строки как есть (автоматические подгруппы), ``'changed'`` — только изменённые.
     ``journal`` — запись в журнале проекта. ``target`` — куда уходят назначения: ``groups`` (группы скважин)
-    или ``object-categories`` (категории объектов кроссплота; ``id_column`` — объект, поле ``category``).
+    ``object-categories`` (категории объектов кроссплота; ``id_column`` — объект, поле ``category``) или
+    ``well-categories`` (ручные категории скважин фонда по сезонам; ``id_column`` — скважина, поле ``category``).
     """
     kind: Literal['exclude', 'assign']
     dataset: DatasetKind | None
@@ -227,7 +228,7 @@ class TableAction:
     editable: tuple[str, ...] = ()
     submit: Literal['changed', 'all'] = 'changed'
     journal: str = ''
-    target: Literal['groups', 'object-categories'] = 'groups'
+    target: Literal['groups', 'object-categories', 'well-categories'] = 'groups'
 
 
 @dataclass

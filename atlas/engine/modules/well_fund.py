@@ -190,3 +190,65 @@ def studies_by_season(history: pd.DataFrame | None, daily: pd.DataFrame, seasons
     out['_order'] = out.period.map({p: i for i, p in enumerate(seasons)})
     out = out.sort_values(['well', '_order', 'date']).drop(columns='_order')
     return out.reindex(columns=columns)
+
+
+CATEGORIES = ('Улучшение', 'Ухудшение', 'Стабильно', 'Нет сравнения')
+
+
+def _worst_background(row) -> float:
+    """Самое сильное падение фона (группа или объект), %; нет данных о фоне — пропуск."""
+    values = [v for v in (row.d_group, row.d_object) if pd.notna(v)]
+    return min(values) if values else np.nan
+
+
+def classify(table: pd.DataFrame, threshold: float = 10.0, ratio: float = 1.5) -> pd.DataFrame:
+    """Подсказка по категории скважины за окно сезонов: последний сезон с работой против предыдущего с работой.
+
+    Метрика — расход при высоком раскрытии КРУ, если он есть в обоих сезонах, иначе средний расход. Падение не больше
+    ``threshold`` % — «Стабильно». Падение больше порога, но сопоставимое с фоном группы или объекта
+    (падение скважины не больше ``ratio`` раз сильнее фона), помечается как объяснимое фоном, а не техсостоянием.
+    Это подсказка с видимым основанием: окончательное решение за инженером.
+    """
+    columns = ['well', 'group', 'period', 'prev_period', 'metric', 'last_rate', 'prev_rate', 'change', 'group_change',
+               'object_change', 'category', 'note', 'worked_seasons', 'window_mean', 'window_trend']
+    rows = []
+    for well, g in table.groupby('well', sort=False):
+        worked = g[g.mean_rate.notna()]
+        if worked.empty:
+            continue
+        last = worked.iloc[-1]
+        window_mean = worked.mean_rate.mean()
+        window_trend = np.nan
+        if len(worked) >= 2:
+            slope = np.polyfit(np.arange(len(worked)), worked.mean_rate.to_numpy(float), 1)[0]
+            window_trend = slope / window_mean * 100 if window_mean > 0 else np.nan
+        base = {'well': well, 'group': last.group, 'period': last.period, 'prev_period': last.prev_period,
+                'group_change': last.d_group, 'object_change': last.d_object, 'worked_seasons': len(worked),
+                'window_mean': window_mean, 'window_trend': window_trend}
+        if last.prev_period is None or pd.isna(last.prev_period):
+            rows.append({**base, 'metric': '', 'last_rate': last.mean_rate, 'prev_rate': np.nan, 'change': np.nan,
+                         'category': 'Нет сравнения', 'note': 'Нет предыдущего сезона с работой'})
+            continue
+        if pd.notna(last.d_high):
+            metric, change = 'Расход при высоком КРУ', last.d_high
+            last_rate, prev_rate = last.rate_high, worked[worked.period.eq(last.prev_period)].rate_high.iloc[0]
+        else:
+            metric, change = 'Средний расход', last.d_rate
+            last_rate, prev_rate = last.mean_rate, worked[worked.period.eq(last.prev_period)].mean_rate.iloc[0]
+        background = _worst_background(last)
+        if pd.isna(change):
+            category, note = 'Нет сравнения', 'Нет расхода в одном из сезонов'
+        elif change >= threshold:
+            category, note = 'Улучшение', ''
+        elif change > -threshold:
+            category, note = 'Стабильно', ''
+        elif pd.notna(background) and background <= -threshold and change >= ratio * background:
+            category = 'Ухудшение'
+            note = f'Падение сопоставимо с фоном ({background:+.1f} %): вероятно общий фон, не техсостояние'
+        elif pd.notna(background):
+            category, note = 'Ухудшение', f'Падение больше фона ({background:+.1f} %): проверить техсостояние'
+        else:
+            category, note = 'Ухудшение', 'Фон группы и объекта неизвестен: проверить вручную'
+        rows.append({**base, 'metric': metric, 'last_rate': last_rate, 'prev_rate': prev_rate, 'change': change,
+                     'category': category, 'note': note})
+    return pd.DataFrame(rows, columns=columns)

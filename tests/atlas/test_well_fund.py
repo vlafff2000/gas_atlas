@@ -1,5 +1,6 @@
 """Фонд скважин по сезонам: расход, форма кривой, раскрытие КРУ, фон группы и объекта, ГДИ по сезонам."""
 import numpy as np
+import pytest
 import pandas as pd
 
 from atlas.engine.modules import well_fund as fund
@@ -131,3 +132,79 @@ def test_studies_assigned_to_season_by_object_dates():
                          'q_free': [120.0, 130.0]})
     out = fund.studies_by_season(hist, d, ['A', 'B'])
     assert list(out.period) == ['A', 'B'] and list(out.study) == ['s1', 's2']
+
+
+def _table(rows):
+    """rows: (well, period, prev, mean_rate, rate_high, d_rate, d_high, d_group, d_object) — строка таблицы фонда."""
+    cols = ['well', 'period', 'prev_period', 'mean_rate', 'rate_high', 'd_rate', 'd_high', 'd_group', 'd_object', 'group']
+    frame = pd.DataFrame([(w, p, pv, m, h, dr, dh, dg, do, 'ГСП-1') for w, p, pv, m, h, dr, dh, dg, do in rows], columns=cols)
+    return frame
+
+
+def test_classify_improvement_stable_and_degradation_kinds():
+    t = _table([
+        ('1', 'A', None, 100.0, 100.0, np.nan, np.nan, np.nan, np.nan),
+        ('1', 'B', 'A', 130.0, 130.0, 30.0, 30.0, 0.0, 0.0),                 # улучшение
+        ('2', 'A', None, 100.0, 100.0, np.nan, np.nan, np.nan, np.nan),
+        ('2', 'B', 'A', 102.0, 102.0, 2.0, 2.0, 0.0, 0.0),                   # стабильно
+        ('3', 'A', None, 100.0, 100.0, np.nan, np.nan, np.nan, np.nan),
+        ('3', 'B', 'A', 60.0, 60.0, -40.0, -40.0, -38.0, -30.0),             # падение почти как фон группы
+        ('4', 'A', None, 100.0, 100.0, np.nan, np.nan, np.nan, np.nan),
+        ('4', 'B', 'A', 60.0, 60.0, -40.0, -40.0, -5.0, -3.0),               # фон не падал — техсостояние
+        ('5', 'A', None, 100.0, np.nan, np.nan, np.nan, np.nan, np.nan),
+        ('5', 'B', None, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan),    # нет работы — не в сравнении
+    ])
+    out = fund.classify(t, threshold=10, ratio=1.5).set_index('well')
+    assert out.loc['1', 'category'] == 'Улучшение'
+    assert out.loc['2', 'category'] == 'Стабильно'
+    assert out.loc['3', 'category'] == 'Ухудшение' and 'фоном' in out.loc['3', 'note']
+    assert out.loc['4', 'category'] == 'Ухудшение' and 'техсостояние' in out.loc['4', 'note']
+    assert out.loc['1', 'metric'] == 'Расход при высоком КРУ'
+
+
+def test_classify_uses_mean_rate_without_kru_and_flags_missing_comparison():
+    t = _table([
+        ('1', 'A', None, 100.0, np.nan, np.nan, np.nan, np.nan, np.nan),
+        ('1', 'B', 'A', 80.0, np.nan, -20.0, np.nan, np.nan, np.nan),
+        ('2', 'B', None, 80.0, np.nan, np.nan, np.nan, np.nan, np.nan),
+    ])
+    out = fund.classify(t).set_index('well')
+    assert out.loc['1', 'metric'] == 'Средний расход' and out.loc['1', 'category'] == 'Ухудшение'
+    assert 'фон' in out.loc['1', 'note'].lower()
+    assert out.loc['2', 'category'] == 'Нет сравнения'
+
+
+def test_well_category_overrides_are_validated_and_removed_when_empty():
+    from atlas.contract import ParamError
+    from atlas.modules.wells import WELL_CATEGORIES_KEY, with_well_categories
+
+    s = with_well_categories({}, {'31': {'category': 'Ухудшение'}, '45': 'Стабильно'})
+    assert s[WELL_CATEGORIES_KEY] == {'31': {'category': 'Ухудшение'}, '45': {'category': 'Стабильно'}}
+    s = with_well_categories(s, {'31': {'category': ''}})
+    assert s[WELL_CATEGORIES_KEY] == {'45': {'category': 'Стабильно'}}
+    with pytest.raises(ParamError):
+        with_well_categories(s, {'31': {'category': 'Нет сравнения'}})
+    with pytest.raises(ParamError):
+        with_well_categories(s, {})
+
+
+def test_engineer_category_overrides_hint_through_api(tmp_path):
+    from starlette.testclient import TestClient
+
+    from _wells_data import make_project
+    from atlas.api import create_app
+    from atlas.modules.wells import CATEGORY_LABELS, SECTION_FUND
+    from atlas.projects import Projects
+
+    projects = Projects(tmp_path)
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    params = {'section': SECTION_FUND, 'seasons_n': 2, 'wells': ['31']}
+    r = client.post(f'/api/projects/{pid}/well-categories', json={'changes': {'31': {'category': 'Ухудшение'}}})
+    assert r.status_code == 200, r.text
+    body = client.post('/api/modules/wells/run', json={'project': pid, 'params': params}).json()
+    table = next(t for t in body['tables'] if t['id'] == 'fund-categories')
+    keys = [c['key'] for c in table['columns']]
+    cells = dict(zip(table['rows'][keys.index('Скважина')], table['rows'][keys.index(CATEGORY_LABELS['category'][0])]))
+    assert cells['31'] == 'Ухудшение'                       # ручная правка перекрывает подсказку
+    assert table['action']['target'] == 'well-categories'
