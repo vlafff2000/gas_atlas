@@ -98,3 +98,23 @@ def test_well_water_book_keeps_water_factor_column(tmp_path):
                  ).to_excel(path, sheet_name='Данные', index=False)
     frame = load_file(path).frames['water']
     assert frame.set_index('well').loc['56', 'water_factor_l'] == 12.5 and frame.set_index('well').loc['56', 'water_rate'] == 0.8
+
+
+def test_text_coordinates_are_detected_by_content_not_only_by_name():
+    from atlas.engine.core import tabular
+    files = {'tnav.txt': b'W500\t1234.5\t5678.9\nW501 1240.0 5680.1\n',
+             'name_header.txt': b'Name X Y\nW500 1234.5 5678.9\nW501 1240.0 5680.1\n',
+             'welltrack.txt': b'WELLTRACK W500\n1234.5 5678.9 0 /\n/\n'}
+    for name, content in files.items():
+        tables = tabular.read_content(content, name, 31)[1]
+        assert base_book(tables, name).startswith('файл положения'), name
+        assert base_book(tables, '') == '' or name != 'tnav.txt', name
+        assert len(g.build(name, content)[0]) == 2 or name == 'welltrack.txt', name
+    assert len(g.build('welltrack.txt', files['welltrack.txt'])[0]) == 1
+
+
+def test_text_that_is_not_coordinates_stays_unrecognised():
+    from atlas.engine.core import tabular
+    for name, content in {'prod.txt': b'500\t01.05.2025\t12.3\n501\t02.05.2025\t9.1\n',
+                          'periods.txt': b'08.04.2012 inj\n12.05.2012 prod\n'}.items():
+        assert base_book(tabular.read_content(content, name, 31)[1], name) == '', name

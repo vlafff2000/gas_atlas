@@ -27,6 +27,7 @@ from starlette.routing import Route
 
 from .api import error
 from . import workspace_folders
+from .engine.core import tabular, water_monthly_import
 from .imports import Imports
 from .api_projects import internal_error_text
 from .contract import ParamError
@@ -271,6 +272,15 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
             'warning': warning, 'undo': batch}
 
 
+def _monthly_water(name: str, path: Path) -> bool:
+    """Замеры воды за месяц (старый формат Карт ГСП): такой файл грузится своим разбором, остальные «вода» — как раньше."""
+    try:
+        tables = tabular.read_content(path.read_bytes(), name, 31)[1]
+    except Exception:
+        return False
+    return water_monthly_import.looks_like(tables, name)
+
+
 def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy: str, loads: dict, role: str | None = None) -> dict[str, Any]:
     """Один файл: upload → check → apply (ЭЛПРО — свой разбор). Ошибка одного файла не обрывает остальные."""
     if name not in names_ok or Path(name).name != name or Path(name).suffix.lower() not in EXTENSIONS:
@@ -283,6 +293,8 @@ def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy:
             applied = imports.gas_db_load(pid, name, path.read_bytes(), policy)
         elif role == 'geo':
             applied = imports.geo_load(pid, name, path.read_bytes(), policy)
+        elif role == 'water' and _monthly_water(name, path):
+            applied = imports.water_monthly_load(pid, name, path.read_bytes(), policy)
         else:
             up = imports.upload(name, path.read_bytes())
             if up['error']:

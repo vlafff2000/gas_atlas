@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.core import elpro_import as elpro
-from atlas.engine.core import gas_db_import, well_geo_import
+from atlas.engine.core import gas_db_import, water_monthly_import, well_geo_import
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
@@ -41,6 +41,7 @@ from .projects import Conflict, Projects
 QUALITY_ROWS = 500
 MAX_FILES = 200
 BINARY = (b'PK', b'\xd0\xcf\x11\xe0')
+TEXT = ('.txt', '.csv', '.dat')
 POLICIES = {'new': 'Добавить, совпадения заменить новыми', 'old': 'Добавить, совпадения оставить прежними',
             'replace': 'Заменить целиком только импортируемые модули'}
 PRESSURE_MODES = {'add': 'Добавить / обновить объекты', 'scenarios': 'Добавить сценарии к объектам (прежние сохраняются)',
@@ -60,7 +61,7 @@ def ggh_well_horizon(values) -> str:
     return max(set(names), key=names.count) if names else ''
 
 
-def base_book(tables: dict[str, pd.DataFrame]) -> str:
+def base_book(tables: dict[str, pd.DataFrame], name: str = '') -> str:
     """«БД_ЭЛПРО» или «БД по учету газа» Базы ПХГ: у них свой разбор (``elpro_load``, ``gas_db_load``). Общий импорт
     принял бы ЭЛПРО за расходы, а учёт газа — за вынос воды по объекту. Пусто, если книга обычная."""
     def head(sheet: str) -> set[str]:
@@ -71,8 +72,10 @@ def base_book(tables: dict[str, pd.DataFrame]) -> str:
         return 'база ЭЛПРО'
     if {'Режим', 'Дата', 'Файл', 'Лист'} <= head('БД'):
         return '«БД по учету газа»'
-    if well_geo_import.looks_like(tables):
+    if well_geo_import.looks_like(tables, Path(name).suffix.lower() in TEXT):
         return 'файл положения и перфорации скважин'
+    if water_monthly_import.looks_like(tables, name):
+        return 'замеры воды по месяцам'
     return ''
 
 
@@ -350,10 +353,11 @@ class Imports:
             raise ParamError('Неизвестное правило повторов')
         item = self.file(body.get('token'))
         tables = self.sample(item.token, body.get('encoding') or 'auto', body.get('delimiter') or 'auto')[1]
-        special = base_book(tables)
+        special = base_book(tables, item.name)
         if not special:
             raise ParamError('Это не «БД_ЭЛПРО» и не «БД по учету газа» Базы ПХГ.')
-        load = self.elpro_load if special == 'база ЭЛПРО' else self.geo_load if special.startswith('файл положения') else self.gas_db_load
+        load = (self.elpro_load if special == 'база ЭЛПРО' else self.geo_load if special.startswith('файл положения')
+                else self.water_monthly_load if special.startswith('замеры воды') else self.gas_db_load)
         out = load(pid, item.name, item.content, policy)
         with self.lock:
             self.files.pop(item.token, None)
@@ -395,12 +399,13 @@ class Imports:
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
                              'status': 'Это книга факта и моделей давлений: загрузите ее в разделе «Данные давлений» ниже'})
                 continue
-            special = base_book(tables)
+            special = base_book(tables, item.name)
             if special:
                 rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
-                             'status': f'Это {special} из Базы ПХГ: у неё свой разбор. Нажмите «Загрузить в проект» справа (или загрузите её через блок «Источники»)',
-                             'base': 'elpro' if special == 'база ЭЛПРО' else 'geo' if special.startswith('файл положения') else 'gas'})
+                             'status': (f'Это {special}: у него свой разбор. Нажмите «Загрузить в проект» справа' if not special.startswith(('база', '«'))
+                                        else f'Это {special} из Базы ПХГ: у неё свой разбор. Нажмите «Загрузить в проект» справа (или загрузите её через блок «Источники»)'),
+                             'base': 'elpro' if special == 'база ЭЛПРО' else 'geo' if special.startswith('файл положения') else 'water' if special.startswith('замеры воды') else 'gas'})
                 continue
             sheets, any_rows, auto_use = {}, False, False
             for sheet, raw in tables.items():
@@ -960,6 +965,33 @@ class Imports:
         self._forget(p)
         return {'message': f'Сохранено: {len(p["data"])} замеров ГГХ, скважин {p["data"].well.nunique()}',
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def water_monthly_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+        """Замеры воды за месяц (старый формат Карт ГСП) → таблица ``water``: пара «скважина + месяц» из файла заменяет прежнюю.
+        Разбор — atlas/engine/core/water_monthly_import.py. Пустой водный фактор (песок, ремонт) остаётся пропуском."""
+        try:
+            new, warnings = water_monthly_import.build(name, content)
+        except ValueError as e:
+            raise ParamError(f'«{name}»: {e}') from e
+        m = self.projects.manifest(pid)
+        raw = self._raw_frames(pid, m)
+        old = raw.get('water')
+        if old is not None and len(old):
+            key = pd.MultiIndex.from_frame(new[['well', 'date']])
+            kept = old[~pd.MultiIndex.from_frame(old[['well', 'date']]).isin(key)]
+            final = pd.concat([kept, new], ignore_index=True)
+        else:
+            final = new
+        final = final.sort_values(['well', 'date']).reset_index(drop=True)
+        frames = dict(raw)
+        frames['water'] = final
+        month = new['date'].iloc[0]
+        message = (f'Замеры воды «{name}» за {month:%m.%Y}: скважин {new["well"].nunique()}, '
+                   f'пропусков по водному фактору {int(new["water_factor_l"].isna().sum())}')
+        saved = self._commit(pid, frames, m['revision'], 'Импорт замеров воды по месяцам',
+                             details={'file': name, 'rows': len(new)})
+        self._keep_originals(pid, [(name, content)])
+        return {'message': message, 'warnings': warnings, 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     def elpro_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
         """Файл ЭЛПРО (месячный «Параметры работы ГСП» или готовая «БД_ЭЛПРО») → таблица ``elpro``: дозапись по ключу.
