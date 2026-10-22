@@ -37,6 +37,9 @@ class DatasetKind(str, Enum):
     ANNULUS = 'annulus'                  # межколонные давления и расход из МКП по скважинам и датам (База межколонок)
     ELPRO = 'elpro'                      # ЭЛПРО: суточные P, T, Y КРУ, Q по скважинам (сырые данные, без исключений)
     WELL_GEO = 'well_geo'                # положение и перфорация скважин: x, y, альтитуда, верх и низ перфорации (одна строка на скважину)
+    GIS_PACKS = 'gis_packs'              # «База ГИС»: пачки по замерам (ГВК, hг эф, Кг ср.взв, этаж), одна строка на пачку
+    GIS_OBSERVATIONS = 'gis_observations'  # «База ГИС»: замеры по скважине и дате со статусом наблюдения
+    GIS_INTERVALS = 'gis_intervals'      # «База ГИС»: интервалы замера (от, до, Кп, Кг, hэф)
     GAS_DB = 'gas_db'                    # «БД по учету газа» Базы ПХГ: суточный объём по объекту, вынос воды по объекту
 
     @property
@@ -61,6 +64,9 @@ LABELS = {
     DatasetKind.ELPRO: 'ЭЛПРО',
     DatasetKind.GAS_DB: 'БД по учету газа',
     DatasetKind.WELL_GEO: 'Положение и перфорация скважин',
+    DatasetKind.GIS_PACKS: 'ГИС: пачки',
+    DatasetKind.GIS_OBSERVATIONS: 'ГИС: замеры',
+    DatasetKind.GIS_INTERVALS: 'ГИС: интервалы',
 }
 
 # Обязательные колонки каждого набора (как после импорта 5.8).
@@ -81,6 +87,9 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.ELPRO: ('well', 'date', 'q', 'kind'),
     DatasetKind.GAS_DB: ('date', 'kind', 'gas'),
     DatasetKind.WELL_GEO: ('well',),
+    DatasetKind.GIS_PACKS: ('well', 'date', 'pack'),
+    DatasetKind.GIS_OBSERVATIONS: ('well', 'date'),
+    DatasetKind.GIS_INTERVALS: ('well', 'date', 'pack', 'from_m', 'to_m'),
 }
 
 # Подписи колонок для таблиц и подсказок.
