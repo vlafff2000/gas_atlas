@@ -19,13 +19,21 @@ interface Props {
   onLoad?: () => Promise<Table>      // для таблицы с `deferred`: полные строки
   onRow?: (index: number) => void    // щелчок по строке (индекс в исходной таблице); для журнала проверки импорта
   rowOpen?: (index: number) => boolean   // строку можно открыть (иначе щелчок не работает)
+  mapLink?: (well: string) => string | null   // «Скважина» в ячейке ведёт на Карты ГСП (если скважина есть в проекте)
 }
 
-export function TableView({ table: given, onDownload, onApply, onAssign, onLoad, onRow, rowOpen }: Props) {
+export function TableView({ table: given, onDownload, onApply, onAssign, onLoad, onRow, rowOpen, mapLink }: Props) {
   const [loaded, setLoaded] = useState<Table | null>(null)
   const [loading, setLoading] = useState(false)
   useEffect(() => { setLoaded(null) }, [given])
   const table = loaded ?? given
+  // колонка «Скважина»: номер со ссылкой на Карты ГСП; щелчок по ссылке не открывает строку журнала
+  const cellView = (c: Column, v: Cell) => {
+    const href = c.key === 'well' && mapLink && !blank(v) ? mapLink(String(v)) : null
+    return href
+      ? <a href={href} target="_blank" rel="noopener" onClick={e => e.stopPropagation()}>{formatCell(v, c)}</a>
+      : formatCell(v, c)
+  }
   const load = (open: boolean) => {
     if (!open || !table.deferred || loading || !onLoad) return
     setLoading(true)
@@ -157,7 +165,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
                       </td>
                     ) : (
                       <td key={c.key} className={c.kind + (barStyle(table.rows[k][i], k) ? ' bar' : '') + tone(table.rows[k][i], c)} style={barStyle(table.rows[k][i], k)}>
-                        {formatCell(table.rows[k][i], c)}
+                        {cellView(c, table.rows[k][i])}
                       </td>
                     ))}
                   </tr>

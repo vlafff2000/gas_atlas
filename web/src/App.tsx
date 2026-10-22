@@ -244,6 +244,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
   const [wells, setWells] = useState<Set<string>>(new Set())
   useEffect(() => { api.appLinks().then(r => setMapsUrl(r.maps_url.replace(/\/+$/, ''))).catch(() => setMapsUrl('')) }, [])
   useEffect(() => { api.projectWells(project.id).then(w => setWells(new Set(w))).catch(() => setWells(new Set())) }, [project.id, project.revision])
+  const mapLink = mapsUrl ? (well: string) => wells.has(well) && /^\d+$/.test(well) ? `/api/app/maps?well=${well}` : null : undefined
   const storeKey = `params:${project.id}:${spec.id}` + (panel ? `:${panel}` : '')
   const [params, setParams] = useState<Params | null>(null)
   const [saved, setSaved] = useState<SavedState | null>(null)
@@ -447,7 +448,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               <div className="chart-grid">
                 {shown.map(c => (
                   <ChartView key={c.id} chart={c} excludeMode={excludeMode} onExclude={excludePoint}
-                    mapLink={mapsUrl ? well => wells.has(well) && /^\d+$/.test(well) ? `/api/app/maps?well=${well}` : null : undefined}
+                    mapLink={mapLink}
                     onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({
                       ...params, view: 'dynamics', wells: [well], groups: [], scope_groups: [], scope_wells: [], focus: `${well}|${date}` }) : undefined}
                     fetchWindow={(x0, x1, raw) => api.window(spec.id, project.id, params, c.id, x0, x1, raw, result.revision)}
@@ -470,7 +471,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             </>
           )}
           {result.tables.map(t => (
-            <TableView key={t.id} table={t}
+            <TableView key={t.id} table={t} mapLink={mapLink}
               onDownload={format => api.exportTables(spec.id, project.id, params, t.id, format)}
               onLoad={t.deferred ? () => api.table(spec.id, project.id, params, t.id) : undefined}
               onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
