@@ -64,6 +64,7 @@ PACK_LAYOUTS = {2: (1, (170, 108)), 4: (2, (84, 100)), 6: (2, (84, 68))}
 PACK_DPI = 200
 GGH_NAME = 'ГГХ_графики_для_отчёта.docx'
 GIS_NAME = 'ГИС_графики_для_отчёта.docx'
+GIS_HIKG_NAME = 'ГИС_hi_Кг_по_исследованиям.xlsx'
 
 
 class Failure(Exception):
@@ -165,6 +166,10 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
                       'points': {w: int(n) for w, n in g.well.astype(str).value_counts().items()}}
     if 'gis_packs' in raw and len(raw['gis_packs']):
         out['gis'] = {'wells': ordered(raw['gis_packs']['well'].astype(str).unique())}
+    if 'gis_intervals' in raw and len(raw['gis_intervals']):
+        from .engine.modules import gis_hikg
+        out.setdefault('gis', {'wells': ordered(raw['gis_intervals']['well'].astype(str).unique())})
+        out['gis']['seasons'] = gis_hikg.season_order(gis_hikg.prepare(raw['gis_intervals'])['season'].dropna().astype(str).unique())
     panels = settings.get('panels', {})
     out['two_panels'] = {'production': bool(panels.get('prod_1')), 'histograms': bool(panels.get('hist_1'))}
     out['has_elpro'] = 'elpro' in raw       # ряды ЭЛПРО в разделе «Производительность» — только при загруженной БД ЭЛПРО
@@ -975,6 +980,35 @@ def routes(projects: Projects) -> list[Route]:
         projects.store.event(pid, 'Экспорт', info)
         return {'files': [_path(saved).name], 'planned': len(items), 'completed': len(items), 'chart_files': 1, 'errors': []}
 
+    def gis_sums(request, body):
+        """Excel «Σ hi × Кг»: интервалы выбранных сезонов и скважин, все числа — формулы (``atlas/gis_xlsx.py``)."""
+        from . import gis_xlsx
+        from .domain import DatasetKind
+        from .engine.modules import gis_hikg
+        pid, form = request.path_params['pid'], form_of(body)
+        data = projects.data(pid)
+        if DatasetKind.GIS_INTERVALS not in data or data[DatasetKind.GIS_INTERVALS].empty:
+            raise Failure(400, 'В проекте нет таблицы интервалов «Базы ГИС»: загрузите её через «Импорт данных».')
+        part = gis_hikg.prepare(data[DatasetKind.GIS_INTERVALS])
+        wanted = {str(w) for w in form.get('gis_wells') or []}
+        seasons = {str(s) for s in form.get('gis_seasons') or []}
+        if wanted:
+            part = part[part['well'].astype(str).isin(wanted)]
+        if seasons:
+            part = part[part['season'].isin(seasons)]
+        if part.empty:
+            raise Failure(400, 'За выбранные скважины и сезоны нет интервалов ГИС: проверьте выбор.')
+        content = gis_xlsx.build(part)
+        exports = projects.store.path(pid) / 'exports'
+        exports.mkdir(exist_ok=True)
+        info = {'module': 'gis', 'kind': 'hikg', 'seasons': sorted(seasons), 'wells': len(wanted) or 'все'}
+        with tempfile.TemporaryDirectory(prefix='pending_gis_hikg_', dir=str(exports)) as tmp:
+            target = Path(tmp) / GIS_HIKG_NAME
+            target.write_bytes(content)
+            saved = projects.store.save_export_file(pid, GIS_HIKG_NAME, target, info)
+        projects.store.event(pid, 'Экспорт', info)
+        return {'files': [_path(saved).name], 'planned': len(part), 'completed': len(part), 'chart_files': 0, 'errors': []}
+
     def bundle(request, body):
         pid = request.path_params['pid']
         names = body.get('files') or []
@@ -1070,6 +1104,7 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/pack', E(pack), methods=['POST']),
         Route(base + '/ggh', E(ggh), methods=['POST']),
         Route(base + '/gis', E(gis), methods=['POST']),
+        Route(base + '/gis-hikg', E(gis_sums), methods=['POST']),
         Route(base + '/bundle', E(bundle), methods=['POST']),
         Route(base + '/presets', E(save_preset), methods=['POST']),
         Route(base + '/sync', E(sync)),

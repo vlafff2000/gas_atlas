@@ -51,7 +51,7 @@ export interface ExportChoices {
   style: Record<string, boolean>
   /** Данные ГГХ проекта: скважины, их горизонты и число замеров (блок «Графики ГГХ для отчёта»). */
   ggh?: { wells: string[]; horizon_of: Record<string, string>; points: Record<string, number> }
-  gis?: { wells: string[] }
+  gis?: { wells: string[]; seasons?: string[] }
 }
 export interface ExportPlan { modules: string[]; charts: { name: string; module: string }[]; tables: string[]; note: string }
 export interface ExportResult {
@@ -127,6 +127,7 @@ export const exportApi = {
   pack: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/pack`, json('POST', { form })),
   ggh: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/ggh`, json('POST', { form })),
   gis: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/gis`, json('POST', { form })),
+  gisHikg: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/gis-hikg`, json('POST', { form })),
   bundle: (pid: string, files: string[]) => request<{ file: string }>(`${P(pid)}/export/bundle`, json('POST', { files })),
   savePreset: (pid: string, name: string, form: Form) => request<Project>(`${P(pid)}/export/presets`, json('POST', { name, form })),
   sync: (pid: string) => request<Form>(`${P(pid)}/export/sync`),
