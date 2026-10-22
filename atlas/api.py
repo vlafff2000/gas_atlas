@@ -4,19 +4,20 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import threading
 import time
 from collections import OrderedDict
 from contextlib import nullcontext
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -38,6 +39,21 @@ class Failure(Exception):
 
 def error(status: int, message: str) -> JSONResponse:
     return JSONResponse({'error': message}, status_code=status)
+
+
+def _port_open(url: str) -> bool:
+    parts = urlsplit(url)
+    try:
+        with socket.create_connection((parts.hostname, parts.port or 80), timeout=0.5):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def _maps_note(text: str) -> HTMLResponse:
+    """Страница-пояснение вместо перехода в Карты, когда перейти нельзя."""
+    return HTMLResponse(f'<!doctype html><meta charset="utf-8"><title>Карты ГСП</title>'
+                        f'<p style="font-family:sans-serif;margin:24px">{text}</p>')
 
 
 class Results:
@@ -124,6 +140,18 @@ def create_app(projects: Projects | None = None) -> Starlette:
     def app_links(request, body):
         """Адрес Карт ГСП: переменная PXG_MAPS_URL (её передаёт меню pxg_hub); пусто — кнопки на карту не будет."""
         return {'maps_url': os.environ.get('PXG_MAPS_URL', '').strip()}
+
+    def maps_open(request):
+        """«Показать на карте»: переход в Карты ГСП на скважине (#/map?well=…); если Карт нет — понятная страница."""
+        well = request.query_params.get('well', '').strip()
+        if not well.isdigit():
+            return error(400, 'Номер скважины — целое число')
+        base = os.environ.get('PXG_MAPS_URL', '').strip().rstrip('/')
+        if not base:
+            return _maps_note('Адрес Карт ГСП не задан. Откройте Атлас через меню запуска (pxg_hub), тогда кнопка «Показать на карте» заработает.')
+        if not _port_open(base):
+            return _maps_note('Карты ГСП не запущены. Запустите «Карты» в меню запуска и нажмите «Показать на карте» ещё раз.')
+        return RedirectResponse(f'{base}/#/map?well={well}', status_code=302)
 
     def project_wells(request, body):
         return {'wells': projects.wells(request.path_params['pid'])}
@@ -308,6 +336,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/options', E(options)),
         Route('/api/projects/{pid}/wells', E(project_wells)),
         Route('/api/app/links', E(app_links)),
+        Route('/api/app/maps', maps_open),
         Route('/api/projects/{pid}/exclusions', E(exclusions), methods=['POST']),
         Route('/api/projects/{pid}/exclusions/undo', E(undo), methods=['POST']),
         Route('/api/projects/{pid}/groups', E(groups), methods=['POST']),
