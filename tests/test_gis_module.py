@@ -22,7 +22,7 @@ def _frame():
 
 
 def _params(**kw):
-    base = {'wells': ['115', '113'], 'packs': [], 'start': '', 'end': ''}
+    base = {'wells': ['115', '113'], 'packs': [], 'start': '', 'end': '', 'view': 'all'}
     return {**base, **kw}
 
 
@@ -67,3 +67,11 @@ def test_builder_layout_adds_gis_chart_after_main_ones():
     res = GisModule().run(data, _params(wells=['115'], builder_layouts=['ГВК']))
     assert res.charts[-1].id.startswith('builder-g1')
     assert not [n for n in res.notes if n.level == 'warning']
+
+
+def test_view_toggle_keeps_one_metric_or_the_svod():
+    only_gvk = GisModule().run({GIS: _frame()}, _params(view='gvk')).charts
+    assert [c.id for c in only_gvk] == ['gis-gvk-115', 'gis-gvk-113']
+    svod = GisModule().run({GIS: _frame()}, _params(view='svod')).charts
+    assert [c.id for c in svod] == ['gis-svod-gvk']
+    assert len(GisModule().run({GIS: _frame()}, _params()).charts) == 7
