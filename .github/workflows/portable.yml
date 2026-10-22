@@ -1,87 +1,17 @@
-name: Portable archives
-# Не запускается сам после PR: только вручную (Actions -> Portable archives -> Run workflow) или по тегу v*.
+name: Единый архив ПХГ
+# Один архив со всеми приложениями ПХГ (Атлас, База ПХГ, Карты, ГДМ, ГИС и ГВК, отчёты) для РЕД ОС 7.3 и Windows 10+.
+# Собирается из текущих веток обоих репозиториев (gas_atlas и all_scripts): после push в ветку gas_atlas, каждую ночь и вручную.
+# Отдельные архивы отдельных репозиториев больше не собираются.
 on:
   workflow_dispatch:
   push:
-    tags: ['v*']
+    branches: [claude/python-backend-ui-update-zdhgen]
+  schedule:
+    - cron: '17 2 * * *'
 concurrency:
-  group: portable-${{ github.ref }}
+  group: unified-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  package:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build archive
-        run: |
-          mkdir -p dist && git archive --format=zip --prefix=Gas_Atlas/ -o dist/Gas_Atlas.zip HEAD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Gas_Atlas
-          path: dist/Gas_Atlas.zip
-  portable:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {target: windows, os: windows-2022}
-          - {target: linux, os: ubuntu-22.04}
-    runs-on: ${{ matrix.os }}
-    env:
-      PYTHONUTF8: '1'
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - name: Build portable folder (own Python 3.13, no install needed)
-        run: python tools/build_portable.py ${{ matrix.target }}
-      - name: Start the app from the unpacked archive
-        run: |
-          mkdir t && cd t
-          python -c "import sys,zipfile,tarfile; p=sys.argv[1]; zipfile.ZipFile(p).extractall('.') if p.endswith('.zip') else tarfile.open(p).extractall('.')" ../dist/Gas_Atlas_portable_*
-          cd Gas_Atlas
-          PY=python/bin/python3.13; [ -f python/python.exe ] && PY=python/python.exe
-          export PYTHONNOUSERSITE=1
-          "$PY" -s -m atlas --server --port 8765 > atlas6.log 2>&1 &
-          ok=
-          for i in $(seq 90); do
-            curl -sf http://127.0.0.1:8765/api/modules > modules.json && ok=1 && break
-            sleep 1
-          done
-          cat atlas6.log
-          test -n "$ok" && head -c 200 modules.json
-          test -f tools/icons/gas_atlas_6.ico
-          mkdir -p ../desk && "$PY" -s tools/desktop_shortcuts.py --dir ../desk
-          test "$(ls ../desk | wc -l)" = 1
-      - name: Self-check from the unpacked archive (own Python, demo data)
-        run: |
-          cd t/Gas_Atlas
-          PY=python/bin/python3.13; [ -f python/python.exe ] && PY=python/python.exe
-          export PYTHONNOUSERSITE=1 PYTHONUTF8=1
-          mkdir -p ../demo
-          "$PY" -s -c "import pandas as pd; d=pd.DataFrame({'Скважина':['1','2','54/80'],'Дата':pd.to_datetime(['2025-01-01']*3),'Суточный расход газа':[100.0,0.0,240.0],'Время работы':[24,24,24],'Тип данных':['отбор']*3,'Источник':['ГСП 1','ГСП 1','ГСП 2'],'Сезон':['2024-2025']*3}); d.to_excel('../demo/otbor.xlsx',index=False,sheet_name='Отборы')"
-          "$PY" -s -m atlas.selfcheck ../demo --out ../demo_result
-          test -f ../demo_result/selfcheck_report.md
-          head -c 400 ../demo_result/selfcheck_report.md
-          test -f Proverka_dannyh.bat -o -f proverka_dannyh.sh
-      - name: Linux archive on old glibc systems (CentOS 7 = glibc 2.17, AlmaLinux 8 = glibc 2.28; RED OS 7.3 is in this range)
-        if: matrix.target == 'linux'
-        run: |
-          for image in centos:7 almalinux:8; do
-            echo "== $image"
-            docker run --rm -v "$PWD/t/Gas_Atlas:/app" -v "$PWD/t/demo:/demo" -v "$PWD/t/out_$(echo $image | tr ':' '_'):/out" "$image" \
-              bash -c 'ldd --version | head -1; cd /app && PYTHONNOUSERSITE=1 python/bin/python3.13 -s -c "import atlas, pandas, numpy, openpyxl, uvicorn, starlette, plotly; print(\"imports ok\")" && PYTHONNOUSERSITE=1 python/bin/python3.13 -s -m atlas.selfcheck /demo --out /out --quick | tail -3'
-            test -f "t/out_$(echo $image | tr ':' '_')/selfcheck_report.md"
-          done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Gas_Atlas_portable_${{ matrix.target }}
-          path: dist/Gas_Atlas_portable_*
-          compression-level: 0
   unified:
     # Один архив со всеми приложениями ПХГ (Атлас + База ПХГ + Карты ГСП + Скедул) и меню; отдельные архивы выше не меняются.
     strategy:
