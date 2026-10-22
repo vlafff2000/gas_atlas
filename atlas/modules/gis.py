@@ -139,6 +139,9 @@ class GisModule(Module):
             return result
         table = gis_hikg.sums(part)
         result.tables.append(GisModule.hikg_table(table))
+        changes = gis_hikg.season_changes(table)
+        if not changes.empty:
+            result.tables.append(GisModule.hikg_changes_table(changes))
         for well, frame in table.groupby(table['well'].astype(str), sort=True):
             result.charts.append(GisModule.hikg_chart(well, frame))
         missed = gis_hikg.skipped(part)
@@ -157,6 +160,14 @@ class GisModule(Module):
                       Column('investigation', 'Исследование'), Column('pack', 'Пачка'), Column('intervals', 'Интервалов'),
                       Column('hikg', 'Σ hi×Кг, м', decimals=2)],
                      note='Интервалы с Кг выше нуля: hi × Кг, сумма по пачке и исследованию.')
+
+    @staticmethod
+    def hikg_changes_table(changes: pd.DataFrame) -> Table:
+        return Table('gis-hikg-changes', 'Изменение Σ hi × Кг между соседними сезонами', changes,
+                     [Column('well', 'Скважина'), Column('pack', 'Пачка'), Column('from', 'Сезон было'),
+                      Column('to', 'Сезон стало'), Column('v_from', 'Σ было', decimals=2), Column('v_to', 'Σ стало', decimals=2),
+                      Column('delta', 'Δ, м', decimals=2), Column('pct', 'Δ, %', decimals=1)],
+                     note='Значение сезона — среднее по его исследованиям. Δ — разность соседних сезонов по времени.')
 
     @staticmethod
     def hikg_chart(well: str, frame: pd.DataFrame) -> Chart:

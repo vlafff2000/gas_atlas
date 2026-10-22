@@ -56,3 +56,25 @@ def skipped(prepared: pd.DataFrame) -> int:
     hi = pd.to_numeric(prepared['hi_m'], errors='coerce')
     kg = pd.to_numeric(prepared['kg'], errors='coerce')
     return int((hi.isna() | kg.isna()).sum())
+
+
+CHANGE_COLUMNS = ['well', 'pack', 'from', 'to', 'v_from', 'v_to', 'delta', 'pct']
+
+
+def season_changes(table: pd.DataFrame) -> pd.DataFrame:
+    """Изменение Σ hi × Кг между соседними выбранными сезонами по скважине и пачке.
+
+    Значение сезона — среднее по исследованиям этого сезона (обычно одно исследование). Изменение — разность соседних
+    сезонов по времени, в процентах — от прежнего. Сезоны — в порядке времени (season_order)."""
+    if table.empty:
+        return pd.DataFrame(columns=CHANGE_COLUMNS)
+    order = {label: i for i, label in enumerate(season_order(table['season'].unique()))}
+    mean = table.groupby(['well', 'pack', 'season'], as_index=False)['hikg'].mean()
+    mean['rank'] = mean['season'].map(order)
+    rows = []
+    for (well, pack), part in mean.sort_values('rank').groupby(['well', 'pack']):
+        for prev, nxt in zip(part.itertuples(index=False), part.iloc[1:].itertuples(index=False)):
+            delta = nxt.hikg - prev.hikg
+            pct = delta / prev.hikg * 100 if prev.hikg else float('nan')
+            rows.append((well, pack, prev.season, nxt.season, prev.hikg, nxt.hikg, delta, pct))
+    return pd.DataFrame(rows, columns=CHANGE_COLUMNS)

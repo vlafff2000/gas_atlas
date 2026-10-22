@@ -71,3 +71,19 @@ def test_no_intervals_gives_note_not_error():
     res = GisModule().run({}, _params())
     assert not res.charts and not res.tables
     assert any('интервалов' in n.text for n in res.notes)
+
+
+def test_season_changes_between_neighbour_seasons():
+    table = gis_hikg.sums(gis_hikg.prepare(_intervals()))
+    changes = gis_hikg.season_changes(table)
+    row = changes[(changes['well'] == '115') & (changes['pack'] == 'верхняя')].iloc[0]
+    assert (row['from'], row['to']) == ('осень 2024', 'весна 2025')
+    assert row['delta'] == pytest.approx(1.0 - (2.0 * 0.30 + 1.5 * 0.25))
+    assert row['pct'] == pytest.approx(row['delta'] / (2.0 * 0.30 + 1.5 * 0.25) * 100)
+
+
+def test_changes_table_only_when_two_seasons_present():
+    res = GisModule().run({INTERVALS: _intervals()}, _params(wells=['115']))
+    assert 'gis-hikg-changes' in [t.id for t in res.tables]
+    one = GisModule().run({INTERVALS: _intervals()}, _params(wells=['115'], seasons=['весна 2025']))
+    assert 'gis-hikg-changes' not in [t.id for t in one.tables]
