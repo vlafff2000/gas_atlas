@@ -107,8 +107,8 @@ def test_text_coordinates_are_detected_by_content_not_only_by_name():
              'welltrack.txt': b'WELLTRACK W500\n1234.5 5678.9 0 /\n/\n'}
     for name, content in files.items():
         tables = tabular.read_content(content, name, 31)[1]
-        assert base_book(tables, True).startswith('файл положения'), name
-        assert base_book(tables, False) == '' or name != 'tnav.txt', name
+        assert base_book(tables, name).startswith('файл положения'), name
+        assert base_book(tables, '') == '' or name != 'tnav.txt', name
         assert len(g.build(name, content)[0]) == 2 or name == 'welltrack.txt', name
     assert len(g.build('welltrack.txt', files['welltrack.txt'])[0]) == 1
 
@@ -117,4 +117,4 @@ def test_text_that_is_not_coordinates_stays_unrecognised():
     from atlas.engine.core import tabular
     for name, content in {'prod.txt': b'500\t01.05.2025\t12.3\n501\t02.05.2025\t9.1\n',
                           'periods.txt': b'08.04.2012 inj\n12.05.2012 prod\n'}.items():
-        assert base_book(tabular.read_content(content, name, 31)[1], True) == '', name
+        assert base_book(tabular.read_content(content, name, 31)[1], name) == '', name
