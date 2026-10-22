@@ -28,7 +28,7 @@ HEADERS = (('perf_top', ('верх перф', 'кровля', 'perf_top', 'perf 
            ('altitude', ('альтитуд', 'altitude', 'отметка устья')),
            ('x', ('x', 'х', 'восток', 'easting')),
            ('y', ('y', 'север', 'northing')),
-           ('well', ('скважин', 'well', 'скв', '№', 'номер')))
+           ('well', ('скважин', 'well', 'скв', '№', 'номер', 'name')))
 _NUM = re.compile(r'^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d+)?$')
 
 
@@ -167,13 +167,35 @@ def _legacy_depths(book: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
     return pd.DataFrame([{'well': w, **v} for w, v in rows.items()], columns=COLUMNS)
 
 
-def looks_like(tables: dict[str, pd.DataFrame]) -> bool:
-    """Книга с положением скважин, перфорацией или альтитудами (по названиям листов и заголовкам). Для общего импорта."""
+def _xy_text(raw: pd.DataFrame) -> bool:
+    """Текст «скважина X Y» без заголовка (или с одной строкой заголовков): номер, затем два числа. Только для текстовых файлов."""
+    good = bad = 0
+    for row in raw.head(200).itertuples(index=False):
+        cells = [t for v in row if not (isinstance(v, float) and np.isnan(v)) for t in str(v).replace(';', ' ').split()]
+        if not cells:
+            continue
+        if len(cells) >= 3 and well_id(cells[0]) is not None and _float(cells[1]) is not None and _float(cells[2]) is not None:
+            good += 1
+        else:
+            bad += 1
+    return good >= 2 and bad <= 1
+
+
+def _welltrack(raw: pd.DataFrame) -> bool:
+    """Траектория tNavigator: строка «WELLTRACK <скважина>» в первой колонке."""
+    return raw.shape[1] > 0 and any(str(v).strip().upper() == 'WELLTRACK' for v in raw.iloc[:, 0].tolist())
+
+
+def looks_like(tables: dict[str, pd.DataFrame], text: bool = False) -> bool:
+    """Книга или текст с положением скважин, перфорацией или альтитудами (по названиям листов и заголовкам). Для общего импорта.
+    ``text`` — файл .txt/.csv: там дополнительно ищем беззаголовочный список «скважина X Y» и WELLTRACK."""
     if any(('перфор' in n.lower() or 'альтитуд' in n.lower()) for n in tables):
         return True
     for raw in tables.values():
         if raw is None or raw.empty:
             continue
+        if _welltrack(raw) or (text and _xy_text(raw)):
+            return True
         headers = [_key(v) for v in raw.iloc[0].tolist()]
         has = {kind: _column(headers, kind, set()) is not None for kind in ('well', 'x', 'y', 'altitude', 'perf_top', 'perf_bottom')}
         if has['well'] and not any(h in ('дата', 'date') for h in headers) and (

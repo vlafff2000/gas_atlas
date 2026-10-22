@@ -41,6 +41,7 @@ from .projects import Conflict, Projects
 QUALITY_ROWS = 500
 MAX_FILES = 200
 BINARY = (b'PK', b'\xd0\xcf\x11\xe0')
+TEXT = ('.txt', '.csv', '.dat')
 POLICIES = {'new': 'Добавить, совпадения заменить новыми', 'old': 'Добавить, совпадения оставить прежними',
             'replace': 'Заменить целиком только импортируемые модули'}
 PRESSURE_MODES = {'add': 'Добавить / обновить объекты', 'scenarios': 'Добавить сценарии к объектам (прежние сохраняются)',
@@ -60,7 +61,7 @@ def ggh_well_horizon(values) -> str:
     return max(set(names), key=names.count) if names else ''
 
 
-def base_book(tables: dict[str, pd.DataFrame]) -> str:
+def base_book(tables: dict[str, pd.DataFrame], text: bool = False) -> str:
     """«БД_ЭЛПРО» или «БД по учету газа» Базы ПХГ: у них свой разбор (``elpro_load``, ``gas_db_load``). Общий импорт
     принял бы ЭЛПРО за расходы, а учёт газа — за вынос воды по объекту. Пусто, если книга обычная."""
     def head(sheet: str) -> set[str]:
@@ -71,7 +72,7 @@ def base_book(tables: dict[str, pd.DataFrame]) -> str:
         return 'база ЭЛПРО'
     if {'Режим', 'Дата', 'Файл', 'Лист'} <= head('БД'):
         return '«БД по учету газа»'
-    if well_geo_import.looks_like(tables):
+    if well_geo_import.looks_like(tables, text):
         return 'файл положения и перфорации скважин'
     return ''
 
@@ -350,7 +351,7 @@ class Imports:
             raise ParamError('Неизвестное правило повторов')
         item = self.file(body.get('token'))
         tables = self.sample(item.token, body.get('encoding') or 'auto', body.get('delimiter') or 'auto')[1]
-        special = base_book(tables)
+        special = base_book(tables, Path(item.name).suffix.lower() in TEXT)
         if not special:
             raise ParamError('Это не «БД_ЭЛПРО» и не «БД по учету газа» Базы ПХГ.')
         load = self.elpro_load if special == 'база ЭЛПРО' else self.geo_load if special.startswith('файл положения') else self.gas_db_load
@@ -395,11 +396,12 @@ class Imports:
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
                              'status': 'Это книга факта и моделей давлений: загрузите ее в разделе «Данные давлений» ниже'})
                 continue
-            special = base_book(tables)
+            special = base_book(tables, Path(item.name).suffix.lower() in TEXT)
             if special:
                 rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
-                             'status': f'Это {special} из Базы ПХГ: у неё свой разбор. Нажмите «Загрузить в проект» справа (или загрузите её через блок «Источники»)',
+                             'status': (f'Это {special}: у него свой разбор. Нажмите «Загрузить в проект» справа' if special.startswith('файл положения')
+                                        else f'Это {special} из Базы ПХГ: у неё свой разбор. Нажмите «Загрузить в проект» справа (или загрузите её через блок «Источники»)'),
                              'base': 'elpro' if special == 'база ЭЛПРО' else 'geo' if special.startswith('файл положения') else 'gas'})
                 continue
             sheets, any_rows, auto_use = {}, False, False
