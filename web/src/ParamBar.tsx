@@ -30,7 +30,7 @@ const visible = (p: Param, values: Params) =>
 export function paramSummary(params: Param[], values: Params, options: Record<string, string[] | undefined>): string[] {
   const out: string[] = []
   for (const p of params) {
-    if (p.chart_kind || !visible(p, values)) continue
+    if (p.chart_kind || p.kind === 'json' || !visible(p, values)) continue
     const v = values[p.name]
     if (p.kind === 'multi') {
       const list = (v as string[] | undefined) ?? []
@@ -97,7 +97,7 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
 
   const sections: [string, Param[]][] = []
   for (const p of spec.params) {
-    if (p.chart_kind || !visible(p, values)) continue
+    if (p.chart_kind || p.kind === 'json' || !visible(p, values)) continue    // json — макет раздела, правится его интерфейсом
     if (p.requires_dataset && hasData[p.name] !== true) continue
     const last = sections[sections.length - 1]
     if (last && last[0] === p.section) last[1].push(p); else sections.push([p.section, [p]])

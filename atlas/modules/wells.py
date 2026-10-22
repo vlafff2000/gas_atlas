@@ -17,16 +17,18 @@ from atlas.engine.modules import charts as legacy_charts
 from atlas.engine.modules import gdi as legacy_gdi
 from atlas.engine.modules import well_analysis as legacy
 from atlas.engine.modules import well_charts
+from atlas.engine.modules import well_fund as fund
 
-from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Table,
-                        TableAction)
+from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series,
+                        Table, TableAction)
 from ..domain import DatasetKind
 from .gdi import GdiModule
 
 K = DatasetKind
 SECTION_DATA, SECTION_GDI_CMP, SECTION_VIEW, SECTION_GDI = 'Выбор данных', 'Сравнение ГДИ', 'Раздел', 'Индикаторные диаграммы'
+SECTION_FUND = 'Фонд по сезонам'
 SECTIONS = ('Эксплуатация', 'Продуктивность и ГДИ', 'Контроль воды', 'Забой и шаблонировка', 'Конструкция',
-            'Выводы и качество')
+            'Выводы и качество', SECTION_FUND)
 OPERATING = ('daily', 'daily_mixed', 'shares', 'cumulative', 'cumulative_axis', 'seasonal', 'aligned', 'hours',
              'pressures', 'specific')
 CHART_NAMES = {well_charts.LABELS[n]: n for n in OPERATING}
@@ -65,6 +67,33 @@ LEVEL_NOTE = ('Уровни относятся к указанным гориз�
               'устанавливает обводненность добываемого газа.')
 RAW_NOTE = ('Графики дашборда содержат производные показатели. Измерения можно исключить в таблицах ниже; анализ '
             'пересчитается. Щелчок по исходным точкам доступен также в основных разделах.')
+FUND_NOTE = ('Фонд по сезонам: средний расход — среднее по суткам с расходом; пропуск суток не считается нулём. Изменения — к '
+             'предыдущему сезону, в котором у скважины была работа. Фон группы и объекта — средний суточный расход за сезон. '
+             'Это основание для проверки инженером, а не вывод о состоянии скважины.')
+FUND_COLUMNS = {  # ключ таблицы → (подпись, знаков после запятой или None для текста)
+    'well': ('Скважина', None), 'group': ('Группа', None), 'period': ('Сезон', None),
+    'gas_days': ('Дней с данными газа', 0), 'working_days': ('Дней с расходом', 0),
+    'mean_rate': ('Средний расход, тыс. м³/сут', 1), 'kru_days': ('Дней с КРУ', 0),
+    'kru_mean': ('Раскрытие КРУ, %', 1), 'high_days': ('Дней при высоком КРУ', 0),
+    'rate_high': ('Расход при высоком КРУ, тыс. м³/сут', 1), 'kru_corr': ('Связь КРУ и расхода (ранг.)', 2),
+    'trend': ('Тренд, % за 30 сут', 1), 'shape': ('Форма кривой', None),
+    'group_rate': ('Расход группы, тыс. м³/сут', 1), 'object_rate': ('Расход объекта, тыс. м³/сут', 1),
+    'gdi_q': ('ГДИ: Q при общем ΔP², тыс. м³/сут', 1), 'gdi_studies': ('ГДИ: надежных исследований', 0),
+    'prev_period': ('Предыдущий сезон', None), 'd_rate': ('Изменение расхода, %', 1),
+    'd_high': ('Изменение при высоком КРУ, %', 1), 'd_group': ('Изменение расхода группы, %', 1),
+    'd_object': ('Изменение расхода объекта, %', 1)}
+FUND_COLORS = {'rate': '#1f4e8c', 'kru': '#169b62', 'group': '#ed8b23'}
+WELL_CATEGORIES_KEY = 'well_fund_categories'          # ручные категории скважин в настройках проекта
+WELL_CATEGORIES_JOURNAL = 'Категории скважин (фонд по сезонам)'
+ENGINEER_CHOICES = ('Улучшение', 'Ухудшение', 'Стабильно')
+CATEGORY_LABELS = {  # ключ таблицы категорий → (подпись, знаков после запятой или None)
+    'well': ('Скважина', None), 'group': ('Группа', None), 'period': ('Последний сезон', None),
+    'prev_period': ('Сравнение с сезоном', None), 'metric': ('Метрика', None),
+    'last_rate': ('Расход, последний сезон, тыс. м³/сут', 1), 'prev_rate': ('Расход, предыдущий сезон, тыс. м³/сут', 1),
+    'change': ('Изменение, %', 1), 'group_change': ('Фон группы, %', 1), 'object_change': ('Фон объекта, %', 1),
+    'auto': ('Подсказка', None), 'category': ('Категория', None), 'note': ('Основание', None),
+    'worked_seasons': ('Сезонов с работой', 0), 'window_mean': ('Средний расход за окно, тыс. м³/сут', 1),
+    'window_trend': ('Тренд за окно, % за сезон', 1)}
 FILTER_NOTE = 'Отметьте «Исключить» и примените изменения. Исходные значения сохраняются; снятый флажок восстанавливает точку.'
 
 
@@ -130,6 +159,18 @@ class WellsModule(Module):
                   show_if={'section': 'Продуктивность и ГДИ'}),
             Param('gdi_seasons', 'Сезоны ГДИ', 'multi', default=[], dynamic=True, depends=('wells', 'methods'),
                   section=SECTION_GDI, show_if={'section': 'Продуктивность и ГДИ'}),
+            Param('seasons_n', 'Последние сезоны', 'number', default=5, minimum=2, maximum=12, step=1,
+                  section=SECTION_VIEW, show_if={'section': SECTION_FUND},
+                  help='Сколько последних сезонов эксплуатации сравнивать.'),
+            Param('high_kru', 'Высокое раскрытие КРУ от', 'number', default=50.0, minimum=0, maximum=100, step=5,
+                  unit='%', section=SECTION_VIEW, show_if={'section': SECTION_FUND},
+                  help='Сутки с раскрытием КРУ не ниже порога — «высокое раскрытие». Расход в них сравнивается между сезонами.'),
+            Param('fund_ratio', 'Сопоставимость падения с фоном, раз', 'number', default=1.5, minimum=1, maximum=5, step=0.5,
+                  section=SECTION_VIEW, show_if={'section': SECTION_FUND},
+                  help='Падение скважины не больше этого числа раз сильнее падения фона группы или объекта — такое падение '
+                       'помечается как общее, а не техсостояние.',
+                  formula='фон = min(изменение группы; изменение объекта); объяснимо, если фон ≤ −порога и изменение ≥ коэффициент × фон',
+                  example='Фон группы −30 %, скважина −40 %, коэффициент 1,5: −40 ≥ 1,5 × (−30) = −45 — падение объяснимо фоном.'),
             Param('raw', 'Показать исходные данные и ручной фильтр', 'boolean', default=False, section=SECTION_VIEW),
         ),
     )
@@ -162,6 +203,9 @@ class WellsModule(Module):
         if not everyone:
             result.notes.append(Note('Загрузите данные скважин через «Импорт данных» (пока — в версии 5.8).', 'warning'))
             return result
+        if params['section'] == SECTION_FUND:
+            self.fund(result, data, params)
+            return result
         wells = [w for w in params['wells'] if w in set(everyone)]
         if not wells:
             result.notes.append(Note('Выберите скважину анализа.', 'warning'))
@@ -181,6 +225,82 @@ class WellsModule(Module):
             self.dashboard(result, data, params, well, prefix=len(wells) > 1)
         result.notes.append(Note(VOLUME_NOTE))
         return result
+
+    def fund(self, result: Result, data: Data, params: dict[str, Any]) -> None:
+        """Фонд по сезонам: все скважины выбранных групп за последние сезоны (расчёт — engine/modules/well_fund)."""
+        daily = legacy.dataset(frames_of(data), data.settings, data.mapping)['daily']
+        kind = params['kind']
+        if not daily.empty:
+            daily = daily[daily.kind.eq(kind) & daily.date.le(pd.Timestamp(params['asof'] or default_asof(data)))]
+        if params['groups']:
+            daily = daily[daily.group.isin(params['groups'])]
+        if daily.empty:
+            result.notes.append(Note('Нет суточных данных выбранного режима и групп.', 'warning'))
+            return
+        starts = daily.groupby('period').period_start.first().sort_values()
+        seasons = [str(p) for p in starts.index[-int(params['seasons_n']):]]
+        wells = ordered(daily.well.astype(str).unique())
+        elpro = data[K.ELPRO] if K.ELPRO in data else None
+        if elpro is not None:
+            elpro = elpro[elpro.kind.eq(kind)]
+        else:
+            result.notes.append(Note('Нет данных ЭЛПРО: раскрытие КРУ не рассчитано. Загрузите ЭЛПРО через «Источники».',
+                                     'warning'))
+        history = self.gdi_history(data, wells, params)
+        table = fund.seasonal(daily, seasons, elpro=elpro, gdi=history, wells=wells, high_kru=float(params['high_kru']))
+        result.tables.append(category_table(data, fund.classify(table, float(params['threshold']), float(params['fund_ratio']))))
+        result.tables.append(fund_table('fund-seasons', 'Фонд по сезонам', table, FUND_NOTE))
+        result.notes.append(Note(f'Скважин: {len(wells)}. Сезоны: {", ".join(seasons)}.'))
+        for well in [w for w in params['wells'] if w in set(wells)][:MAX_WELLS]:
+            self.fund_well(result, daily, elpro, seasons, table, history, well)
+
+    @staticmethod
+    def fund_well(result: Result, daily: pd.DataFrame, elpro: pd.DataFrame | None, seasons: list[str], table: pd.DataFrame,
+                  history: pd.DataFrame | None, well: str) -> None:
+        """Графики и таблицы одной скважины фонда: суточный расход с КРУ, расход по сезонам, сопоставление, ГДИ."""
+        head = f'Скважина №{well} · '
+        series = fund.daily_series(daily, elpro, well, seasons)
+        daily_chart = Chart(f'fund-daily-{well}', head + 'Суточный расход и раскрытие КРУ', Axis('Дата', scale='time'),
+                            Axis('Расход, тыс. м³/сут', from_zero=True), crosshair=True)
+        daily_chart.series.append(Series('Расход, тыс. м³/сут', series.date.to_numpy(), series.rate.to_numpy(), 'line',
+                                         color=FUND_COLORS['rate']))
+        if series.kru.notna().any():
+            daily_chart.y2 = Axis('Раскрытие КРУ, %', '%', minimum=0, maximum=100, color=FUND_COLORS['kru'])
+            daily_chart.series.append(Series('КРУ, %', series.date.to_numpy(), series.kru.to_numpy(), 'line',
+                                             color=FUND_COLORS['kru'], axis='y2'))
+        result.charts.append(daily_chart)
+        mine = table[table.well.eq(well)]
+        bars = Chart(f'fund-seasons-{well}', head + 'Расход по сезонам', Axis('Сезон', scale='category', categories=seasons),
+                     Axis('Расход, тыс. м³/сут', from_zero=True), crosshair=True)
+        periods = list(mine.period)
+        bars.series += [Series('Средний расход', periods, list(mine.mean_rate), 'bar', color=FUND_COLORS['rate']),
+                        Series('Расход при высоком КРУ', periods, list(mine.rate_high), 'bar', color=FUND_COLORS['kru']),
+                        Series('Расход группы', periods, list(mine.group_rate), 'line', color=FUND_COLORS['group'])]
+        result.charts.append(bars)
+        result.tables.append(fund_table(f'fund-well-{well}', head + 'Сопоставление по сезонам', mine, ''))
+        studies = fund.studies_by_season(history[history.well.eq(well)] if history is not None else None, daily, seasons)
+        if studies.empty:
+            result.notes.append(Note(head + 'Нет ГДИ в выбранных сезонах.'))
+        else:
+            frame = studies.drop(columns='well').rename(columns=GDI_HISTORY_LABELS | {'period': 'Сезон'})
+            result.tables.append(Table(f'fund-studies-{well}', head + 'ГДИ по сезонам', frame.reset_index(drop=True),
+                                       note=GDI_NOTE))
+
+    @staticmethod
+    def gdi_history(data: Data, wells: list[str], params: Mapping[str, Any]) -> pd.DataFrame | None:
+        """История ГДИ по скважинам (как в разделе скважины), общий ΔP² — по настройке или автоматически на скважину."""
+        if K.GDI not in data:
+            return None
+        threshold = data.settings.get('r2_threshold', .95)
+        asof = pd.Timestamp(params['asof'] or default_asof(data))
+        gdi = data[K.GDI]
+        parts = []
+        for well in wells:
+            part = select_wells(gdi, [well])
+            part = part[part.date.le(asof)] if not part.empty else part
+            if not part.empty:
+                parts.append(legacy.gdi_history(part, threshold, None).assign(well=well))
+        return pd.concat(parts, ignore_index=True) if parts else None
 
     def dashboard(self, result: Result, data: Data, params: dict[str, Any], well: str, prefix: bool) -> None:
         analysis, selection = analyze(data, params, well)
@@ -303,7 +423,9 @@ class WellsModule(Module):
                     'show_excluded': params['gdi_excluded'], 'seasons': list(params['gdi_seasons'])},
             # Только для 6: в 5.8 эти поля держит сессия, «Экспорт» 5.8 их не использует.
             '_atlas6': {'groups': list(params['groups']), 'methods': list(methods), 'section': params['section'],
-                        'charts': [CHART_NAMES[c] for c in params['charts']], 'raw': params['raw'], 'asof_fixed': bool(params['asof'])},
+                        'charts': [CHART_NAMES[c] for c in params['charts']], 'raw': params['raw'], 'asof_fixed': bool(params['asof']),
+                        'seasons_n': int(params['seasons_n']), 'high_kru': float(params['high_kru']),
+                        'fund_ratio': float(params['fund_ratio'])},
         }
 
     def load_state(self, state: Mapping[str, Any]) -> dict[str, Any]:
@@ -322,7 +444,7 @@ class WellsModule(Module):
             if gdi.get(old) is not None:
                 out[new] = gdi[old]
         extra = state.get('_atlas6') or {}
-        for name in ('groups', 'methods', 'section', 'raw'):
+        for name in ('groups', 'methods', 'section', 'raw', 'seasons_n', 'high_kru', 'fund_ratio'):
             if extra.get(name) is not None:
                 out[name] = extra[name]
         if extra.get('charts') is not None:
@@ -443,6 +565,55 @@ def raw_table(data: Data, kind: DatasetKind, well: str, head: str) -> Table | No
     return Table(f'raw-{kind.value}-{well}', f'{head}Ручной фильтр · {kind.label} · №{well}', source, columns,
                  note=FILTER_NOTE, collapsed=True,
                  action=TableAction('exclude', kind, '_point_id', 'Применить ручной фильтр', checked_column='_excluded'))
+
+
+def fund_table(tid: str, title: str, frame: pd.DataFrame, note: str) -> Table:
+    """Таблица фонда: подписи и знаки из ``FUND_COLUMNS``; пустая строка сезона — пропуски, а не нули."""
+    columns = [Column(label, label, '', decimals, 'number' if decimals is not None else 'text')
+               for label, decimals in FUND_COLUMNS.values()]
+    return Table(tid, title, frame[list(FUND_COLUMNS)].rename(columns={k: v[0] for k, v in FUND_COLUMNS.items()})
+                 .reset_index(drop=True), columns, note=note)
+
+
+def category_table(data: Data, cats: pd.DataFrame) -> Table:
+    """Свод категорий скважин: подсказка и статистика; категория — ручная правка инженера, если она есть."""
+    overrides = data.settings.get(WELL_CATEGORIES_KEY) or {}
+    frame = cats.assign(auto=cats.category)
+    frame['category'] = [overrides.get(w, {}).get('category', auto) for w, auto in zip(frame.well, frame.auto)]
+    frame = frame[list(CATEGORY_LABELS)].rename(columns={k: v[0] for k, v in CATEGORY_LABELS.items()})
+    columns = [Column(label, label, '', decimals, 'number' if decimals is not None else 'text')
+               for label, decimals in CATEGORY_LABELS.values()]
+    label = {k: v[0] for k, v in CATEGORY_LABELS.items()}           # действие ссылается на колонки таблицы по подписям
+    action = TableAction('assign', None, label['well'], 'Сохранить категории', target='well-categories',
+                         fields=(label['category'],), editable=(label['category'],), journal=WELL_CATEGORIES_JOURNAL,
+                         submit='changed')
+    counts = cats.category.value_counts()
+    note = ('Категории: ' + ', '.join(f'{c} — {counts[c]}' for c in CATEGORIES_ORDER if c in counts) +
+            '. Подсказка — по последнему сезону с работой против предыдущего. Категорию можно поменять вручную; '
+            'пустое значение снимает правку.')
+    return Table('fund-categories', 'Свод и категории скважин', frame.reset_index(drop=True), columns, note=note,
+                 action=action)
+
+
+CATEGORIES_ORDER = ('Улучшение', 'Стабильно', 'Ухудшение', 'Нет сравнения')
+
+
+def with_well_categories(settings: Mapping[str, Any], changes: Mapping[str, Any]) -> dict[str, Any]:
+    """Настройки проекта с ручными категориями скважин: скважина -> {'category': ...}. Пустое значение снимает правку."""
+    if not isinstance(changes, Mapping) or not changes:
+        raise ParamError('Нет изменений для сохранения')
+    out = dict(settings)
+    saved = {str(k): dict(v) for k, v in (out.get(WELL_CATEGORIES_KEY) or {}).items()}
+    for well, value in changes.items():
+        category = str((value.get('category') if isinstance(value, Mapping) else value) or '').strip()
+        if not category:
+            saved.pop(str(well), None)
+        elif category not in ENGINEER_CHOICES:
+            raise ParamError('Категория должна быть одной из: ' + ', '.join(ENGINEER_CHOICES) + '.')
+        else:
+            saved[str(well)] = {'category': category}
+    out[WELL_CATEGORIES_KEY] = saved
+    return out
 
 
 def chart_of(analysis: dict, name: str, settings: Mapping[str, Any], cid: str, data: Data) -> Chart:

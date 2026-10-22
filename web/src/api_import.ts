@@ -27,7 +27,7 @@ export interface SheetChoice { use?: boolean; module?: string; spec?: Spec | nul
 export interface SimpleRow {
   token: string; file: string; sheet: string; use: boolean; module: string; found: string | null
   fields: string; status: string; book: boolean; custom: boolean; binary: boolean
-  base?: 'elpro' | 'gas'
+  base?: 'elpro' | 'gas' | 'geo'
 }
 export interface SimpleInspect {
   rows: SimpleRow[]; problems: string[]; errors: string[]; blocked: boolean
@@ -43,7 +43,7 @@ export interface CheckFile {
 }
 export interface CheckBody {
   view: 'simple' | 'detailed'; mode: string; kind: string; production_unit: string; gdi_unit: string
-  pressure_unit: string; files: CheckFile[]
+  pressure_unit: string; production_duplicates?: string; files: CheckFile[]
 }
 /** Где искать замечание журнала: файл, лист, строка (и как читался файл). */
 export interface IssueSource { token: string; file: string; sheet: string; row: number; reason: string; encoding?: string; delimiter?: string }

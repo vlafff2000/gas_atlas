@@ -9,6 +9,7 @@ import textwrap
 import datetime
 import numpy as np
 import pandas as pd
+from .export_combo import Areas,Bars,ghost,is_back,is_combo,overlay,sync
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -225,8 +226,12 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             if (bars or boxes) and not date_axis and not numeric_bars:
                 categories=list(fig.layout.xaxis.categoryarray or [])
                 if not categories:categories=list(dict.fromkeys(str(x) for t in (bars or boxes) for x in (t.x if t.x is not None else [t.name])))
+            combo_bars=Bars([t for t in bars if is_combo(t)]);combo_areas=Areas()
+            layered=any(is_back(t) for t in traces) and not excel;overlays={};bases={}
             for t in traces:
                 target=rights.get(t.yaxis,ax)
+                base_axes=target
+                if layered and is_combo(t) and not is_back(t):target=overlays.setdefault(id(target),overlay(ax));bases[id(target)]=base_axes      # линии и точки — над столбцами и областями
                 x=list(decode_arrays(t.x)) if t.x is not None else [];y=np.array(decode_arrays(t.y),dtype=float) if t.y is not None else np.array([])
                 label=t.name if t.showlegend is not False else '_nolegend_'
                 if t.type=='box':
@@ -238,6 +243,8 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     color=t.marker.color or '#2563eb'
                     for patch in result['boxes']:patch.set_facecolor(color);patch.set_alpha(.7)
                     if label!='_nolegend_':result['boxes'][0].set_label(label)
+                elif t.type=='bar' and is_combo(t):
+                    combo_bars.draw(target,t,x,y,label,decode_arrays(t.marker.color),date_axis)
                 elif t.type=='bar':
                     bi=next(i for i,b in enumerate(bars) if b is t);w=.8/max(1,len(bars))
                     if date_axis:
@@ -256,16 +263,24 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     dash={'solid':'-','dash':'--','dot':':','dashdot':'-.','longdash':'--'}.get(t.line.dash,'-')
                     mode=t.mode or 'lines';color=t.line.color or t.marker.color or '#2563eb'
                     symbol=t.marker.symbol or 'circle';hollow='open' in str(symbol)
-                    marker={'square':'s','diamond':'D','triangle-up':'^'}.get(str(symbol).replace('-open',''),'o') if 'markers' in mode else None
+                    marker={'square':'s','diamond':'D','triangle-up':'^','cross':'+','x':'x','star':'*'}.get(str(symbol).replace('-open',''),'o') if 'markers' in mode else None
                     edge=t.marker.line.color or color
                     face='white' if hollow else t.marker.color or color
                     own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set()      # задано в «Оформлении графиков» (atlas/chart_format.py)
                     msize=t.marker.size if isinstance(t.marker.size,(int,float)) else None
                     twidth=t.line.width if isinstance(t.line.width,(int,float)) and t.line.width>0 else None
-                    ln,=target.plot(x,y,label=label,color=color,linestyle=dash if 'lines' in mode else 'None',marker=marker,
+                    meta=t.meta if is_combo(t) else {};fill=bool(meta.get('fill'));line_off=fill and t.line.width==0;stepped=bool(meta.get('step'))
+                    if fill:
+                        upper=combo_areas.lower(t,len(y));lower=upper;upper=lower+np.nan_to_num(y);combo_areas.remember(t,upper)
+                        area=target.fill_between(x,lower,upper,where=np.isfinite(y),step='post' if stepped else None,color=color,alpha=meta.get('alpha',.6),linewidth=0,zorder=1.5,label=label if line_off else '_nolegend_')
+                        y=np.where(np.isfinite(y),upper,np.nan)
+                        if line_off:mode=mode.replace('lines','')
+                    ln,=target.plot(x,y,label=label,color=color,linestyle=dash if 'lines' in mode else 'None',marker=marker,drawstyle='steps-post' if stepped else 'default',
                         markerfacecolor=face,markeredgecolor=edge,markeredgewidth=t.marker.line.width or .7,
-                        markersize=msize/2 if msize and 'size' in own else 3,linewidth=twidth if twidth and 'width' in own else 1.2)
+                        markersize=msize/2 if msize and 'size' in own else 3,linewidth=twidth if twidth and 'width' in own else 1.2,
+                        alpha=t.opacity if 'alpha' in own and isinstance(t.opacity,(int,float)) else None)
                     ln._own=own
+                    if target is not base_axes:ghost(base_axes,x,y)
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
             title=re.sub('<[^>]+>','',fig.layout.title.text or '')
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}
@@ -305,7 +320,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             if fo.get('legend')=='hide':legend=[]
             if legend:
                 handles,labels=ax.get_legend_handles_labels()
-                for extra in rights.values():
+                for extra in [*rights.values(),*overlays.values()]:
                     h,l=extra.get_legend_handles_labels();handles+=h;labels+=l
                 if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=wrap_at)) for v in labels]
                 if handles:
@@ -321,6 +336,10 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=5 if compact else 7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))
             if fo.get('axes'):manual_axes(ax,secondary,fo['axes'],date_axis,bool(bars or boxes) and not numeric_bars)
             if fo.get('angle') not in (None,'auto'):x_labels(ax,float(fo['angle']),width_mm,base,date_axis,not (fo.get('axes') or {}).get('x',{}).get('major'),bool(bars or boxes) and not numeric_bars)
+            if isinstance(fig.layout.meta,dict) and fig.layout.meta.get('style'):
+                from .export_style import apply_style
+                apply_style(f,ax,rights,fig.layout.meta['style'],title,k,base,date_axis)      # ручное оформление конструктора: последнее слово за инженером
+            for top in overlays.values():sync(bases[id(top)],top)
             buf=io.BytesIO();f.savefig(buf,format=fmt,dpi=dpi)
             return buf.getvalue()
         finally:plt.close(f)

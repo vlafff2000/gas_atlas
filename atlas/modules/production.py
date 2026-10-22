@@ -33,6 +33,7 @@ class ProductionModule(ProductionBase):
         optional=(DatasetKind.GDI, DatasetKind.ELPRO),   # даты ГДИ — отметки на графике; ЭЛПРО — ряды на графике
         order=10,
         panels=2,
+        builder_layouts=True,    # макеты «Конструктора графиков» графиками после основных
         params=(
             Param('mode', 'Представление', 'choice', default='individual', section=SECTION_DATA,
                   options=(Option('individual', 'Отдельные скважины'), Option('groups', 'Суммарные показатели групп'),
@@ -80,6 +81,15 @@ class ProductionModule(ProductionBase):
     )
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:
+        result = self.view(data, params)
+        names = params.get('builder_layouts') or []
+        if names:
+            from .. import builder_library
+            wells = Selection(data, params).wells() if params['mode'] == 'individual' else []
+            builder_library.add_layout_charts(result, data, names, wells)
+        return result
+
+    def view(self, data: Data, params: dict[str, Any]) -> Result:
         sel = Selection(data, params)
         result = Result()
         part = sel.df[sel.df.kind.eq(sel.kind) & sel.df.period.isin(sel.periods)]

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, ClassVar, Literal, Mapping, Sequence
@@ -16,7 +17,8 @@ import pandas as pd
 
 from .domain import DatasetKind
 
-ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text', 'map', 'file']
+ParamKind = Literal['number', 'integer', 'boolean', 'choice', 'multi', 'date', 'text', 'map', 'file', 'json']
+JSON_LIMIT = 200_000      # json: предел размера значения, символов
 
 
 from atlas.engine.core.config import DataRangeError  # noqa: E402,F401  (перевыпуск для api)
@@ -129,7 +131,27 @@ class Param:
                     raise ParamError(f'«{self.label}»: «{key}» — число не меньше {self.minimum or 0:g}')
                 out[str(key)] = number
             return out
+        if self.kind == 'json':    # объект или список (макет раздела); проверяет модуль, здесь — только форма и размер
+            if not isinstance(value, (Mapping, list)):
+                raise ParamError(f'«{self.label}»: ожидается объект JSON')
+            try:
+                text = json.dumps(value, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError):
+                raise ParamError(f'«{self.label}»: значение не переводится в JSON') from None
+            if len(text) > JSON_LIMIT:
+                raise ParamError(f'«{self.label}»: слишком большое значение (больше {JSON_LIMIT} символов)')
+            return json.loads(text)
         raise ParamError(f'Неизвестный тип параметра {self.kind}')
+
+
+BUILDER_LAYOUTS = 'builder_layouts'
+
+
+def builder_layouts_param(label: str = 'Макеты конструктора', help: str = '') -> 'Param':
+    """Параметр «Макеты конструктора»: имена сохранённых макетов проекта (варианты — ``Module.options``)."""
+    return Param(BUILDER_LAYOUTS, label, 'multi', default=[], dynamic=True, empty='ничего', section='Вид',
+                 help=help or 'Сохранённые макеты «Конструктора графиков» проекта: графики добавляются после основных. '
+                              'Макет «Текущая скважина» строится по каждой выбранной скважине.')
 
 
 @dataclass(frozen=True)
@@ -145,6 +167,11 @@ class ModuleSpec:
     order: int = 100                 # порядок в навигации
     panels: int = 1                  # сколько независимых панелей можно открыть рядом (2 — «две панели»)
     save_label: str = 'Сохранить фильтры'   # подпись кнопки сохранения вида
+    builder_layouts: bool = False    # раздел принимает макеты «Конструктора графиков» (параметр builder_layouts добавляется сам)
+
+    def __post_init__(self) -> None:
+        if self.builder_layouts and not any(p.name == BUILDER_LAYOUTS for p in self.params):
+            object.__setattr__(self, 'params', (*self.params, builder_layouts_param()))
 
     def coerce(self, raw: Mapping[str, Any] | None) -> dict[str, Any]:
         raw = dict(raw or {})
@@ -187,7 +214,8 @@ class TableAction:
     уходят в проект (``group``, ``subgroup``), ``editable`` — какие из них правятся в ячейках.
     ``submit='all'`` отправляет все строки как есть (автоматические подгруппы), ``'changed'`` — только изменённые.
     ``journal`` — запись в журнале проекта. ``target`` — куда уходят назначения: ``groups`` (группы скважин)
-    или ``object-categories`` (категории объектов кроссплота; ``id_column`` — объект, поле ``category``).
+    ``object-categories`` (категории объектов кроссплота; ``id_column`` — объект, поле ``category``) или
+    ``well-categories`` (ручные категории скважин фонда по сезонам; ``id_column`` — скважина, поле ``category``).
     """
     kind: Literal['exclude', 'assign']
     dataset: DatasetKind | None
@@ -201,7 +229,7 @@ class TableAction:
     editable: tuple[str, ...] = ()
     submit: Literal['changed', 'all'] = 'changed'
     journal: str = ''
-    target: Literal['groups', 'object-categories'] = 'groups'
+    target: Literal['groups', 'object-categories', 'well-categories'] = 'groups'
 
 
 @dataclass
@@ -234,6 +262,7 @@ class Axis:
     minimum: float | None = None      # заданные границы оси (None — автоматически)
     maximum: float | None = None
     color: str = ''                   # цвет подписей и линии оси (правая шкала под один ряд); пусто — цвет по умолчанию
+    style: dict[str, Any] = field(default_factory=dict)   # ручное оформление (atlas/chart_style.py): знаки, шрифт, размеры; пусто — авто
 
 
 @dataclass
@@ -258,10 +287,13 @@ class Series:
     markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
     axis: Literal['y', 'y2', 'y3', 'y4', 'y5'] = 'y'   # правые оси по порядку: y2 — у графика, дальше y3, y4, y5 (смещение и цвет по ряду)
     stack: str = ''                  # одинаковое значение: столбцы или линии с заливкой складываются стопкой
+    fill: bool = False               # для 'line': заливка под линией (область); у линии с ``stack`` заливка всегда
+    step: bool = False               # для 'line': ступенчатая линия — значение держится до следующей точки
     total: int = 0                   # сколько точек было до прореживания самим модулем (0 — столько, сколько в x)
     # Признаки серии для легенды по рядам: {'Скважина': '№ 101', 'Период': '2023/2024'}. Легенда графика
     # показывает по строке на признак, щелчок по значению скрывает все серии с ним.
     facets: dict[str, str] | None = None
+    look: dict[str, Any] | None = None   # ручной вид ряда (atlas/chart_style.py: цвет, линия, маркеры, прозрачность); пусто — как задал модуль
     captions: Sequence[str] | None = None  # текст над каждой точкой на графике (подписи причин без замера); в подсказке — labels
 
 
@@ -294,6 +326,7 @@ class Chart:
     y3: Axis | None = None           # третья шкала: вторая справа, снаружи от y2 (требует y2)
     y4: Axis | None = None           # четвёртая шкала справа, снаружи от y3 (требует y3)
     y5: Axis | None = None           # пятая шкала справа, снаружи от y4 (требует y4)
+    style: dict[str, Any] = field(default_factory=dict)   # ручное оформление графика (atlas/chart_style.py): заголовок, легенда, сетка, фон
     events: list[Event] = field(default_factory=list)   # отметки: дата на оси времени, число на числовой оси (накопленный объём)
 
     def right_axes(self) -> list[tuple[str, Axis]]:
@@ -396,7 +429,14 @@ class Module:
 
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         """Варианты для параметра с ``dynamic=True``; ``params`` — текущие значения остальных параметров."""
+        if name == BUILDER_LAYOUTS:
+            from .builder_library import layout_names
+            return layout_names(data)
         raise KeyError(f'У модуля {self.spec.id} нет списка {name}')
+
+    def catalog(self, data: Data) -> dict[str, Any]:
+        """Справочник раздела по данным проекта (``POST /api/modules/{id}/catalog``): например, поля для конструктора графиков."""
+        raise KeyError(f'У модуля {self.spec.id} нет справочника')
 
     def panel_key(self, panel: int = 0) -> str:
         """Ключ сохранённого вида в settings.panels. Для нескольких панелей — свой на каждую."""
@@ -515,7 +555,7 @@ def _event_x(x: Any) -> Any:
 def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
     from . import thinning
     kept = thinning.screen_indices(c) if thin else {}
-    return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair,
+    return {'id': c.id, 'title': c.title, 'x': asdict(c.x), 'y': asdict(c.y), 'crosshair': c.crosshair, 'style': c.style,
             'y2': asdict(c.y2) if c.y2 else None, 'y3': asdict(c.y3) if c.y3 else None,
             'y4': asdict(c.y4) if c.y4 else None, 'y5': asdict(c.y5) if c.y5 else None,
             'series': [_series_json(s, kept.get(i)) for i, s in enumerate(c.series)],

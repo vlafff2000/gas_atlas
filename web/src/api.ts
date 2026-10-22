@@ -7,7 +7,7 @@ export interface Option { value: unknown; label: string }
 export interface Param {
   name: string
   label: string
-  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map' | 'file'
+  kind: 'number' | 'integer' | 'boolean' | 'choice' | 'multi' | 'date' | 'text' | 'map' | 'file' | 'json'
   default: unknown
   help: string
   formula: string
@@ -62,7 +62,7 @@ export interface TableAction {
   column?: string
   // assign: значения полей по строкам, какие из них правятся, что отправлять, запись журнала
   fields: string[]; editable: string[]; submit: 'changed' | 'all'; journal: string; values: Record<string, Cell[]>
-  target: 'groups' | 'object-categories'   // куда уходят назначения: группы скважин или категории объектов кроссплота
+  target: 'groups' | 'object-categories' | 'well-categories'   // куда уходят назначения: группы скважин, категории объектов кроссплота или ручные категории скважин фонда
 }
 export type Assignments = Record<string, Record<string, string>>
 export interface Table {
@@ -71,8 +71,17 @@ export interface Table {
   header?: [string, number][][]   // объединённая шапка над подписями колонок: (подпись, пролёт)
   deferred?: boolean   // большая свёрнутая таблица: строки подгружаются при раскрытии (count — сколько их всего)
 }
+/** Ручное оформление оси; пусто — авто (atlas/chart_style.py). */
+export interface AxisStyle { decimals?: number; date_format?: string; font?: string; tick_size?: number; title_size?: number }
+/** Ручное оформление графика: заголовок, шрифты, легенда, сетка, фон (atlas/chart_style.py). */
+export interface ChartStyle {
+  title_font?: string; title_size?: number; title_bold?: boolean; title_color?: string; title_align?: 'left' | 'center' | 'right'
+  font?: string; text_color?: string; legend?: 'bottom' | 'top' | 'right' | 'hide'; legend_font?: string; legend_size?: number
+  grid?: 'both' | 'h' | 'v' | 'none'; grid_color?: string; background?: string; plot_background?: string
+}
 export interface Axis {
   color?: string                       // цвет правой шкалы под один ряд; пусто — по умолчанию
+  style?: AxisStyle                    // ручное оформление оси (конструктор): знаки, шрифт, размеры
   label: string; unit: string; scale: 'value' | 'log' | 'time' | 'category'; inverse: boolean; from_zero: boolean
   step: number | null; categories: string[] | null; minimum: number | null; maximum: number | null
 }
@@ -82,6 +91,7 @@ export interface Series {
   color: string; symbol: 'circle' | 'square' | 'diamond' | 'triangle'; hollow: boolean; opacity: number
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null
   markers: boolean; axis: 'y' | 'y2' | 'y3' | 'y4' | 'y5'; stack?: string
+  fill?: boolean; step?: boolean            // линия с заливкой (область) и ступенчатая линия (конструктор графиков)
   total: number      // точек в серии на самом деле; если больше x.length — линия прорежена (М4: пики и провалы сохранены)
   facets: Record<string, string> | null     // признаки для легенды рядами: {'Скважина': '№ 101', 'Период': '2024'}
   captions?: string[] | null                // текст над каждой точкой (подписи причин отсутствия замеров)
@@ -94,6 +104,7 @@ export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | '
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean
   events?: ChartEvent[]
+  style?: ChartStyle
 }
 export interface Stat { label: string; value: string; hint: string }
 export interface Note { text: string; level: 'info' | 'warning' }
@@ -129,7 +140,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const json = (method: string, body: unknown, signal?: AbortSignal): RequestInit =>
   ({ method, signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
-async function download(path: string, body: unknown) {
+/** Скачивает файл; возвращает заметку ядра из заголовка X-Atlas-Notes (например, какие скважины пропущены). */
+async function downloadNotes(path: string, body: unknown): Promise<string> {
   const response = await send(path, json('POST', body))
   const header = response.headers.get('Content-Disposition') ?? ''
   const match = /filename\*=UTF-8''([^;]+)/.exec(header)
@@ -138,6 +150,20 @@ async function download(path: string, body: unknown) {
   const a = document.createElement('a')
   a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return decodeURIComponent(response.headers.get('X-Atlas-Notes') ?? '')
+}
+
+async function download(path: string, body: unknown): Promise<void> {
+  await downloadNotes(path, body)
+}
+
+/** Вид графика на экране для выгрузки: оформление рядов, границы осей, масштаб по времени, скрытые пункты легенды (atlas/chart_view.py). */
+export interface ChartExportView {
+  looks?: Record<string, unknown>
+  ranges?: Partial<Record<'y' | 'y2' | 'y3' | 'y4' | 'y5', [number, number]>>
+  x?: [number, number]
+  hidden?: string[]
+  facets?: string[]
 }
 
 /** PNG графика для буфера обмена: тот же рисунок, что и «Скачать» (цвета, легенда, подписи), без сохранения файла. */
@@ -167,6 +193,8 @@ export const api = {
     request<Project>(`/api/projects/${id}/groups`, json('POST', { changes, action })),
   assignCategories: (id: string, changes: Assignments) =>
     request<Project>(`/api/projects/${id}/object-categories`, json('POST', { changes })),
+  assignWellCategories: (id: string, changes: Assignments) =>
+    request<Project>(`/api/projects/${id}/well-categories`, json('POST', { changes })),
   undo: (id: string) => request<ExclusionChange>(`/api/projects/${id}/exclusions/undo`, json('POST', {})),
   savedState: (id: string, module: string, panel = 0) =>
     request<SavedState>(`/api/projects/${id}/state/${module}?panel=${panel}`),
@@ -174,18 +202,49 @@ export const api = {
     request<Project>(`/api/projects/${id}/state/${module}`, json('POST', { params, panel })),
   paramOptions: (module: string, project: string, param: string, params: Params, signal?: AbortSignal) =>
     request<string[]>(`/api/modules/${module}/options`, json('POST', { project, param, params }, signal)),
+  catalog: <T,>(module: string, project: string) =>
+    request<T>(`/api/modules/${module}/catalog`, json('POST', { project })),
   window: (module: string, project: string, params: Params, chart: string, x0: number, x1: number, raw: boolean, revision: number) =>
     request<WindowReply>(`/api/modules/${module}/window`, json('POST', { project, params, chart, x0, x1, raw, revision })),
   table: (module: string, project: string, params: Params, id: string) =>
     request<Table>(`/api/modules/${module}/table`, json('POST', { project, params, id })),
-  exportChart: (module: string, project: string, params: Params, chart: string, format: string, dpi: number) =>
-    download(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format, dpi }),
-  chartPng: (module: string, project: string, params: Params, chart: string) =>
-    chartPng(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format: 'png', dpi: 300 }),
+  exportChart: (module: string, project: string, params: Params, chart: string, format: string, dpi: number, view?: ChartExportView) =>
+    download(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format, dpi, view }),
+  chartPng: (module: string, project: string, params: Params, chart: string, view?: ChartExportView) =>
+    chartPng(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format: 'png', dpi: 300, view }),
   exportTables: (module: string, project: string, params: Params, table?: string, format: 'xlsx' | 'csv' = 'xlsx') =>
     download(`/api/modules/${module}/export`, { project, params, target: 'tables', id: table, format }),
 }
 
 export function defaults(spec: ModuleSpec): Params {
   return Object.fromEntries(spec.params.map(p => [p.name, p.default]))
+}
+
+// ---- Конструктор графиков: библиотека макетов проекта и выгрузка (этап 5) ----
+export interface LayoutItem { id: string; name: string; created: string; updated: string; series: number; title: string }
+export interface OpenedLayout { id?: string; name?: string; layout: unknown; missing: string[] }
+const lib = (project: string, tail = '') => `/api/projects/${project}/builder/layouts${tail}`
+export interface SeriesWells {
+  enabled: boolean; wells: string[]; with_data: string[]; groups: { name: string; wells: string[] }[]; limit: number; formats: Record<string, string>
+}
+export const builderApi = {
+  seriesWells: (project: string, layout: unknown) =>
+    request<SeriesWells>(`/api/projects/${project}/builder/series/wells`, json('POST', { layout })),
+  series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string }) =>
+    downloadNotes(`/api/projects/${project}/builder/series`, body),
+  list: (project: string) => request<{ items: LayoutItem[] }>(lib(project)).then(r => r.items),
+  save: (project: string, name: string, layout: unknown) =>
+    request<{ item: LayoutItem; items: LayoutItem[] }>(lib(project), json('POST', { name, layout })),
+  open: (project: string, id: string) => request<Required<OpenedLayout>>(lib(project, '/' + id)),
+  update: (project: string, id: string, patch: { name?: string; layout?: unknown }) =>
+    request<{ item: LayoutItem; items: LayoutItem[] }>(lib(project, '/' + id), json('PATCH', patch)),
+  duplicate: (project: string, id: string) => request<{ item: LayoutItem; items: LayoutItem[] }>(lib(project, `/${id}/duplicate`), json('POST', {})),
+  remove: (project: string, id: string) => request<{ items: LayoutItem[] }>(lib(project, '/' + id), { method: 'DELETE' }),
+  importFile: (project: string, content: string, fileName: string) =>
+    request<{ item: LayoutItem; items: LayoutItem[]; layout: unknown; missing: string[] }>(lib(project, '/import'), json('POST', { content, file_name: fileName })),
+  exportFile: (project: string, name: string, layout: unknown) => download(lib(project, '/file'), { name, layout }),
+  word: (project: string, body: { layout: unknown; title: string; caption: string; orientation: string }) =>
+    download(`/api/projects/${project}/builder/word`, body),
+  data: (project: string, layout: unknown, format: 'xlsx' | 'csv') =>
+    download('/api/modules/builder/export', { project, params: { layout }, target: 'chart', id: 'builder', format, dpi: 300 }),
 }

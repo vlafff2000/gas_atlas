@@ -17,6 +17,7 @@ export interface Track {
   curve: boolean                // линия: значение между замерами интерполируется
   points: boolean               // отдельные отметки: на них можно навести и щёлкнуть
   bar: boolean
+  step: boolean                 // ступенчатая линия: между замерами держится значение предыдущего
   order: Uint32Array | null     // порядок по x для поиска точек, когда x не возрастает
 }
 
@@ -70,7 +71,7 @@ export function buildTracks(series: Series[], x: Axis, yCount: number, marked: (
     const track: Track = {
       index, series: s, axis: Math.max(0, Y_ORDER.indexOf(s.axis ?? 'y')) < yCount ? Math.max(0, Y_ORDER.indexOf(s.axis ?? 'y')) : 0,
       xs: xs.subarray(0, m), ys: ys.subarray(0, m), src: src.subarray(0, m), monotonic,
-      curve: s.kind === 'line', bar: s.kind === 'bar',
+      curve: s.kind === 'line', bar: s.kind === 'bar', step: s.kind === 'line' && !!s.step,
       points: s.kind === 'points' || (s.kind === 'line' && marked(s)),
       order: null,
     }
@@ -155,6 +156,7 @@ export function hover(tracks: Track[], view: View, px: number, py: number, scale
       const k = lowerBound(xs, dx, null)
       let x = NaN, y = NaN, near = k
       if (k < xs.length && xs[k] === dx) { x = dx; y = ys[k] }
+      else if (t.step && k > 0 && k < xs.length && Number.isFinite(ys[k - 1])) { x = dx; y = ys[k - 1]; near = k - 1 }      // ступень: значение держится до следующей точки
       else if (k > 0 && k < xs.length && Number.isFinite(ys[k - 1]) && Number.isFinite(ys[k])) {
         const ly = scaleY(t.axis) === 'log'
         const a = lx ? Math.log(xs[k - 1]) : xs[k - 1], b = lx ? Math.log(xs[k]) : xs[k]

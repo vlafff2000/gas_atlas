@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
 
 import math
@@ -18,7 +19,11 @@ from atlas.engine.core.export import csv_bytes, figure_bytes, safe_name, xlsx_by
 
 from .contract import Chart, Series, Table
 
-SYMBOLS = {'circle': 'circle', 'square': 'square', 'diamond': 'diamond', 'triangle': 'triangle-up'}
+SYMBOLS = {'circle': 'circle', 'square': 'square', 'diamond': 'diamond', 'triangle': 'triangle-up', 'plus': 'cross', 'x': 'x', 'star': 'star'}
+LOOK_DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'dot'}
+FILL_ALPHA = 0.6        # прозрачность заливки области, если не задана вручную
+WIDTH_PT = 0.6          # px на экране → пт в выгрузке (2 px по умолчанию = 1,2 пт)
+STYLE_AXES = ('x', 'y', 'y2', 'y3', 'y4', 'y5')
 FORMATS = {'svg': 'image/svg+xml', 'pdf': 'application/pdf', 'png': 'image/png'}
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
@@ -103,8 +108,8 @@ def has_bars(chart: Chart) -> bool:
 def align_y_axes(fig, chart: Chart) -> None:
     """Две оси Y: одинаковое число делений, деления строго друг напротив друга — одна основная сетка на обе."""
     specs = {'y': chart.y, **dict(chart.right_axes())}
-    if chart.y2 is None or any(a.scale != 'value' for a in specs.values()):
-        return
+    if chart.y2 is None or any(a.scale != 'value' for a in specs.values()) or (chart.id.startswith('builder') and any(a.step for a in specs.values())):
+        return      # в конструкторе заданный вручную шаг делений важнее общей сетки
     extents = {key: axis_extent(chart, key) for key in specs}
     if all(e is None for e in extents.values()):
         return
@@ -133,13 +138,49 @@ def right_position(count: int, k: int) -> float:
     return plot_right_edge(count) + 0.06 * (k - 1)
 
 
+def rgba(color: str, alpha: float) -> str:
+    c = color.lstrip('#')
+    if len(c) != 6:
+        return color
+    return f'rgba({int(c[0:2], 16)},{int(c[2:4], 16)},{int(c[4:6], 16)},{alpha})'
+
+
+def look_meta(look: dict) -> dict:
+    """Что задано вручную (``Series.look``): статический рендер берёт эти значения вместо своих по умолчанию (``own``)."""
+    own = [name for name, key in (('width', 'width'), ('size', 'size'), ('alpha', 'opacity')) if key in look]
+    return {'own': own}
+
+
+def style_meta(chart: Chart) -> dict:
+    """Ручное оформление графика и осей для статического рендера (``atlas/engine/core/export_style.py``)."""
+    axes = {}
+    for name in STYLE_AXES:
+        spec = chart.x if name == 'x' else chart.axis_at(name) if name in dict(chart.right_axes()) or name == 'y' else None
+        if spec is None:
+            continue
+        item = {k: v for k, v in spec.style.items() if v not in (None, '')}
+        if spec.minimum is not None:
+            item['min'] = spec.minimum
+        if spec.maximum is not None:
+            item['max'] = spec.maximum
+        if spec.step:
+            item['step'] = spec.step
+        if spec.color:
+            item['color'] = spec.color
+        item['scale'] = spec.scale
+        axes[name] = item
+    return {'chart': dict(chart.style), 'axes': axes}
+
+
 def to_plotly(chart: Chart):
     import plotly.graph_objects as go
     palette = group_colors(chart)
     fig = go.Figure()
     stacked_bars = any(s.kind == 'bar' and s.stack for s in chart.series)
-    for s in chart.series:
-        color = series_color(s.color) if s.color else palette[s.group or s.name]
+    combo = chart.id.startswith('builder')      # виды конструктора: область, ступенчатая, стопка (atlas/engine/core/export.py читает meta['combo'])
+    for n, s in enumerate(chart.series):
+        look = s.look or {}
+        color = look.get('color') or (series_color(s.color) if s.color else palette[s.group or s.name])
         if s.kind == 'box':
             # Пять чисел ящика как значения: квартили по ним совпадают, усы — крайние значения в пределах 1,5 IQR.
             first = True
@@ -150,29 +191,60 @@ def to_plotly(chart: Chart):
                                      showlegend=s.legend and first, marker_color=color, boxpoints=False))
                 first = False
         elif s.kind == 'bar':
-            fig.add_trace(go.Bar(x=list(s.x) if stacked_bars else [str(v) for v in s.x], y=list(s.y), name=s.name,
-                                 showlegend=s.legend, marker_color=color))
-        elif s.kind == 'line':
-            dash = s.dash or ('dash' if s.dashed else 'solid')
             extra = {}
-            if s.markers:
-                extra['marker'] = {'color': 'white' if s.hollow else color, 'symbol': SYMBOLS[s.symbol], 'size': 6,
-                                   'line': {'color': color, 'width': 1.8 if s.hollow else 0}}
+            if combo:       # конструктор: столбцы на своей оси, рядом или стопкой по имени, дата остаётся датой
+                extra = dict(yaxis=s.axis, offsetgroup=s.stack or f'bar{n}', opacity=look.get('opacity'),
+                             meta={'combo': True, 'stack': s.stack})
+            fig.add_trace(go.Bar(x=list(s.x) if stacked_bars or combo else [str(v) for v in s.x], y=list(s.y), name=s.name,
+                                 showlegend=s.legend, marker_color=color, **extra))
+        elif s.kind == 'line':
+            dash = LOOK_DASH.get(look.get('dash', ''), s.dash or ('dash' if s.dashed else 'solid'))
+            shown = look.get('line', True)
+            markers = look.get('marker', s.markers)
+            extra = {'meta': look_meta(look)}
+            line_extra: dict = {}
+            if combo:
+                extra['meta'].update(combo=True, stack=s.stack, fill=s.fill, step=s.step)
+                if s.step:
+                    line_extra['shape'] = 'hv'      # значение держится до следующей точки, как на экране
+                if s.fill:
+                    alpha = look.get('opacity', FILL_ALPHA)
+                    extra['fillcolor'] = rgba(color, alpha)
+                    extra['meta']['alpha'] = alpha
+                    extra['fill'] = 'tonexty' if s.stack else 'tozeroy'
+            if markers:
+                shape = SYMBOLS[look.get('shape', s.symbol)]
+                mcolor = look.get('markerColor') or color
+                extra['marker'] = {'color': 'white' if s.hollow else mcolor, 'symbol': shape, 'size': look.get('size', 6),
+                                   'line': {'color': mcolor, 'width': 1.8 if s.hollow or shape in ('cross', 'x') else 0}}
             if s.stack:      # линии одной стопки складываются по значению X (дате), как на экране
                 extra['stackgroup'] = s.stack
-            fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='lines+markers' if s.markers else 'lines',
+            if not shown and not markers and not s.fill:
+                extra['visible'] = False         # у ряда нет ни линии, ни маркеров — в файл не попадает
+            if not shown and s.fill:
+                line_extra['width'] = 0           # область без линии: остаётся заливка
+            mode = ('lines' if shown or s.fill else '') + ('+' if (shown or s.fill) and markers else '') + ('markers' if markers else '')
+            fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode=mode or 'lines',
                                      name=s.name, showlegend=s.legend, yaxis=s.axis,
-                                     connectgaps=False, opacity=s.opacity, line={'color': color, 'dash': dash, 'width': s.width or 2},
+                                     connectgaps=False, opacity=s.opacity,
+                                     line={'color': color, 'dash': dash, 'width': round(look['width'] * WIDTH_PT, 2) if 'width' in look else s.width or 2,
+                                           **line_extra},
                                      **extra))
         else:
-            symbol = SYMBOLS[s.symbol] + ('-open' if s.hollow else '')
+            shape = SYMBOLS[look.get('shape', s.symbol)]
+            symbol = shape + ('-open' if s.hollow else '')
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='markers', name=s.name, showlegend=s.legend,
-                                     yaxis=s.axis,
-                                     marker={'color': color, 'symbol': symbol, 'size': 9,
+                                     yaxis=s.axis, meta=look_meta(look), opacity=s.opacity,
+                                     marker={'color': look.get('markerColor') or color, 'symbol': symbol, 'size': look.get('size', 9),
                                              'opacity': s.opacity,
-                                             'line': {'color': color, 'width': 2 if s.hollow else 0}}))
+                                             'line': {'color': look.get('markerColor') or color, 'width': 2 if s.hollow or shape in ('cross', 'x') else 0}}))
     module = chart.id.split('-', 1)[0]
-    fig.update_layout(title={'text': chart.title}, meta={'module': module}, barmode='stack' if stacked_bars else 'group')
+    meta: dict = {'module': module}
+    if chart.id.startswith('builder') or chart.style or any(a.style for a in (chart.x, chart.y, *(a for _, a in chart.right_axes()))):
+        meta['style'] = style_meta(chart)
+        if chart.style.get('legend'):
+            meta['format'] = {'legend': chart.style['legend']}
+    fig.update_layout(title={'text': chart.title}, meta=meta, barmode='stack' if stacked_bars else 'group')
     axes = [(fig.layout.xaxis, chart.x), (fig.layout.yaxis, chart.y)]
     right = chart.right_axes()
     if len(right) > 1:      # место под подписи нескольких правых шкал; одна правая шкала — как раньше, на всю ширину
@@ -301,7 +373,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
                     one.marker.symbol = 'none'
                     one.smooth = False
                     one.graphicalProperties.line.width = 19050
-            color = (series_color(s.color) if s.color else PALETTE[(n + (3 if secondary else 0)) % len(PALETTE)]).lstrip('#')
+            color = ((s.look or {}).get('color') or (series_color(s.color) if s.color else PALETTE[(n + (3 if secondary else 0)) % len(PALETTE)])).lstrip('#')
             if color:
                 if category:
                     one.graphicalProperties.solidFill = color
@@ -338,11 +410,27 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
     return buffer.getvalue(), return_name, XLSX
 
 
+def chart_csv(chart: Chart) -> tuple[bytes, str, str]:
+    """Данные графика: по строке на точку — ряд, ось, X, Y (CSV как в 5.8: «;», запятая в дробях, UTF-8 с BOM)."""
+    frames = []
+    for s in chart.series:
+        if s.kind == 'box' or len(s.x) != len(s.y):
+            continue
+        frames.append(pd.DataFrame({'Ряд': s.name, 'Ось': s.axis, 'X': list(s.x), 'Y': list(s.y)}))
+    frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=['Ряд', 'Ось', 'X', 'Y'])
+    for col in ('X', 'Y'):
+        if frame[col].map(lambda v: isinstance(v, (pd.Timestamp, dt.datetime, dt.date))).any():
+            frame[col] = frame[col].map(lambda v: pd.Timestamp(v).strftime('%Y-%m-%d') if v is not None and not pd.isna(v) else '')
+    return csv_bytes(frame), f'{safe_name(chart.title)}.csv', 'text/csv; charset=utf-8'
+
+
 def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_size=None) -> tuple[bytes, str, str]:
     if fmt == 'xlsx':
         return chart_xlsx(chart)
+    if fmt == 'csv':
+        return chart_csv(chart)
     if fmt not in FORMATS:
-        raise ValueError('Формат графика: svg, pdf, png или xlsx')
+        raise ValueError('Формат графика: svg, pdf, png, xlsx или csv')
     return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
 
 

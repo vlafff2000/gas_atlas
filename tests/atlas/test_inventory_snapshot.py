@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # Модули Атласа (registry.modules()). Удалённые намеренно — в REMOVED_ON_PURPOSE.
 MODULES = [
-    'an_report', 'an_revision', 'exclusions', 'filter_history', 'fund', 'gdi', 'gdi_trend', 'ggh',
+    'an_report', 'an_revision', 'builder', 'exclusions', 'filter_history', 'fund', 'gdi', 'gdi_trend', 'ggh',
     'elpro_compare', 'gas_accounting', 'groups', 'histograms', 'overview', 'plan_fact', 'pressure', 'production', 'quality', 'response',
     'water', 'wells',
 ]
@@ -23,6 +23,7 @@ DATASET_KINDS = [
     'production', 'gdi', 'response', 'object_pressure', 'operations', 'water', 'water_factor',
     'bottom', 'construction', 'pressure_match', 'plan', 'ggh', 'elpro', 'annulus',
     'gas_db',
+    'well_geo',
 ]
 
 # Сколько пунктов со статусом ✅ стоит в каждом чек-листе паритета (docs/parity/*.md).

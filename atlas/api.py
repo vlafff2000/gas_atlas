@@ -20,8 +20,8 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, R
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import VERSION, api_exclusions, registry, render, season_format, thinning
-from . import api_corrected, api_export, api_projects
+from . import VERSION, api_exclusions, chart_view, registry, render, season_format, thinning
+from . import api_builder, api_corrected, api_export, api_projects
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
 from .projects import Conflict, Projects
@@ -166,6 +166,9 @@ def create_app(projects: Projects | None = None) -> Starlette:
         return projects.assign_object_categories(request.path_params['pid'], body.get('changes') or {},
                                                  body.get('revision'))
 
+    def well_categories(request, body):
+        return projects.assign_well_categories(request.path_params['pid'], body.get('changes') or {}, body.get('revision'))
+
     def undo(request, body):
         return projects.undo_exclusion(request.path_params['pid'])
 
@@ -194,6 +197,12 @@ def create_app(projects: Projects | None = None) -> Starlette:
         current = {p.name: p.coerce(body.get('params', {}).get(p.name)) for p in module.spec.params
                    if p.name in param.depends}
         return module.options(name, data, current)
+
+    def module_catalog(request, body):
+        """Справочник модуля по данным проекта: ``Module.catalog`` (поля конструктора графиков)."""
+        module = module_of(request)
+        data = projects.select(body.get('project'), module.spec.needs, module.spec.optional)
+        return module.catalog(data)
 
     # --- расчёт и экспорт ---
     def run(request, body):
@@ -246,6 +255,8 @@ def create_app(projects: Projects | None = None) -> Starlette:
             (result, _), _, _ = compute(module, body.get('project'), body.get('params'))
         if target == 'chart':
             chart, _ = full_chart(module, body)
+            if body.get('format') != 'csv':
+                chart = chart_view.apply_view(chart, body.get('view'))     # вид с экрана: оформление рядов, границы осей, масштаб, легенда
             try:
                 dpi = int(body.get('dpi', 300))
             except (TypeError, ValueError):
@@ -289,6 +300,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/modules/{mid}/window', E(window), methods=['POST']),
         Route('/api/modules/{mid}/table', E(table), methods=['POST']),
         Route('/api/modules/{mid}/options', E(param_options), methods=['POST']),
+        Route('/api/modules/{mid}/catalog', E(module_catalog), methods=['POST']),
         Route('/api/projects', E(list_projects)),
         Route('/api/projects/demo', E(create_demo), methods=['POST']),
         Route('/api/projects/{pid}', E(project)),
@@ -300,8 +312,10 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/exclusions/undo', E(undo), methods=['POST']),
         Route('/api/projects/{pid}/groups', E(groups), methods=['POST']),
         Route('/api/projects/{pid}/object-categories', E(object_categories), methods=['POST']),
+        Route('/api/projects/{pid}/well-categories', E(well_categories), methods=['POST']),
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
         *__import__('atlas.fs_browse', fromlist=['routes']).routes(),   # проводник: список папок, последняя папка
+        *api_builder.routes(projects, E),   # библиотека макетов конструктора, Word одного графика
         *api_exclusions.routes(projects),
         *api_corrected.routes(projects),   # «Исправленная БД» вкладки
         *api_projects.routes(projects), *api_export.routes(projects),   # «Проекты», «Настройки», «Экспорт»
