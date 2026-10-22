@@ -126,7 +126,8 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
     x_axis = (Axis('Накопленный объем объекта', 'млн м³', from_zero=True,
                    step=x_step(float(data.cumulative.max())) if not data.empty else None)
               if by_cumulative else Axis('Дата', scale='time'))
-    extras = picked_extras(sel.params.get('elpro'))           # каждый ряд — на своей правой оси (y2…y5)
+    # без БД ЭЛПРО ряды не строятся: иначе появились бы пустые правые оси
+    extras = picked_extras(sel.params.get('elpro')) if sel.elpro is not None else []   # каждый ряд — на своей оси (y2…y5)
     chart = Chart(chart_id, well_title(ws), x_axis, Axis('Суточный расход', Q_UNIT, from_zero=True),
                   **{f'y{n}': extra_axis(key) for n, key in enumerate(extras, start=2)})
     if data.empty:

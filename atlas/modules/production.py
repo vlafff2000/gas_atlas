@@ -54,7 +54,7 @@ class ProductionModule(ProductionBase):
             Param('direction', 'Порядок скважин', 'choice', default='number', options=DIRECTIONS,
                   section=SECTION_VIEW, show_if=INDIVIDUAL),
             Param('elpro', 'Ряды ЭЛПРО на графике', 'multi', default=[], options=tuple(Option(k, n) for k, n in ELPRO_EXTRAS),
-                  section=SECTION_VIEW, show_if=INDIVIDUAL,
+                  section=SECTION_VIEW, show_if=INDIVIDUAL, requires_dataset='elpro',
                   help='Каждый ряд — на своей оси справа (до четырёх), со своим цветом. Пропуск в ЭЛПРО — разрыв линии. '
                        'Часы работы — из БД расходов'),
             Param('seasonx', 'Ось X', 'choice', default='date', section=SECTION_VIEW, show_if=OBJECT_MODE, chart_kind=True,

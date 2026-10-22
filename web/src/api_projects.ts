@@ -45,6 +45,7 @@ export interface ExportChoices {
   asof?: string
   dashboard_charts?: { id: string; label: string }[]
   two_panels: Record<string, boolean>
+  has_elpro?: boolean
   captions: Record<string, Caption>
   presets: Record<string, Form>
   style: Record<string, boolean>

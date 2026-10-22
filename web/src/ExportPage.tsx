@@ -754,7 +754,7 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
               options={['Авто', '10', '20', '50', 'Все'].map(v => [v, v] as Opt)} />
           </>}
         </Section>
-        {module === 'production' && (
+        {module === 'production' && choices.has_elpro && (
           <Section title="Ряды ЭЛПРО на суточных графиках">
             {ELPRO_ROWS.map(([key, name]) => (
               <Check key={key} {...F} field={'production_elpro_' + key} label={name} def={false} />

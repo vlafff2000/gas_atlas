@@ -25,7 +25,7 @@ def frames():
 
 
 def selection(prod, elpro_rows, **params):
-    data = Data({PROD: prod, ELPRO: elpro_rows})
+    data = Data({PROD: prod, ELPRO: elpro_rows} if elpro_rows is not None else {PROD: prod})
     data.mapping = {'101': {'group': 'ГСП 4'}}
     data.settings = {}
     base = {'kind': 'withdrawal', 'periods': ['2025'], 'groups': ['ГСП 4'], 'wells': ['101'], 'direction': 'number', 'elpro': []}
@@ -83,3 +83,14 @@ def test_export_makes_one_figure_per_well_and_kind_with_chosen_rows():
     plan = with_elpro(SimpleNamespace(jobs=[]), data, options)
     assert len(plan.jobs) == 1
     assert plan.jobs[0].module == 'production'
+
+
+def test_without_elpro_database_selected_rows_are_dropped_not_empty_axes():
+    prod, _ = frames()
+    sel, data = selection(prod, None, elpro=['cru', 'hours'])
+    chart = curve_chart(sel, ['101'], 'date')
+    assert chart.right_axes() == []                        # БД ЭЛПРО не загружена — пустых правых осей нет
+    assert [s.name for s in chart.series] == ['2025']
+    assert with_elpro(SimpleNamespace(jobs=[]), data, {'modules': ['production'], 'style': {}, 'production': {
+        'wells': ['101'], 'groups': ['ГСП 4'], 'direction': 'number', 'elpro': ['cru'],
+        'periods': {'withdrawal': ['2025'], 'injection': []}}}).jobs == []
