@@ -30,7 +30,7 @@ def load(path, name):
 
 bp = load(HERE / 'build_portable.py', 'atlas_build_portable')
 NAME = 'PXG_Unified'
-SCRIPTS_INCLUDE = ['pxg_base', 'gsp_maps', 'pxg_core', 'schedule_pxg', 'tnav_results']
+SCRIPTS_INCLUDE = ['pxg_base', 'gsp_maps', 'pxg_core', 'schedule_pxg', 'tnav_results', 'apps']
 HUB_WINDOWS = {'PXG_Hub.bat': 'rem Все приложения ПХГ: меню (окно или браузер).\r\n"%~dp0python\\python.exe" -s -X utf8 -m pxg_hub %*'}
 HUB_LINUX = {'pxg_hub.sh': '# Все приложения ПХГ: меню в браузере. На РЕД ОС: bash pxg_hub.sh в этой папке.\nexec "$PY" -s -X utf8 -m pxg_hub --browser "$@"'}
 SHORTCUTS_WINDOWS = ('rem Ярлыки всех приложений на рабочем столе (убрать: --remove).\r\n'
