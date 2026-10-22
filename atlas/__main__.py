@@ -44,6 +44,11 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 
+    from .api_projects import attach_log
+    from .runlog import announce
+    attach_log()
+    announce()
+
     port = args.port or (8765 if args.server else free_port())
     url = f'http://127.0.0.1:{port}/'
     server = uvicorn.Server(uvicorn.Config(create_app(), host='127.0.0.1', port=port, log_level='warning'))

@@ -6,6 +6,9 @@ import '@fontsource/pt-sans/latin-400.css'
 import '@fontsource/pt-sans/latin-700.css'
 import './styles.css'
 import './filepicker.css'
+import './logbutton.css'
 import { App } from './App'
+import { mountLogButton } from './LogButton'
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)
+mountLogButton()
