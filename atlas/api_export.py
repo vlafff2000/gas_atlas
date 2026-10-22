@@ -63,6 +63,7 @@ PACK_PER_PAGE = 6
 PACK_LAYOUTS = {2: (1, (170, 108)), 4: (2, (84, 100)), 6: (2, (84, 68))}
 PACK_DPI = 200
 GGH_NAME = 'ГГХ_графики_для_отчёта.docx'
+GIS_NAME = 'ГИС_графики_для_отчёта.docx'
 
 
 class Failure(Exception):
@@ -99,7 +100,7 @@ def group_of(mapping, well) -> str:
 def well_choices(module: str, raw: Mapping[str, pd.DataFrame]) -> list[str]:
     real = 'production' if module == 'histograms' else module
     if real == 'well_dashboard':
-        return ordered(w for k, d in raw.items() if k != 'ggh' and 'well' in d for w in d.well.dropna().unique())
+        return ordered(w for k, d in raw.items() if k not in ('ggh', 'gis_packs') and 'well' in d for w in d.well.dropna().unique())
     d = raw.get(real)
     return ordered(d.well.dropna()) if d is not None and 'well' in d else []
 
@@ -162,6 +163,8 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
         g = raw['ggh']
         out['ggh'] = {'wells': wells_of(g, None, 1), 'horizon_of': {w: well_horizon(p) for w, p in g.assign(well=g.well.astype(str)).groupby('well')},
                       'points': {w: int(n) for w, n in g.well.astype(str).value_counts().items()}}
+    if 'gis_packs' in raw and len(raw['gis_packs']):
+        out['gis'] = {'wells': ordered(raw['gis_packs']['well'].astype(str).unique())}
     panels = settings.get('panels', {})
     out['two_panels'] = {'production': bool(panels.get('prod_1')), 'histograms': bool(panels.get('hist_1'))}
     out['has_elpro'] = 'elpro' in raw       # ряды ЭЛПРО в разделе «Производительность» — только при загруженной БД ЭЛПРО
@@ -937,6 +940,41 @@ def routes(projects: Projects) -> list[Route]:
         projects.store.event(pid, 'Экспорт', info)
         return {'files': [_path(saved).name], 'planned': len(wells), 'completed': len(items), 'chart_files': 1, 'errors': errors}
 
+    def gis(request, body):
+        """Word «ГИС и ГВК»: страница на скважину — рисунок и таблица изменения ГВК (``atlas/gis_report.py``)."""
+        from . import gis_report
+        from .domain import DatasetKind
+        from .engine.core.config import ordered
+        pid, form = request.path_params['pid'], form_of(body)
+        data = projects.data(pid)
+        if DatasetKind.GIS_PACKS not in data or data[DatasetKind.GIS_PACKS].empty:
+            raise Failure(400, 'В проекте нет таблицы пачек «Базы ГИС»: загрузите её через «Импорт данных».')
+        frame = data[DatasetKind.GIS_PACKS]
+        try:
+            start, dpi = int(form.get('gis_start', 1)), int(form.get('gis_dpi', PACK_DPI))
+        except (TypeError, ValueError):
+            raise Failure(400, 'Первый номер рисунка и качество графиков должны быть числами') from None
+        if not 1 <= start <= 100000:
+            raise Failure(400, 'Первый номер рисунка: от 1 до 100000')
+        if dpi not in (150, 200, 250, 300):
+            raise Failure(400, 'Качество графиков: 150, 200, 250 или 300 DPI')
+        wanted = {str(w) for w in form.get('gis_wells') or []}
+        names = frame['well'].astype(str)
+        items = [{'well': w, 'frame': frame[names == w]} for w in ordered(names.unique()) if not wanted or w in wanted]
+        items = [item for item in items if item['frame']['gvk_abs_m'].notna().any()]
+        if not items:
+            raise Failure(400, 'Нет скважин для выгрузки: у выбранных нет замеров ГВК в «Базе ГИС».')
+        content = gis_report.build_docx(items, start=start, dpi=dpi)
+        exports = projects.store.path(pid) / 'exports'
+        exports.mkdir(exist_ok=True)
+        info = {'module': 'gis', 'charts': len(items), 'start': start, 'dpi': dpi}
+        with tempfile.TemporaryDirectory(prefix='pending_gis_', dir=str(exports)) as tmp:
+            target = Path(tmp) / GIS_NAME
+            target.write_bytes(content)
+            saved = projects.store.save_export_file(pid, GIS_NAME, target, info)
+        projects.store.event(pid, 'Экспорт', info)
+        return {'files': [_path(saved).name], 'planned': len(items), 'completed': len(items), 'chart_files': 1, 'errors': []}
+
     def bundle(request, body):
         pid = request.path_params['pid']
         names = body.get('files') or []
@@ -1031,6 +1069,7 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/extras-preview', E(extras_preview), methods=['POST']),
         Route(base + '/pack', E(pack), methods=['POST']),
         Route(base + '/ggh', E(ggh), methods=['POST']),
+        Route(base + '/gis', E(gis), methods=['POST']),
         Route(base + '/bundle', E(bundle), methods=['POST']),
         Route(base + '/presets', E(save_preset), methods=['POST']),
         Route(base + '/sync', E(sync)),

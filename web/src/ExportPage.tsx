@@ -46,6 +46,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const [word, setWord] = useState<{ key: string; result: ExportResult } | null>(null)
   const [pack, setPack] = useState<{ key: string; result: ExportResult } | null>(null)
   const [ggh, setGgh] = useState<{ key: string; result: ExportResult } | null>(null)
+  const [gisFile, setGisFile] = useState<ExportResult | null>(null)
+  const [gisBusy, setGisBusy] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -216,7 +218,31 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const setEnabled = (id: string, on: boolean) => set('modules', allTabs.filter(m => m === id ? on : modules.includes(m)))
   const packAvailable = choices.modules.some(m => m.id === 'production')
   const gghAvailable = !!choices.ggh
-  const extraTabs: [string, string][] = [...(packAvailable ? [['pack', 'Пакет по фонду'] as [string, string]] : []), ...(gghAvailable ? [['ggh', 'ГГХ (Word)'] as [string, string]] : [])]
+  const gisAvailable = !!choices.gis
+  const extraTabs: [string, string][] = [...(packAvailable ? [['pack', 'Пакет по фонду'] as [string, string]] : []), ...(gghAvailable ? [['ggh', 'ГГХ (Word)'] as [string, string]] : []), ...(gisAvailable ? [['gis', 'ГИС и ГВК (Word)'] as [string, string]] : [])]
+  const gisPanel = !gisAvailable ? null : (
+    <>
+      <p className="lede">Word: страница на скважину — рисунок (ГВК, hг эф и Кг ср.взв по пачкам), таблица изменения ГВК и подпись. А4 альбомная. Скважины без замеров ГВК пропускаются.</p>
+      <div className="param-bar flat">
+        <Section title="Скважины">
+          <Multi {...F} field="gis_wells" label="Скважины" options={choices.gis!.wells} empty="все" />
+        </Section>
+        <Section title="Подписи и качество">
+          <Num {...F} field="gis_start" label="Первый номер рисунка" def={1} min={1} max={100000} />
+          <Select {...F} field="gis_dpi" label="Качество графиков" def={200}
+            options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
+        </Section>
+      </div>
+      <div className="toolbar">
+        <button type="button" disabled={gisBusy} onClick={async () => {
+          setGisBusy(true)
+          try { setGisFile(await exportApi.gis(project.id, form)) } catch (e) { setError((e as Error).message) }
+          setGisBusy(false)
+        }}>{gisBusy ? 'Создаю Word…' : 'Создать Word ГИС'}</button>
+      </div>
+      {gisFile && <Outcome title="Word: ГИС и ГВК" result={gisFile} pid={project.id} ggh />}
+    </>
+  )
   const packPanel = (
     <>
       <p className="lede">Приложения к отчету: график «Производительность» каждой скважины фонда, по 2, 4 или 6 на лист A4. Шрифт, вид графиков, подписи и оформление берутся из общих настроек ниже.</p>
@@ -384,9 +410,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       </div>
       {current === 'custom' ? (
         <CustomCharts {...F} projectId={project.id} loadPlan={prepare} planned={planned} />
-      ) : current === 'pack' || current === 'ggh' ? (
+      ) : current === 'pack' || current === 'ggh' || current === 'gis' ? (
         <>
-          {current === 'pack' ? packPanel : gghPanel}
+          {current === 'pack' ? packPanel : current === 'gis' ? gisPanel : gghPanel}
         </>
       ) : (
         <div className="param-bar">

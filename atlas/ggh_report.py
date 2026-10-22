@@ -227,6 +227,11 @@ def build_docx(items: list[dict[str, Any]], start: int = 1, section: str = 'В',
     document = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {namespaces}><w:body>' + ''.join(body)
                 + f'<w:sectPr><w:pgSz w:w="{w}" w:h="{h}" w:orient="landscape"/><w:pgMar w:top="{mar["top"]}" w:right="{mar["right"]}" '
                   f'w:bottom="{mar["bottom"]}" w:left="{mar["left"]}" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr></w:body></w:document>')
+    return package(document, media, rels)
+
+
+def package(document: str, media: list[tuple[str, bytes]], rels: list[str]) -> bytes:
+    """Пакет .docx: документ, картинки и связи. Общий для отчётов ГГХ и ГИС."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('[Content_Types].xml',
