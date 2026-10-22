@@ -329,10 +329,11 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
     setBusy(false)
   }
 
+  const [gisTable, setGisTable] = useState<Record<string, string>>({})   // тип таблицы «База ГИС», выбранный вручную; пусто — по заголовкам
   const loadBase = async (token: string) => {
     setBusy(true)
     try {
-      const r: Applied = await importApi.baseLoad(project.id, token, policy)
+      const r: Applied = await importApi.baseLoad(project.id, token, policy, gisTable[token] ?? '')
       onProject(r.project)
       uploads.clear(); setChoices({}); setDetailed({}); setFileOpts({}); setFine('')
       setMessage({ text: r.message, ok: true, undo: r.undo?.snapshot })
@@ -403,6 +404,13 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
                           </select>)}</td>
                         <td>{r.fields}</td>
                         <td className={r.status === 'OK' ? 'ok' : r.status.startsWith('Не') || r.status.startsWith('Таблица') ? 'bad' : ''}>{r.status}
+                          {r.base === 'gis' && <> <select disabled={busy} value={gisTable[r.token] ?? ''} title="Тип таблицы «База ГИС»"
+                            onChange={e => setGisTable({ ...gisTable, [r.token]: e.target.value })}>
+                            <option value="">по заголовкам</option>
+                            <option value="gis_packs">пачки</option>
+                            <option value="gis_observations">замеры</option>
+                            <option value="gis_intervals">интервалы</option>
+                          </select></>}
                           {r.base && <> <button type="button" disabled={busy} onClick={() => loadBase(r.token)}>Загрузить в проект</button></>}</td>
                       </tr>
                     ))}

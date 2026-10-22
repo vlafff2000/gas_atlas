@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.core import elpro_import as elpro
-from atlas.engine.core import gas_db_import, water_monthly_import, well_geo_import
+from atlas.engine.core import gas_db_import, gis_import, water_monthly_import, well_geo_import
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
@@ -72,6 +72,8 @@ def base_book(tables: dict[str, pd.DataFrame], name: str = '') -> str:
         return 'база ЭЛПРО'
     if {'Режим', 'Дата', 'Файл', 'Лист'} <= head('БД'):
         return '«БД по учету газа»'
+    if any(gis_import.detect(raw.iloc[0].tolist()) for raw in tables.values() if raw is not None and not raw.empty):
+        return 'таблица «База ГИС»'
     if well_geo_import.looks_like(tables, Path(name).suffix.lower() in TEXT):
         return 'файл положения и перфорации скважин'
     if water_monthly_import.looks_like(tables, name):
@@ -347,18 +349,25 @@ class Imports:
                            'unknown': sum(r['status'] == 'Таблица не распознана' for r in rows)}}
 
     def base_load(self, pid: str, body: dict) -> dict[str, Any]:
-        """«Загрузить в проект» для «БД_ЭЛПРО» и «БД по учету газа» прямо из общего импорта (тот же разбор, что в «Источниках»)."""
+        """«Загрузить в проект» для «БД_ЭЛПРО», «БД по учету газа» и таблиц «База ГИС» прямо из общего импорта (тот же разбор, что в «Источниках»).
+        `table` — тип таблицы ГИС, выбранный вручную (gis_packs / gis_observations / gis_intervals); пусто — определяется по заголовкам."""
         policy = body.get('policy') or 'new'
         if policy not in POLICIES:
             raise ParamError('Неизвестное правило повторов')
         item = self.file(body.get('token'))
-        tables = self.sample(item.token, body.get('encoding') or 'auto', body.get('delimiter') or 'auto')[1]
-        special = base_book(tables, item.name)
+        table = body.get('table') or ''
+        if table and table not in gis_import.TABLES:
+            raise ParamError('Неизвестный тип таблицы «База ГИС»')
+        special = 'таблица «База ГИС»' if table else base_book(
+            self.sample(item.token, body.get('encoding') or 'auto', body.get('delimiter') or 'auto')[1], item.name)
         if not special:
-            raise ParamError('Это не «БД_ЭЛПРО» и не «БД по учету газа» Базы ПХГ.')
-        load = (self.elpro_load if special == 'база ЭЛПРО' else self.geo_load if special.startswith('файл положения')
-                else self.water_monthly_load if special.startswith('замеры воды') else self.gas_db_load)
-        out = load(pid, item.name, item.content, policy)
+            raise ParamError('Это не «БД_ЭЛПРО», не «БД по учету газа» и не таблица «База ГИС» Базы ПХГ.')
+        if special.startswith('таблица'):
+            out = self.gis_load(pid, item.name, item.content, policy, table)
+        else:
+            load = (self.elpro_load if special == 'база ЭЛПРО' else self.geo_load if special.startswith('файл положения')
+                    else self.water_monthly_load if special.startswith('замеры воды') else self.gas_db_load)
+            out = load(pid, item.name, item.content, policy)
         with self.lock:
             self.files.pop(item.token, None)
         return out
@@ -405,7 +414,8 @@ class Imports:
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
                              'status': (f'Это {special}: у него свой разбор. Нажмите «Загрузить в проект» справа' if not special.startswith(('база', '«'))
                                         else f'Это {special} из Базы ПХГ: у неё свой разбор. Нажмите «Загрузить в проект» справа (или загрузите её через блок «Источники»)'),
-                             'base': 'elpro' if special == 'база ЭЛПРО' else 'geo' if special.startswith('файл положения') else 'water' if special.startswith('замеры воды') else 'gas'})
+                             'base': 'elpro' if special == 'база ЭЛПРО' else 'geo' if special.startswith('файл положения') else 'water' if special.startswith('замеры воды')
+                             else 'gis' if special.startswith('таблица') else 'gas'})
                 continue
             sheets, any_rows, auto_use = {}, False, False
             for sheet, raw in tables.items():
@@ -1043,6 +1053,28 @@ class Imports:
                              details={'file': name, 'rows': len(new)})
         self._keep_originals(pid, [(name, content)])
         return {'message': message, 'warnings': [], 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def gis_load(self, pid: str, name: str, content: bytes, policy: str, table: str = '') -> dict[str, Any]:
+        """Таблица «База ГИС» (CSV выгрузки, atlas/engine/core/gis_import.py) → gis_packs / gis_observations / gis_intervals.
+        Новый файл заменяет замеры той же скважины и даты; «оставить прежние» — только добавляет даты, которых ещё нет."""
+        if policy not in POLICIES:
+            raise ParamError('Неизвестное правило повторов')
+        try:
+            table, new, warnings = gis_import.read(name, content, table)
+        except (ValueError, OSError) as e:
+            raise ParamError(f'«{name}»: файл не прочитан ({e})') from e
+        if new.empty:
+            raise ParamError(f'«{name}»: нет строк с датой и скважиной.')
+        m = self.projects.manifest(pid)
+        raw = self._raw_frames(pid, m)
+        final = gis_import.merge(raw.get(table), new, keep_old=policy == 'old')
+        frames = dict(raw)
+        frames[table] = final
+        message = (f'База ГИС, {gis_import.LABELS[table]} «{name}»: строк {len(new)}, скважин {new["well"].nunique()}; '
+                   f'в проекте всего строк {len(final)}')
+        saved = self._commit(pid, frames, m['revision'], 'Импорт базы ГИС', details={'file': name, 'table': table, 'rows': len(new)})
+        self._keep_originals(pid, [(name, content)])
+        return {'message': message, 'warnings': warnings, 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     # ---------- демонстрационные варианты кроссплота (atlas/engine/core/pressure_demo.py) ----------
     @staticmethod

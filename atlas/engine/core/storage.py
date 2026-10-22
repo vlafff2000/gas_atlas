@@ -103,7 +103,7 @@ class Store:
                 snap=uuid.uuid4().hex; dest=self.path(pid)/'snapshots'/snap; dest.mkdir()
                 try:
                     for name,frame in frames.items():
-                        if name not in ('production','gdi','response','object_pressure','operations','water','bottom','construction','pressure_match','plan','ggh','water_factor','annulus','elpro','gas_db','well_geo'): raise ValueError('Неизвестный модуль')
+                        if name not in ('production','gdi','response','object_pressure','operations','water','bottom','construction','pressure_match','plan','ggh','water_factor','annulus','elpro','gas_db','well_geo','gis_packs','gis_observations','gis_intervals'): raise ValueError('Неизвестный модуль')
                         clean=frame.copy(deep=False);clean.attrs={}
                         try:clean.to_parquet(dest/(name+'.parquet'),index=False,compression='zstd')
                         except (pa.ArrowTypeError,pa.ArrowInvalid):       # столбец смешанных типов (числа и текст): текст, пропуски остаются пропусками
@@ -187,9 +187,9 @@ class Store:
             if not isinstance(m.get('settings'),dict) or not isinstance(m.get('groups'),dict): raise ValueError('Некорректный манифест')
             data={}
             for name in m.get('tables',{}):
-                if name not in ('production','gdi','response','object_pressure','operations','water','bottom','construction','pressure_match','plan','ggh','water_factor','elpro','gas_db','well_geo'): raise ValueError('Неизвестный модуль в архиве')
+                if name not in ('production','gdi','response','object_pressure','operations','water','bottom','construction','pressure_match','plan','ggh','water_factor','elpro','gas_db','well_geo','gis_packs','gis_observations','gis_intervals'): raise ValueError('Неизвестный модуль в архиве')
                 df=pd.read_parquet(io.BytesIO(z.read('data/'+name+'.parquet')))
-                req={'production':{'well','date','q','kind'},'gdi':{'well','date','q','dp2'},'response':{'well','date','horizon','level'},'object_pressure':{'date','pressure'},'operations':{'well','date','kind','work_hours'},'water':{'well','date','water_flag','water_rate'},'bottom':{'well','date','bottom_m'},'construction':{'well','date','element','top_m','bottom_m'},'pressure_match':{'well','date','fact','model','object','scenario','fond'},'plan':{'group','date','plan_volume','kind'},'ggh':{'well','date','horizon','hc','gas'},'water_factor':{'date','gas_in_place'},'elpro':{'well','date','q','kind'},'gas_db':{'date','kind','gas'},'well_geo':{'well'},'annulus':{'well','date','q','p'}}[name]
+                req={'production':{'well','date','q','kind'},'gdi':{'well','date','q','dp2'},'response':{'well','date','horizon','level'},'object_pressure':{'date','pressure'},'operations':{'well','date','kind','work_hours'},'water':{'well','date','water_flag','water_rate'},'bottom':{'well','date','bottom_m'},'construction':{'well','date','element','top_m','bottom_m'},'pressure_match':{'well','date','fact','model','object','scenario','fond'},'plan':{'group','date','plan_volume','kind'},'ggh':{'well','date','horizon','hc','gas'},'water_factor':{'date','gas_in_place'},'elpro':{'well','date','q','kind'},'gas_db':{'date','kind','gas'},'well_geo':{'well'},'annulus':{'well','date','q','p'},'gis_packs':{'well','date','pack'},'gis_observations':{'well','date'},'gis_intervals':{'well','date','pack','from_m','to_m'}}[name]
                 if not req<=set(df): raise ValueError('Неполные данные в архиве')
                 data[name]=df
             pid=self.create(m.get('name','Восстановленный проект')+' (копия)',m.get('demo',False))
