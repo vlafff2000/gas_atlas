@@ -39,6 +39,7 @@ CATEGORIES = (
     ('response', 'Реагирование горизонтов'),
     ('annulus', 'Межколонные'),
     ('ggh', 'ГГХ'),
+    ('gis', 'ГИС и ГВК'),
     ('construction', 'Конструкция и забой'),
     ('other', 'Прочее'),
 )
@@ -47,7 +48,7 @@ DATASET_CATEGORY = {
     K.PRODUCTION: 'prod', K.ELPRO: 'prod', K.OPERATIONS: 'prod', K.GDI: 'gdi', K.RESPONSE: 'response',
     K.OBJECT_PRESSURE: 'pressure', K.PRESSURE_MATCH: 'pressure', K.WATER: 'water', K.WATER_FACTOR: 'water',
     K.GAS_DB: 'object', K.PLAN: 'object', K.ANNULUS: 'annulus', K.GGH: 'ggh', K.CONSTRUCTION: 'construction',
-    K.BOTTOM: 'construction',
+    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis',
 }
 
 
@@ -103,6 +104,10 @@ FIELDS: dict[tuple[DatasetKind, str], FieldMeta] = {
     (K.GGH, 'level'): FieldMeta('ggh', 'Уровень (ГГХ)', 'м'),
     (K.GGH, 'depth'): FieldMeta('ggh', 'Глубина отбора проб', 'м'),
     (K.GGH, 'gas'): FieldMeta('ggh', 'Газонасыщенность', 'см³/л'),
+    (K.GIS_PACKS, 'gvk_abs_m'): FieldMeta('gis', 'ГВК а.о.', 'м'),
+    (K.GIS_PACKS, 'h_eff_m'): FieldMeta('gis', 'hг эф', 'м'),
+    (K.GIS_PACKS, 'kg_avg'): FieldMeta('gis', 'Кг ср.взв', 'д.ед.'),
+    (K.GIS_PACKS, 'floor_m'): FieldMeta('gis', 'Этаж', 'м'),
     (K.CONSTRUCTION, 'top_m'): FieldMeta('construction', 'Верх интервала', 'м'),
     (K.CONSTRUCTION, 'bottom_m'): FieldMeta('construction', 'Низ интервала', 'м'),
     (K.CONSTRUCTION, 'diameter_mm'): FieldMeta('construction', 'Наружный диаметр', 'мм'),

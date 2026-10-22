@@ -2,6 +2,7 @@
 Данные — литеральные, прямо в тесте; реальных данных компании в репозитории нет."""
 import pandas as pd
 
+from atlas.contract import Data
 from atlas.domain import DatasetKind
 from atlas.modules.gis import GisModule
 
@@ -57,3 +58,12 @@ def test_change_table_gives_delta_and_rate_per_pack():
 def test_no_data_or_no_wells_gives_note():
     assert GisModule().run({}, _params()).notes[0].text.startswith('В данных нет')
     assert GisModule().run({GIS: _frame()}, _params(wells=[])).notes[0].text == 'Выберите скважины.'
+
+
+def test_builder_layout_adds_gis_chart_after_main_ones():
+    data = Data({GIS: _frame()})
+    data.settings = {'builder_layouts': {'items': [{'id': 'g1', 'name': 'ГВК', 'layout': {
+        'series': [{'dataset': 'gis_packs', 'y': 'gvk_abs_m', 'wells': ['115']}], 'title': 'ГВК 115'}}]}}
+    res = GisModule().run(data, _params(wells=['115'], builder_layouts=['ГВК']))
+    assert res.charts[-1].id.startswith('builder-g1')
+    assert not [n for n in res.notes if n.level == 'warning']

@@ -46,6 +46,7 @@ class GisModule(Module):
         description='Динамика ГВК, эффективной толщины и Кг ср.взв по скважинам и пачкам из «Базы ГИС».',
         needs=(GIS,),
         order=75,
+        builder_layouts=True,    # макеты «Конструктора графиков» графиками после основных
         params=(
             Param('wells', 'Скважины', 'multi', default=[], dynamic=True, empty='ничего', auto='first:3', section=SECTION),
             Param('packs', 'Пачки', 'multi', default=[], dynamic=True, empty='все', section=SECTION),
@@ -83,6 +84,10 @@ class GisModule(Module):
                 result.charts.append(self.chart(well, frame, key))
         result.charts.append(self.chart_all(part))
         result.tables.append(self.change_table(part))
+        names = params.get('builder_layouts') or []
+        if names:
+            from .. import builder_library
+            builder_library.add_layout_charts(result, data, names, wells)
         result.summary = [Stat('Скважин', str(len(wells))), Stat('Замеров', str(len(part)))]
         result.notes.append(Note('Треугольник — весенний замер (после отбора), круг — осенний (после закачки). Замеры без сезона '
                                  'показаны кругом. Точку можно исключить щелчком, как в других разделах.'))
