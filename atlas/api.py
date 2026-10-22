@@ -351,9 +351,10 @@ def create_app(projects: Projects | None = None) -> Starlette:
         *__import__('atlas.api_passport', fromlist=['routes']).routes(projects),   # «Паспорт скважины»
         *__import__('atlas.api_import', fromlist=['routes']).routes(projects),   # раздел «Импорт данных»
         *__import__('atlas.project_folder', fromlist=['routes']).routes(projects),   # «Папка проекта»: файлы, роли, загрузка
+        *__import__('atlas.runlog', fromlist=['routes']).routes(),   # лог: сведения, пакет для отправки
         Route('/api/{rest:path}', api_not_found, methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
         Route('/', index),
     ]
     if (DIST / 'assets').exists():
         routes.append(Mount('/assets', StaticFiles(directory=DIST / 'assets'), name='assets'))
-    return Starlette(routes=routes, middleware=[Middleware(GZipMiddleware, minimum_size=1024)])
+    return Starlette(routes=routes, middleware=[Middleware(__import__('atlas.runlog', fromlist=['RequestLog']).RequestLog), Middleware(GZipMiddleware, minimum_size=1024)])

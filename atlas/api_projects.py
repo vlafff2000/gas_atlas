@@ -64,9 +64,13 @@ def attach_log(directory: Path = None) -> Path:
         except OSError:
             return path
         handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
-        handler.setLevel(logging.WARNING)
+        handler.setLevel(logging.INFO)
+        from .runlog import CleanPaths
+        handler.addFilter(CleanPaths())
         handler._atlas_log = True
         logger.addHandler(handler)
+        if logger.level in (logging.NOTSET, logging.WARNING):
+            logger.setLevel(logging.INFO)
     return path
 
 

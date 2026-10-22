@@ -151,8 +151,9 @@ def test_saved_exports_and_log(env, tmp_path):
     assert client.get(f'/api/projects/{pid}/exports/{path.name}.json').status_code == 404
     assert client.get(f'/api/projects/{pid}/exports/..%2Fmanifest.json').status_code == 404
 
-    assert client.get('/api/log').status_code == 404
     (tmp_path / 'logs').mkdir(exist_ok=True)
+    (tmp_path / 'logs' / 'atlas.log').unlink(missing_ok=True)        # запросы теста уже записаны в журнал: начинаем с пустой папки
+    assert client.get('/api/log').status_code == 404
     (tmp_path / 'logs' / 'gas_atlas.log').write_text('ошибка 5.8\n', encoding='utf8')
     r = client.get('/api/log')
     assert r.status_code == 200 and 'ошибка 5.8' in r.text
