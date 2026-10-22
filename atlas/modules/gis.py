@@ -13,7 +13,7 @@ import pandas as pd
 
 from atlas.engine.core.config import ordered
 
-from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Param, Result, Series, Stat, Table
+from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
 
 GIS = DatasetKind.GIS_PACKS
@@ -50,6 +50,8 @@ class GisModule(Module):
         params=(
             Param('wells', 'Скважины', 'multi', default=[], dynamic=True, empty='ничего', auto='first:3', section=SECTION),
             Param('packs', 'Пачки', 'multi', default=[], dynamic=True, empty='все', section=SECTION),
+            Param('view', 'График', 'choice', default='all', section='Вид', chart_kind=True, options=(
+                Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()), Option('svod', 'Свод по пачкам'))),
             Param('start', 'С даты', 'date', default='', section=SECTION),
             Param('end', 'По дату', 'date', default='', section=SECTION),
         ),
@@ -80,9 +82,10 @@ class GisModule(Module):
             frame = part[part['well'].astype(str) == well]
             if frame.empty:
                 continue
-            for key in METRICS:
+            for key in [k for k in METRICS if params['view'] in ('all', k)]:
                 result.charts.append(self.chart(well, frame, key))
-        result.charts.append(self.chart_all(part))
+        if params['view'] in ('all', 'svod'):
+            result.charts.append(self.chart_all(part))
         result.tables.append(self.change_table(part))
         names = params.get('builder_layouts') or []
         if names:
