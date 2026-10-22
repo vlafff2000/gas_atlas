@@ -2,11 +2,16 @@
 
     python tools/build_unified.py windows --scripts ../all_scripts  ->  dist/PXG_Unified_portable_windows_x64.zip
     python tools/build_unified.py linux   --scripts ../all_scripts  ->  dist/PXG_Unified_portable_linux_x64.tar.gz
+    python tools/build_unified.py linux   --scripts ../all_scripts --code-only  ->  dist/PXG_Unified_code_update_linux_x64.tar.gz
+
+--code-only собирает только программы (без Python и библиотек): архив распаковывается поверх уже установленной папки.
+Отпечаток библиотек (VERSION_LIBS.txt) есть в обоих видах архива: если он не совпал, нужен полный архив.
 
 Runtime, wheels and the application files of Gas Atlas come from tools/build_portable.py (same pins, glibc 2.17 / Windows 10+);
 the files and launchers of the other apps come from a checkout of the repository all_scripts. The separate archives of both
 repositories are not touched.
 """
+import hashlib
 import importlib.util
 import shutil
 import subprocess
@@ -106,6 +111,41 @@ def write_launchers(target, folder, sp):
         (folder / 'ПРОЧТИТЕ.txt').write_text(text, encoding='utf-8')
 
 
+UPDATE_NOTE = """Обновление программ ПХГ (без Python и библиотек)
+====================================================
+
+1. Закройте меню ПХГ и все окна приложений.
+2. Распакуйте этот архив поверх папки PXG_Unified: файлы программ заменятся, папки python, Проект и storage не трогаются.
+3. Сравните VERSION_LIBS.txt из этого архива с файлом python/VERSION_LIBS.txt в вашей папке (в Windows python\\VERSION_LIBS.txt).
+   Совпадают: всё готово. Не совпадают: библиотеки изменились, скачайте полный архив PXG_Unified_portable_* и распакуйте его заново.
+
+Файлы, удалённые из программ, в папке остаются.
+"""
+
+
+def write_fingerprint(folder, target, spec, libs):
+    """Отпечаток Python и библиотек: по нему видно, нужен ли полный архив, а не только обновление программ."""
+    digest = hashlib.sha256('\n'.join([spec['sha256'], '3.13.16'] + sorted(libs)).encode('utf-8')).hexdigest()[:16]
+    text = ('Отпечаток Python и библиотек: %s\n'
+            'Сравните с python/VERSION_LIBS.txt в установленной папке: если отличается, нужен полный архив PXG_Unified_portable_*.\n') % digest
+    (folder / 'VERSION_LIBS.txt').write_text(text, encoding='utf-8')
+    print('Отпечаток библиотек: ' + digest, flush=True)
+
+
+def write_update_note(folder, target):
+    if target == 'windows':
+        (folder / 'ОБНОВЛЕНИЕ.txt').write_bytes(UPDATE_NOTE.replace('\n', '\r\n').encode('utf-8-sig'))
+    else:
+        (folder / 'ОБНОВЛЕНИЕ.txt').write_text(UPDATE_NOTE, encoding='utf-8')
+
+
+def compile_check(folder):
+    import compileall
+    if not compileall.compile_dir(str(folder), quiet=1, force=True):
+        raise SystemExit('В программах есть ошибки синтаксиса: архив не собран')
+    print('Синтаксис программ проверен', flush=True)
+
+
 # Стандартная библиотека, без которой меню и приложения не запускаются (проверяется до упаковки архива).
 STDLIB_CHECK = ['urllib/parse.py', 'urllib/request.py', 'http/server.py', 'email/utils.py', 'json/__init__.py',
                 'logging/__init__.py', 'xml/etree/ElementTree.py', 'zipfile/__init__.py', 'encodings/utf_8.py']
@@ -127,18 +167,25 @@ def check_runtime(folder, target):
     print('Стандартная библиотека и pywin32 на месте', flush=True)
 
 
-def archive(target, folder, out):
+def archive(target, folder, out, code_only=False):
     out.mkdir(parents=True, exist_ok=True)
+    # Архив обновления кладёт файлы в корень: распаковывается поверх папки PXG_Unified, а не рядом с ней.
+    top = Path() if code_only else Path(NAME)
+    prefix = 'PXG_Unified_code_update' if code_only else 'PXG_Unified_portable'
     if target == 'windows':
-        path = out / 'PXG_Unified_portable_windows_x64.zip'
+        path = out / (prefix + '_windows_x64.zip')
         with zipfile.ZipFile(str(path), 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
             for item in sorted(folder.rglob('*')):
                 if item.is_file():
-                    z.write(str(item), str(Path(NAME) / item.relative_to(folder)))
+                    z.write(str(item), str(top / item.relative_to(folder)))
     else:
-        path = out / 'PXG_Unified_portable_linux_x64.tar.gz'
+        path = out / (prefix + '_linux_x64.tar.gz')
         with tarfile.open(str(path), 'w:gz') as t:
-            t.add(str(folder), arcname=NAME)
+            if code_only:
+                for item in sorted(folder.rglob('*')):
+                    t.add(str(item), arcname=str(item.relative_to(folder)), recursive=False)
+            else:
+                t.add(str(folder), arcname=NAME)
     print('Готово: %s (%.0f МБ)' % (path, path.stat().st_size / 2**20), flush=True)
 
 
@@ -168,30 +215,48 @@ def main(argv=None):
     parser.add_argument('--scripts', default=str(ROOT.parent / 'all_scripts'), help='папка с репозиторием all_scripts')
     parser.add_argument('--out', default=str(ROOT / 'dist'))
     parser.add_argument('--cache', default=str(ROOT / 'build' / 'cache'))
+    parser.add_argument('--code-only', action='store_true', help='только программы, без Python и библиотек (архив обновления)')
     args = parser.parse_args(argv)
     scripts = Path(args.scripts).resolve()
     sp = load(scripts / 'tools' / 'build_portable.py', 'scripts_build_portable')
 
     spec = bp.RUNTIMES[args.target]
-    runtime = bp.fetch(spec['url'], spec['sha256'], Path(args.cache))
     build = ROOT / 'build' / ('unified_' + args.target)
     shutil.rmtree(str(build), ignore_errors=True)
     folder = build / NAME
-    python_dir = folder / 'python'
-    python_dir.mkdir(parents=True)
-    bp.unpack_runtime(args.target, runtime, python_dir)
+    folder.mkdir(parents=True)
 
     lock_requirements = bp.requirements_for
     lock_names = {r.split('=')[0].lower() for r in lock_requirements(args.target)}
     extra = scripts_requirements(scripts, lock_names)
+    write_fingerprint(folder, args.target, spec, lock_requirements(args.target) + extra)
+    bp.SKIP_TOOLS.add('tools/build_unified.py')
+    bp.INCLUDE.append('pxg_hub')
+
+    if args.code_only:
+        bp.copy_application(folder)
+        copy_scripts(scripts, folder)
+        write_launchers(args.target, folder, sp)
+        write_update_note(folder, args.target)
+        compile_check(folder)
+        for cache in folder.rglob('__pycache__'):
+            shutil.rmtree(str(cache), ignore_errors=True)
+        archive(args.target, folder, Path(args.out), code_only=True)
+        shutil.rmtree(str(build), ignore_errors=True)
+        return 0
+
+    runtime = bp.fetch(spec['url'], spec['sha256'], Path(args.cache))
+    python_dir = folder / 'python'
+    python_dir.mkdir(parents=True)
+    bp.unpack_runtime(args.target, runtime, python_dir)
+    shutil.copy2(str(folder / 'VERSION_LIBS.txt'), str(python_dir / 'VERSION_LIBS.txt'))  # в python/ код-архив не заходит
+
     bp.SDIST_ONLY.add('odfpy')
     bp.requirements_for = lambda target: lock_requirements(target) + extra
     with tempfile.TemporaryDirectory() as tmp:
         bp.install_packages(args.target, python_dir / spec['site'], Path(tmp))
     for stray in (python_dir / spec['site']).glob('*.whl'):  # копии колёс в site-packages ничего не импортируют
         stray.unlink()
-    bp.SKIP_TOOLS.add('tools/build_unified.py')
-    bp.INCLUDE.append('pxg_hub')
     bp.copy_application(folder)
     copy_scripts(scripts, folder)
     write_launchers(args.target, folder, sp)

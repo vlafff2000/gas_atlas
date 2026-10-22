@@ -2,6 +2,7 @@ name: Единый архив ПХГ
 # Один архив со всеми приложениями ПХГ (Атлас, База ПХГ, Карты, ГДМ, ГИС и ГВК, отчёты) для РЕД ОС 7.3 и Windows 10+.
 # Собирается из текущих веток обоих репозиториев (gas_atlas и all_scripts): после push в ветку gas_atlas, каждую ночь и вручную.
 # Отдельные архивы отдельных репозиториев больше не собираются.
+# Архив обновления (job code-update, ~6 МБ): только программы, без Python и библиотек. Полный архив нужен, если VERSION_LIBS.txt изменился.
 on:
   workflow_dispatch:
   push:
@@ -83,4 +84,46 @@ jobs:
         with:
           name: PXG_Unified_portable_${{ matrix.target }}
           path: gas_atlas/dist/PXG_Unified_portable_*
+          compression-level: 0
+  code-update:
+    # Только программы (без Python и библиотек): распаковать поверх папки PXG_Unified. Сравнить VERSION_LIBS.txt с python/VERSION_LIBS.txt.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: windows, os: windows-2022}
+          - {target: linux, os: ubuntu-22.04}
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gas_atlas
+      - uses: actions/checkout@v4
+        with:
+          repository: vlafff2000/all_scripts
+          path: all_scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build code-only update
+        run: cd gas_atlas && python tools/build_unified.py ${{ matrix.target }} --scripts ../all_scripts --code-only
+      - name: The update has the code, the fingerprint and no Python or libraries
+        run: |
+          cd gas_atlas/dist
+          if [ "${{ matrix.target }}" = windows ]; then
+            python -c "import sys,zipfile; n=zipfile.ZipFile(sys.argv[1]).namelist(); bad=[x for x in n if x.startswith(('python/','Проект/','storage/'))]; assert not bad, bad; assert 'pxg_hub/hub.py' in n and 'VERSION_LIBS.txt' in n and 'ОБНОВЛЕНИЕ.txt' in n" PXG_Unified_code_update_windows_x64.zip
+          else
+            tar -tzf PXG_Unified_code_update_linux_x64.tar.gz > names.txt
+            ! grep -E '^\./?(python|Проект|storage)/' names.txt
+            grep -qx 'pxg_hub/hub.py' names.txt && grep -qx 'VERSION_LIBS.txt' names.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PXG_Unified_code_update_${{ matrix.target }}
+          path: gas_atlas/dist/PXG_Unified_code_update_*
           compression-level: 0
