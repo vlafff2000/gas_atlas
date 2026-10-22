@@ -12,11 +12,13 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.core.config import ordered
+from atlas.engine.modules import gis_hikg
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
 
 GIS = DatasetKind.GIS_PACKS
+INTERVALS = DatasetKind.GIS_INTERVALS
 SECTION = 'Выбор данных'
 SPRING = 'весна'
 # метрика → (колонка, подпись, единица, название графика)
@@ -50,15 +52,21 @@ class GisModule(Module):
         params=(
             Param('wells', 'Скважины', 'multi', default=[], dynamic=True, empty='ничего', auto='first:3', section=SECTION),
             Param('packs', 'Пачки', 'multi', default=[], dynamic=True, empty='все', section=SECTION),
+            Param('seasons', 'Сезоны', 'multi', default=[], dynamic=True, empty='все', section=SECTION),
             Param('view', 'График', 'choice', default='all', section='Вид', chart_kind=True, options=(
                 Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()),
-                Option('combo', 'Кривые и столбцы: Кг и hэф'), Option('svod', 'Свод по пачкам, все скважины'))),
+                Option('combo', 'Кривые и столбцы: Кг и hэф'), Option('svod', 'Свод по пачкам, все скважины'),
+                Option('hikg', 'Σ hi × Кг по исследованиям'))),
             Param('start', 'С даты', 'date', default='', section=SECTION),
             Param('end', 'По дату', 'date', default='', section=SECTION),
         ),
     )
 
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
+        if name == 'seasons':
+            if INTERVALS not in data or data[INTERVALS].empty:
+                return []
+            return gis_hikg.season_order(gis_hikg.prepare(data[INTERVALS])['season'].dropna().astype(str).unique())
         df = data[GIS]
         if name == 'wells':
             return ordered(df['well'].astype(str).unique())
@@ -68,6 +76,8 @@ class GisModule(Module):
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         result = Result()
+        if params['view'] == 'hikg':
+            return self.run_hikg(data, params)
         if GIS not in data or data[GIS].empty:
             result.notes.append(Note('В данных нет «Базы ГИС». Загрузите таблицу пачек через «Источники» или «Импорт данных».'))
             return result
@@ -101,6 +111,72 @@ class GisModule(Module):
         result.notes.append(Note('Треугольник — весенний замер (после отбора), круг — осенний (после закачки). Замеры без сезона '
                                  'показаны кругом. Точку можно исключить щелчком, как в других разделах.'))
         return result
+
+    @staticmethod
+    def run_hikg(data: Data, params: dict[str, Any]) -> Result:
+        """Σ(hi × Кг) по каждому исследованию и пачке: таблица и график по скважинам. Расчёт — atlas/engine/modules/gis_hikg.py."""
+        result = Result()
+        if INTERVALS not in data or data[INTERVALS].empty:
+            result.notes.append(Note('Нет интервалов ГИС: загрузите таблицу интервалов через «Импорт данных» («База ГИС»).'))
+            return result
+        raw = data[INTERVALS]
+        wells = [w for w in params['wells'] if w in set(raw['well'].astype(str))]
+        if not wells:
+            result.notes.append(Note('Выберите скважины.'))
+            return result
+        prepared = gis_hikg.prepare(raw)
+        part = prepared[prepared['well'].astype(str).isin(wells)]
+        if params['packs']:
+            part = part[part['pack'].astype(str).isin(params['packs'])]
+        if params['seasons']:
+            part = part[part['season'].isin(params['seasons'])]
+        if params['start']:
+            part = part[part['date'] >= pd.Timestamp(params['start'])]
+        if params['end']:
+            part = part[part['date'] <= pd.Timestamp(params['end'])]
+        if part.empty:
+            result.notes.append(Note('За выбранные скважины, сезоны и даты интервалов нет.'))
+            return result
+        table = gis_hikg.sums(part)
+        result.tables.append(GisModule.hikg_table(table))
+        changes = gis_hikg.season_changes(table)
+        if not changes.empty:
+            result.tables.append(GisModule.hikg_changes_table(changes))
+        for well, frame in table.groupby(table['well'].astype(str), sort=True):
+            result.charts.append(GisModule.hikg_chart(well, frame))
+        missed = gis_hikg.skipped(part)
+        if missed:
+            result.notes.append(Note(f'Не вошли в расчёт интервалы без hi или Кг: {missed}. Их можно посмотреть в «Импорт данных».',
+                                     level='warning'))
+        result.notes.append(Note('Σ hi × Кг: по каждому интервалу с Кг выше нуля (в том числе 0,25 и ниже), сумма по пачке и '
+                                 'исследованию. Точку можно исключить щелчком, как в других разделах.'))
+        result.summary = [Stat('Скважин', str(len(wells))), Stat('Исследований', str(table[['well', 'date']].drop_duplicates().shape[0]))]
+        return result
+
+    @staticmethod
+    def hikg_table(table: pd.DataFrame) -> Table:
+        return Table('gis-hikg', 'Σ(hi × Кг) по исследованиям и пачкам', table,
+                     [Column('well', 'Скважина'), Column('season', 'Сезон'), Column('date', 'Дата', kind='date'),
+                      Column('investigation', 'Исследование'), Column('pack', 'Пачка'), Column('intervals', 'Интервалов'),
+                      Column('hikg', 'Σ hi×Кг, м', decimals=2)],
+                     note='Интервалы с Кг выше нуля: hi × Кг, сумма по пачке и исследованию.')
+
+    @staticmethod
+    def hikg_changes_table(changes: pd.DataFrame) -> Table:
+        return Table('gis-hikg-changes', 'Изменение Σ hi × Кг между соседними сезонами', changes,
+                     [Column('well', 'Скважина'), Column('pack', 'Пачка'), Column('from', 'Сезон было'),
+                      Column('to', 'Сезон стало'), Column('v_from', 'Σ было', decimals=2), Column('v_to', 'Σ стало', decimals=2),
+                      Column('delta', 'Δ, м', decimals=2), Column('pct', 'Δ, %', decimals=1)],
+                     note='Значение сезона — среднее по его исследованиям. Δ — разность соседних сезонов по времени.')
+
+    @staticmethod
+    def hikg_chart(well: str, frame: pd.DataFrame) -> Chart:
+        chart = Chart(f'gis-hikg-{well}', f'Скважина №{well}: Σ hi × Кг по исследованиям', Axis('Дата', scale='time'),
+                      Axis('Σ hi × Кг', 'м'), crosshair=True)
+        for pack, part in frame.groupby(frame['pack'].astype(str), sort=True):
+            chart.series.append(Series(pack, list(part['date']), part['hikg'].tolist(), 'line', group=pack, markers=True,
+                                       labels=[f'{v:.2f}' for v in part['hikg']]))
+        return chart
 
     @staticmethod
     def _series(frame: pd.DataFrame, column: str, label: str) -> list[Series]:

@@ -48,6 +48,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const [ggh, setGgh] = useState<{ key: string; result: ExportResult } | null>(null)
   const [gisFile, setGisFile] = useState<ExportResult | null>(null)
   const [gisBusy, setGisBusy] = useState(false)
+  const [hikgFile, setHikgFile] = useState<ExportResult | null>(null)
+  const [hikgBusy, setHikgBusy] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -227,6 +229,11 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         <Section title="Скважины">
           <Multi {...F} field="gis_wells" label="Скважины" options={choices.gis!.wells} empty="все" />
         </Section>
+        {(choices.gis!.seasons ?? []).length > 0 && (
+          <Section title="Сезоны">
+            <Multi {...F} field="gis_seasons" label="Сезоны (Σ hi × Кг)" options={choices.gis!.seasons ?? []} empty="все" />
+          </Section>
+        )}
         <Section title="Подписи и качество">
           <Num {...F} field="gis_start" label="Первый номер рисунка" def={1} min={1} max={100000} />
           <Select {...F} field="gis_dpi" label="Качество графиков" def={200}
@@ -240,6 +247,14 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           setGisBusy(false)
         }}>{gisBusy ? 'Создаю Word…' : 'Создать Word ГИС'}</button>
       </div>
+      <div className="toolbar">
+        <button type="button" disabled={hikgBusy} onClick={async () => {
+          setHikgBusy(true)
+          try { setHikgFile(await exportApi.gisHikg(project.id, form)) } catch (e) { setError((e as Error).message) }
+          setHikgBusy(false)
+        }}>{hikgBusy ? 'Создаю Excel…' : 'Создать Excel Σ hi × Кг'}</button>
+      </div>
+      {hikgFile && <Outcome title="Excel: Σ hi × Кг" result={hikgFile} pid={project.id} ggh />}
       {gisFile && <Outcome title="Word: ГИС и ГВК" result={gisFile} pid={project.id} ggh />}
     </>
   )
