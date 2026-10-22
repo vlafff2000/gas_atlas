@@ -1,6 +1,7 @@
 """ГИС и ГВК в Атласе: графики по скважинам и пачкам, свод и таблица изменения ГВК.
 Данные — литеральные, прямо в тесте; реальных данных компании в репозитории нет."""
 import pandas as pd
+import pytest
 
 from atlas.contract import Data
 from atlas.domain import DatasetKind
@@ -29,7 +30,10 @@ def _params(**kw):
 def test_one_chart_per_well_and_metric_plus_svod():
     res = GisModule().run({GIS: _frame()}, _params())
     titles = [c.id for c in res.charts]
-    assert titles == ['gis-gvk-115', 'gis-h_eff-115', 'gis-kg-115', 'gis-gvk-113', 'gis-h_eff-113', 'gis-kg-113', 'gis-svod-gvk']
+    assert titles == ['gis-gvk-115', 'gis-h_eff-115', 'gis-kg-115', 'gis-combo-115-верхняя', 'gis-combo-115-нижняя',
+                      'gis-gvk-113', 'gis-h_eff-113', 'gis-kg-113', 'gis-combo-113-верхняя',
+                      'gis-pack-gvk-верхняя', 'gis-pack-gvk-нижняя', 'gis-pack-h_eff-верхняя', 'gis-pack-h_eff-нижняя',
+                      'gis-pack-kg-верхняя', 'gis-pack-kg-нижняя']
 
 
 def test_spring_points_are_triangles_and_lines_follow_pack():
@@ -72,6 +76,24 @@ def test_builder_layout_adds_gis_chart_after_main_ones():
 def test_view_toggle_keeps_one_metric_or_the_svod():
     only_gvk = GisModule().run({GIS: _frame()}, _params(view='gvk')).charts
     assert [c.id for c in only_gvk] == ['gis-gvk-115', 'gis-gvk-113']
+    assert len(GisModule().run({GIS: _frame()}, _params()).charts) == 15
     svod = GisModule().run({GIS: _frame()}, _params(view='svod')).charts
-    assert [c.id for c in svod] == ['gis-svod-gvk']
-    assert len(GisModule().run({GIS: _frame()}, _params()).charts) == 7
+    assert [c.id for c in svod] == ['gis-pack-gvk-верхняя', 'gis-pack-gvk-нижняя', 'gis-pack-h_eff-верхняя',
+                                    'gis-pack-h_eff-нижняя', 'gis-pack-kg-верхняя', 'gis-pack-kg-нижняя']
+
+
+def test_pack_chart_puts_every_well_on_one_chart():
+    svod = GisModule().run({GIS: _frame()}, _params(view='svod')).charts
+    upper = next(c for c in svod if c.id == 'gis-pack-gvk-верхняя')
+    assert [s.name for s in upper.series] == ['скв. 113', 'скв. 115']
+    assert sum(len(s.x) for s in upper.series) == 4
+
+
+def test_combo_chart_has_change_columns_on_both_axes():
+    combo = GisModule().run({GIS: _frame()}, _params(wells=['115'], view='combo')).charts
+    chart = next(c for c in combo if c.id == 'gis-combo-115-верхняя')
+    assert chart.y2 is not None
+    bars = [s for s in chart.series if s.kind == 'bar']
+    assert {s.axis for s in bars} == {'y', 'y2'}
+    kg_bar = next(s for s in bars if s.axis == 'y')
+    assert len(kg_bar.y) == 2 and kg_bar.y[0] == pytest.approx(-0.05)      # 0.30 → 0.25 и 0.25 → 0.28: два перехода

@@ -51,7 +51,8 @@ class GisModule(Module):
             Param('wells', 'Скважины', 'multi', default=[], dynamic=True, empty='ничего', auto='first:3', section=SECTION),
             Param('packs', 'Пачки', 'multi', default=[], dynamic=True, empty='все', section=SECTION),
             Param('view', 'График', 'choice', default='all', section='Вид', chart_kind=True, options=(
-                Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()), Option('svod', 'Свод по пачкам'))),
+                Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()),
+                Option('combo', 'Кривые и столбцы: Кг и hэф'), Option('svod', 'Свод по пачкам, все скважины'))),
             Param('start', 'С даты', 'date', default='', section=SECTION),
             Param('end', 'По дату', 'date', default='', section=SECTION),
         ),
@@ -84,8 +85,13 @@ class GisModule(Module):
                 continue
             for key in [k for k in METRICS if params['view'] in ('all', k)]:
                 result.charts.append(self.chart(well, frame, key))
+            if params['view'] in ('all', 'combo'):
+                for pack, pack_frame in frame.groupby('pack', sort=True):
+                    result.charts.append(self.chart_combo(well, str(pack), pack_frame))
         if params['view'] in ('all', 'svod'):
-            result.charts.append(self.chart_all(part))
+            for key in METRICS:
+                for pack in sorted(part['pack'].astype(str).unique()):
+                    result.charts.append(self.chart_pack(key, pack, part))
         result.tables.append(self.change_table(part))
         names = params.get('builder_layouts') or []
         if names:
@@ -124,14 +130,40 @@ class GisModule(Module):
         return chart
 
     @staticmethod
-    def chart_all(part: pd.DataFrame) -> Chart:
-        """Свод по пачкам: ГВК всех выбранных скважин, цвет — пачка, подпись — скважина."""
-        chart = Chart('gis-svod-gvk', 'Свод по пачкам: ГВК, абсолютная отметка', Axis('Дата', scale='time'),
-                      Axis('ГВК а.о.', 'м'), crosshair=True)
-        for pack, frame in part[part['gvk_abs_m'].notna()].groupby('pack', sort=True):
+    def chart_pack(key: str, pack: str, part: pd.DataFrame) -> Chart:
+        """Свод по пачке: метрика всех выбранных скважин на одном графике, цвет — скважина."""
+        column, label, unit, title = METRICS[key]
+        chart = Chart(f'gis-pack-{key}-{pack}', f'Пачка «{pack}», все скважины: {title.lower()}', Axis('Дата', scale='time'),
+                      Axis(label, unit), crosshair=True)
+        for well, frame in part[part['pack'].astype(str) == pack].groupby('well', sort=True):
+            frame = frame[frame[column].notna()]
+            if frame.empty:
+                continue
             ids = frame['_point_id'].tolist() if '_point_id' in frame else None
-            chart.series.append(Series(str(pack), list(frame['date']), frame['gvk_abs_m'].tolist(), 'points', group=str(pack),
-                                       labels=[f'скв. {w}' for w in frame['well']], ids=ids, dataset=GIS if ids else None))
+            chart.series.append(Series(f'скв. {well}', list(frame['date']), frame[column].tolist(), 'line', group=str(well),
+                                       markers=True, labels=[f'{v:g}' for v in frame[column]], ids=ids,
+                                       dataset=GIS if ids else None))
+        return chart
+
+    @staticmethod
+    def chart_combo(well: str, pack: str, frame: pd.DataFrame) -> Chart:
+        """Кривые Кг ср.взв (слева) и hг эф (справа) по замерам пачки и столбцы — изменение к предыдущему замеру."""
+        frame = frame.sort_values('date')
+        chart = Chart(f'gis-combo-{well}-{pack}', f'Скважина №{well}, пачка «{pack}»: Кг ср.взв и hг эф с изменениями',
+                      Axis('Дата', scale='time'), Axis('Кг ср.взв', 'д.ед.'), crosshair=True, y2=Axis('hг эф', 'м'))
+        for key, axis in (('kg', 'y'), ('h_eff', 'y2')):
+            column, label, unit, _ = METRICS[key]
+            values = frame[frame[column].notna()]
+            if values.empty:
+                continue
+            ids = values['_point_id'].tolist() if '_point_id' in values else None
+            change = values[column].diff()
+            moved = values[change.notna()]
+            chart.series.append(Series(f'Δ {label}', list(moved['date']), change.dropna().tolist(), 'bar', group=key,
+                                       axis=axis, legend=False, labels=[f'{v:+.2f}' for v in change.dropna()]))
+            chart.series.append(Series(label, list(values['date']), values[column].tolist(), 'line', group=key, markers=True,
+                                       axis=axis, labels=[f'{v:g}' for v in values[column]], ids=ids,
+                                       dataset=GIS if ids else None))
         return chart
 
     @staticmethod
