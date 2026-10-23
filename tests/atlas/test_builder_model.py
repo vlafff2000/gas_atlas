@@ -18,6 +18,7 @@ from tests.atlas._wells_data import make_project
 from tests.atlas.test_builder import frames
 
 START = dt.datetime(2025, 1, 1)
+FAKE: dict = {}
 
 
 def fake_summary():
@@ -31,6 +32,7 @@ def fake_summary():
 
 @pytest.fixture()
 def stub(tmp_path, monkeypatch):
+    monkeypatch.setenv('PXG_HOME', str(tmp_path / 'pxg_home'))
     anchor = tmp_path / 'GAS.SMSPEC'
     anchor.write_bytes(b'x')
     (tmp_path / 'GAS.UNSMRY').write_bytes(b'x')
@@ -131,7 +133,8 @@ def cubes(stub, monkeypatch):
         pick_step=lambda steps, want: min(steps, key=lambda s: abs(s.date - want)),
         gas_pore_volume=lambda m, porv, sg, thr: types.SimpleNamespace(total=2_000_000.0 * sum(sg)),
         gwc_map=lambda m, sg, thr: {(0, 0): 1.0}, gwc_stats=lambda m, g: types.SimpleNamespace(columns=1, mean=1500.0, mean_area=1510.0, min=1490.0, max=1520.0))
-    par = types.SimpleNamespace(map_steps=lambda fn, m, steps, ctx, egrid: [fn(m, s, ctx) for s in steps])
+    FAKE.update(steps=steps, cube=cube, calls=[])
+    par = types.SimpleNamespace(map_steps=lambda fn, m, todo, ctx, egrid: FAKE['calls'].append(len(todo)) or [fn(m, s, ctx) for s in todo])
     monkeypatch.setattr(model_source, '_indicators', lambda: (ind, files, par))
     folder = os.path.dirname(stub)
     found = {k: os.path.join(folder, 'GAS.' + k) for k in ('EGRID', 'INIT', 'UNRST')}
@@ -209,3 +212,32 @@ def test_cells_are_thinned_visibly(cubes):
     cfg = {'dates': ['2025-01-01'], 'k_from': 1, 'k_to': 0, 'max_points': 2}
     frame, notes = model_source.read_cells(cubes, 'Газ', cfg)
     assert list(frame.k) == [1, 3] and any('каждая 2-я' in n for n in notes)
+
+
+def test_cubes_kept_on_disk_and_only_new_steps_counted(cubes):
+    model_source.cubes_frame([cubes])
+    assert FAKE['calls'] == [2]
+    model_source._cache.clear()                                      # «перезапуск»: память пуста, диск остался
+    again, _ = model_source.cubes_frame([cubes])
+    assert FAKE['calls'] == [2] and len(again) == 2                  # ничего не пересчитано
+    FAKE['steps'].append(types.SimpleNamespace(date=dt.datetime(2025, 8, 1)))                # в рестарт дописался шаг
+    FAKE['cube'].update({(2, 'SGAS'): [0.1, 0.1, 0.1], (2, 'PRESSURE'): [70.0, 70.0, 70.0]})
+    model_source._cache.clear()
+    grown, _ = model_source.cubes_frame([cubes])
+    assert FAKE['calls'] == [2, 1] and len(grown) == 3 and grown.p_avg.iloc[-1] == pytest.approx(70 * 1.0197162)
+
+
+def test_refresh_recomputes_cubes(tmp_path, cubes):
+    projects = Projects(tmp_path / 'p4')
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    base = f'/api/projects/{pid}/builder/models'
+    client.post(base, json={'selected': [cubes], 'cubes': True})
+    projects.select(pid, (), tuple(K))
+    assert FAKE['calls'] == [2]
+    model_source._cache.clear()
+    projects.select(pid, (), tuple(K))
+    assert FAKE['calls'] == [2]                                      # с диска
+    assert client.post(base + '/refresh', json={}).status_code == 200
+    projects.select(pid, (), tuple(K))
+    assert FAKE['calls'] == [2, 2]                                   # сброшено: считается заново

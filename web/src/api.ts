@@ -231,6 +231,7 @@ export interface ModelItem { id: string; name: string; folder: string; selected:
 export interface ModelList { available: boolean; error: string; folders: string[]; models: ModelItem[]; cubes: boolean; cubes_from: string; cubes_to: string; cells: CellsConfig }
 export interface CellsConfig { dates: string[]; k_from: number; k_to: number; max_points: number }
 export const builderApi = {
+  refreshCubes: (project: string) => request<ModelList>(`/api/projects/${project}/builder/models/refresh`, json('POST', {})),
   restarts: (project: string, model: string) =>
     request<{ dates: string[] }>(`/api/projects/${project}/builder/models/restarts?model=${encodeURIComponent(model)}`),
   models: (project: string) => request<ModelList>(`/api/projects/${project}/builder/models`),

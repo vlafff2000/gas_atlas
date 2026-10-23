@@ -33,6 +33,14 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
       .finally(() => setBusy(false))
   }
 
+  const refresh = () => {
+    setBusy(true)
+    builderApi.refreshCubes(project)
+      .then(l => { setList(l); setError(''); onChange() })
+      .catch(e => setError((e as Error).message))
+      .finally(() => setBusy(false))
+  }
+
   const first = list?.models.find(m => m.selected)
   const [restarts, setRestarts] = useState<string[]>([])
   useEffect(() => {
@@ -67,6 +75,8 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
         <div className="check" title="Читаются только рестарты в этих датах: чем уже период, тем быстрее. Пусто — без границы.">
           Рестарты с <input type="date" value={list.cubes_from} disabled={busy} onChange={e => setCubes({ cubes_from: e.target.value })} aria-label="Рестарты с" />
           {' '}по <input type="date" value={list.cubes_to} disabled={busy} onChange={e => setCubes({ cubes_to: e.target.value })} aria-label="Рестарты по" />
+          {' '}<button type="button" className="kind" disabled={busy} onClick={refresh}
+            title="Сбросить сохранённые шаги и прочитать кубы заново: если модель пересчитали с теми же сеткой и началом рестарта.">Пересчитать заново</button>
         </div>
       )}
       {first?.indicators && cells && (
