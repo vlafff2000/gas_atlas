@@ -115,3 +115,72 @@ def cycles_table(seasons: pd.DataFrame) -> pd.DataFrame:
         for k in keys:
             frame[f'{tag}_{k}'] = frame.cycle.map(part[k]) if k in part else np.nan
     return frame
+
+
+# ---------- месяцы внутри сезона ----------
+
+MONTHS = ('Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь')
+MONTH_COLUMNS = ['kind', 'period', 'no', 'month', 'moy', 'days', 'volume', 'mean', 'max', 'partial', 'delta', 'delta_pct']
+
+
+def month_name(month: pd.Period) -> str:
+    return f'{MONTHS[month.month - 1]} {month.year}'
+
+
+def _ref_daily(ref: pd.DataFrame | None, kind: str) -> pd.Series | None:
+    if ref is None or not len(ref):
+        return None
+    r = ref[ref.kind.eq(kind)]
+    return (r.set_index(r.date.dt.normalize()).gas.astype(float) * 1e3).groupby(level=0).sum() if len(r) else None
+
+
+def _month_rows(daily: pd.Series, start: pd.Timestamp, end: pd.Timestamp) -> list[dict[str, Any]]:
+    """Календарные месяцы в границах сезона; ``partial`` — сезон начался позже 1-го числа или закончился раньше конца месяца."""
+    daily = daily[(daily.index >= start) & (daily.index <= end)]
+    rows = []
+    for month, part in daily.groupby(daily.index.to_period('M')):
+        st = _stats(part)
+        if not st:
+            continue
+        rows.append({'month': month, 'moy': month.month, 'days': st['days'], 'volume': st['volume'], 'mean': st['mean'], 'max': st['max'],
+                     'partial': bool(start > month.start_time or end < month.end_time.normalize())})
+    return rows
+
+
+def month_table(df: pd.DataFrame, seasons: pd.DataFrame, ref: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Месячные показатели каждого сезона (объект): объём, сутки, средний и максимальный расход; тот же источник, что у сезона.
+    Δ — к тому же календарному месяцу предыдущего (по номеру) сезона того же вида; ``no`` — номер сезона вида."""
+    rows: list[dict[str, Any]] = []
+    for s in seasons.itertuples():
+        if s.source == SOURCE_LABEL[SOURCE_REF]:
+            daily = _ref_daily(ref, s.kind)
+        else:
+            daily = _daily(df[df.kind.eq(s.kind) & df.period.eq(s.period)])
+        if daily is None:
+            continue
+        rows += [{'kind': s.kind, 'period': s.period, **r} for r in _month_rows(daily, s.start, s.end)]
+    out = pd.DataFrame(rows, columns=[c for c in MONTH_COLUMNS if c not in ('no', 'delta', 'delta_pct')])
+    if out.empty:
+        return out
+    number = seasons.sort_values('start').groupby('kind').cumcount() + 1       # номер сезона вида по порядку
+    out['no'] = [int(number[seasons[seasons.kind.eq(k) & seasons.period.eq(p)].index[0]]) for k, p in zip(out.kind, out.period)]
+    out = out.sort_values(['kind', 'no', 'month']).reset_index(drop=True)
+    key = out.set_index(['kind', 'no', 'moy']).volume
+    prev = pd.Series([key.get((k, n - 1, m), np.nan) for k, n, m in zip(out.kind, out.no, out.moy)], index=out.index)
+    out['delta'] = out.volume - prev
+    out['delta_pct'] = (out.delta / prev * 100.0).where(prev > 0)
+    return out
+
+
+def month_group_table(df: pd.DataFrame, seasons: pd.DataFrame, group_of: Mapping[str, str], groups: list[str] | None = None) -> pd.DataFrame:
+    """Объём (млн м³) по группам и месяцам каждого сезона; группы — по скважинам."""
+    rows: list[dict[str, Any]] = []
+    for s in seasons.itertuples():
+        part = df[df.kind.eq(s.kind) & df.period.eq(s.period)]
+        part = part.assign(group=part.well.map(lambda w: group_of.get(str(w), 'Без группы')))
+        for name, g in part.groupby('group', sort=True):
+            if groups and name not in groups:
+                continue
+            rows += [{'kind': s.kind, 'period': s.period, 'group': name, **r}
+                     for r in _month_rows(_daily(g), s.start, s.end)]
+    return pd.DataFrame(rows, columns=['kind', 'period', 'group', 'month', 'moy', 'days', 'volume', 'mean', 'max', 'partial'])

@@ -464,10 +464,14 @@ def sheet_formula(table: Table, key: str, at: int, first: int) -> str | None:
     if '@prev' in template and at == first:
         return None
 
+    last = first + len(table.frame) - 1
+
     def cell(match):
-        name, prev = match.group(1), match.group(2)
-        return f'{letter[name]}{at - 1 if prev else at}'
-    return '=' + re.sub(r'\{(\w+)(@prev)?\}', cell, template)
+        name, mode = match.group(1), match.group(2)
+        if mode == '@col':
+            return f'${letter[name]}${first}:${letter[name]}${last}'
+        return f'{letter[name]}{at - 1 if mode else at}'
+    return '=' + re.sub(r'\{(\w+)(@prev|@col)?\}', cell, template)
 
 
 def header_sheet(ws, table: Table) -> None:
