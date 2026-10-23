@@ -97,3 +97,18 @@ def test_combo_chart_has_change_columns_on_both_axes():
     assert {s.axis for s in bars} == {'y', 'y2'}
     kg_bar = next(s for s in bars if s.axis == 'y')
     assert len(kg_bar.y) == 2 and kg_bar.y[0] == pytest.approx(-0.05)      # 0.30 → 0.25 и 0.25 → 0.28: два перехода
+
+
+def test_csv_pack_table_without_season_column_does_not_crash():
+    """Выгрузка gis_packs из CSV не содержит колонки «season»: графики строятся, без весенних треугольников."""
+    frame = _frame().drop(columns='season')
+    for view in ('gvk', 'all'):
+        res = GisModule().run({GIS: frame}, _params(wells=['115'], view=view))
+        assert res.charts and all(s.symbol != 'triangle' for c in res.charts for s in c.series)
+
+
+def test_empty_pack_name_goes_to_separate_pack():
+    frame = _frame()
+    frame.loc[0, 'pack'] = None
+    res = GisModule().run({GIS: frame}, _params(wells=['115']))
+    assert 'без пачки' in [s.name for c in res.charts for s in c.series]

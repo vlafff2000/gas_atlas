@@ -31,6 +31,7 @@ METRICS = {
 
 def _packs(df: pd.DataFrame, wells: list[str], packs: list[str], start: str, end: str) -> pd.DataFrame:
     part = df[df['well'].astype(str).isin(wells)].copy()
+    part['pack'] = part['pack'].astype(object).where(part['pack'].notna(), 'без пачки').astype(str)
     if packs:
         part = part[part['pack'].astype(str).isin(packs)]
     if start:
@@ -189,7 +190,7 @@ class GisModule(Module):
             ids = part['_point_id'].tolist() if '_point_id' in part else None
             out.append(Series(str(pack), list(part['date']), part[column].tolist(), 'line', group=str(pack), markers=True,
                               labels=[f'{v:g}' for v in part[column]], ids=ids, dataset=GIS if ids else None))
-            spring = part[part['season'].astype(str) == SPRING]
+            spring = part[part['season'].astype(str) == SPRING] if 'season' in part else part.iloc[0:0]
             if len(spring):
                 out.append(Series(f'{pack}: весна', list(spring['date']), spring[column].tolist(), 'points', group=str(pack),
                                   symbol='triangle', legend=False, labels=[f'{v:g}' for v in spring[column]],
