@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import threading
 from typing import Any, Mapping
@@ -261,6 +263,55 @@ def _cube_row(model, step, ctx):
     return row
 
 
+DISK_FILES = 24                     # столько файлов кэша держим; старые удаляются
+
+
+def _disk_dir() -> str:
+    home = os.environ.get('PXG_HOME') or os.path.join(os.path.expanduser('~'), '.pxg')     # тот же каталог, что у списка папок tNav
+    return os.path.join(home, 'model_cache')
+
+
+def _disk_path(found: Mapping[str, str], threshold: float) -> str:
+    """Файл кэша шагов одной модели. Ключ: сетка и INIT (путь, размер, время), путь к рестарту и начало рестарта. Рестарт при дозаписи
+    только растёт, начало не меняется, поэтому посчитанные шаги остаются верными; пересчитанная модель меняет начало и ключ."""
+    parts = [f'{threshold}']
+    for kind in ('EGRID', 'INIT'):
+        f = found[kind]
+        parts += [os.path.abspath(f), str(os.path.getsize(f)), str(os.path.getmtime(f))]
+    with open(found['UNRST'], 'rb') as fh:
+        parts += [os.path.abspath(found['UNRST']), hashlib.sha1(fh.read(65536)).hexdigest()]
+    return os.path.join(_disk_dir(), 'cubes_' + hashlib.sha1('|'.join(parts).encode('utf-8')).hexdigest()[:20] + '.json')
+
+
+def _disk_load(path: str) -> dict[str, dict]:
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _disk_save(path: str, rows: dict[str, dict]) -> None:
+    """Не вышло записать (нет прав, диск полон) — не страшно: модель просто посчитается заново."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(rows, f, ensure_ascii=False)
+        os.replace(tmp, path)
+        old = sorted((os.path.join(os.path.dirname(path), n) for n in os.listdir(os.path.dirname(path)) if n.startswith('cubes_') and n.endswith('.json')),
+                     key=os.path.getmtime)
+        for stale in old[:-DISK_FILES]:
+            os.remove(stale)
+    except OSError:
+        pass
+
+
+def _step_key(step) -> str:
+    return f'{getattr(step, "seqnum", "")}|{pd.Timestamp(step.date):%Y-%m-%dT%H:%M:%S}'
+
+
 def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', '')) -> pd.DataFrame:
     """Показатели объекта по датам рестарта одной модели (кэш по размеру и времени файлов)."""
     ind, files, parallel = _indicators()
@@ -277,11 +328,19 @@ def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', '')) -
                  if s.date is not None and (low is None or pd.Timestamp(s.date) >= low) and (high is None or pd.Timestamp(s.date) < high)]
         if not steps:
             raise ModelUnavailable(f'В рестарте «{os.path.basename(found["UNRST"])}» нет шагов в выбранных датах')
-        porv_raw = files.read_init(found['INIT'], ['PORV'])['PORV']
-        porv = [v for part in model.to_units(porv_raw, 'PORV', 'sum') for v in part]
-        head = files.read_restart_keyword(found['UNRST'], steps[0], 'INTEHEAD') if steps else None
-        factor = _PRESSURE_BY_UNITS.get(int(head[2]), 1.0) if head is not None else 1.0
-        rows = parallel.map_steps(_cube_row, model, steps, (found['UNRST'], SG_THRESHOLD, porv, factor), found['EGRID'])
+        disk = _disk_path(found, SG_THRESHOLD)
+        saved = _disk_load(disk)
+        todo = [s for s in steps if _step_key(s) not in saved]
+        if todo:                                                       # на диске нет только новых шагов
+            porv_raw = files.read_init(found['INIT'], ['PORV'])['PORV']
+            porv = [v for part in model.to_units(porv_raw, 'PORV', 'sum') for v in part]
+            head = files.read_restart_keyword(found['UNRST'], todo[0], 'INTEHEAD')
+            factor = _PRESSURE_BY_UNITS.get(int(head[2]), 1.0) if head is not None else 1.0
+            fresh = parallel.map_steps(_cube_row, model, todo, (found['UNRST'], SG_THRESHOLD, porv, factor), found['EGRID'])
+            for step, row in zip(todo, fresh):
+                saved[_step_key(step)] = None if row is None else {**row, 'date': f'{pd.Timestamp(row["date"]):%Y-%m-%dT%H:%M:%S}'}
+            _disk_save(disk, saved)
+        rows = [saved[_step_key(s)] for s in steps]
     except (OSError, ValueError, KeyError, IndexError) as e:
         raise ModelUnavailable(f'Кубы модели «{os.path.basename(found["EGRID"])}» прочитать не удалось: {e}') from e
     rows = [r for r in rows if r is not None]
