@@ -85,3 +85,15 @@ def test_mixed_kinds_warning(data):
 def test_no_pairs_suggests_working_key(data):
     r = run(data, key='nearest', days=0, x_dataset='gdi', x='p_res')        # ГДИ 3 января, замеры давления в другие дни, ±0 дней
     assert 'нет ни одной пары' in text(r) and 'скважина' in text(r)
+
+
+def test_recipe_rows_build(data):
+    """Ряды «Готовых графиков» (web/src/BuilderRecipes.tsx) собираются без предупреждений о связи."""
+    cum = {'dataset': 'production', 'y': 'q', 'x_dataset': 'production', 'x': 'date', 'wells': [], 'kind': 'withdrawal',
+           'transform': {'op': 'group', 'agg': 'sum', 'cum': True}}
+    r = builder.build(data, {'series': [cum]})
+    ys = [float(v) for v in r.charts[0].series[0].y]
+    assert len(ys) == 4 and ys == sorted(ys) and r.charts[0].y.unit == 'млн м³'
+    q_vs_cum = {**cum, 'x': 'q', 'x_scope': 'object', 'x_transform': {'op': 'cumsum'}, 'key': 'date', 'transform': {'op': 'group', 'agg': 'sum'}}
+    r = builder.build(data, {'series': [q_vs_cum]})
+    assert [round(float(v), 2) for v in r.charts[0].series[0].x] == [0.15, 0.21, 0.28, 0.56] and 'млн м³' in r.charts[0].x.label

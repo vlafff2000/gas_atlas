@@ -52,6 +52,7 @@ class Transform:
     agg: str = 'mean'           # сутки, месяцы, группа
     norm: str = 'first'
     value: float = 1.0
+    cum: bool = False           # после суммы по скважинам / суткам / месяцам — ещё и накопленное (нарастающий итог по объекту)
 
 
 def _num(value: Any, what: str) -> float:
@@ -92,6 +93,10 @@ def clean_transform(raw: Any, index: int) -> Transform:
         t['agg'] = str(raw.get('agg') or 'mean')
         if t['agg'] not in AGGS:
             raise ParamError(f'{what}: сводка — {", ".join(AGGS.values())}')
+        if raw.get('cum'):
+            if t['agg'] != 'sum':
+                raise ParamError(f'{what}: «накопленное» только вместе со сводкой «сумма»')
+            t['cum'] = True
     if op == 'norm':
         t['norm'] = str(raw.get('norm') or 'first')
         if t['norm'] not in NORMS:
@@ -143,6 +148,8 @@ def describe(t: Transform, label: str, unit: str, entity_word: str = 'скваж
         new = unit
         if t.agg == 'sum' and op == 'month':
             new = CUMULATIVE.get(unit, ('', 1.0))[0] if unit else ''
+        if t.cum:
+            return f'{label}, {AGGS[t.agg]} {where}, накопленное', CUMULATIVE.get(new, ('', 1.0))[0] if new else ''
         return f'{label}, {AGGS[t.agg]} {where}', new
     if op == 'norm':
         return f'{label} / {"первое значение" if t.norm == "first" else "максимум" if t.norm == "max" else _fmt(t.value)}', 'д. ед.'
@@ -215,6 +222,10 @@ def apply(frame: pd.DataFrame, t: Transform, unit: str, label: str, x_date: bool
         elif t.op == 'group' and 'date' in f:
             out['date'] = f.groupby(keys, sort=True)['date'].first().to_numpy()
         f = out
+        if t.cum:
+            now = CUMULATIVE.get(unit, ('', 1.0))[0] if t.op == 'month' and unit else unit
+            f = f.sort_values(['entity', 'x'], kind='stable').reset_index(drop=True)
+            f['y'] = f.groupby('entity', sort=False)['y'].cumsum() * CUMULATIVE.get(now, ('', 1.0))[1]
     elif t.op == 'norm':
         if t.norm == 'value':
             f['y'] = f['y'] / t.value

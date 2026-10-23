@@ -79,6 +79,16 @@ def test_by_wells_of_group(data):
     assert 'по 2 кривым' in text(r)
 
 
+def test_cumulative_of_sum_over_wells(data):
+    r, c = one(data, {'op': 'group', 'agg': 'sum', 'cum': True})
+    assert same(list(c.values())[0], [0.15, 0.21, 0.28, 0.56]) and r.charts[0].y.unit == 'млн м³'
+    assert 'накопленное' in r.charts[0].y.label
+    r, c = one(data, {'op': 'month', 'agg': 'sum', 'cum': True})
+    assert same(c['Суточный расход газа, сумма за месяц, накопленное · скв. 2'], [0.26]) and r.charts[0].y.unit == 'млн м³'
+    with pytest.raises(ParamError, match='только вместе'):
+        one(data, {'op': 'group', 'agg': 'mean', 'cum': True})
+
+
 def test_normalize(data):
     w2 = {**Q, 'wells': ['2']}
     r, c = one(data, {'op': 'norm', 'norm': 'first'}, row=w2)

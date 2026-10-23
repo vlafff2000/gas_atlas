@@ -6,6 +6,7 @@ import type { Look } from './chartStyle'
 import { AxisDialog, ChartDialog, SeriesDialog, VIEWS, type AxisFmt, type AxisItem, type AxisKey, type BuilderView } from './BuilderDialogs'
 import { FUNCTIONS, checkFormula, findCycle, letter, renumber } from './builderFormula'
 import { BuilderLibrary } from './BuilderLibrary'
+import { BuilderRecipes } from './BuilderRecipes'
 import { SeriesDialog as SeriesExport, WellPicker } from './BuilderWells'
 import './builder.css'
 
@@ -41,7 +42,7 @@ export interface BuilderRow {
   x_scope?: 'curve' | 'group' | 'object'   // откуда X: как в наборе, сумма по группе скважины, сумма по объекту
   x_transform?: RowTransform               // преобразование X (накопленное и т. п.); нет — без преобразования
 }
-export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; norm?: 'first' | 'max' | 'value'; value?: string }
+export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
 type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
 type Agg = 'mean' | 'sum' | 'max' | 'min'
 const TRANSFORMS: [TransformOp, string][] = [
@@ -232,6 +233,8 @@ export function ChartBuilder({ project, revision, value, onChange }:
         {catalog?.wells?.length ? (
           <WellPicker wells={catalog.wells} value={layout.current_well ?? ''} onChange={w => set({ current_well: w })} onSeries={() => setSeriesOpen(true)} />
         ) : null}
+        <BuilderRecipes catalog={catalog} layout={layout}
+          onApply={(title, series) => { set({ series, title, x_label: '', axes: {} }); setActive(series[0]?.id ?? null) }} />
         <h2>Ряды</h2>
         {layout.series.length > 0 && (
           <div className="builder-tools" role="toolbar" aria-label="Настройка графика">
@@ -307,6 +310,7 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
   const y = ds?.fields.find(f => f.field === row.y)
   const xs = datasets.get(row.x_dataset)
   const x = xs?.fields.find(f => f.field === row.x)
+  const kinds = ds?.kinds.length ? ds.kinds : xs?.kinds ?? []     // режим берёт набор Y, а если в нём режимов нет — набор X (расход по оси X)
   const joined = row.x_dataset !== row.dataset || (row.x_scope ?? 'curve') !== 'curve' || (row.x_transform?.op ?? 'none') !== 'none'
   const entity = ds?.entity === 'group' ? 'Группы' : 'Скважины'
   const wells = row.wells.length ? (ds?.entity === 'well' ? 'скв. ' : '') + row.wells.slice(0, 3).join(', ') + (row.wells.length > 3 ? ` +${row.wells.length - 3}` : '')
@@ -335,7 +339,7 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
           <span className="row-sub">
             {formula ? <>формула · связь рядов: {keyLabel}{row.key === 'nearest' ? ` ±${row.days} дн.` : ''}</> : <>
             {ds?.label ?? row.dataset} → {y?.label ?? row.y} · X: {x?.label ?? row.x}{joined ? ` (${xs?.label ?? row.x_dataset}, ${keyLabel})` : ''}
-            {row.kind ? ' · ' + (ds?.kinds.find(k => k.value === row.kind)?.label.toLowerCase() ?? row.kind) : ''}</>}
+            {row.kind ? ' · ' + (kinds.find(k => k.value === row.kind)?.label.toLowerCase() ?? row.kind) : ''}</>}
             {t.op !== 'none' ? ` · ${opLabel}` : ''}
             {' · '}<span className="axis-chip">{axisTitle(row.axis)} {axisHint(row.axis)}</span> · {VIEWS.find(v => v[0] === row.view)?.[1]}{row.stack && (row.view === 'bar' || row.view === 'area') ? ` · стопка «${row.stack}»` : ''}
           </span>
@@ -436,12 +440,12 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
             <MultiSelect label={entity} options={ds.entities} value={row.wells} onChange={w => onChange({ wells: w })}
               prefix={ds.entity === 'well' ? '№ ' : ''} />
           )}
-          {!!ds?.kinds.length && (
+          {!!kinds.length && (
             <label className="field">
               <span className="field-label">Режим</span>
               <select value={row.kind} onChange={e => onChange({ kind: e.target.value })}>
                 <option value="">все</option>
-                {ds.kinds.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+                {kinds.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
               </select>
             </label>
           )}
