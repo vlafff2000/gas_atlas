@@ -260,3 +260,16 @@ def test_color_by_third_value(cubes):
     assert any('нет такого' in n.text for n in wrong.notes) and wrong.charts[0].series[0].values is None
     lined = builder.build(data, {'series': [{**row, 'view': 'line'}]})
     assert any('работает у рядов с видом' in n.text for n in lined.notes)
+
+
+def test_cell_pair_on_two_dates(cubes):
+    cfg = {'dates': ['2025-07-01', '2025-01-01'], 'k_from': 1, 'k_to': 0, 'max_points': 100}
+    frame, _ = model_source.read_cells(cubes, 'Газ', cfg)
+    late = frame[frame.restart == '2025-07-01']
+    early = frame[frame.restart == '2025-01-01'].sort_values('k')
+    assert early[['p_d1', 'p_d2', 'dp']].isna().all().all()                       # пара только у строк второй даты, точки не удваиваются
+    assert list(late.sort_values('k').sg_d2) == list(late.sort_values('k').sg)
+    assert list(late.sort_values('k').sg_d1) == list(early.sg)
+    assert (late.dp - (late.p_d2 - late.p_d1)).abs().max() < 1e-9
+    assert model_source.column_meta('sg_d1')[0] == 'Газонасыщенность ячейки (модель) на 2025-01-01'
+    assert 'изменение 2025-01-01 → 2025-07-01' in model_source.column_meta('dsg')[0]
