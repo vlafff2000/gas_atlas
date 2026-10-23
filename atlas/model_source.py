@@ -18,6 +18,7 @@ import pandas as pd
 
 KEY = 'model_sources'
 CUBES_KEY = 'model_cubes'        # True — считать кубы выбранных моделей
+CUBES_RANGE = ('model_cubes_from', 'model_cubes_to')     # рестарты с … по … (включительно, 'ГГГГ-ММ-ДД'); пусто — без границы
 SG_THRESHOLD = 0.01              # порог газонасыщенности: значение заказчика, как в ГДМ
 FIELD_NAME = ':+:+:+:+'          # у векторов объекта в WGNAMES стоит этот заполнитель, скважины там нет
 _CACHE_LIMIT = 4
@@ -103,20 +104,24 @@ def _tnav():
     return tnav_results, catalog
 
 
-def listing(selected: list[str], cubes: bool = False) -> dict[str, Any]:
+def listing(selected: list[str], cubes: bool = False, span: tuple[str, str] = ('', '')) -> dict[str, Any]:
     """Модели из общего списка папок tNav (с готовой сводкой) и отметка выбранных."""
     try:
         _, catalog = _tnav()
     except ModelUnavailable as e:
-        return {'available': False, 'error': str(e), 'folders': [], 'models': [], 'cubes': False}
+        return {'available': False, 'error': str(e), 'folders': [], 'models': [], 'cubes': False, 'cubes_from': '', 'cubes_to': ''}
     folders = catalog.load_folders()
     models = [{'id': m['id'], 'name': m['name'], 'folder': m['folder'], 'selected': m['id'] in selected, 'indicators': bool(m.get('indicators'))}
               for m in catalog.scan(folders) if m['summary']]
-    return {'available': True, 'error': '', 'folders': folders, 'models': models, 'cubes': cubes}
+    return {'available': True, 'error': '', 'folders': folders, 'models': models, 'cubes': cubes, 'cubes_from': span[0], 'cubes_to': span[1]}
 
 
 def cubes_on(settings: Mapping[str, Any]) -> bool:
     return settings.get(CUBES_KEY) is True
+
+
+def cubes_range(settings: Mapping[str, Any]) -> tuple[str, str]:
+    return tuple(str(settings.get(k) or '')[:10] for k in CUBES_RANGE)     # type: ignore[return-value]
 
 
 def sources_of(settings: Mapping[str, Any]) -> list[str]:
@@ -246,17 +251,22 @@ def _cube_row(model, step, ctx):
     return row
 
 
-def read_cubes(anchor: str, label: str = '') -> pd.DataFrame:
+def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', '')) -> pd.DataFrame:
     """Показатели объекта по датам рестарта одной модели (кэш по размеру и времени файлов)."""
     ind, files, parallel = _indicators()
     found = _cube_files(anchor)
-    key = ('cubes', *(v for f in found.values() for v in (f, os.path.getmtime(f), os.path.getsize(f))))
+    key = ('cubes', span, *(v for f in found.values() for v in (f, os.path.getmtime(f), os.path.getsize(f))))
     with _lock:
         if key in _cache:
             return _cache[key]
     try:
         model = ind.load_model(found['EGRID'])
-        steps = [s for s in files.iter_restart_steps(found['UNRST']) if s.date is not None]
+        low = pd.Timestamp(span[0]) if span[0] else None
+        high = pd.Timestamp(span[1]) + pd.Timedelta(days=1) if span[1] else None       # «по» включает весь день
+        steps = [s for s in files.iter_restart_steps(found['UNRST'])
+                 if s.date is not None and (low is None or pd.Timestamp(s.date) >= low) and (high is None or pd.Timestamp(s.date) < high)]
+        if not steps:
+            raise ModelUnavailable(f'В рестарте «{os.path.basename(found["UNRST"])}» нет шагов в выбранных датах')
         porv_raw = files.read_init(found['INIT'], ['PORV'])['PORV']
         porv = [v for part in model.to_units(porv_raw, 'PORV', 'sum') for v in part]
         head = files.read_restart_keyword(found['UNRST'], steps[0], 'INTEHEAD') if steps else None
@@ -278,7 +288,7 @@ def read_cubes(anchor: str, label: str = '') -> pd.DataFrame:
     return frame
 
 
-def cubes_frame(anchors: list[str]) -> tuple[pd.DataFrame | None, list[str]]:
+def cubes_frame(anchors: list[str], span: tuple[str, str] = ('', '')) -> tuple[pd.DataFrame | None, list[str]]:
     parts, notes = [], []
     try:
         _, catalog = _tnav()
@@ -287,7 +297,7 @@ def cubes_frame(anchors: list[str]) -> tuple[pd.DataFrame | None, list[str]]:
         return None, [str(e)]
     for anchor in anchors:
         try:
-            parts.append(read_cubes(anchor, names.get(anchor) or catalog.model_name(anchor)))
+            parts.append(read_cubes(anchor, names.get(anchor) or catalog.model_name(anchor), span))
         except ModelUnavailable as e:
             notes.append(str(e))
     return (pd.concat(parts, ignore_index=True) if parts else None), notes

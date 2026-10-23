@@ -160,3 +160,18 @@ def test_cubes_in_builder_and_api(tmp_path, cubes):
     assert {'model_object.p_avg', 'model_object.gwc_mean', 'model.wgpr'} <= fields
     result = builder.build(data, {'series': [{'dataset': 'model_object', 'y': 'p_avg'}]})
     assert len(result.charts[0].series[0].y) == 2
+
+
+def test_cubes_limited_by_restart_dates(tmp_path, cubes):
+    projects = Projects(tmp_path / 'p2')
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    base = f'/api/projects/{pid}/builder/models'
+    out = client.post(base, json={'selected': [cubes], 'cubes': True, 'cubes_from': '2025-03-01', 'cubes_to': '2025-12-31'}).json()
+    assert (out['cubes_from'], out['cubes_to']) == ('2025-03-01', '2025-12-31')
+    data = projects.select(pid, (), tuple(K))
+    assert list(data[K.MODEL_OBJECT].date.dt.strftime('%m-%d')) == ['07-01']          # шаг 1 января вне периода
+    assert client.post(base, json={'selected': [cubes], 'cubes_from': '2026-01-01', 'cubes_to': '2025-01-01'}).status_code == 400
+    assert client.post(base, json={'selected': [cubes], 'cubes_from': 'вчера'}).status_code == 400
+    client.post(base, json={'selected': [cubes], 'cubes_from': '2030-01-01', 'cubes_to': ''})
+    assert any('нет шагов' in n for n in projects.select(pid, (), tuple(K)).model_notes)

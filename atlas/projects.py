@@ -238,7 +238,7 @@ class Projects:
         if frame is not None:
             data._frames[DatasetKind.MODEL] = data.raw[DatasetKind.MODEL] = frame
         if model_source.cubes_on(data.settings):
-            cubes, more = model_source.cubes_frame(anchors)
+            cubes, more = model_source.cubes_frame(anchors, model_source.cubes_range(data.settings))
             data.model_notes += more
             if cubes is not None:
                 data._frames[DatasetKind.MODEL_OBJECT] = data.raw[DatasetKind.MODEL_OBJECT] = cubes
