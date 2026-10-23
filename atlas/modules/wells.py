@@ -104,7 +104,7 @@ class WellsModule(Module):
         group='Скважины',
         description='Сезоны эксплуатации, условия работы, продуктивность, вода, забой и конструкция.',
         needs=(K.PRODUCTION,),
-        optional=tuple(k for k in DatasetKind if k not in (K.PRODUCTION, K.PLAN, K.WATER_FACTOR, K.MODEL, K.MODEL_OBJECT)),
+        optional=tuple(k for k in DatasetKind if k not in (K.PRODUCTION, K.PLAN, K.WATER_FACTOR, K.MODEL, K.MODEL_OBJECT, K.MODEL_CELLS)),
         order=70,
         save_label='Сохранить вид',
         params=(

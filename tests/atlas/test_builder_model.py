@@ -3,6 +3,7 @@ import datetime as dt
 import os
 import types
 
+import numpy as np
 import pandas as pd
 import pytest
 from starlette.testclient import TestClient
@@ -117,15 +118,17 @@ def test_model_minus_fact_formula():
 @pytest.fixture()
 def cubes(stub, monkeypatch):
     """Подставные читалки кубов: 3 активные ячейки с объёмами 1, 2, 1; два шага рестарта."""
-    model = types.SimpleNamespace(n_active=3, to_units=lambda arr, name, mode='rep': [list(arr)])
+    model = types.SimpleNamespace(n_active=3, to_units=lambda arr, name, mode='rep': [list(arr)], _rep=np.array([0, 1, 2]),
+                                  grid=types.SimpleNamespace(ni=1, nj=1))
     steps = [types.SimpleNamespace(date=dt.datetime(2025, 1, 1)), types.SimpleNamespace(date=dt.datetime(2025, 7, 1))]
     cube = {(0, 'SGAS'): [0.0, 0.5, 0.0], (1, 'SGAS'): [0.2, 0.6, 0.0],
             (0, 'PRESSURE'): [100.0, 100.0, 100.0], (1, 'PRESSURE'): [90.0, 80.0, 90.0], (0, 'INTEHEAD'): [0, 0, 1]}
     files = types.SimpleNamespace(
-        iter_restart_steps=lambda path: steps, read_init=lambda path, kws: {'PORV': [1.0, 2.0, 1.0]},
+        iter_restart_steps=lambda path: steps, read_init=lambda path, kws: {'PORV': [1000.0, 2000.0, 1000.0], 'DEPTH': [1500.0, 1510.0, 1520.0]},
         read_restart_keyword=lambda path, step, kw: cube.get((steps.index(step), kw)) if kw != 'INTEHEAD' else cube[(0, kw)])
     ind = types.SimpleNamespace(
         load_model=lambda path: model,
+        pick_step=lambda steps, want: min(steps, key=lambda s: abs(s.date - want)),
         gas_pore_volume=lambda m, porv, sg, thr: types.SimpleNamespace(total=2_000_000.0 * sum(sg)),
         gwc_map=lambda m, sg, thr: {(0, 0): 1.0}, gwc_stats=lambda m, g: types.SimpleNamespace(columns=1, mean=1500.0, mean_area=1510.0, min=1490.0, max=1520.0))
     par = types.SimpleNamespace(map_steps=lambda fn, m, steps, ctx, egrid: [fn(m, s, ctx) for s in steps])
@@ -175,3 +178,34 @@ def test_cubes_limited_by_restart_dates(tmp_path, cubes):
     assert client.post(base, json={'selected': [cubes], 'cubes_from': 'вчера'}).status_code == 400
     client.post(base, json={'selected': [cubes], 'cubes_from': '2030-01-01', 'cubes_to': ''})
     assert any('нет шагов' in n for n in projects.select(pid, (), tuple(K)).model_notes)
+
+
+def test_cells_for_crossplot(tmp_path, cubes):
+    projects = Projects(tmp_path / 'p3')
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    base = f'/api/projects/{pid}/builder/models'
+    cells = {'dates': ['2025-01-01', '2025-07-20'], 'k_from': 2, 'k_to': 0, 'max_points': 100}
+    out = client.post(base, json={'selected': [cubes], 'cells': cells}).json()
+    assert out['cells']['dates'] == ['2025-01-01', '2025-07-20']
+    data = projects.select(pid, (), tuple(K))
+    frame = data[K.MODEL_CELLS]
+    assert sorted(frame.restart.unique()) == ['2025-01-01', '2025-07-01']              # 20 июля → ближайший рестарт 1 июля
+    assert any('ближайший' in n for n in data.model_notes)
+    first = frame[frame.restart == '2025-07-01'].sort_values('k')
+    assert list(first.k) == [2, 3] and list(first.depth) == [-1510.0, -1520.0]            # слой 1 отсечён; глубина а.о. со знаком минус
+    assert list(first.sg) == [0.6, 0.0] and list(first.porv) == [2.0, 1.0]
+    result = builder.build(data, {'series': [{'dataset': 'model_cells', 'x': 'sg', 'y': 'p', 'view': 'points'}]})
+    assert sorted(s.name for s in result.charts[0].series) == ['Давление в ячейке (модель) · 2025-01-01', 'Давление в ячейке (модель) · 2025-07-01']
+    dates = client.get(base + '/restarts', params={'model': cubes}).json()
+    assert dates['dates'] == ['2025-01-01', '2025-07-01']
+    assert client.post(base, json={'selected': [cubes], 'cells': {'dates': ['x']}}).status_code == 400
+    assert client.post(base, json={'selected': [cubes], 'cells': {'dates': [], 'k_from': 5, 'k_to': 2}}).status_code == 400
+    small = {'dates': ['2025-01-01'], 'k_from': 1, 'k_to': 0, 'max_points': 100}
+    assert client.post(base, json={'selected': [cubes], 'cells': small}).status_code == 200
+
+
+def test_cells_are_thinned_visibly(cubes):
+    cfg = {'dates': ['2025-01-01'], 'k_from': 1, 'k_to': 0, 'max_points': 2}
+    frame, notes = model_source.read_cells(cubes, 'Газ', cfg)
+    assert list(frame.k) == [1, 3] and any('каждая 2-я' in n for n in notes)
