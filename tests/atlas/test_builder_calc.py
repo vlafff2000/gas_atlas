@@ -246,3 +246,18 @@ def test_formula_unicode_digits_rejected_like_client():
     """Цифры других письменностей (٣) в числе — ошибка разбора, как в web/src/builderFormula.ts (там только 0-9)."""
     with pytest.raises(ParamError):
         calc.parse_formula('٣*A', 2, 2)
+
+
+def test_cumulative_per_season(data):
+    prod = data[builder.K.PRODUCTION]
+    by_day = {'2025-01-01': '2024-2025', '2025-01-02': '2024-2025', '2025-01-03': '2025-2026', '2025-01-04': 'Нейтральный период 1'}
+    prod['period'] = prod['date'].dt.strftime('%Y-%m-%d').map(by_day)
+    w2 = {**Q, 'wells': ['2']}
+    r, c = one(data, {'op': 'cumsum', 'season': True}, row=w2)
+    assert same(list(c.values())[0], [0.05, 0.11, 0.07, np.nan]) and 'за сезон' in r.charts[0].y.label       # сброс с 3 января, нейтральный день не показан
+    assert 'вне сезонов' in text(r)
+    _, c = one(data, {'op': 'group', 'agg': 'sum', 'cum': True, 'season': True})
+    assert same(list(c.values())[0], [0.15, 0.21, 0.07, np.nan])
+    del prod['period']
+    r, _ = one(data, {'op': 'cumsum', 'season': True}, row=w2)
+    assert 'без сброса' in text(r)

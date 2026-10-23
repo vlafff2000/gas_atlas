@@ -24,6 +24,7 @@ from atlas.engine.core.loader import group_key
 from ..chart_style import bound, clean_axes, clean_chart, clean_look
 from ..contract import Axis, Chart, Data, Module, ModuleSpec, Note, Param, ParamError, Result, Series, Stat
 from . import builder_calc as calc
+from ._production import NEUTRAL_PREFIXES
 from ..domain import DatasetKind
 
 K = DatasetKind
@@ -501,7 +502,7 @@ def _x_side(data: Data, row: Row, label: str) -> tuple[pd.DataFrame, str, str | 
     new_label = m.label + (f', {m.unit}' if m.unit else '')
     if t.op != 'none':
         f = pd.DataFrame({'entity': x['entity'], 'x': x['date'], 'y': x['x']})
-        f, more = calc.apply(f, t, m.unit, f'{label}, X', True)
+        f, more = calc.apply(f, t, m.unit, f'{label}, X', True, _seasons(data, row) if t.season else None)
         notes += more
         word = 'группам' if out_entity == 'group' else 'скважинам'
         text, unit = calc.describe(t, m.label, m.unit, word)
@@ -510,6 +511,18 @@ def _x_side(data: Data, row: Row, label: str) -> tuple[pd.DataFrame, str, str | 
         x = x[x['x'].notna()]
     where = {'group': ', по группе', 'object': ', по объекту'}.get(row.x_scope, '')
     return x, out_entity, new_label + where, notes
+
+
+def _seasons(data: Data, row: Row) -> pd.Series | None:
+    """Сезон каждых суток (дата → период расхода, как в «Сезонных показателях»); нейтральные периоды и сутки без периода не входят."""
+    frame = data[K.PRODUCTION] if K.PRODUCTION in data else None
+    if frame is None or 'period' not in frame or 'date' not in frame:
+        return None
+    if row.kind and 'kind' in frame:
+        frame = frame[frame['kind'].astype(str).eq(row.kind)]
+    frame = frame.dropna(subset=['period', 'date'])
+    frame = frame[~frame['period'].astype(str).str.startswith(NEUTRAL_PREFIXES)]
+    return frame.assign(date=_day(frame['date'])).drop_duplicates('date').set_index('date')['period'].astype(str) if len(frame) else None
 
 
 def _y_group_keys(data: Data, y: pd.DataFrame, y_entity: str) -> pd.Series:
@@ -641,7 +654,8 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         out.label, out.unit = calc.describe(row.transform, out.label, out.unit, word)
         x_date = pd.api.types.is_datetime64_any_dtype(out.frame['x'])
         before = '' if row.source == 'formula' else meta(row.dataset, row.y).unit     # у формулы единица — только ручная
-        out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date)
+        out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date,
+                                     _seasons(data, row) if row.transform.season else None)
         notes += more
         if row.transform.op == 'group':
             out.entity_kind = ''
