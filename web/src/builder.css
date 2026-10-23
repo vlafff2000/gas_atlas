@@ -150,3 +150,5 @@ details.builder-recipes > summary { cursor: pointer; font-weight: 700; font-size
 .quick-ops .kind:disabled { opacity: .5; cursor: not-allowed; }
 .quick-hint { flex: 1 1 100%; font-size: 12.5px; }
 .row-form .field.check { flex-direction: row; align-items: center; gap: 6px; }
+.builder-models { margin-bottom: 6px; }
+.builder-models .check { display: block; font-size: 13px; padding: 2px 0; }

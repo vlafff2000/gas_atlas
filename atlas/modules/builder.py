@@ -26,6 +26,7 @@ from ..contract import Axis, Chart, Data, Module, ModuleSpec, Note, Param, Param
 from . import builder_calc as calc
 from ._production import NEUTRAL_PREFIXES
 from ..domain import DatasetKind
+from .. import model_source
 
 K = DatasetKind
 P_UNIT, Q_UNIT, WF_UNIT = 'кгс/см²', 'тыс. м³/сут', 'л/тыс. м³'
@@ -41,6 +42,7 @@ CATEGORIES = (
     ('annulus', 'Межколонные'),
     ('ggh', 'ГГХ'),
     ('gis', 'ГИС и ГВК'),
+    ('model', 'Модель ГДМ'),
     ('construction', 'Конструкция и забой'),
     ('other', 'Прочее'),
 )
@@ -49,7 +51,7 @@ DATASET_CATEGORY = {
     K.PRODUCTION: 'prod', K.ELPRO: 'prod', K.OPERATIONS: 'prod', K.GDI: 'gdi', K.RESPONSE: 'response',
     K.OBJECT_PRESSURE: 'pressure', K.PRESSURE_MATCH: 'pressure', K.WATER: 'water', K.WATER_FACTOR: 'water',
     K.GAS_DB: 'object', K.PLAN: 'object', K.ANNULUS: 'annulus', K.GGH: 'ggh', K.CONSTRUCTION: 'construction',
-    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis',
+    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis', K.MODEL: 'model', K.MODEL_OBJECT: 'model',
 }
 
 
@@ -150,6 +152,9 @@ def _numbers(series: pd.Series) -> pd.Series:
 
 
 def meta(kind: DatasetKind, column: str) -> FieldMeta:
+    if kind in (K.MODEL, K.MODEL_OBJECT) and column not in ('date', 'model'):
+        label, unit = model_source.column_meta(column)
+        return FieldMeta('model', label, unit)
     if column == 'date':
         return FieldMeta(DATASET_CATEGORY.get(kind, 'other'), 'Дата')
     return FIELDS.get((kind, column)) or FieldMeta(DATASET_CATEGORY.get(kind, 'other'), IMPORT_FIELDS.get(column, column))
@@ -193,14 +198,14 @@ def catalog(data: Data) -> dict[str, Any]:
             if 'kind' in frame else []
         dates = pd.to_datetime(frame['date'], errors='coerce').dropna() if 'date' in frame else pd.Series(dtype='datetime64[ns]')
         datasets.append({'id': kind.value, 'label': kind.label, 'entity': entity, 'entities': entities, 'kinds': kinds,
-                         'fields': fields,
+                         'fields': fields, 'models': _models(frame),
                          'date_min': dates.min().strftime('%Y-%m-%d') if len(dates) else None,
                          'date_max': dates.max().strftime('%Y-%m-%d') if len(dates) else None})
     categories = [{'id': c, 'label': label, 'fields': sorted(by_category[c], key=lambda f: (f['label'], f['dataset_label']))}
                   for c, label in CATEGORIES if by_category[c]]
     wells = sorted({w for d in datasets if d['entity'] == 'well' for w in d['entities']}, key=natural_key)
     return {'categories': categories, 'datasets': datasets, 'wells': wells,
-            'keys': [{'value': k, 'label': v} for k, v in KEYS.items()]}
+            'keys': [{'value': k, 'label': v} for k, v in KEYS.items()], 'model_notes': list(getattr(data, 'model_notes', []))}
 
 
 # ---------- макет ----------
@@ -231,6 +236,7 @@ class Row:
     well_mode: str = 'fixed'    # 'fixed' — скважины ряда (wells), 'current' — скважина макета (layout.current_well)
     x_transform: calc.Transform = field(default_factory=calc.Transform)    # преобразование X (накопленное и т. п.)
     x_scope: str = 'curve'      # откуда X: 'curve' — как в наборе, 'group' — сумма по группе скважины, 'object' — по всем скважинам
+    model: str = ''             # модель tNav для набора «Модель ГДМ»; пусто — первая из выбранных
 
 
 X_SCOPES = {'curve': 'как в наборе (по каждой скважине)', 'group': 'сумма по группе скважины', 'object': 'сумма по объекту'}
@@ -308,7 +314,7 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
                        days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i),
                        source, None, calc.clean_transform(r.get('transform'), i), str(r.get('unit') or '').strip()[:40],
                        'current' if str(r.get('wells_mode') or '') == 'current' else 'fixed',
-                       _x_transform(r.get('x_transform'), i), _x_scope(r.get('x_scope'), i)))
+                       _x_transform(r.get('x_transform'), i), _x_scope(r.get('x_scope'), i), str(r.get('model') or '').strip()[:200]))
     for row, r in zip(out, rows):
         text = str(r.get('formula') or '').strip()
         if row.source == 'formula' and text:
@@ -337,9 +343,20 @@ def _put_well(text: str, well: str) -> str:
 
 # ---------- выбор данных ----------
 
+def _models(frame: pd.DataFrame) -> list[str]:
+    return sorted({str(v) for v in frame['model'].dropna()}, key=natural_key) if 'model' in frame else []
+
+
+def _model_name(frame: pd.DataFrame, row: Row) -> str:
+    """Модель ряда: заданная вручную (даже если её сняли с выбора: тогда ряд пуст, а не молча другой), иначе первая выбранная."""
+    return row.model or next(iter(_models(frame)), '')
+
+
 def _select(frame: pd.DataFrame, row: Row) -> pd.DataFrame:
     """Строки набора по скважинам (группам), режиму и периоду ряда."""
     d = frame
+    if 'model' in d:
+        d = d[d['model'].astype(str).eq(_model_name(d, row))]
     entity = _entity(d)
     if entity and row.wells:
         if entity == 'group':
@@ -659,6 +676,9 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         notes.extend(p.notes)
         m, xm = meta(row.dataset, row.y), meta(row.x_dataset, row.x)
         entity = _entity(data[row.dataset]) if row.dataset in data else ''
+        names = _models(data[row.dataset]) if row.dataset in data else []
+        if len(names) > 1:
+            m = replace(m, label=f'{m.label} · {_model_name(data[row.dataset], row)}')
         out = Calc(p.frame, entity, m.label, m.unit, p.x_label or xm.label + (f', {xm.unit}' if xm.unit else ''))
     if out is not None and not out.frame.empty:
         word = 'группам' if out.entity_kind == 'group' else 'скважинам'

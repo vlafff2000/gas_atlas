@@ -407,6 +407,7 @@ class Data(Mapping):
         self.mapping: dict[str, dict[str, str]] = {}    # скважина -> {'group': ..., 'subgroup': ...}
         # Сведения о проекте (atlas.projects.ProjectInfo): name, demo, tables, history(), catalog(). Задаёт ядро.
         self.project: Any = None
+        self.model_notes: list[str] = []                 # заметки о выбранных моделях tNav, которые не прочитались
         self.wells: list[str] = []                       # все скважины проекта (по всем наборам), по номеру
 
     def __getitem__(self, kind):

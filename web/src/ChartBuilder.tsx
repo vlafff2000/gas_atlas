@@ -6,6 +6,7 @@ import type { Look } from './chartStyle'
 import { AxisDialog, ChartDialog, SeriesDialog, VIEWS, type AxisFmt, type AxisItem, type AxisKey, type BuilderView } from './BuilderDialogs'
 import { FUNCTIONS, checkFormula, findCycle, letter, renumber } from './builderFormula'
 import { BuilderLibrary } from './BuilderLibrary'
+import { BuilderModels } from './BuilderModels'
 import { BuilderRecipes } from './BuilderRecipes'
 import { SeriesDialog as SeriesExport, WellPicker } from './BuilderWells'
 import './builder.css'
@@ -19,6 +20,7 @@ export interface BuilderField {
 }
 export interface BuilderDataset {
   id: string; label: string; entity: '' | 'well' | 'group'; entities: string[]
+  models?: string[]      // модели tNav набора «Модель ГДМ»
   kinds: { value: string; label: string }[]; fields: BuilderField[]; date_min: string | null; date_max: string | null
 }
 export interface BuilderCatalog {
@@ -26,6 +28,7 @@ export interface BuilderCatalog {
   datasets: BuilderDataset[]
   wells?: string[]        // скважины проекта (для «Скважины макета»)
   keys: { value: string; label: string }[]
+  model_notes?: string[]  // модели tNav, которые не прочитались
 }
 export type AxisName = 'y' | 'y2' | 'y3' | 'y4' | 'y5'
 export interface BuilderRow {
@@ -41,6 +44,7 @@ export interface BuilderRow {
   unit?: string                  // ручная единица; пусто — по полю и преобразованию
   x_scope?: 'curve' | 'group' | 'object'   // откуда X: как в наборе, сумма по группе скважины, сумма по объекту
   x_transform?: RowTransform               // преобразование X (накопленное и т. п.); нет — без преобразования
+  model?: string                           // модель tNav (набор «Модель ГДМ»); пусто — первая из выбранных
 }
 export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; season?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
 type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
@@ -108,6 +112,7 @@ function rowFor(field: BuilderField, ds: BuilderDataset | undefined, axis: AxisN
       : ds.kinds.some(k => k.value === 'withdrawal') ? 'withdrawal' : '',
     axis: base?.axis ?? axis, view: base?.view ?? 'line', stack: base?.stack, key: base?.key ?? 'well_date', days: base?.days ?? 3,
     name: '', hidden: base?.hidden, look: base?.look, ...(base?.wells_mode && ds?.entity === 'well' ? { wells_mode: base.wells_mode } : {}), ...(base?.transform ? { transform: base.transform } : {}),
+    ...(base?.model && ds?.models?.includes(base.model) ? { model: base.model } : {}),
     ...(keepX && base?.x_scope ? { x_scope: base.x_scope } : {}), ...(keepX && base?.x_transform ? { x_transform: base.x_transform } : {}),
   }
 }
@@ -122,6 +127,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
   const [dialog, setDialog] = useState<'row' | 'axis' | 'chart' | null>(null)
   const [axisKey, setAxisKey] = useState<AxisKey>('x')
   const [seriesOpen, setSeriesOpen] = useState(false)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     let alive = true
@@ -129,7 +135,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
       .then(c => { if (alive) { setCatalog(c); setError('') } })
       .catch(e => { if (alive) setError((e as Error).message) })
     return () => { alive = false }
-  }, [project, revision])
+  }, [project, revision, reload])
 
   const datasets = useMemo(() => new Map((catalog?.datasets ?? []).map(d => [d.id, d])), [catalog])
   const fieldOf = (dataset: string, field: string) => datasets.get(dataset)?.fields.find(f => f.field === field)
@@ -221,6 +227,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
         <h2>Поля</h2>
         <input type="search" placeholder="Найти поле…" value={query} onChange={e => setQuery(e.target.value)} aria-label="Поиск по полям" />
         {error && <div className="note warning">{error}</div>}
+        <BuilderModels project={project} notes={catalog?.model_notes ?? []} onChange={() => setReload(n => n + 1)} />
         {!catalog && !error && <p className="muted">Загрузка полей…</p>}
         {catalog && !catalog.categories.length && <div className="note info">В проекте нет числовых полей. Загрузите данные в разделе импорта.</div>}
         {catalog && q && !tree.length && <p className="muted">Ничего не найдено.</p>}
@@ -467,6 +474,15 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
           {ds?.entity && !(ds.entity === 'well' && row.wells_mode === 'current') && (
             <MultiSelect label={entity} options={ds.entities} value={row.wells} onChange={w => onChange({ wells: w })}
               prefix={ds.entity === 'well' ? '№ ' : ''} />
+          )}
+          {!!ds?.models?.length && (
+            <label className="field">
+              <span className="field-label">Модель</span>
+              <select value={row.model ?? ''} onChange={e => onChange({ model: e.target.value })}>
+                <option value="">первая выбранная</option>
+                {ds.models.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
           )}
           {!!kinds.length && (
             <label className="field">

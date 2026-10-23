@@ -22,7 +22,7 @@ REMOVED_ON_PURPOSE: dict[str, str] = {}   # id модуля -> причина; �
 DATASET_KINDS = [
     'production', 'gdi', 'response', 'object_pressure', 'operations', 'water', 'water_factor',
     'bottom', 'construction', 'pressure_match', 'plan', 'ggh', 'elpro', 'annulus',
-    'gas_db',
+    'gas_db', 'model', 'model_object',
     'well_geo', 'gis_packs', 'gis_observations', 'gis_intervals',
 ]
 

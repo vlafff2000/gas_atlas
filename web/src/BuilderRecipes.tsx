@@ -23,6 +23,7 @@ function missing(c: BuilderCatalog, dataset: string, field: string, mode?: Mode)
   const ds = c.datasets.find(d => d.id === dataset)
   if (!ds || !ds.fields.some(f => f.field === field)) {
     return dataset === 'production' ? 'Нет данных «Отбор и закачка». Загрузите суточные расходы по скважинам в разделе импорта.'
+      : dataset === 'model' ? 'Нет данных модели ГДМ. Отметьте модель в блоке «Модели ГДМ» над деревом полей.'
       : dataset === 'object_pressure' ? 'Нет данных «Давление объекта». Загрузите давления объекта в разделе импорта.'
       : `Нет данных набора «${dataset}».`
   }
@@ -77,6 +78,18 @@ const RECIPES: Recipe[] = [
         wells: [], kind: mode, transform: { op: 'group', agg: 'sum' }, x: 'q', x_scope: 'object', x_transform: { op: 'cumsum' },
         key: 'date', view: 'points', name: `Суммарный расход (${MODE_NOUN[mode]})`,
       })],
+    },
+  },
+  {
+    id: 'model-vs-fact', label: 'Расход по объекту: модель и факт',
+    hint: 'Сумма по скважинам: факт (отбор и закачка проекта), модель ГДМ (первая выбранная) и их разность «модель − факт». Скважины и модель правятся в карточках рядов.',
+    build: (c, mode) => missing(c, 'production', 'q', mode) || missing(c, 'model', mode === 'injection' ? 'wgir' : 'wgpr') || {
+      title: `Расход ${MODE_WORD[mode]} по объекту: модель и факт`,
+      series: [
+        row({ kind: mode, key: 'date', transform: { op: 'group', agg: 'sum' }, name: 'Факт' }),
+        row({ dataset: 'model', y: mode === 'injection' ? 'wgir' : 'wgpr', x_dataset: 'model', key: 'date', transform: { op: 'group', agg: 'sum' }, name: 'Модель' }),
+        row({ source: 'formula', formula: 'B - A', key: 'date', name: 'Модель − факт', view: 'bar' }),
+      ],
     },
   },
   {
