@@ -51,6 +51,8 @@ class SeasonalModule(Module):
                      'расхождение с суммой по скважинам показано в таблице'),
             Param('periods', 'Сезоны', 'multi', default=[], dynamic=True, empty='все', section=SECTION,
                   help='Пусто — все сезоны закачки и отбора'),
+            Param('month_periods', 'Сезоны на графиках по месяцам', 'multi', default=[], dynamic=True, empty='ничего', section=SECTION,
+                  help='Сравнение месяцев внутри сезонов. Пусто — последние три сезона каждого вида. Таблица по месяцам содержит все сезоны'),
             Param('groups', 'Группы', 'multi', default=[], dynamic=True, empty='все', section=SECTION,
                   help='Для таблицы и графиков по группам; пусто — все группы'),
         ),
@@ -58,7 +60,7 @@ class SeasonalModule(Module):
 
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         df = data[PRODUCTION]
-        if name == 'periods':
+        if name in ('periods', 'month_periods'):
             return visible_periods(sorted(set(periods_of(df, 'injection')) | set(periods_of(df, 'withdrawal'))), data.settings)
         if name == 'groups':
             return groups_of(df, data.mapping)
@@ -75,9 +77,13 @@ class SeasonalModule(Module):
         result.notes.append(Note(NOTE))
         mapping = {str(w): group_of(data.mapping, w) for w in df.well.unique()}
         by_group = S.group_table(df, seasons, mapping, params.get('groups') or None)
+        months = S.month_table(df, seasons, ref)
+        by_month_group = S.month_group_table(df, seasons, mapping, params.get('groups') or None)
         result.summary = self.summary(seasons)
         result.charts += self.charts(seasons, by_group)
+        result.charts += self.month_charts(months, by_month_group, params.get('month_periods') or [])
         result.tables += self.tables(seasons, by_group)
+        result.tables += self.month_tables(months, by_month_group)
         if seasons.source.eq(S.SOURCE_LABEL[S.SOURCE_REF]).any():
             far = seasons[seasons.diff_pct.abs() > 5]
             if len(far):
@@ -151,4 +157,71 @@ class SeasonalModule(Module):
                 Column('share', 'Доля в сумме групп', '%', 1, 'number'), Column('mean', 'Средний расход', Q_UNIT, 1, 'number'),
                 Column('max', 'Максимальный расход', Q_UNIT, 1, 'number')],
                 note='Группы — по схеме проекта; доля считается от суммы выбранных групп сезона. Объём групп всегда по скважинам.'))
+        return out
+
+    @staticmethod
+    def month_charts(months: pd.DataFrame, by_group: pd.DataFrame, chosen: list[str]) -> list[Chart]:
+        """Столбцы по месяцам, ряд — сезон; для последнего выбранного сезона вида — ещё стопка по группам."""
+        out: list[Chart] = []
+        for kind in S.KINDS:
+            part = months[months.kind.eq(kind)]
+            if part.empty:
+                continue
+            periods = [p for p in dict.fromkeys(part.sort_values('no').period) if p in chosen] if chosen else \
+                list(dict.fromkeys(part.sort_values('no').period))[-3:]
+            if not periods:
+                continue
+            first = part[part.period.eq(periods[0])].sort_values('month').moy.tolist()
+            order = first + sorted({m for m in part.moy if m not in first}, key=lambda m: (m - first[0]) % 12)
+            cats = [S.MONTHS[m - 1] for m in order]
+            noun = S.KIND_LABEL[kind]
+            c = Chart(f'seasonal-months-{kind}', f'{noun}: объём по месяцам сезонов', Axis('Месяц', scale='category', categories=cats),
+                      Axis('Объём за месяц', 'млн м³', from_zero=True))
+            for period in periods:
+                rows = part[part.period.eq(period)].set_index('moy')
+                c.series.append(Series(period, cats, np.array([rows.volume.get(m, np.nan) for m in order], float), 'bar', group=period,
+                                       labels=[f'{int(rows.days[m])} сут' + (', неполный месяц' if rows.partial[m] else '') if m in rows.index else ''
+                                               for m in order]))
+            out.append(c)
+            g = by_group[by_group.kind.eq(kind) & by_group.period.eq(periods[-1])]
+            if not g.empty:
+                months_g = sorted(g.month.unique())
+                cats_g = [S.month_name(m) for m in months_g]
+                cg = Chart(f'seasonal-months-groups-{kind}', f'{noun}: объём по месяцам и группам · {periods[-1]}',
+                           Axis('Месяц', scale='category', categories=cats_g), Axis('Объём за месяц', 'млн м³', from_zero=True))
+                for name, rows in g.groupby('group', sort=True):
+                    by = rows.set_index('month').volume
+                    cg.series.append(Series(str(name), cats_g, np.array([by.get(m, np.nan) for m in months_g], float), 'bar',
+                                            group=str(name), stack='groups'))
+                out.append(cg)
+        return out
+
+    @staticmethod
+    def month_tables(months: pd.DataFrame, by_group: pd.DataFrame) -> list[Table]:
+        if months.empty:
+            return []
+        frame = months.assign(kind=lambda f: f.kind.map(S.KIND_LABEL), month=lambda f: f.month.map(S.month_name),
+                              partial=lambda f: f.partial.map({True: 'неполный', False: ''}))
+        prev = lambda col: f'SUMIFS({{{col}@col}},{{kind@col}},{{kind}},{{moy@col}},{{moy}},{{no@col}},{{no}}-1)'  # noqa: E731
+        has = 'COUNTIFS({kind@col},{kind},{moy@col},{moy},{no@col},{no}-1)=0'
+        out = [Table('seasonal-months', 'Месяцы сезонов', frame[['kind', 'period', 'no', 'month', 'moy', 'partial', 'days', 'volume', 'mean',
+                                                                   'max', 'delta', 'delta_pct']], [
+            Column('kind', 'Вид'), Column('period', 'Сезон'), Column('no', '№ сезона вида', kind='number'), Column('month', 'Месяц'),
+            Column('moy', 'Номер месяца', kind='number'), Column('partial', 'Месяц сезона'),
+            Column('days', 'Суток с расходом', kind='number'), Column('volume', 'Объём', 'млн м³', 2, 'number'),
+            Column('mean', 'Средний расход', Q_UNIT, 1, 'number'), Column('max', 'Максимальный расход', Q_UNIT, 1, 'number'),
+            Column('delta', 'Δ к тому же месяцу прошлого сезона', 'млн м³', 2, 'number'),
+            Column('delta_pct', 'Δ к тому же месяцу прошлого сезона', '%', 1, 'number')],
+            note='Месяцы календарные. «Неполный» — сезон начался позже 1-го числа или закончился раньше конца месяца: объём такого месяца '
+                 'нельзя сравнивать с полным. Δ — к тому же календарному месяцу предыдущего сезона того же вида (в Excel — формулами).',
+            formulas={'delta': f'IF({has},"",{{volume}}-{prev("volume")})',
+                      'delta_pct': f'IF(OR({has},{prev("volume")}<=0),"",({{volume}}-{prev("volume")})/{prev("volume")}*100)'})]
+        if not by_group.empty:
+            out.append(Table('seasonal-months-groups', 'Месяцы сезонов по группам', by_group.assign(
+                kind=lambda f: f.kind.map(S.KIND_LABEL), month=lambda f: f.month.map(S.month_name),
+                partial=lambda f: f.partial.map({True: 'неполный', False: ''}))[['kind', 'period', 'group', 'month', 'partial', 'days', 'volume', 'mean', 'max']], [
+                Column('kind', 'Вид'), Column('period', 'Сезон'), Column('group', 'Группа'), Column('month', 'Месяц'),
+                Column('partial', 'Месяц сезона'), Column('days', 'Суток с расходом', kind='number'),
+                Column('volume', 'Объём', 'млн м³', 2, 'number'), Column('mean', 'Средний расход', Q_UNIT, 1, 'number'),
+                Column('max', 'Максимальный расход', Q_UNIT, 1, 'number')], note='Группы — по скважинам проекта, суммы групп за месяц.'))
         return out

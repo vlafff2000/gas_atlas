@@ -76,3 +76,24 @@ def test_excel_formulas_for_delta_and_discrepancy():
     assert ws.cell(2, head.index('Δ к прошлому сезону, млн м³') + 1).value is None           # первый сезон
     delta = ws.cell(3, head.index('Δ к прошлому сезону, млн м³') + 1).value
     assert delta.startswith('=IF(A3=A2,') and 'D3-D2' in delta
+
+
+def test_months_partial_delta_and_excel():
+    import io
+    import openpyxl
+    from atlas.render import tables_file
+    t = S.season_table(frame())
+    m = S.month_table(frame(), t).set_index(['kind', 'period'])
+    row = m.loc[('injection', '2023')]
+    assert row.volume == pytest.approx(2.0) and row.delta == pytest.approx(0.5) and bool(row.partial)   # сезон из 10 суток мая — неполный месяц
+    data = Data({PROD: frame()})
+    data.mapping = {'1': {'group': 'ГСП 1'}, '2': {'group': 'ГСП 2'}}
+    r = SeasonalModule().run(data, {'month_periods': ['2022', '2023']})
+    assert {'seasonal-months', 'seasonal-months-groups'} <= {x.id for x in r.tables}
+    assert {'seasonal-months-injection', 'seasonal-months-groups-injection'} <= {c.id for c in r.charts}
+    bars = next(c for c in r.charts if c.id == 'seasonal-months-injection')
+    assert [s.name for s in bars.series] == ['2022', '2023']
+    ws = openpyxl.load_workbook(io.BytesIO(tables_file(r.tables, 'x')[0]))['Месяцы сезонов']
+    head = [c.value for c in ws[1]]
+    f = ws.cell(3, head.index('Δ к тому же месяцу прошлого сезона, млн м³') + 1).value
+    assert f.startswith('=IF(COUNTIFS($A$2:$A$4,A3,') and 'SUMIFS($H$2:$H$4' in f
