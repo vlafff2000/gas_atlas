@@ -61,13 +61,13 @@ const X_TRANSFORMS = TRANSFORMS.filter(([v]) => ['none', 'cumsum', 'mul', 'div',
 const AGGS: [Agg, string][] = [['mean', 'среднее'], ['sum', 'сумма'], ['max', 'максимум'], ['min', 'минимум']]
 // Быстрые операции карточки ряда: одна кнопка = преобразование Y (поля «Преобразование» ниже подстраиваются вручную)
 const QUICK: { label: string; hint: string; t: RowTransform; date?: boolean }[] = [
-  { label: 'Накопленное', hint: 'Нарастающий итог по каждой скважине отдельно (суточный расход → объём)', t: { op: 'cumsum' } },
-  { label: 'Сумма по скважинам', hint: 'Одна кривая: сумма значений выбранных в ряду скважин (пусто — все) за каждую дату', t: { op: 'group', agg: 'sum' } },
-  { label: 'Накопленное по объекту', hint: 'Сумма по скважинам, затем нарастающий итог: накопленный объём объекта', t: { op: 'group', agg: 'sum', cum: true } },
-  { label: 'Накопленное за сезон', hint: 'Нарастающий итог по скважине, заново с начала каждого сезона (границы — период расхода в данных проекта)', t: { op: 'cumsum', season: true } },
-  { label: 'По объекту за сезон', hint: 'Сумма по скважинам и нарастающий итог заново с начала каждого сезона', t: { op: 'group', agg: 'sum', cum: true, season: true } },
-  { label: 'Среднее по скважинам', hint: 'Одна кривая: среднее значение выбранных скважин за каждую дату', t: { op: 'group', agg: 'mean' } },
-  { label: 'За месяц', hint: 'Сумма суточных значений за каждый месяц', t: { op: 'month', agg: 'sum' }, date: true },
+  { label: 'Сумма по скважинам за сутки', hint: 'Одна кривая: сумма значений выбранных в ряду скважин (пусто — все) за каждую дату', t: { op: 'group', agg: 'sum' } },
+  { label: 'Среднее по скважинам за сутки', hint: 'Одна кривая: среднее значение выбранных скважин за каждую дату', t: { op: 'group', agg: 'mean' } },
+  { label: 'Накопленное по объекту', hint: 'Сумма по скважинам, затем нарастающий итог: накопленный объём объекта. Сутки без записи — горизонтальная линия', t: { op: 'group', agg: 'sum', cum: true } },
+  { label: 'Накопленное по объекту, с нуля каждый сезон', hint: 'Накопленный объём за сезон; в начале следующего сезона график начинается с нуля (границы сезонов — период расхода в данных проекта)', t: { op: 'group', agg: 'sum', cum: true, season: true } },
+  { label: 'Накопленное по каждой скважине', hint: 'Нарастающий итог отдельно по каждой скважине (суточный расход → объём)', t: { op: 'cumsum' } },
+  { label: 'По каждой скважине, с нуля каждый сезон', hint: 'Нарастающий итог по скважине, заново с начала каждого сезона', t: { op: 'cumsum', season: true } },
+  { label: 'Объём за месяц', hint: 'Сумма суточных значений за каждый месяц', t: { op: 'month', agg: 'sum' }, date: true },
 ]
 const EXAMPLES = ['A/B', '(A-B)/A*100', 'A-B', 'sqrt(A^2 - B^2)', 'max(A; B)']
 const isFormula = (r: BuilderRow) => r.source === 'formula'
@@ -95,10 +95,6 @@ export function layoutOf(value: unknown): BuilderLayout {
     ...(v.current_well ? { current_well: v.current_well } : {}),
     ...(v.axis_style ? { axis_style: v.axis_style } : {}), ...(v.chart_style ? { chart_style: v.chart_style } : {}),
   }
-}
-
-function withUnit(f: BuilderField | undefined) {
-  return f ? f.label + (f.unit ? ', ' + f.unit : '') : ''
 }
 
 /** Новый ряд с полем Y: X — дата того же набора (если есть), первая скважина, отбор. */
@@ -208,7 +204,16 @@ export function ChartBuilder({ project, revision, value, onChange }:
   })).filter(c => c.fields.length)
   const used = AXES.filter(a => layout.series.some(r => r.axis === a && !r.hidden))
   const autoAxis = (a: AxisName) => [...new Set(layout.series.filter(r => r.axis === a && !r.hidden).map(rowLabel))].join(', ')
-  const autoX = [...new Set(layout.series.filter(r => !isFormula(r)).map(r => withUnit(fieldOf(r.x_dataset, r.x)) || r.x))].join(', ')
+  const CUM_UNIT: Record<string, string> = { 'тыс. м³/сут': 'млн м³', 'м³/сут': 'м³', 'млн м³/сут': 'млрд м³', 'м³': 'тыс. м³', 'тыс. м³': 'млн м³' }
+  const xAuto = (r: BuilderRow) => {      // как подпись оси X на графике: «накопленное», сводка по объекту или группе
+    const f = fieldOf(r.x_dataset, r.x)
+    if (!f) return r.x
+    const cum = r.x_transform?.op === 'cumsum'
+    const unit = cum ? CUM_UNIT[f.unit] ?? f.unit : f.unit
+    return f.label + (cum ? ', накопленное' + (r.x_transform?.season ? ' за сезон' : '') : '') + (unit ? ', ' + unit : '')
+      + (r.x_scope === 'object' ? ', по объекту' : r.x_scope === 'group' ? ', по группе' : '')
+  }
+  const autoX = [...new Set(layout.series.filter(r => !isFormula(r)).map(xAuto))].join(', ')
   const activeRow = layout.series.find(r => r.id === active)
   const axes: AxisItem[] = [
     { key: 'x', title: 'X', label: layout.x_label, auto: autoX, time: layout.series.some(r => fieldOf(r.x_dataset, r.x)?.kind === 'date') },
@@ -246,12 +251,12 @@ export function ChartBuilder({ project, revision, value, onChange }:
       </section>
 
       <section className="builder-rows" aria-label="Ряды графика">
+        <BuilderRecipes catalog={catalog} layout={layout}
+          onApply={(title, series) => { set({ series, title, x_label: '', axes: {} }); setActive(series[0]?.id ?? null) }} />
         <BuilderLibrary project={project} layout={layout} onOpen={v => { const next = layoutOf(v); onChange(next); setActive(next.series[0]?.id ?? null); return next }} />
         {catalog?.wells?.length ? (
           <WellPicker wells={catalog.wells} value={layout.current_well ?? ''} onChange={w => set({ current_well: w })} onSeries={() => setSeriesOpen(true)} />
         ) : null}
-        <BuilderRecipes catalog={catalog} layout={layout}
-          onApply={(title, series) => { set({ series, title, x_label: '', axes: {} }); setActive(series[0]?.id ?? null) }} />
         <h2>Ряды</h2>
         {layout.series.length > 0 && (
           <div className="builder-tools" role="toolbar" aria-label="Настройка графика">
