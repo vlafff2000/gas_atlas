@@ -178,6 +178,7 @@ def to_plotly(chart: Chart):
     fig = go.Figure()
     stacked_bars = any(s.kind == 'bar' and s.stack for s in chart.series)
     combo = chart.id.startswith('builder')      # виды конструктора: область, ступенчатая, стопка (atlas/engine/core/export.py читает meta['combo'])
+    scale_title: str | None = None
     for n, s in enumerate(chart.series):
         look = s.look or {}
         color = look.get('color') or (series_color(s.color) if s.color else palette[s.group or s.name])
@@ -233,11 +234,15 @@ def to_plotly(chart: Chart):
         else:
             shape = SYMBOLS[look.get('shape', s.symbol)]
             symbol = shape + ('-open' if s.hollow else '')
+            marker = {'color': look.get('markerColor') or color, 'symbol': symbol, 'size': look.get('size', 9),
+                      'opacity': s.opacity,
+                      'line': {'color': look.get('markerColor') or color, 'width': 2 if s.hollow or shape in ('cross', 'x') else 0}}
+            if s.values is not None:         # точки окрашены третьим значением: общая шкала цвета на весь график
+                marker.update(color=[float('nan') if v is None or v != v else float(v) for v in s.values], coloraxis='coloraxis')
+                marker['line'] = {'width': 0}
+                scale_title = scale_title if scale_title is not None else s.values_label
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='markers', name=s.name, showlegend=s.legend,
-                                     yaxis=s.axis, meta=look_meta(look), opacity=s.opacity,
-                                     marker={'color': look.get('markerColor') or color, 'symbol': symbol, 'size': look.get('size', 9),
-                                             'opacity': s.opacity,
-                                             'line': {'color': look.get('markerColor') or color, 'width': 2 if s.hollow or shape in ('cross', 'x') else 0}}))
+                                     yaxis=s.axis, meta=look_meta(look), opacity=s.opacity, marker=marker))
     module = chart.id.split('-', 1)[0]
     meta: dict = {'module': module}
     if chart.id.startswith('builder') or chart.style or any(a.style for a in (chart.x, chart.y, *(a for _, a in chart.right_axes()))):
@@ -245,6 +250,8 @@ def to_plotly(chart: Chart):
         if chart.style.get('legend'):
             meta['format'] = {'legend': chart.style['legend']}
     fig.update_layout(title={'text': chart.title}, meta=meta, barmode='stack' if stacked_bars else 'group')
+    if scale_title is not None:
+        fig.update_layout(coloraxis={'colorscale': 'Viridis', 'colorbar': {'title': {'text': scale_title}}})
     axes = [(fig.layout.xaxis, chart.x), (fig.layout.yaxis, chart.y)]
     right = chart.right_axes()
     if len(right) > 1:      # место под подписи нескольких правых шкал; одна правая шкала — как раньше, на всю ширину

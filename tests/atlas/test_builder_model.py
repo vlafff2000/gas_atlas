@@ -241,3 +241,22 @@ def test_refresh_recomputes_cubes(tmp_path, cubes):
     assert client.post(base + '/refresh', json={}).status_code == 200
     projects.select(pid, (), tuple(K))
     assert FAKE['calls'] == [2, 2]                                   # сброшено: считается заново
+
+
+def test_color_by_third_value(cubes):
+    cfg = {'dates': ['2025-01-01', '2025-07-01'], 'k_from': 1, 'k_to': 0, 'max_points': 100}
+    frame, _ = model_source.cells_frame([cubes], cfg)
+    data = Data({K.MODEL_CELLS: frame})
+    row = {'dataset': 'model_cells', 'x': 'p', 'y': 'sg', 'view': 'points', 'color_by': 'depth'}
+    result = builder.build(data, {'series': [row]})
+    first = result.charts[0].series[0]
+    assert list(first.values) == [-1500.0, -1510.0, -1520.0] and first.values_label == 'Глубина ячейки, а.о. (модель), м'
+    import json
+    from atlas.contract import _series_json
+    assert _series_json(first)['values'] == [-1500.0, -1510.0, -1520.0]
+    plain = builder.build(data, {'series': [{**row, 'color_by': ''}]}).charts[0].series[0]
+    assert plain.values is None
+    wrong = builder.build(data, {'series': [{**row, 'color_by': 'нет такого'}]})
+    assert any('нет такого' in n.text for n in wrong.notes) and wrong.charts[0].series[0].values is None
+    lined = builder.build(data, {'series': [{**row, 'view': 'line'}]})
+    assert any('работает у рядов с видом' in n.text for n in lined.notes)

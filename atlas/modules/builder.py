@@ -237,6 +237,7 @@ class Row:
     x_transform: calc.Transform = field(default_factory=calc.Transform)    # преобразование X (накопленное и т. п.)
     x_scope: str = 'curve'      # откуда X: 'curve' — как в наборе, 'group' — сумма по группе скважины, 'object' — по всем скважинам
     model: str = ''             # модель tNav для набора «Модель ГДМ»; пусто — первая из выбранных
+    color_by: str = ''          # поле набора, по которому красятся точки ряда (вид «точки»); пусто — один цвет
 
 
 X_SCOPES = {'curve': 'как в наборе (по каждой скважине)', 'group': 'сумма по группе скважины', 'object': 'сумма по объекту'}
@@ -314,7 +315,7 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
                        days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i),
                        source, None, calc.clean_transform(r.get('transform'), i), str(r.get('unit') or '').strip()[:40],
                        'current' if str(r.get('wells_mode') or '') == 'current' else 'fixed',
-                       _x_transform(r.get('x_transform'), i), _x_scope(r.get('x_scope'), i), str(r.get('model') or '').strip()[:200]))
+                       _x_transform(r.get('x_transform'), i), _x_scope(r.get('x_scope'), i), str(r.get('model') or '').strip()[:200], str(r.get('color_by') or '').strip()[:60]))
     for row, r in zip(out, rows):
         text = str(r.get('formula') or '').strip()
         if row.source == 'formula' and text:
@@ -414,6 +415,11 @@ def pairs(data: Data, row: Row) -> Pairs:
                      index=ys.index)
     if 'date' in ys:
         y['date'] = _day(ys['date'])
+    if row.color_by:
+        if row.color_by in ys and _value_kind(ys[row.color_by]) == 'number':
+            y['c'] = _values(ys, row.dataset, row.color_by)
+        else:
+            notes.append(Note(f'{label}: цвет по полю «{row.color_by}» не задан — в наборе «{row.dataset.label}» нет такого числового поля.', 'warning'))
     prepared = row.x_scope != 'curve' or row.x_transform.op != 'none'
     joined = row.x_dataset != row.dataset or prepared
     x_label = None
@@ -800,6 +806,7 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
     for r, _, _, g in items:
         if r.index in stacks:
             union[stacks[r.index]] = union.get(stacks[r.index], pd.Index([])).union(pd.Index(g['x'].dropna().unique()))
+    noted: set[int] = set()
     per_row = {r.index: sum(1 for o, *_ in items if o.index == r.index) for r, *_ in items}
     for r, entity_kind, entity, g in items:
         stack = stacks.get(r.index, '')
@@ -818,6 +825,12 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
             group=f'{r.index}:{entity}', axis=place[r.axis], markers=kind == 'line' and r.view in ('line', 'step') and points <= SPARSE,
             ids=ids, dataset=r.dataset if ids else None, facets=facets, stack=stack,
             fill=r.view == 'area', step=r.view == 'step'))
+        if r.color_by and 'c' in g and kind == 'points':
+            chart.series[-1].values = g['c'].to_numpy()
+            chart.series[-1].values_label = _field_title(meta(r.dataset, r.color_by))
+        elif r.color_by and r.index not in noted:
+            noted.add(r.index)
+            result.notes.append(Note(f'Ряд {r.index}: цвет по полю работает у рядов с видом «точки», без преобразования и без X из другого набора.', 'warning'))
         _style_series(chart.series[-1], r.look, r.view)
     for key, axis in axes.items():      # столбцы и области растут от нуля: шкала с нулём, если границу не задали вручную
         if axis.scale == 'value' and axis.minimum is None and any(
@@ -923,6 +936,10 @@ def _break_gaps(g: pd.DataFrame) -> pd.DataFrame:
     breaks = pd.DataFrame({'entity': g.loc[at, 'entity'].to_numpy(), 'x': (g['x'].shift().loc[at] + step.loc[at] / 2).to_numpy(),
                            'y': np.nan, 'id': '' if g['id'].notna().all() else None})
     return pd.concat([g, breaks], ignore_index=True).sort_values('x', kind='stable')
+
+
+def _field_title(m: FieldMeta) -> str:
+    return m.label + (f', {m.unit}' if m.unit else '')
 
 
 def _axis_title(name: str) -> str:
