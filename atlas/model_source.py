@@ -312,6 +312,20 @@ def _step_key(step) -> str:
     return f'{getattr(step, "seqnum", "")}|{pd.Timestamp(step.date):%Y-%m-%dT%H:%M:%S}'
 
 
+def forget_cubes(anchors: list[str]) -> int:
+    """Сбрасывает сохранённые шаги кубов выбранных моделей (память и диск): следующее чтение считает всё заново."""
+    removed = 0
+    for anchor in anchors:
+        try:
+            os.remove(_disk_path(_cube_files(anchor), SG_THRESHOLD))
+            removed += 1
+        except (OSError, ModelUnavailable):
+            pass
+    with _lock:
+        _cache.clear()
+    return removed
+
+
 def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', '')) -> pd.DataFrame:
     """Показатели объекта по датам рестарта одной модели (кэш по размеру и времени файлов)."""
     ind, files, parallel = _indicators()

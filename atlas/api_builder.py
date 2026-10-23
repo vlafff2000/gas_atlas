@@ -128,6 +128,11 @@ def routes(projects, E) -> list[Route]:
             raise ParamError('Ячейки: слои с 1 (до пусто или не меньше начального), точек от 100 до 200 000')
         return {'dates': clean, 'k_from': k_from, 'k_to': k_to, 'max_points': limit}
 
+    def refresh_cubes(request, body):
+        cfg = settings_of(request)
+        model_source.forget_cubes(model_source.sources_of(cfg))
+        return model_source.listing(model_source.sources_of(cfg), model_source.cubes_on(cfg), model_source.cubes_range(cfg), model_source.cells_of(cfg))
+
     def restarts(request, body):
         model = request.query_params.get('model', '')
         if model not in model_source.sources_of(settings_of(request)):
@@ -177,6 +182,7 @@ def routes(projects, E) -> list[Route]:
         Route(base + '/layouts/{lid}/duplicate', E(duplicate), methods=['POST']),
         Route(base + '/models', E(models), methods=['GET']),
         Route(base + '/models/restarts', E(restarts), methods=['GET']),
+        Route(base + '/models/refresh', E(refresh_cubes), methods=['POST']),
         Route(base + '/models', E(choose_models), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
         Route(base + '/series/wells', E(series_wells), methods=['POST']),

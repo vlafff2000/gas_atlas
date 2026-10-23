@@ -225,3 +225,19 @@ def test_cubes_kept_on_disk_and_only_new_steps_counted(cubes):
     model_source._cache.clear()
     grown, _ = model_source.cubes_frame([cubes])
     assert FAKE['calls'] == [2, 1] and len(grown) == 3 and grown.p_avg.iloc[-1] == pytest.approx(70 * 1.0197162)
+
+
+def test_refresh_recomputes_cubes(tmp_path, cubes):
+    projects = Projects(tmp_path / 'p4')
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    base = f'/api/projects/{pid}/builder/models'
+    client.post(base, json={'selected': [cubes], 'cubes': True})
+    projects.select(pid, (), tuple(K))
+    assert FAKE['calls'] == [2]
+    model_source._cache.clear()
+    projects.select(pid, (), tuple(K))
+    assert FAKE['calls'] == [2]                                      # с диска
+    assert client.post(base + '/refresh', json={}).status_code == 200
+    projects.select(pid, (), tuple(K))
+    assert FAKE['calls'] == [2, 2]                                   # сброшено: считается заново
