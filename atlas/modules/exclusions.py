@@ -44,7 +44,7 @@ class ExclusionsModule(Module):
         save_label='',
         params=(
             Param('modules', 'Модуль исключений', 'multi', default=[], section=SECTION,
-                  options=tuple(Option(k.value, _journal.module_label(k.value)) for k in DatasetKind)),
+                  options=tuple(Option(k.value, _journal.module_label(k.value)) for k in DatasetKind if k is not DatasetKind.MODEL)),
             Param('wells', 'Скважины', 'multi', default=[], section=SECTION, dynamic=True, depends=('modules',),
                   prefix='№ '),
             Param('horizons', 'Горизонты', 'multi', default=[], section=SECTION, dynamic=True, depends=('modules',)),

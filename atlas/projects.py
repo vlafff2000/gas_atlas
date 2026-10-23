@@ -27,6 +27,7 @@ from atlas.engine.core.config import parse_wells
 
 from .contract import Data, MissingData, ParamError
 from .domain import DatasetKind
+from . import model_source
 
 _CACHE_PROJECTS = 3
 WARM_ROWS = 100_000     # меньшие проекты и так открываются мгновенно
@@ -222,7 +223,20 @@ class Projects:
         out = Data({k: data[k] for k in keep if k in data}, {k: data.raw[k] for k in keep if k in data.raw}, data.excluded)
         out.settings, out.revision, out.mapping, out.wells = data.settings, data.revision, data.mapping, data.wells
         out.project = data.project
+        if DatasetKind.MODEL in keep:
+            self._add_models(out)
         return out
+
+    @staticmethod
+    def _add_models(data: Data) -> None:
+        """Выбранные модели tNavigator — набор ``model`` (читаются из папок моделей, в проект не копируются)."""
+        anchors = model_source.sources_of(data.settings)
+        if not anchors:
+            return
+        frame, notes = model_source.frame(anchors)
+        data.model_notes = notes
+        if frame is not None:
+            data._frames[DatasetKind.MODEL] = data.raw[DatasetKind.MODEL] = frame
 
     def options(self, pid: str, dataset: DatasetKind, column: str) -> list[str]:
         frame = self.data(pid).raw.get(dataset)
