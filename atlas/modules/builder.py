@@ -51,7 +51,7 @@ DATASET_CATEGORY = {
     K.PRODUCTION: 'prod', K.ELPRO: 'prod', K.OPERATIONS: 'prod', K.GDI: 'gdi', K.RESPONSE: 'response',
     K.OBJECT_PRESSURE: 'pressure', K.PRESSURE_MATCH: 'pressure', K.WATER: 'water', K.WATER_FACTOR: 'water',
     K.GAS_DB: 'object', K.PLAN: 'object', K.ANNULUS: 'annulus', K.GGH: 'ggh', K.CONSTRUCTION: 'construction',
-    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis', K.MODEL: 'model', K.MODEL_OBJECT: 'model',
+    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis', K.MODEL: 'model', K.MODEL_OBJECT: 'model', K.MODEL_CELLS: 'model',
 }
 
 
@@ -134,7 +134,7 @@ DEFAULT_LAYOUT: dict[str, Any] = {'series': [], 'title': '', 'x_label': '', 'axe
 
 def _entity(frame: pd.DataFrame) -> str:
     """По чему ряд делится на кривые: скважина, иначе группа (план), иначе одна кривая по объекту."""
-    return 'well' if 'well' in frame else 'group' if 'group' in frame and 'well' not in frame else ''
+    return 'well' if 'well' in frame else 'group' if 'group' in frame and 'well' not in frame else 'restart' if 'restart' in frame else ''
 
 
 def _value_kind(series: pd.Series) -> str | None:
@@ -152,7 +152,7 @@ def _numbers(series: pd.Series) -> pd.Series:
 
 
 def meta(kind: DatasetKind, column: str) -> FieldMeta:
-    if kind in (K.MODEL, K.MODEL_OBJECT) and column not in ('date', 'model'):
+    if kind in (K.MODEL, K.MODEL_OBJECT, K.MODEL_CELLS) and column not in ('date', 'model'):
         label, unit = model_source.column_meta(column)
         return FieldMeta('model', label, unit)
     if column == 'date':
@@ -794,7 +794,7 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
         name = _series_name(r, label_of[r.index], entity_kind, entity, per_row[r.index] > 1)
         facets = {'Ряд': f'{r.index}. {r.name or label_of[r.index]}'}
         if entity_kind and entity:
-            facets['Скважина' if entity_kind == 'well' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
+            facets['Скважина' if entity_kind == 'well' else 'Дата рестарта' if entity_kind == 'restart' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
         ids = g['id'].tolist() if g['id'].notna().all() and len(g) else None
         kind = 'points' if r.view == 'points' else 'bar' if r.view == 'bar' else 'line'
         chart.series.append(Series(

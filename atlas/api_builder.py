@@ -113,9 +113,33 @@ def routes(projects, E) -> list[Route]:
             response.headers['X-Atlas-Notes'] = quote(' '.join(notes))
         return response
 
+    def clean_cells(raw):
+        if not isinstance(raw, dict):
+            raise ParamError('Настройки ячеек: ожидается объект')
+        dates = raw.get('dates') or []
+        if not isinstance(dates, list) or len(dates) > model_source.MAX_CELL_DATES:
+            raise ParamError(f'Дат рестарта для ячеек не больше {model_source.MAX_CELL_DATES}')
+        try:
+            clean = [pd.Timestamp(str(d)[:10]).strftime('%Y-%m-%d') for d in dates]
+            k_from, k_to, limit = (int(raw.get(k) or d) for k, d in (('k_from', 1), ('k_to', 0), ('max_points', 20000)))
+        except (TypeError, ValueError):
+            raise ParamError('Ячейки: даты ГГГГ-ММ-ДД, слои и число точек — целые') from None
+        if k_from < 1 or k_to < 0 or (k_to and k_to < k_from) or not 100 <= limit <= 200_000:
+            raise ParamError('Ячейки: слои с 1 (до пусто или не меньше начального), точек от 100 до 200 000')
+        return {'dates': clean, 'k_from': k_from, 'k_to': k_to, 'max_points': limit}
+
+    def restarts(request, body):
+        model = request.query_params.get('model', '')
+        if model not in model_source.sources_of(settings_of(request)):
+            raise ParamError('Сначала отметьте модель')
+        try:
+            return {'dates': model_source.restart_dates(model)}
+        except model_source.ModelUnavailable as e:
+            raise ParamError(str(e)) from None
+
     def models(request, body):
         cfg = settings_of(request)
-        return model_source.listing(model_source.sources_of(cfg), model_source.cubes_on(cfg), model_source.cubes_range(cfg))
+        return model_source.listing(model_source.sources_of(cfg), model_source.cubes_on(cfg), model_source.cubes_range(cfg), model_source.cells_of(cfg))
 
     def choose_models(request, body):
         picked = body.get('selected')
@@ -134,10 +158,12 @@ def routes(projects, E) -> list[Route]:
                 except ValueError:
                     raise ParamError('Дата рестарта: ГГГГ-ММ-ДД') from None
                 cfg[key] = text
+        if 'cells' in body:
+            cfg[model_source.CELLS_KEY] = clean_cells(body['cells'])
         if all(model_source.cubes_range(cfg)) and model_source.cubes_range(cfg)[0] > model_source.cubes_range(cfg)[1]:
             raise ParamError('Рестарты «с» не могут быть позже «по»')
         save(request, cfg, {'action': 'модели ГДМ в конструкторе', 'count': len(picked)})
-        return model_source.listing(cfg[model_source.KEY], model_source.cubes_on(cfg), model_source.cubes_range(cfg))
+        return model_source.listing(cfg[model_source.KEY], model_source.cubes_on(cfg), model_source.cubes_range(cfg), model_source.cells_of(cfg))
 
     base = '/api/projects/{pid}/builder'
     return [
@@ -150,6 +176,7 @@ def routes(projects, E) -> list[Route]:
         Route(base + '/layouts/{lid}', E(delete), methods=['DELETE']),
         Route(base + '/layouts/{lid}/duplicate', E(duplicate), methods=['POST']),
         Route(base + '/models', E(models), methods=['GET']),
+        Route(base + '/models/restarts', E(restarts), methods=['GET']),
         Route(base + '/models', E(choose_models), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
         Route(base + '/series/wells', E(series_wells), methods=['POST']),
