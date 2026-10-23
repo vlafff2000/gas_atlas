@@ -525,6 +525,17 @@ def _seasons(data: Data, row: Row) -> pd.Series | None:
     return frame.assign(date=_day(frame['date'])).drop_duplicates('date').set_index('date')['period'].astype(str) if len(frame) else None
 
 
+def _span_end(data: Data, row: Row) -> pd.Timestamp | None:
+    """До какой даты тянется накопленная кривая: конец периода ряда, иначе последние сутки данных набора."""
+    if row.date_to:
+        return pd.Timestamp(row.date_to)
+    frame = data[row.dataset] if row.dataset in data else None
+    if frame is None or 'date' not in frame:
+        return None
+    dates = _day(frame['date']).dropna()
+    return dates.max() if len(dates) else None
+
+
 def _y_group_keys(data: Data, y: pd.DataFrame, y_entity: str) -> pd.Series:
     if y_entity == 'well':
         return y['entity'].map(lambda w: group_key(data.mapping.get(w, {}).get('group') or 'Без группы'))
@@ -654,9 +665,11 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         out.label, out.unit = calc.describe(row.transform, out.label, out.unit, word)
         x_date = pd.api.types.is_datetime64_any_dtype(out.frame['x'])
         before = '' if row.source == 'formula' else meta(row.dataset, row.y).unit     # у формулы единица — только ручная
-        out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date,
-                                     _seasons(data, row) if row.transform.season else None)
+        seasons = _seasons(data, row) if row.transform.season else None
+        out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date, seasons)
         notes += more
+        if x_date and (row.transform.op == 'cumsum' or (row.transform.cum and row.transform.op != 'month')) and not out.frame.empty:
+            out.frame = calc.extend_flat(out.frame, _span_end(data, row), seasons)
         if row.transform.op == 'group':
             out.entity_kind = ''
     if out is not None and row.unit:

@@ -37,8 +37,24 @@ const cumulative = (mode: Mode, kind = true): Partial<BuilderRow> => ({
 
 const RECIPES: Recipe[] = [
   {
+    id: 'sum-day', label: 'Сумма расходов по скважинам за каждые сутки',
+    hint: 'Одна кривая: сумма суточных расходов всех скважин объекта по датам.',
+    build: (c, mode) => missing(c, 'production', 'q', mode) || {
+      title: `Суточный ${MODE_NOUN[mode]} газа по объекту (сумма по скважинам)`,
+      series: [row({ wells: [], kind: mode, transform: { op: 'group', agg: 'sum' }, x: 'date', name: `Сумма по скважинам (${MODE_NOUN[mode]})` })],
+    },
+  },
+  {
+    id: 'cum-season', label: 'Накопленный объём по сезонам (с нуля каждый сезон)',
+    hint: 'Накопленный отбор или закачка за сезон; в начале следующего сезона график начинается с нуля. Ось X — дата.',
+    build: (c, mode) => missing(c, 'production', 'q', mode) || {
+      title: `Накопленный ${MODE_NOUN[mode]} газа по сезонам`,
+      series: [row({ ...cumulative(mode), transform: { op: 'group', agg: 'sum', cum: true, season: true }, name: `Накопленный ${MODE_NOUN[mode]} за сезон` })],
+    },
+  },
+  {
     id: 'cum-object', label: 'Накопленный объём по объекту',
-    hint: 'Нарастающий итог суточных расходов всех скважин по датам. Ось X — дата.',
+    hint: 'Нарастающий итог суточных расходов всех скважин по датам; без записи кривая идёт горизонтально. Ось X — дата.',
     build: (c, mode) => missing(c, 'production', 'q', mode) || {
       title: `Накопленный ${MODE_NOUN[mode]} газа по объекту`,
       series: [row({ ...cumulative(mode), x: 'date', name: `Накопленный ${MODE_NOUN[mode]}` })],
