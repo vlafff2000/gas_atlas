@@ -19,7 +19,7 @@ export interface BuilderField {
   kind: 'number' | 'date'; category: string
 }
 export interface BuilderDataset {
-  id: string; label: string; entity: '' | 'well' | 'group'; entities: string[]
+  id: string; label: string; entity: '' | 'well' | 'group' | 'restart'; entities: string[]
   models?: string[]      // модели tNav набора «Модель ГДМ»
   kinds: { value: string; label: string }[]; fields: BuilderField[]; date_min: string | null; date_max: string | null
 }
@@ -334,9 +334,9 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
   const x = xs?.fields.find(f => f.field === row.x)
   const kinds = ds?.kinds.length ? ds.kinds : xs?.kinds ?? []     // режим берёт набор Y, а если в нём режимов нет — набор X (расход по оси X)
   const joined = row.x_dataset !== row.dataset || (row.x_scope ?? 'curve') !== 'curve' || (row.x_transform?.op ?? 'none') !== 'none'
-  const entity = ds?.entity === 'group' ? 'Группы' : 'Скважины'
+  const entity = ds?.entity === 'group' ? 'Группы' : ds?.entity === 'restart' ? 'Даты рестарта' : 'Скважины'
   const wells = row.wells.length ? (ds?.entity === 'well' ? 'скв. ' : '') + row.wells.slice(0, 3).join(', ') + (row.wells.length > 3 ? ` +${row.wells.length - 3}` : '')
-    : ds?.entity ? (ds.entity === 'well' ? 'все скважины' : 'все группы') : 'объект'
+    : ds?.entity ? (ds.entity === 'well' ? 'все скважины' : ds.entity === 'restart' ? 'все даты рестарта' : 'все группы') : 'объект'
   const keyLabel = catalog?.keys.find(k => k.value === row.key)?.label ?? row.key
   const allFields = catalog?.categories.flatMap(c => c.fields) ?? []
   const formula = isFormula(row)

@@ -18,6 +18,9 @@ import pandas as pd
 
 KEY = 'model_sources'
 CUBES_KEY = 'model_cubes'        # True — считать кубы выбранных моделей
+CELLS_KEY = 'model_cells'        # {'dates': ['ГГГГ-ММ-ДД', …], 'k_from': 1, 'k_to': 0 (до низа), 'max_points': 20000}
+MAX_CELL_DATES = 6
+CELLS_DEFAULT = {'dates': [], 'k_from': 1, 'k_to': 0, 'max_points': 20000}
 CUBES_RANGE = ('model_cubes_from', 'model_cubes_to')     # рестарты с … по … (включительно, 'ГГГГ-ММ-ДД'); пусто — без границы
 SG_THRESHOLD = 0.01              # порог газонасыщенности: значение заказчика, как в ГДМ
 FIELD_NAME = ':+:+:+:+'          # у векторов объекта в WGNAMES стоит этот заполнитель, скважины там нет
@@ -48,6 +51,11 @@ CUBE_LABELS = {
     'gwc_max': ('ГВК: самый низкий (модель)', 'м'),
 }
 _PRESSURE_BY_UNITS = {1: 1.0197162, 2: 0.0703070, 3: 1.0332275, 4: 1.0332275}     # INTEHEAD[2]: бар, psi, атм → кгс/см²
+CELL_LABELS = {
+    'restart': ('Дата рестарта', ''), 'i': ('Ячейка: i', ''), 'j': ('Ячейка: j', ''), 'k': ('Ячейка: слой k', ''),
+    'depth': ('Глубина ячейки, а.о. (модель)', 'м'), 'p': ('Давление в ячейке (модель)', 'кгс/см²'),
+    'sg': ('Газонасыщенность ячейки (модель)', 'д.ед.'), 'porv': ('Поровый объём ячейки (модель)', 'тыс. м³'),
+}
 _registry: dict[str, tuple[str, str]] = {}                 # колонка → (подпись, единица): заполняется при чтении
 
 
@@ -82,6 +90,8 @@ def column_meta(column: str) -> tuple[str, str]:
         return _registry[column]
     if column in CUBE_LABELS:
         return CUBE_LABELS[column]
+    if column in CELL_LABELS:
+        return CELL_LABELS[column]
     kw = column.upper()
     return LABELS.get(kw, (f'{kw} (модель)', ''))[0], ''
 
@@ -104,16 +114,16 @@ def _tnav():
     return tnav_results, catalog
 
 
-def listing(selected: list[str], cubes: bool = False, span: tuple[str, str] = ('', '')) -> dict[str, Any]:
+def listing(selected: list[str], cubes: bool = False, span: tuple[str, str] = ('', ''), cells: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Модели из общего списка папок tNav (с готовой сводкой) и отметка выбранных."""
     try:
         _, catalog = _tnav()
     except ModelUnavailable as e:
-        return {'available': False, 'error': str(e), 'folders': [], 'models': [], 'cubes': False, 'cubes_from': '', 'cubes_to': ''}
+        return {'available': False, 'error': str(e), 'folders': [], 'models': [], 'cubes': False, 'cubes_from': '', 'cubes_to': '', 'cells': dict(CELLS_DEFAULT)}
     folders = catalog.load_folders()
     models = [{'id': m['id'], 'name': m['name'], 'folder': m['folder'], 'selected': m['id'] in selected, 'indicators': bool(m.get('indicators'))}
               for m in catalog.scan(folders) if m['summary']]
-    return {'available': True, 'error': '', 'folders': folders, 'models': models, 'cubes': cubes, 'cubes_from': span[0], 'cubes_to': span[1]}
+    return {'available': True, 'error': '', 'folders': folders, 'models': models, 'cubes': cubes, 'cubes_from': span[0], 'cubes_to': span[1], 'cells': dict(cells or CELLS_DEFAULT)}
 
 
 def cubes_on(settings: Mapping[str, Any]) -> bool:
@@ -298,6 +308,105 @@ def cubes_frame(anchors: list[str], span: tuple[str, str] = ('', '')) -> tuple[p
     for anchor in anchors:
         try:
             parts.append(read_cubes(anchor, names.get(anchor) or catalog.model_name(anchor), span))
+        except ModelUnavailable as e:
+            notes.append(str(e))
+    return (pd.concat(parts, ignore_index=True) if parts else None), notes
+
+
+# ---------- ячейки куба (для кроссплотов) ----------
+
+def cells_of(settings: Mapping[str, Any]) -> dict[str, Any]:
+    raw = settings.get(CELLS_KEY)
+    raw = raw if isinstance(raw, Mapping) else {}
+    dates = [str(d)[:10] for d in raw.get('dates', []) if d][:MAX_CELL_DATES] if isinstance(raw.get('dates'), list) else []
+    return {'dates': dates, **{k: int(raw.get(k) or v) if str(raw.get(k) or '').lstrip('-').isdigit() else v
+                              for k, v in CELLS_DEFAULT.items() if k != 'dates'}}
+
+
+def restart_dates(anchor: str) -> list[str]:
+    """Даты рестарта модели (читается только заголовок каждого шага)."""
+    _, files, _ = _indicators()
+    try:
+        steps = files.iter_restart_steps(_cube_files(anchor)['UNRST'])
+        return sorted({s.date.strftime('%Y-%m-%d') for s in steps if s.date is not None})
+    except (OSError, ValueError) as e:
+        raise ModelUnavailable(f'Рестарты модели прочитать не удалось: {e}') from e
+
+
+def read_cells(anchor: str, label: str, cfg: Mapping[str, Any]) -> tuple[pd.DataFrame, list[str]]:
+    """Ячейки куба на выбранные даты: слои k_from…k_to, не больше max_points на дату (каждая n-я ячейка, это видно в заметке)."""
+    import numpy as np
+    ind, files, _ = _indicators()
+    found = _cube_files(anchor)
+    key = ('cells', tuple(cfg['dates']), cfg['k_from'], cfg['k_to'], cfg['max_points'],
+           *(v for f in found.values() for v in (f, os.path.getmtime(f), os.path.getsize(f))))
+    with _lock:
+        if key in _cache:
+            return _cache[key]
+    notes: list[str] = []
+    try:
+        model = ind.load_model(found['EGRID'])
+        steps = [s for s in files.iter_restart_steps(found['UNRST']) if s.date is not None]
+        init = files.read_init(found['INIT'], ['PORV', 'DEPTH'])
+        porv = np.asarray(model.to_units(init['PORV'], 'PORV', 'sum')[0], dtype=float)
+        depth = np.asarray(model.to_units(init['DEPTH'], 'DEPTH')[0], dtype=float) if 'DEPTH' in init else None
+        head = files.read_restart_keyword(found['UNRST'], steps[0], 'INTEHEAD') if steps else None
+        factor = _PRESSURE_BY_UNITS.get(int(head[2]), 1.0) if head is not None else 1.0
+        rep = np.asarray(model._rep)
+        ni, nj = model.grid.ni, model.grid.nj
+        layer = (rep // (ni * nj)) + 1
+        keep = np.flatnonzero((layer >= cfg['k_from']) & ((layer <= cfg['k_to']) if cfg['k_to'] else True))
+        step_by_day = {}
+        for want in cfg['dates']:
+            step = ind.pick_step(steps, pd.Timestamp(want).to_pydatetime())
+            step_by_day[pd.Timestamp(step.date).normalize()] = step
+            if pd.Timestamp(step.date).normalize() != pd.Timestamp(want):
+                notes.append(f'Ячейки: рестарта на {want} нет, взят ближайший — {pd.Timestamp(step.date):%Y-%m-%d}')
+        stride = max(1, -(-len(keep) // cfg['max_points']))
+        if stride > 1:
+            notes.append(f'Ячейки: из {len(keep)} показана каждая {stride}-я ({len(keep[::stride])}); число точек задаётся в настройке')
+        pick = keep[::stride]
+        parts = []
+        for day, step in step_by_day.items():
+            sg = files.read_restart_keyword(found['UNRST'], step, 'SGAS')
+            pr = files.read_restart_keyword(found['UNRST'], step, 'PRESSURE')
+            part = pd.DataFrame({'date': day, 'i': rep[pick] % ni + 1, 'j': (rep[pick] // ni) % nj + 1, 'k': layer[pick]})
+            if depth is not None:
+                part['depth'] = -depth[pick]                                  # глубина вниз → а.о. со знаком минус
+            if pr is not None:
+                part['p'] = np.asarray(model.to_units(pr, 'PRESSURE')[0], dtype=float)[pick] * factor
+            if sg is not None:
+                part['sg'] = np.asarray(model.to_units(sg, 'Sg')[0], dtype=float)[pick]
+            part['porv'] = porv[pick] / 1e3
+            part['restart'] = day.strftime('%Y-%m-%d')
+            parts.append(part)
+    except (OSError, ValueError, KeyError, IndexError) as e:
+        raise ModelUnavailable(f'Ячейки модели «{os.path.basename(found["EGRID"])}» прочитать не удалось: {e}') from e
+    if not parts:
+        raise ModelUnavailable('Для ячеек выберите даты рестарта')
+    frame = pd.concat(parts, ignore_index=True)
+    frame.insert(1, 'model', label)
+    with _lock:
+        if len(_cache) >= _CACHE_LIMIT:
+            _cache.pop(next(iter(_cache)))
+        _cache[key] = (frame, notes)
+    return frame, notes
+
+
+def cells_frame(anchors: list[str], cfg: Mapping[str, Any]) -> tuple[pd.DataFrame | None, list[str]]:
+    if not cfg['dates']:
+        return None, []
+    parts, notes = [], []
+    try:
+        _, catalog = _tnav()
+        names = catalog.load_names()
+    except ModelUnavailable as e:
+        return None, [str(e)]
+    for anchor in anchors:
+        try:
+            frame, more = read_cells(anchor, names.get(anchor) or catalog.model_name(anchor), cfg)
+            parts.append(frame)
+            notes += more
         except ModelUnavailable as e:
             notes.append(str(e))
     return (pd.concat(parts, ignore_index=True) if parts else None), notes

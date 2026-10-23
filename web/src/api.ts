@@ -228,10 +228,13 @@ export interface SeriesWells {
   enabled: boolean; wells: string[]; with_data: string[]; groups: { name: string; wells: string[] }[]; limit: number; formats: Record<string, string>
 }
 export interface ModelItem { id: string; name: string; folder: string; selected: boolean; indicators: boolean }
-export interface ModelList { available: boolean; error: string; folders: string[]; models: ModelItem[]; cubes: boolean; cubes_from: string; cubes_to: string }
+export interface ModelList { available: boolean; error: string; folders: string[]; models: ModelItem[]; cubes: boolean; cubes_from: string; cubes_to: string; cells: CellsConfig }
+export interface CellsConfig { dates: string[]; k_from: number; k_to: number; max_points: number }
 export const builderApi = {
+  restarts: (project: string, model: string) =>
+    request<{ dates: string[] }>(`/api/projects/${project}/builder/models/restarts?model=${encodeURIComponent(model)}`),
   models: (project: string) => request<ModelList>(`/api/projects/${project}/builder/models`),
-  chooseModels: (project: string, selected: string[], extra: { cubes?: boolean; cubes_from?: string; cubes_to?: string } = {}) =>
+  chooseModels: (project: string, selected: string[], extra: { cubes?: boolean; cubes_from?: string; cubes_to?: string; cells?: CellsConfig } = {}) =>
     request<ModelList>(`/api/projects/${project}/builder/models`, json('POST', { selected, ...extra })),
   seriesWells: (project: string, layout: unknown) =>
     request<SeriesWells>(`/api/projects/${project}/builder/series/wells`, json('POST', { layout })),

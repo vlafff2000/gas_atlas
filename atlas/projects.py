@@ -223,7 +223,7 @@ class Projects:
         out = Data({k: data[k] for k in keep if k in data}, {k: data.raw[k] for k in keep if k in data.raw}, data.excluded)
         out.settings, out.revision, out.mapping, out.wells = data.settings, data.revision, data.mapping, data.wells
         out.project = data.project
-        if DatasetKind.MODEL in keep or DatasetKind.MODEL_OBJECT in keep:
+        if {DatasetKind.MODEL, DatasetKind.MODEL_OBJECT, DatasetKind.MODEL_CELLS} & set(keep):
             self._add_models(out)
         return out
 
@@ -242,6 +242,10 @@ class Projects:
             data.model_notes += more
             if cubes is not None:
                 data._frames[DatasetKind.MODEL_OBJECT] = data.raw[DatasetKind.MODEL_OBJECT] = cubes
+        cells, more = model_source.cells_frame(anchors, model_source.cells_of(data.settings))
+        data.model_notes += more
+        if cells is not None:
+            data._frames[DatasetKind.MODEL_CELLS] = data.raw[DatasetKind.MODEL_CELLS] = cells
 
     def options(self, pid: str, dataset: DatasetKind, column: str) -> list[str]:
         frame = self.data(pid).raw.get(dataset)
