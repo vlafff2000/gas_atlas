@@ -52,6 +52,7 @@ class Transform:
     agg: str = 'mean'           # сутки, месяцы, группа
     norm: str = 'first'
     value: float = 1.0
+    season: bool = False        # накопленное заново с начала каждого сезона (границы — период расхода в данных проекта)
     cum: bool = False           # после суммы по скважинам / суткам / месяцам — ещё и накопленное (нарастающий итог по объекту)
 
 
@@ -89,6 +90,8 @@ def clean_transform(raw: Any, index: int) -> Transform:
         t['by'] = str(raw.get('by') or 'points')
         if t['by'] not in ROLL_BY:
             raise ParamError(f'{what}: окно в точках или в сутках')
+    if op == 'cumsum' and raw.get('season'):
+        t['season'] = True
     if op in ('day', 'month', 'group'):
         t['agg'] = str(raw.get('agg') or 'mean')
         if t['agg'] not in AGGS:
@@ -97,6 +100,7 @@ def clean_transform(raw: Any, index: int) -> Transform:
             if t['agg'] != 'sum':
                 raise ParamError(f'{what}: «накопленное» только вместе со сводкой «сумма»')
             t['cum'] = True
+            t['season'] = bool(raw.get('season'))
     if op == 'norm':
         t['norm'] = str(raw.get('norm') or 'first')
         if t['norm'] not in NORMS:
@@ -140,7 +144,7 @@ def describe(t: Transform, label: str, unit: str, entity_word: str = 'скваж
     if op == 'none':
         return label, unit
     if op == 'cumsum':
-        return f'{label}, накопленное', CUMULATIVE.get(unit, ('', 1.0))[0] if unit else ''
+        return f'{label}, накопленное{" за сезон" if t.season else ""}', CUMULATIVE.get(unit, ('', 1.0))[0] if unit else ''
     if op == 'rolling':
         return f'{label}, скользящее среднее ({t.n} {ROLL_BY[t.by]})', unit
     if op in ('day', 'month', 'group'):
@@ -149,7 +153,7 @@ def describe(t: Transform, label: str, unit: str, entity_word: str = 'скваж
         if t.agg == 'sum' and op == 'month':
             new = CUMULATIVE.get(unit, ('', 1.0))[0] if unit else ''
         if t.cum:
-            return f'{label}, {AGGS[t.agg]} {where}, накопленное', CUMULATIVE.get(new, ('', 1.0))[0] if new else ''
+            return f'{label}, {AGGS[t.agg]} {where}, накопленное{" за сезон" if t.season else ""}', CUMULATIVE.get(new, ('', 1.0))[0] if new else ''
         return f'{label}, {AGGS[t.agg]} {where}', new
     if op == 'norm':
         return f'{label} / {"первое значение" if t.norm == "first" else "максимум" if t.norm == "max" else _fmt(t.value)}', 'д. ед.'
@@ -171,7 +175,23 @@ def _agg(values: pd.core.groupby.SeriesGroupBy, how: str) -> pd.Series:
     return values.sum(min_count=1) if how == 'sum' else getattr(values, how)()
 
 
-def apply(frame: pd.DataFrame, t: Transform, unit: str, label: str, x_date: bool) -> tuple[pd.DataFrame, list[Note]]:
+def _cumsum(f: pd.DataFrame, seasons: pd.Series | None, label: str, notes: list[Note]) -> pd.Series:
+    """Нарастающий итог по кривой, заново с начала каждого сезона. Точки вне сезонов (нейтральный период, нет периода) не показываются."""
+    day = f['date'] if 'date' in f else f['x']
+    if seasons is None or not pd.api.types.is_datetime64_any_dtype(day):
+        notes.append(Note(f'{label}: «за сезон» нужны даты и сезоны (период расхода) в данных проекта; накопленное считается без сброса.', 'warning'))
+        return f.groupby('entity', sort=False)['y'].cumsum()
+    season = day.dt.normalize().map(seasons)
+    out = f['y'].groupby([f['entity'], season], sort=False).cumsum()
+    outside = int((season.isna() & f['y'].notna()).sum())
+    if outside:
+        notes.append(Note(f'{label}: {outside} точек вне сезонов (нейтральный период или нет периода) не показаны; границы сезонов — период '
+                          'расхода в данных проекта, их можно править в «Настройках».'))
+    return out.where(season.notna())
+
+
+def apply(frame: pd.DataFrame, t: Transform, unit: str, label: str, x_date: bool,
+          seasons: pd.Series | None = None) -> tuple[pd.DataFrame, list[Note]]:
     """Преобразование значений Y по каждой кривой (``entity``); X сортируется. Пропуски не превращаются в нули, нули остаются."""
     notes: list[Note] = []
     if t.op == 'none' or frame.empty:
@@ -187,7 +207,7 @@ def apply(frame: pd.DataFrame, t: Transform, unit: str, label: str, x_date: bool
     by = f.groupby('entity', sort=False)['y']
     if t.op == 'cumsum':
         k = CUMULATIVE.get(unit, ('', 1.0))[1]
-        f['y'] = by.cumsum() * k             # пропуск остаётся пропуском (на линии разрыв), сумма идёт дальше
+        f['y'] = (_cumsum(f, seasons, label, notes) if t.season else by.cumsum()) * k   # пропуск остаётся пропуском (на линии разрыв), сумма идёт дальше
         if unit.endswith('/сут') and x_date:
             notes += _daily_check(f, label)
     elif t.op == 'rolling':
@@ -225,7 +245,8 @@ def apply(frame: pd.DataFrame, t: Transform, unit: str, label: str, x_date: bool
         if t.cum:
             now = CUMULATIVE.get(unit, ('', 1.0))[0] if t.op == 'month' and unit else unit
             f = f.sort_values(['entity', 'x'], kind='stable').reset_index(drop=True)
-            f['y'] = f.groupby('entity', sort=False)['y'].cumsum() * CUMULATIVE.get(now, ('', 1.0))[1]
+            f['y'] = (_cumsum(f, seasons, label, notes) if t.season else f.groupby('entity', sort=False)['y'].cumsum()) \
+                * CUMULATIVE.get(now, ('', 1.0))[1]
     elif t.op == 'norm':
         if t.norm == 'value':
             f['y'] = f['y'] / t.value

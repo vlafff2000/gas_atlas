@@ -42,7 +42,7 @@ export interface BuilderRow {
   x_scope?: 'curve' | 'group' | 'object'   // откуда X: как в наборе, сумма по группе скважины, сумма по объекту
   x_transform?: RowTransform               // преобразование X (накопленное и т. п.); нет — без преобразования
 }
-export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
+export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; season?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
 type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
 type Agg = 'mean' | 'sum' | 'max' | 'min'
 const TRANSFORMS: [TransformOp, string][] = [
@@ -60,6 +60,8 @@ const QUICK: { label: string; hint: string; t: RowTransform; date?: boolean }[] 
   { label: 'Накопленное', hint: 'Нарастающий итог по каждой скважине отдельно (суточный расход → объём)', t: { op: 'cumsum' } },
   { label: 'Сумма по скважинам', hint: 'Одна кривая: сумма значений выбранных в ряду скважин (пусто — все) за каждую дату', t: { op: 'group', agg: 'sum' } },
   { label: 'Накопленное по объекту', hint: 'Сумма по скважинам, затем нарастающий итог: накопленный объём объекта', t: { op: 'group', agg: 'sum', cum: true } },
+  { label: 'Накопленное за сезон', hint: 'Нарастающий итог по скважине, заново с начала каждого сезона (границы — период расхода в данных проекта)', t: { op: 'cumsum', season: true } },
+  { label: 'По объекту за сезон', hint: 'Сумма по скважинам и нарастающий итог заново с начала каждого сезона', t: { op: 'group', agg: 'sum', cum: true, season: true } },
   { label: 'Среднее по скважинам', hint: 'Одна кривая: среднее значение выбранных скважин за каждую дату', t: { op: 'group', agg: 'mean' } },
   { label: 'За месяц', hint: 'Сумма суточных значений за каждый месяц', t: { op: 'month', agg: 'sum' }, date: true },
 ]
@@ -192,7 +194,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
     return out
   }, [layout.series])
   const rowLabel = (r: BuilderRow) => (isFormula(r) ? r.formula || 'формула' : fieldOf(r.dataset, r.y)?.label ?? r.y)
-    + (r.transform && r.transform.op !== 'none' ? ', ' + (TRANSFORMS.find(o => o[0] === r.transform!.op)?.[1] ?? '') + (r.transform.cum ? ', накопленное' : '') : '')
+    + (r.transform && r.transform.op !== 'none' ? ', ' + (TRANSFORMS.find(o => o[0] === r.transform!.op)?.[1] ?? '') + (r.transform.cum ? ', накопленное' : '') + (r.transform.season ? ' за сезон' : '') : '')
 
   const q = query.trim().toLowerCase()
   const tree = (catalog?.categories ?? []).map(c => ({
@@ -348,7 +350,7 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
             {formula ? <>формула · связь рядов: {keyLabel}{row.key === 'nearest' ? ` ±${row.days} дн.` : ''}</> : <>
             {ds?.label ?? row.dataset} → {y?.label ?? row.y} · X: {x?.label ?? row.x}{joined ? ` (${xs?.label ?? row.x_dataset}, ${keyLabel})` : ''}
             {row.kind ? ' · ' + (kinds.find(k => k.value === row.kind)?.label.toLowerCase() ?? row.kind) : ''}</>}
-            {t.op !== 'none' ? ` · ${opLabel}${t.cum ? ', накопленное' : ''}` : ''}
+            {t.op !== 'none' ? ` · ${opLabel}${t.cum ? ', накопленное' : ''}${t.season ? ' за сезон' : ''}` : ''}
             {' · '}<span className="axis-chip">{axisTitle(row.axis)} {axisHint(row.axis)}</span> · {VIEWS.find(v => v[0] === row.view)?.[1]}{row.stack && (row.view === 'bar' || row.view === 'area') ? ` · стопка «${row.stack}»` : ''}
           </span>
         </button>
@@ -401,9 +403,12 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
             <>
               <div className="kind-group quick-ops" role="group" aria-label="Быстрые операции X">
                 <span className="kind-label">X быстро</span>
-                <button type="button" className={'kind' + (row.x_scope === 'object' && xt.op === 'cumsum' ? ' on' : '')}
+                <button type="button" className={'kind' + (row.x_scope === 'object' && xt.op === 'cumsum' && !xt.season ? ' on' : '')}
                   title="Накопленный объём по объекту: суточные расходы всех скважин складываются за дату, затем нарастающий итог. Связь X и Y ставится «дата»"
                   onClick={() => onChange({ x_scope: 'object', x_transform: { op: 'cumsum' }, key: 'date' })}>Накопленный по объекту</button>
+                <button type="button" className={'kind' + (row.x_scope === 'object' && xt.op === 'cumsum' && xt.season ? ' on' : '')}
+                  title="Накопленный объём по объекту заново с начала каждого сезона"
+                  onClick={() => onChange({ x_scope: 'object', x_transform: { op: 'cumsum', season: true }, key: 'date' })}>По объекту за сезон</button>
                 <button type="button" className={'kind' + (row.x_scope === 'group' && xt.op === 'cumsum' ? ' on' : '')}
                   title="Накопленный объём по группе скважины (ГСП): складываются скважины группы"
                   onClick={() => onChange({ x_scope: 'group', x_transform: { op: 'cumsum' } })}>Накопленный по группе</button>
@@ -621,6 +626,12 @@ function TransformFields({ t, setT, dateX }: { t: RowTransform; setT: (p: Partia
           <select value={t.agg ?? 'mean'} onChange={e => setT({ agg: e.target.value as Agg })}>
             {AGGS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
+        </label>
+      )}
+      {(t.op === 'cumsum' || t.cum) && (
+        <label className="field check">
+          <input type="checkbox" checked={!!t.season} onChange={e => setT({ season: e.target.checked || undefined })} />
+          <span>заново с начала каждого сезона</span>
         </label>
       )}
       {(t.op === 'day' || t.op === 'month' || t.op === 'group') && t.agg === 'sum' && (
