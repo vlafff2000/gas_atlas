@@ -144,3 +144,9 @@ details.builder-recipes > summary { cursor: pointer; font-weight: 700; font-size
 .recipe small { color: var(--muted); font-size: 12.5px; }
 .recipe:hover { border-color: var(--accent); background: var(--accent-soft); }
 .recipe-note { font-size: 12px; margin: 0; }
+
+/* Быстрые операции в карточке ряда */
+.quick-ops { align-items: center; }
+.quick-ops .kind:disabled { opacity: .5; cursor: not-allowed; }
+.quick-hint { flex: 1 1 100%; font-size: 12.5px; }
+.row-form .field.check { flex-direction: row; align-items: center; gap: 6px; }
