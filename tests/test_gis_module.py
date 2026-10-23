@@ -102,3 +102,18 @@ def test_combo_chart_has_change_columns_on_both_axes():
 def test_intervals_table_reaches_the_module_through_project_select():
     """Интервалы нужны виду «Σ hi × Кг» и списку сезонов: без optional проект их отбрасывал, вкладка писала «нет интервалов»."""
     assert DatasetKind.GIS_INTERVALS in GisModule.spec.optional
+
+
+def test_csv_pack_table_without_season_column_does_not_crash():
+    """Выгрузка gis_packs из CSV не содержит колонки «season»: графики строятся, без весенних треугольников."""
+    frame = _frame().drop(columns='season')
+    for view in ('gvk', 'all'):
+        res = GisModule().run({GIS: frame}, _params(wells=['115'], view=view))
+        assert res.charts and all(s.symbol != 'triangle' for c in res.charts for s in c.series)
+
+
+def test_empty_pack_name_goes_to_separate_pack():
+    frame = _frame()
+    frame.loc[0, 'pack'] = None
+    res = GisModule().run({GIS: frame}, _params(wells=['115']))
+    assert 'без пачки' in [s.name for c in res.charts for s in c.series]
