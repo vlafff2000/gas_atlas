@@ -46,7 +46,7 @@ export interface BuilderRow {
   x_transform?: RowTransform               // преобразование X (накопленное и т. п.); нет — без преобразования
   model?: string                           // модель tNav (набор «Модель ГДМ»); пусто — первая из выбранных
 }
-export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; season?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
+export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; season?: boolean; overlay?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
 type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
 type Agg = 'mean' | 'sum' | 'max' | 'min'
 const TRANSFORMS: [TransformOp, string][] = [
@@ -65,6 +65,7 @@ const QUICK: { label: string; hint: string; t: RowTransform; date?: boolean }[] 
   { label: 'Среднее по скважинам за сутки', hint: 'Одна кривая: среднее значение выбранных скважин за каждую дату', t: { op: 'group', agg: 'mean' } },
   { label: 'Накопленное по объекту', hint: 'Сумма по скважинам, затем нарастающий итог: накопленный объём объекта. Сутки без записи — горизонтальная линия', t: { op: 'group', agg: 'sum', cum: true } },
   { label: 'Накопленное по объекту, с нуля каждый сезон', hint: 'Накопленный объём за сезон; в начале следующего сезона график начинается с нуля (границы сезонов — период расхода в данных проекта)', t: { op: 'group', agg: 'sum', cum: true, season: true } },
+  { label: 'Сезоны друг на друге', hint: 'Накопленный объём по объекту: каждый сезон — своя кривая, по оси X — сутки от начала сезона, все сезоны начинаются с нуля', t: { op: 'group', agg: 'sum', cum: true, season: true, overlay: true } },
   { label: 'Накопленное по каждой скважине', hint: 'Нарастающий итог отдельно по каждой скважине (суточный расход → объём)', t: { op: 'cumsum' } },
   { label: 'По каждой скважине, с нуля каждый сезон', hint: 'Нарастающий итог по скважине, заново с начала каждого сезона', t: { op: 'cumsum', season: true } },
   { label: 'Объём за месяц', hint: 'Сумма суточных значений за каждый месяц', t: { op: 'month', agg: 'sum' }, date: true },
@@ -653,6 +654,12 @@ function TransformFields({ t, setT, dateX }: { t: RowTransform; setT: (p: Partia
         <label className="field check">
           <input type="checkbox" checked={!!t.season} onChange={e => setT({ season: e.target.checked || undefined })} />
           <span>заново с начала каждого сезона</span>
+        </label>
+      )}
+      {t.season && (t.op === 'cumsum' || t.cum) && (
+        <label className="field check">
+          <input type="checkbox" checked={!!t.overlay} onChange={e => setT({ overlay: e.target.checked || undefined })} />
+          <span>сезоны друг на друге (X — сутки от начала сезона)</span>
         </label>
       )}
       {(t.op === 'day' || t.op === 'month' || t.op === 'group') && t.agg === 'sum' && (

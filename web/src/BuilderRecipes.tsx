@@ -54,6 +54,14 @@ const RECIPES: Recipe[] = [
     },
   },
   {
+    id: 'cum-overlay', label: 'Сезоны друг на друге (накопленный объём по суткам сезона)',
+    hint: 'Каждый сезон — своя кривая от нуля; по оси X сутки от начала сезона. Удобно сравнивать сезоны между собой.',
+    build: (c, mode) => missing(c, 'production', 'q', mode) || {
+      title: `Накопленный ${MODE_NOUN[mode]} газа: сравнение сезонов`,
+      series: [row({ ...cumulative(mode), transform: { op: 'group', agg: 'sum', cum: true, season: true, overlay: true }, name: `Накопленный ${MODE_NOUN[mode]}` })],
+    },
+  },
+  {
     id: 'cum-object', label: 'Накопленный объём по объекту',
     hint: 'Нарастающий итог суточных расходов всех скважин по датам; без записи кривая идёт горизонтально. Ось X — дата.',
     build: (c, mode) => missing(c, 'production', 'q', mode) || {

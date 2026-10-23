@@ -52,6 +52,7 @@ class Transform:
     agg: str = 'mean'           # сутки, месяцы, группа
     norm: str = 'first'
     value: float = 1.0
+    overlay: bool = False       # сезоны накладываются: X — сутки от начала сезона, каждый сезон — отдельная кривая
     season: bool = False        # накопленное заново с начала каждого сезона (границы — период расхода в данных проекта)
     cum: bool = False           # после суммы по скважинам / суткам / месяцам — ещё и накопленное (нарастающий итог по объекту)
 
@@ -92,6 +93,7 @@ def clean_transform(raw: Any, index: int) -> Transform:
             raise ParamError(f'{what}: окно в точках или в сутках')
     if op == 'cumsum' and raw.get('season'):
         t['season'] = True
+        t['overlay'] = bool(raw.get('overlay'))
     if op in ('day', 'month', 'group'):
         t['agg'] = str(raw.get('agg') or 'mean')
         if t['agg'] not in AGGS:
@@ -101,6 +103,7 @@ def clean_transform(raw: Any, index: int) -> Transform:
                 raise ParamError(f'{what}: «накопленное» только вместе со сводкой «сумма»')
             t['cum'] = True
             t['season'] = bool(raw.get('season'))
+            t['overlay'] = bool(raw.get('season') and raw.get('overlay'))
     if op == 'norm':
         t['norm'] = str(raw.get('norm') or 'first')
         if t['norm'] not in NORMS:
@@ -676,3 +679,15 @@ def compute(formula: Formula, parts: Mapping[int, Part | None], key: str, days: 
     frame['y'] = y
     frame['id'] = None
     return Part(frame, base.entity_kind), notes
+
+
+def overlay_seasons(f: pd.DataFrame, seasons: pd.Series) -> pd.DataFrame:
+    """Сезоны друг на друге: X — номер суток от начала сезона (с 1), каждый сезон (и скважина) — своя кривая."""
+    f = f[f['y'].notna()].copy()
+    season = f['x'].dt.normalize().map(seasons)
+    f = f[season.notna()].copy()
+    season = season[season.notna()]
+    start = season.map({name: seasons[seasons.eq(name)].index.min() for name in season.unique()})
+    f['x'] = (f['x'].dt.normalize() - start).dt.days + 1
+    f['entity'] = [str(name) if not str(e) else f'{e} · {name}' for e, name in zip(f['entity'], season)]
+    return f.reset_index(drop=True)
