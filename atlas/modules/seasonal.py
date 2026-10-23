@@ -131,13 +131,18 @@ class SeasonalModule(Module):
                      [Column('cycle', 'Цикл', kind='number')] + _cols('i_') + _cols('w_'),
                      note='Δ — разница с предыдущим сезоном того же вида: млн м³ и % от него.',
                      header=[[('', 1), ('Закачка', 9), ('Отбор', 9)]])
-        detail = Table('seasonal-sources', 'Источник объёма и расхождение', seasons[['kind', 'period', 'source', 'volume', 'volume_wells', 'volume_ref', 'diff_pct', 'wells']]
+        detail = Table('seasonal-sources', 'Источник объёма и расхождение', seasons[['kind', 'period', 'source', 'volume', 'volume_wells', 'volume_ref', 'diff_pct', 'delta', 'delta_pct', 'wells']]
                        .assign(kind=lambda f: f.kind.map(S.KIND_LABEL)), [
             Column('kind', 'Вид'), Column('period', 'Сезон'), Column('source', 'Взят источник'),
             Column('volume', 'Объём в расчёте', 'млн м³', 2, 'number'), Column('volume_wells', 'Сумма по скважинам', 'млн м³', 2, 'number'),
             Column('volume_ref', 'Узел учёта', 'млн м³', 2, 'number'), Column('diff_pct', 'Узел учёта к скважинам', '%', 1, 'number'),
+            Column('delta', 'Δ к прошлому сезону', 'млн м³', 2, 'number'), Column('delta_pct', 'Δ к прошлому сезону', '%', 1, 'number'),
             Column('wells', 'Скважин работало', kind='number')],
-            note='Расхождение — (узел учёта − сумма по скважинам) / сумма по скважинам. Пусто — эталона узла учёта за сезон нет.')
+            note='Расхождение — (узел учёта − сумма по скважинам) / сумма по скважинам. Пусто — эталона узла учёта за сезон нет. '
+                 'В выгрузке в Excel расхождение и Δ записаны формулами, объёмы можно править руками.',
+            formulas={'diff_pct': 'IF(AND(ISNUMBER({volume_ref}),{volume_wells}>0),({volume_ref}-{volume_wells})/{volume_wells}*100,"")',
+                      'delta': 'IF({kind}={kind@prev},{volume}-{volume@prev},"")',
+                      'delta_pct': 'IF(AND({kind}={kind@prev},{volume@prev}>0),({volume}-{volume@prev})/{volume@prev}*100,"")'})
         out = [side, detail]
         if not by_group.empty:
             out.append(Table('seasonal-by-group', 'Сезоны по группам', by_group.assign(kind=lambda f: f.kind.map(S.KIND_LABEL)), [

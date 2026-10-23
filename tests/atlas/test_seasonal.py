@@ -61,3 +61,18 @@ def test_module_run():
     assert r.charts[0].series[0].name == 'Закачка'
     empty = SeasonalModule().run(Data({PROD: frame().iloc[0:0]}), {'source': 'auto', 'periods': [], 'groups': []})
     assert not empty.tables and empty.notes
+
+
+def test_excel_formulas_for_delta_and_discrepancy():
+    import io
+    import openpyxl
+    from atlas.render import tables_file
+    data = Data({PROD: frame()})
+    data.mapping = {}
+    tables = SeasonalModule().run(data, {}).tables
+    book = openpyxl.load_workbook(io.BytesIO(tables_file(tables, 'x')[0]))
+    ws = book['Источник объёма и расхождение'[:27]]
+    head = [c.value for c in ws[1]]
+    assert ws.cell(2, head.index('Δ к прошлому сезону, млн м³') + 1).value is None           # первый сезон
+    delta = ws.cell(3, head.index('Δ к прошлому сезону, млн м³') + 1).value
+    assert delta.startswith('=IF(A3=A2,') and 'D3-D2' in delta
