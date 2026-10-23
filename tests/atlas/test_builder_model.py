@@ -1,5 +1,6 @@
 """Конструктор графиков: векторы модели tNavigator (атлас/model_source.py) как набор данных."""
 import datetime as dt
+import os
 import types
 
 import pandas as pd
@@ -111,3 +112,51 @@ def test_model_minus_fact_formula():
         {'source': 'formula', 'formula': 'B - A', 'key': 'date', 'name': 'Модель − факт'}]}
     diff = builder.build(data, layout).charts[0].series[-1]
     assert list(diff.y) == [2.0, -5.0]                              # тыс. м³/сут: модель 10 и 20, факт 8 и 25
+
+
+@pytest.fixture()
+def cubes(stub, monkeypatch):
+    """Подставные читалки кубов: 3 активные ячейки с объёмами 1, 2, 1; два шага рестарта."""
+    model = types.SimpleNamespace(n_active=3, to_units=lambda arr, name, mode='rep': [list(arr)])
+    steps = [types.SimpleNamespace(date=dt.datetime(2025, 1, 1)), types.SimpleNamespace(date=dt.datetime(2025, 7, 1))]
+    cube = {(0, 'SGAS'): [0.0, 0.5, 0.0], (1, 'SGAS'): [0.2, 0.6, 0.0],
+            (0, 'PRESSURE'): [100.0, 100.0, 100.0], (1, 'PRESSURE'): [90.0, 80.0, 90.0], (0, 'INTEHEAD'): [0, 0, 1]}
+    files = types.SimpleNamespace(
+        iter_restart_steps=lambda path: steps, read_init=lambda path, kws: {'PORV': [1.0, 2.0, 1.0]},
+        read_restart_keyword=lambda path, step, kw: cube.get((steps.index(step), kw)) if kw != 'INTEHEAD' else cube[(0, kw)])
+    ind = types.SimpleNamespace(
+        load_model=lambda path: model,
+        gas_pore_volume=lambda m, porv, sg, thr: types.SimpleNamespace(total=2_000_000.0 * sum(sg)),
+        gwc_map=lambda m, sg, thr: {(0, 0): 1.0}, gwc_stats=lambda m, g: types.SimpleNamespace(columns=1, mean=1500.0, mean_area=1510.0, min=1490.0, max=1520.0))
+    par = types.SimpleNamespace(map_steps=lambda fn, m, steps, ctx, egrid: [fn(m, s, ctx) for s in steps])
+    monkeypatch.setattr(model_source, '_indicators', lambda: (ind, files, par))
+    folder = os.path.dirname(stub)
+    found = {k: os.path.join(folder, 'GAS.' + k) for k in ('EGRID', 'INIT', 'UNRST')}
+    for path in found.values():
+        open(path, 'wb').write(b'x')
+    monkeypatch.setattr(model_source, '_cube_files', lambda anchor: found)
+    return stub
+
+
+def test_cube_indicators_weighted_by_pore_volume(cubes):
+    frame, notes = model_source.cubes_frame([cubes])
+    assert not notes and list(frame.date.dt.strftime('%m-%d')) == ['01-01', '07-01']
+    first, second = frame.iloc[0], frame.iloc[1]
+    assert first.sg_avg == pytest.approx(0.5 * 2 / 4) and second.sg_avg == pytest.approx((0.2 + 1.2) / 4)
+    assert first.p_avg == pytest.approx(100 * 1.0197162) and second.p_avg == pytest.approx(85 * 1.0197162)   # (90+160+90)/4
+    assert first.gpv == pytest.approx(1.0) and first.gwc_mean == -1500.0 and first.gwc_min == -1520.0 and first.gwc_max == -1490.0
+
+
+def test_cubes_in_builder_and_api(tmp_path, cubes):
+    projects = Projects(tmp_path / 'p')
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    base = f'/api/projects/{pid}/builder/models'
+    assert K.MODEL_OBJECT not in projects.select(pid, (), tuple(K))      # без запроса кубы не читаются
+    out = client.post(base, json={'selected': [cubes], 'cubes': True}).json()
+    assert out['cubes'] is True
+    data = projects.select(pid, (), tuple(K))
+    fields = {f['id'] for c in builder.catalog(data)['categories'] for f in c['fields']}
+    assert {'model_object.p_avg', 'model_object.gwc_mean', 'model.wgpr'} <= fields
+    result = builder.build(data, {'series': [{'dataset': 'model_object', 'y': 'p_avg'}]})
+    assert len(result.charts[0].series[0].y) == 2

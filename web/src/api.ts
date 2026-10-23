@@ -227,12 +227,12 @@ const lib = (project: string, tail = '') => `/api/projects/${project}/builder/la
 export interface SeriesWells {
   enabled: boolean; wells: string[]; with_data: string[]; groups: { name: string; wells: string[] }[]; limit: number; formats: Record<string, string>
 }
-export interface ModelItem { id: string; name: string; folder: string; selected: boolean }
-export interface ModelList { available: boolean; error: string; folders: string[]; models: ModelItem[] }
+export interface ModelItem { id: string; name: string; folder: string; selected: boolean; indicators: boolean }
+export interface ModelList { available: boolean; error: string; folders: string[]; models: ModelItem[]; cubes: boolean }
 export const builderApi = {
   models: (project: string) => request<ModelList>(`/api/projects/${project}/builder/models`),
-  chooseModels: (project: string, selected: string[]) =>
-    request<ModelList>(`/api/projects/${project}/builder/models`, json('POST', { selected })),
+  chooseModels: (project: string, selected: string[], cubes?: boolean) =>
+    request<ModelList>(`/api/projects/${project}/builder/models`, json('POST', cubes === undefined ? { selected } : { selected, cubes })),
   seriesWells: (project: string, layout: unknown) =>
     request<SeriesWells>(`/api/projects/${project}/builder/series/wells`, json('POST', { layout })),
   series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string }) =>

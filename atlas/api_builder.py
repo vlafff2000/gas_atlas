@@ -113,7 +113,8 @@ def routes(projects, E) -> list[Route]:
         return response
 
     def models(request, body):
-        return model_source.listing(model_source.sources_of(settings_of(request)))
+        cfg = settings_of(request)
+        return model_source.listing(model_source.sources_of(cfg), model_source.cubes_on(cfg))
 
     def choose_models(request, body):
         picked = body.get('selected')
@@ -121,8 +122,10 @@ def routes(projects, E) -> list[Route]:
             raise ParamError('Выберите модели списком')
         cfg = dict(settings_of(request))
         cfg[model_source.KEY] = [str(x) for x in picked]
+        if 'cubes' in body:
+            cfg[model_source.CUBES_KEY] = body['cubes'] is True
         save(request, cfg, {'action': 'модели ГДМ в конструкторе', 'count': len(picked)})
-        return model_source.listing(cfg[model_source.KEY])
+        return model_source.listing(cfg[model_source.KEY], model_source.cubes_on(cfg))
 
     base = '/api/projects/{pid}/builder'
     return [

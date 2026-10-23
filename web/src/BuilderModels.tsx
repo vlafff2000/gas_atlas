@@ -23,6 +23,15 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
       .finally(() => setBusy(false))
   }
 
+  const toggleCubes = (on: boolean) => {
+    if (!list) return
+    setBusy(true)
+    builderApi.chooseModels(project, list.models.filter(m => m.selected).map(m => m.id), on)
+      .then(l => { setList(l); setError(''); onChange() })
+      .catch(e => setError((e as Error).message))
+      .finally(() => setBusy(false))
+  }
+
   const chosen = list?.models.filter(m => m.selected).length ?? 0
   return (
     <details className="builder-models">
@@ -37,6 +46,12 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
           <input type="checkbox" checked={m.selected} disabled={busy} onChange={e => choose(m.id, e.target.checked)} /> {m.name}
         </label>
       ))}
+      {chosen > 0 && (
+        <label className="check" title="Среднее давление и газонасыщенность по поровому объёму, газонасыщенный объём и ГВК по датам рестарта. Нужны EGRID, INIT и UNRST рядом с моделью.">
+          <input type="checkbox" checked={list?.cubes ?? false} disabled={busy} onChange={e => toggleCubes(e.target.checked)} /> Кубы свойств (читаются долго)
+        </label>
+      )}
+      {busy && <p className="muted">Читаем модель…</p>}
       {notes.map(n => <div key={n} className="note warning">{n}</div>)}
     </details>
   )
