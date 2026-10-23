@@ -26,6 +26,7 @@ from ..contract import Axis, Chart, Data, Module, ModuleSpec, Note, Param, Param
 from . import builder_calc as calc
 from ._production import NEUTRAL_PREFIXES
 from ..domain import DatasetKind
+from .. import model_source
 
 K = DatasetKind
 P_UNIT, Q_UNIT, WF_UNIT = 'кгс/см²', 'тыс. м³/сут', 'л/тыс. м³'
@@ -41,6 +42,7 @@ CATEGORIES = (
     ('annulus', 'Межколонные'),
     ('ggh', 'ГГХ'),
     ('gis', 'ГИС и ГВК'),
+    ('model', 'Модель ГДМ'),
     ('construction', 'Конструкция и забой'),
     ('other', 'Прочее'),
 )
@@ -49,7 +51,7 @@ DATASET_CATEGORY = {
     K.PRODUCTION: 'prod', K.ELPRO: 'prod', K.OPERATIONS: 'prod', K.GDI: 'gdi', K.RESPONSE: 'response',
     K.OBJECT_PRESSURE: 'pressure', K.PRESSURE_MATCH: 'pressure', K.WATER: 'water', K.WATER_FACTOR: 'water',
     K.GAS_DB: 'object', K.PLAN: 'object', K.ANNULUS: 'annulus', K.GGH: 'ggh', K.CONSTRUCTION: 'construction',
-    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis',
+    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis', K.MODEL: 'model',
 }
 
 
@@ -150,6 +152,9 @@ def _numbers(series: pd.Series) -> pd.Series:
 
 
 def meta(kind: DatasetKind, column: str) -> FieldMeta:
+    if kind is K.MODEL and column not in ('date', 'model'):
+        label, unit = model_source.column_meta(column)
+        return FieldMeta('model', label, unit)
     if column == 'date':
         return FieldMeta(DATASET_CATEGORY.get(kind, 'other'), 'Дата')
     return FIELDS.get((kind, column)) or FieldMeta(DATASET_CATEGORY.get(kind, 'other'), IMPORT_FIELDS.get(column, column))
@@ -200,7 +205,7 @@ def catalog(data: Data) -> dict[str, Any]:
                   for c, label in CATEGORIES if by_category[c]]
     wells = sorted({w for d in datasets if d['entity'] == 'well' for w in d['entities']}, key=natural_key)
     return {'categories': categories, 'datasets': datasets, 'wells': wells,
-            'keys': [{'value': k, 'label': v} for k, v in KEYS.items()]}
+            'keys': [{'value': k, 'label': v} for k, v in KEYS.items()], 'model_notes': list(getattr(data, 'model_notes', []))}
 
 
 # ---------- макет ----------

@@ -8,6 +8,7 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 from . import builder_library as lib
+from . import model_source
 from .contract import ParamError
 from .engine.core.export import safe_name
 
@@ -111,6 +112,18 @@ def routes(projects, E) -> list[Route]:
             response.headers['X-Atlas-Notes'] = quote(' '.join(notes))
         return response
 
+    def models(request, body):
+        return model_source.listing(model_source.sources_of(settings_of(request)))
+
+    def choose_models(request, body):
+        picked = body.get('selected')
+        if not isinstance(picked, list):
+            raise ParamError('Выберите модели списком')
+        cfg = dict(settings_of(request))
+        cfg[model_source.KEY] = [str(x) for x in picked]
+        save(request, cfg, {'action': 'модели ГДМ в конструкторе', 'count': len(picked)})
+        return model_source.listing(cfg[model_source.KEY])
+
     base = '/api/projects/{pid}/builder'
     return [
         Route(base + '/layouts', E(listing), methods=['GET']),
@@ -121,6 +134,8 @@ def routes(projects, E) -> list[Route]:
         Route(base + '/layouts/{lid}', E(change), methods=['PATCH']),
         Route(base + '/layouts/{lid}', E(delete), methods=['DELETE']),
         Route(base + '/layouts/{lid}/duplicate', E(duplicate), methods=['POST']),
+        Route(base + '/models', E(models), methods=['GET']),
+        Route(base + '/models', E(choose_models), methods=['POST']),
         Route(base + '/word', E(word), methods=['POST']),
         Route(base + '/series/wells', E(series_wells), methods=['POST']),
         Route(base + '/series', E(series), methods=['POST']),

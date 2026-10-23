@@ -6,6 +6,7 @@ import type { Look } from './chartStyle'
 import { AxisDialog, ChartDialog, SeriesDialog, VIEWS, type AxisFmt, type AxisItem, type AxisKey, type BuilderView } from './BuilderDialogs'
 import { FUNCTIONS, checkFormula, findCycle, letter, renumber } from './builderFormula'
 import { BuilderLibrary } from './BuilderLibrary'
+import { BuilderModels } from './BuilderModels'
 import { BuilderRecipes } from './BuilderRecipes'
 import { SeriesDialog as SeriesExport, WellPicker } from './BuilderWells'
 import './builder.css'
@@ -26,6 +27,7 @@ export interface BuilderCatalog {
   datasets: BuilderDataset[]
   wells?: string[]        // скважины проекта (для «Скважины макета»)
   keys: { value: string; label: string }[]
+  model_notes?: string[]  // модели tNav, которые не прочитались
 }
 export type AxisName = 'y' | 'y2' | 'y3' | 'y4' | 'y5'
 export interface BuilderRow {
@@ -126,6 +128,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
   const [dialog, setDialog] = useState<'row' | 'axis' | 'chart' | null>(null)
   const [axisKey, setAxisKey] = useState<AxisKey>('x')
   const [seriesOpen, setSeriesOpen] = useState(false)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     let alive = true
@@ -133,7 +136,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
       .then(c => { if (alive) { setCatalog(c); setError('') } })
       .catch(e => { if (alive) setError((e as Error).message) })
     return () => { alive = false }
-  }, [project, revision])
+  }, [project, revision, reload])
 
   const datasets = useMemo(() => new Map((catalog?.datasets ?? []).map(d => [d.id, d])), [catalog])
   const fieldOf = (dataset: string, field: string) => datasets.get(dataset)?.fields.find(f => f.field === field)
@@ -216,6 +219,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
         <h2>Поля</h2>
         <input type="search" placeholder="Найти поле…" value={query} onChange={e => setQuery(e.target.value)} aria-label="Поиск по полям" />
         {error && <div className="note warning">{error}</div>}
+        <BuilderModels project={project} notes={catalog?.model_notes ?? []} onChange={() => setReload(n => n + 1)} />
         {!catalog && !error && <p className="muted">Загрузка полей…</p>}
         {catalog && !catalog.categories.length && <div className="note info">В проекте нет числовых полей. Загрузите данные в разделе импорта.</div>}
         {catalog && q && !tree.length && <p className="muted">Ничего не найдено.</p>}
