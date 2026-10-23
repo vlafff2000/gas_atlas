@@ -682,7 +682,7 @@ def compute(formula: Formula, parts: Mapping[int, Part | None], key: str, days: 
 
 
 def overlay_seasons(f: pd.DataFrame, seasons: pd.Series) -> pd.DataFrame:
-    """Сезоны друг на друге: X — номер суток от начала сезона (с 1), каждый сезон (и скважина) — своя кривая."""
+    """Сравнение сезонов: X — номер суток от начала сезона (с 1), каждый сезон (и скважина) — своя кривая."""
     f = f[f['y'].notna()].copy()
     season = f['x'].dt.normalize().map(seasons)
     f = f[season.notna()].copy()
