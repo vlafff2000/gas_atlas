@@ -690,7 +690,10 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         notes += more
         if x_date and (row.transform.op == 'cumsum' or (row.transform.cum and row.transform.op != 'month')) and not out.frame.empty:
             out.frame = calc.extend_flat(out.frame, _span_end(data, row), seasons)
-        if row.transform.op == 'group':
+            if row.transform.overlay and seasons is not None:
+                out.frame = calc.overlay_seasons(out.frame, seasons)
+                out.entity_kind, out.x_label, x_date = 'season', 'Сутки от начала сезона', False
+        if row.transform.op == 'group' and out.entity_kind != 'season':
             out.entity_kind = ''
     if out is not None and row.unit:
         out.unit = row.unit
@@ -807,7 +810,7 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
         name = _series_name(r, label_of[r.index], entity_kind, entity, per_row[r.index] > 1)
         facets = {'Ряд': f'{r.index}. {r.name or label_of[r.index]}'}
         if entity_kind and entity:
-            facets['Скважина' if entity_kind == 'well' else 'Дата рестарта' if entity_kind == 'restart' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
+            facets['Скважина' if entity_kind == 'well' else 'Дата рестарта' if entity_kind == 'restart' else 'Сезон' if entity_kind == 'season' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
         ids = g['id'].tolist() if g['id'].notna().all() and len(g) else None
         kind = 'points' if r.view == 'points' else 'bar' if r.view == 'bar' else 'line'
         chart.series.append(Series(
