@@ -23,6 +23,15 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
       .finally(() => setBusy(false))
   }
 
+  const setCubes = (extra: { cubes?: boolean; cubes_from?: string; cubes_to?: string }) => {
+    if (!list) return
+    setBusy(true)
+    builderApi.chooseModels(project, list.models.filter(m => m.selected).map(m => m.id), extra)
+      .then(l => { setList(l); setError(''); onChange() })
+      .catch(e => setError((e as Error).message))
+      .finally(() => setBusy(false))
+  }
+
   const chosen = list?.models.filter(m => m.selected).length ?? 0
   return (
     <details className="builder-models">
@@ -37,6 +46,18 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
           <input type="checkbox" checked={m.selected} disabled={busy} onChange={e => choose(m.id, e.target.checked)} /> {m.name}
         </label>
       ))}
+      {chosen > 0 && (
+        <label className="check" title="Среднее давление и газонасыщенность по поровому объёму, газонасыщенный объём и ГВК по датам рестарта. Нужны EGRID, INIT и UNRST рядом с моделью.">
+          <input type="checkbox" checked={list?.cubes ?? false} disabled={busy} onChange={e => setCubes({ cubes: e.target.checked })} /> Кубы свойств (читаются долго)
+        </label>
+      )}
+      {chosen > 0 && list?.cubes && (
+        <div className="check" title="Читаются только рестарты в этих датах: чем уже период, тем быстрее. Пусто — без границы.">
+          Рестарты с <input type="date" value={list.cubes_from} disabled={busy} onChange={e => setCubes({ cubes_from: e.target.value })} aria-label="Рестарты с" />
+          {' '}по <input type="date" value={list.cubes_to} disabled={busy} onChange={e => setCubes({ cubes_to: e.target.value })} aria-label="Рестарты по" />
+        </div>
+      )}
+      {busy && <p className="muted">Читаем модель…</p>}
       {notes.map(n => <div key={n} className="note warning">{n}</div>)}
     </details>
   )

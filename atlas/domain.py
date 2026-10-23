@@ -41,6 +41,7 @@ class DatasetKind(str, Enum):
     GIS_OBSERVATIONS = 'gis_observations'  # «База ГИС»: замеры по скважине и дате со статусом наблюдения
     GIS_INTERVALS = 'gis_intervals'      # «База ГИС»: интервалы замера (от, до, Кп, Кг, hэф)
     MODEL = 'model'                      # векторы скважин модели tNavigator (в проекте не хранится, читается из папок моделей)
+    MODEL_OBJECT = 'model_object'        # показатели объекта по кубам модели (по датам рестарта); читаются по запросу
     GAS_DB = 'gas_db'                    # «БД по учету газа» Базы ПХГ: суточный объём по объекту, вынос воды по объекту
 
     @property
@@ -69,6 +70,7 @@ LABELS = {
     DatasetKind.GIS_OBSERVATIONS: 'ГИС: замеры',
     DatasetKind.GIS_INTERVALS: 'ГИС: интервалы',
     DatasetKind.MODEL: 'Модель ГДМ',
+    DatasetKind.MODEL_OBJECT: 'Модель ГДМ: кубы',
 }
 
 # Обязательные колонки каждого набора (как после импорта 5.8).
@@ -93,6 +95,7 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.GIS_OBSERVATIONS: ('well', 'date'),
     DatasetKind.GIS_INTERVALS: ('well', 'date', 'pack', 'from_m', 'to_m'),
     DatasetKind.MODEL: ('well', 'date', 'model'),
+    DatasetKind.MODEL_OBJECT: ('date', 'model'),
 }
 
 # Подписи колонок для таблиц и подсказок.
