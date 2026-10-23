@@ -454,6 +454,22 @@ def table_frame(table: Table) -> pd.DataFrame:
     return table.frame[keys].set_axis(column_titles(table), axis=1)
 
 
+def sheet_formula(table: Table, key: str, at: int, first: int) -> str | None:
+    """Формула Excel для колонки ``key`` в строке ``at`` (первая строка данных — ``first``) или None, если её нет."""
+    from openpyxl.utils import get_column_letter
+    template = table.formulas.get(key)
+    if not template:
+        return None
+    letter = {c.key: get_column_letter(k) for k, c in enumerate(table.columns, 1)}
+    if '@prev' in template and at == first:
+        return None
+
+    def cell(match):
+        name, prev = match.group(1), match.group(2)
+        return f'{letter[name]}{at - 1 if prev else at}'
+    return '=' + re.sub(r'\{(\w+)(@prev)?\}', cell, template)
+
+
 def header_sheet(ws, table: Table) -> None:
     """Лист с объединённой шапкой, как в «Сводная_транспон2.xlsx»: группы сверху, подписи колонок внизу."""
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -481,7 +497,8 @@ def header_sheet(ws, table: Table) -> None:
     for r, values in enumerate(body.itertuples(index=False, name=None), rows + 1):
         for k, (v, c) in enumerate(zip(values, table.columns), 1):
             v = None if pd.isna(v) else v.item() if hasattr(v, 'item') else v
-            cell = ws.cell(r, k, v)
+            formula = sheet_formula(table, c.key, r, rows + 1)
+            cell = ws.cell(r, k, formula if formula else None if c.key in table.formulas else v)
             cell.border = Border(left=side, right=side, top=side, bottom=side)
             if c.kind == 'number' and c.decimals is not None:
                 cell.number_format = '0.' + '0' * c.decimals if c.decimals else '0'
@@ -506,7 +523,8 @@ def plain_sheet(ws, table: Table) -> None:
         for k, (v, c) in enumerate(zip(values, table.columns), 1):
             v = None if v is None or (not isinstance(v, (list, tuple)) and pd.isna(v)) else v
             v = v.to_pydatetime() if isinstance(v, pd.Timestamp) else v.item() if hasattr(v, 'item') else v
-            cell = ws.cell(r, k, v)
+            formula = sheet_formula(table, c.key, r, 2)
+            cell = ws.cell(r, k, formula if formula else None if c.key in table.formulas else v)
             cell.border = border
             if c.kind == 'number' and c.decimals is not None:
                 cell.number_format = '0.' + '0' * c.decimals if c.decimals else '0'
