@@ -41,7 +41,7 @@ def one(data, transform, row=Q, **more):
 
 def test_cumulative_from_period_start_rate_to_volume(data):
     r, c = one(data, {'op': 'cumsum'})
-    assert same(c['Суточный расход газа, накопленное · скв. 1'], [0.1, 0.1, N, 0.3])       # ноль простоя — точка, «нет данных» — разрыв
+    assert same(c['Суточный расход газа, накопленное · скв. 1'], [0.1, 0.1, 0.1, 0.3])     # ноль простоя — точка; сутки без данных — горизонтальная линия (накопленное не падает)
     assert same(c['Суточный расход газа, накопленное · скв. 2'], [0.05, 0.11, 0.18, 0.26])
     assert r.charts[0].y.unit == 'млн м³' and 'накопленное' in r.charts[0].y.label
     r, c = one(data, {'op': 'cumsum'}, date_from='2025-01-02')
@@ -254,10 +254,29 @@ def test_cumulative_per_season(data):
     prod['period'] = prod['date'].dt.strftime('%Y-%m-%d').map(by_day)
     w2 = {**Q, 'wells': ['2']}
     r, c = one(data, {'op': 'cumsum', 'season': True}, row=w2)
-    assert same(list(c.values())[0], [0.05, 0.11, 0.07, np.nan]) and 'за сезон' in r.charts[0].y.label       # сброс с 3 января, нейтральный день не показан
+    assert same(list(c.values())[0], [0.05, 0.11, np.nan, 0.07]) and 'за сезон' in r.charts[0].y.label       # сброс с 3 января (между сезонами разрыв линии), нейтральный день не показан
     assert 'вне сезонов' in text(r)
     _, c = one(data, {'op': 'group', 'agg': 'sum', 'cum': True, 'season': True})
-    assert same(list(c.values())[0], [0.15, 0.21, 0.07, np.nan])
+    assert same(list(c.values())[0], [0.15, 0.21, np.nan, 0.07])
     del prod['period']
     r, _ = one(data, {'op': 'cumsum', 'season': True}, row=w2)
     assert 'без сброса' in text(r)
+
+
+def test_cumulative_extends_flat_to_period_end(data):
+    w2 = {**Q, 'wells': ['2']}
+    r, c = one(data, {'op': 'cumsum'}, row=w2, date_to='2025-01-06')
+    assert same(list(c.values())[0], [0.05, 0.11, 0.18, 0.26, 0.26, 0.26])           # после последней записи — горизонтальная линия
+    _, c = one(data, {'op': 'cumsum'}, row=w2)
+    assert len(list(c.values())[0]) == 4                                              # без периода — до последних суток набора
+
+
+def test_seasons_overlay_on_day_of_season(data):
+    prod = data[builder.K.PRODUCTION]
+    by_day = {'2025-01-01': '2024-2025', '2025-01-02': '2024-2025', '2025-01-03': '2025-2026', '2025-01-04': '2025-2026'}
+    prod['period'] = prod['date'].dt.strftime('%Y-%m-%d').map(by_day)
+    r, c = one(data, {'op': 'group', 'agg': 'sum', 'cum': True, 'season': True, 'overlay': True})
+    assert same(c['Суточный расход газа, сумма по скважинам, накопленное за сезон · 2024-2025'], [0.15, 0.21])
+    assert same(c['Суточный расход газа, сумма по скважинам, накопленное за сезон · 2025-2026'], [0.07, 0.35])    # заново с первых суток
+    assert 'Сутки от начала сезона' in r.charts[0].x.label
+    assert [float(v) for v in r.charts[0].series[0].x] == [1.0, 2.0]

@@ -542,6 +542,17 @@ def _seasons(data: Data, row: Row) -> pd.Series | None:
     return frame.assign(date=_day(frame['date'])).drop_duplicates('date').set_index('date')['period'].astype(str) if len(frame) else None
 
 
+def _span_end(data: Data, row: Row) -> pd.Timestamp | None:
+    """До какой даты тянется накопленная кривая: конец периода ряда, иначе последние сутки данных набора."""
+    if row.date_to:
+        return pd.Timestamp(row.date_to)
+    frame = data[row.dataset] if row.dataset in data else None
+    if frame is None or 'date' not in frame:
+        return None
+    dates = _day(frame['date']).dropna()
+    return dates.max() if len(dates) else None
+
+
 def _y_group_keys(data: Data, y: pd.DataFrame, y_entity: str) -> pd.Series:
     if y_entity == 'well':
         return y['entity'].map(lambda w: group_key(data.mapping.get(w, {}).get('group') or 'Без группы'))
@@ -674,10 +685,15 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         out.label, out.unit = calc.describe(row.transform, out.label, out.unit, word)
         x_date = pd.api.types.is_datetime64_any_dtype(out.frame['x'])
         before = '' if row.source == 'formula' else meta(row.dataset, row.y).unit     # у формулы единица — только ручная
-        out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date,
-                                     _seasons(data, row) if row.transform.season else None)
+        seasons = _seasons(data, row) if row.transform.season else None
+        out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date, seasons)
         notes += more
-        if row.transform.op == 'group':
+        if x_date and (row.transform.op == 'cumsum' or (row.transform.cum and row.transform.op != 'month')) and not out.frame.empty:
+            out.frame = calc.extend_flat(out.frame, _span_end(data, row), seasons)
+            if row.transform.overlay and seasons is not None:
+                out.frame = calc.overlay_seasons(out.frame, seasons)
+                out.entity_kind, out.x_label, x_date = 'season', 'Сутки от начала сезона', False
+        if row.transform.op == 'group' and out.entity_kind != 'season':
             out.entity_kind = ''
     if out is not None and row.unit:
         out.unit = row.unit
@@ -794,7 +810,7 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
         name = _series_name(r, label_of[r.index], entity_kind, entity, per_row[r.index] > 1)
         facets = {'Ряд': f'{r.index}. {r.name or label_of[r.index]}'}
         if entity_kind and entity:
-            facets['Скважина' if entity_kind == 'well' else 'Дата рестарта' if entity_kind == 'restart' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
+            facets['Скважина' if entity_kind == 'well' else 'Дата рестарта' if entity_kind == 'restart' else 'Сезон' if entity_kind == 'season' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
         ids = g['id'].tolist() if g['id'].notna().all() and len(g) else None
         kind = 'points' if r.view == 'points' else 'bar' if r.view == 'bar' else 'line'
         chart.series.append(Series(

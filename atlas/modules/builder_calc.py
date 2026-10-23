@@ -52,6 +52,7 @@ class Transform:
     agg: str = 'mean'           # сутки, месяцы, группа
     norm: str = 'first'
     value: float = 1.0
+    overlay: bool = False       # сезоны накладываются: X — сутки от начала сезона, каждый сезон — отдельная кривая
     season: bool = False        # накопленное заново с начала каждого сезона (границы — период расхода в данных проекта)
     cum: bool = False           # после суммы по скважинам / суткам / месяцам — ещё и накопленное (нарастающий итог по объекту)
 
@@ -92,6 +93,7 @@ def clean_transform(raw: Any, index: int) -> Transform:
             raise ParamError(f'{what}: окно в точках или в сутках')
     if op == 'cumsum' and raw.get('season'):
         t['season'] = True
+        t['overlay'] = bool(raw.get('overlay'))
     if op in ('day', 'month', 'group'):
         t['agg'] = str(raw.get('agg') or 'mean')
         if t['agg'] not in AGGS:
@@ -101,6 +103,7 @@ def clean_transform(raw: Any, index: int) -> Transform:
                 raise ParamError(f'{what}: «накопленное» только вместе со сводкой «сумма»')
             t['cum'] = True
             t['season'] = bool(raw.get('season'))
+            t['overlay'] = bool(raw.get('season') and raw.get('overlay'))
     if op == 'norm':
         t['norm'] = str(raw.get('norm') or 'first')
         if t['norm'] not in NORMS:
@@ -173,6 +176,36 @@ def describe(t: Transform, label: str, unit: str, entity_word: str = 'скваж
 def _agg(values: pd.core.groupby.SeriesGroupBy, how: str) -> pd.Series:
     # сумма пустой группы — пропуск, а не ноль: «нет данных» не превращается в простой
     return values.sum(min_count=1) if how == 'sum' else getattr(values, how)()
+
+
+def extend_flat(f: pd.DataFrame, end: pd.Timestamp | None, seasons: pd.Series | None) -> pd.DataFrame:
+    """Накопленная кривая по датам не рвётся: в сутки без записи значение остаётся прежним (горизонтальная линия), после
+    последней записи кривая тянется до ``end`` (последние сутки данных набора или конец периода ряда). В режиме «за сезон»
+    каждый сезон тянется до своего конца, а между сезонами линия разрывается: следующий сезон начинается с нуля."""
+    if f.empty or not pd.api.types.is_datetime64_any_dtype(f['x']):
+        return f
+    step = f.sort_values('x')['x'].drop_duplicates().diff().median()
+    if pd.notna(step) and step > pd.Timedelta(days=1):       # по месяцам и реже — суточной сетки нет
+        return f
+    parts = []
+    for entity, g in f.sort_values('x', kind='stable').groupby('entity', sort=False):
+        g = g.drop_duplicates('x', keep='last')
+        season = g['x'].dt.normalize().map(seasons) if seasons is not None else pd.Series(np.nan, index=g.index)
+        blocks = [(g, end)] if seasons is None else \
+            [(b, seasons[seasons.eq(name)].index.max()) for name, b in g.groupby(season, sort=False)]
+        last = len(blocks) - 1
+        for i, (b, stop) in enumerate(blocks):
+            stop = max(b['x'].max(), stop) if stop is not None and pd.notna(stop) else b['x'].max()
+            grid = pd.date_range(b['x'].min().normalize(), stop.normalize(), freq='D')
+            y = b.assign(x=b['x'].dt.normalize()).set_index('x')['y'].reindex(grid).ffill()
+            part = pd.DataFrame({'entity': entity, 'x': grid, 'y': y.to_numpy(), 'id': None})
+            if seasons is not None and i < last:        # разрыв линии между сезонами
+                part = pd.concat([part, pd.DataFrame({'entity': [entity], 'x': [stop.normalize() + pd.Timedelta(hours=12)],
+                                                      'y': [np.nan], 'id': [None]})], ignore_index=True)
+            parts.append(part)
+    out = pd.concat(parts, ignore_index=True)
+    out['date'] = out['x'].dt.normalize()
+    return out
 
 
 def _cumsum(f: pd.DataFrame, seasons: pd.Series | None, label: str, notes: list[Note]) -> pd.Series:
@@ -646,3 +679,15 @@ def compute(formula: Formula, parts: Mapping[int, Part | None], key: str, days: 
     frame['y'] = y
     frame['id'] = None
     return Part(frame, base.entity_kind), notes
+
+
+def overlay_seasons(f: pd.DataFrame, seasons: pd.Series) -> pd.DataFrame:
+    """Сезоны друг на друге: X — номер суток от начала сезона (с 1), каждый сезон (и скважина) — своя кривая."""
+    f = f[f['y'].notna()].copy()
+    season = f['x'].dt.normalize().map(seasons)
+    f = f[season.notna()].copy()
+    season = season[season.notna()]
+    start = season.map({name: seasons[seasons.eq(name)].index.min() for name in season.unique()})
+    f['x'] = (f['x'].dt.normalize() - start).dt.days + 1
+    f['entity'] = [str(name) if not str(e) else f'{e} · {name}' for e, name in zip(f['entity'], season)]
+    return f.reset_index(drop=True)
