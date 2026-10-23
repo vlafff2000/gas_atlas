@@ -1,6 +1,8 @@
 """Выгрузки «Базы ПХГ» в Атласе: роли файлов папки, межколонки, группа из ГСП, сводные листы, книги со своим разбором.
 
 Колонки — как в настоящих выгрузках модулей all_scripts (проверено на образцах Egor от 2026-10-15)."""
+from pathlib import Path
+
 import pandas as pd
 import pytest
 from starlette.testclient import TestClient
@@ -119,3 +121,25 @@ def test_elpro_and_gas_db_books_are_sent_to_sources(tmp_path):
     pid = imports.projects.create_demo()
     out = imports.base_load(pid, {'token': token})
     assert 'ЭЛПРО' in out['message'] and 'elpro' in imports.projects.data(pid)
+
+
+def test_check_parallel_equals_serial(tmp_path, monkeypatch):
+    """Несколько файлов за раз: загрузка по ядрам даёт те же данные и журнал замечаний, что подряд."""
+    examples = Path(__file__).resolve().parents[2] / 'examples'
+    imports = Imports(Projects(tmp_path / 'storage'))
+    pid = imports.projects.create_demo()
+    names = ['01_long_format.xlsx', '02_matrix.xlsx', '03_single_sheet.xlsx', '06_GDI_5_columns.csv', '07_response.csv']
+    files = [{'token': imports.upload(n, (examples / n).read_bytes())['token']} for n in names]
+    files.insert(2, {'token': imports.upload('битый.xlsx', b'not excel')['token']})
+    got = {}
+    for w in ('1', '3'):
+        monkeypatch.setenv('PXG_WORKERS', w)
+        out = imports.check(pid, {'files': files, 'mode': 'auto'})
+        p = next(v for v in imports.pending.values() if v['id'] == out['id'])
+        got[w] = p
+    a, b = got['1'], got['3']
+    assert a['frames'].keys() == b['frames'].keys() and a['frames']
+    for k in a['frames']:
+        pd.testing.assert_frame_equal(a['frames'][k], b['frames'][k])
+    pd.testing.assert_frame_equal(a['issues'], b['issues'])
+    assert (a['rejected'], a['warnings'], a['sources']) == (b['rejected'], b['warnings'], b['sources'])

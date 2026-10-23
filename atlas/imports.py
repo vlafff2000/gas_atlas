@@ -36,6 +36,7 @@ from atlas.engine.core.well_import import REQUIRED
 
 from .contract import Column, ParamError, Table, _table_json
 from . import import_fix, quality
+from .parallel import map_jobs
 from .projects import Conflict, Projects
 
 QUALITY_ROWS = 500
@@ -96,6 +97,15 @@ def frame_table(tid: str, title: str, frame: pd.DataFrame, note: str = '') -> di
     frame.columns = [str(c) for c in frame.columns]
     return _table_json(Table(tid, title, frame, note=note))
 
+
+
+def _load_job(job):
+    """load_file для процесса; ошибка возвращается значением (её запись в замечания остаётся в основном процессе)."""
+    path, mode, kind, punit, gunit, sheets, encoding, delimiter, duplicates = job
+    try:
+        return load_file(path, mode, kind, punit, gunit, sheet_options=sheets, encoding=encoding, delimiter=delimiter, duplicates=duplicates)
+    except Exception as e:          # noqa: BLE001
+        return Exception(str(e))
 
 class Upload:
     def __init__(self, name: str, content: bytes):
@@ -539,6 +549,7 @@ class Imports:
         kept = {}                     # отклонённые строки с датой и скважиной: их можно загрузить исключёнными
         sources = []                  # к каждому замечанию: из какого загруженного файла (для правки строки)
         with tempfile.TemporaryDirectory(prefix='gas_atlas_import_') as staging:
+            todo = []                 # файлы по порядку: (файл, параметры, путь); загрузка обычных файлов идёт по ядрам
             for i, f in enumerate(files):
                 item = self.file(f.get('token'))
                 if item.token not in options:
@@ -547,13 +558,19 @@ class Imports:
                 path = Path(staging) / str(i) / item.name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(item.content)
+                todo.append((item, opts, path))
+            loaded = map_jobs(_load_job, [(path, mode, kind, punit, gunit, opts['sheets'], opts['encoding'], opts['delimiter'], duplicates)
+                                          for _item, opts, path in todo if not opts.get('pressure_book')], 400)
+            loaded = iter(loaded)
+            for item, opts, path in todo:
                 try:
                     if opts.get('pressure_book'):
                         r = rules.parse_pressure_book(item.content, item.name, opts,
                                                       self.tables(item.token, opts['encoding'], opts['delimiter']))
                     else:
-                        r = load_file(path, mode, kind, punit, gunit, sheet_options=opts['sheets'],
-                                      encoding=opts['encoding'], delimiter=opts['delimiter'], duplicates=duplicates)
+                        r = next(loaded)
+                        if isinstance(r, Exception):
+                            raise r
                     if pressure_unit == 'МПа':
                         rules.to_kgf(r.frames, skip=r.by_header)
                     for module, frame in r.frames.items():
