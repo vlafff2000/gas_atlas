@@ -298,6 +298,8 @@ class Series:
     facets: dict[str, str] | None = None
     look: dict[str, Any] | None = None   # ручной вид ряда (atlas/chart_style.py: цвет, линия, маркеры, прозрачность); пусто — как задал модуль
     captions: Sequence[str] | None = None  # текст над каждой точкой на графике (подписи причин без замера); в подсказке — labels
+    values: Sequence[float | None] | None = None   # третье значение каждой точки: по нему красятся точки (точки 'points'); None — цвет серии
+    values_label: str = ''           # подпись третьего значения для шкалы цвета и подсказки: «Газонасыщенность, д.ед.»
 
 
 @dataclass
@@ -529,7 +531,7 @@ def _table_json(t: Table, defer: bool = False) -> dict[str, Any]:
 
 def _series_json(s: Series, keep: Any = None) -> dict[str, Any]:
     """``keep`` — индексы точек, которые уходят на экран (None — все). ``total`` — сколько точек в серии на самом деле."""
-    out = {f.name: getattr(s, f.name) for f in fields(s) if f.name not in ('x', 'y', 'ids', 'dataset', 'labels')}
+    out = {f.name: getattr(s, f.name) for f in fields(s) if f.name not in ('x', 'y', 'ids', 'dataset', 'labels', 'values')}
     full = len(s.x)
     out['total'] = max(s.total, full)
 
@@ -543,6 +545,7 @@ def _series_json(s: Series, keep: Any = None) -> dict[str, Any]:
     out.update(x=_column(take(s.x)), y=_column(take(s.y)),
                ids=None if s.ids is None else [str(v) for v in take(s.ids)],
                labels=None if s.labels is None else [str(v) for v in take(s.labels)],
+               values=None if s.values is None else _column(take(s.values)),
                dataset=s.dataset.value if s.dataset else None)
     return out
 

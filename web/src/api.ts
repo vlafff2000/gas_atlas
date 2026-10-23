@@ -95,10 +95,12 @@ export interface Series {
   total: number      // точек в серии на самом деле; если больше x.length — линия прорежена (М4: пики и провалы сохранены)
   facets: Record<string, string> | null     // признаки для легенды рядами: {'Скважина': '№ 101', 'Период': '2024'}
   captions?: string[] | null                // текст над каждой точкой (подписи причин отсутствия замеров)
+  values?: (number | null)[] | null         // третье значение точки: по нему красятся точки (шкала цвета справа)
+  values_label?: string
   look?: Look                              // личный вид ряда из окна «Настройка» (только на клиенте)
 }
 /** Точки серии в видимом окне оси X (ответ /window): `window` — сколько их в окне до прореживания. */
-export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'total'> & { window: number }
+export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'values' | 'total'> & { window: number }
 export interface WindowReply { chart: string; revision: number; series: Record<string, WindowSeries> }
 export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'peak' | 'other'; well: string }
 export interface Chart {

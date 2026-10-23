@@ -45,6 +45,7 @@ export interface BuilderRow {
   x_scope?: 'curve' | 'group' | 'object'   // откуда X: как в наборе, сумма по группе скважины, сумма по объекту
   x_transform?: RowTransform               // преобразование X (накопленное и т. п.); нет — без преобразования
   model?: string                           // модель tNav (набор «Модель ГДМ»); пусто — первая из выбранных
+  color_by?: string                        // поле набора, по которому красятся точки (вид «точки»); пусто — один цвет
 }
 export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; season?: boolean; overlay?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
 type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
@@ -530,6 +531,16 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
               title="Пусто — по полю и преобразованию (накопленное тыс. м³/сут → млн м³ и т.п.)"
               onChange={e => onChange({ unit: e.target.value || undefined })} />
           </label>
+          {!formula && row.view === 'points' && !!ds && (
+            <label className="field">
+              <span className="field-label">Цвет точек по полю</span>
+              <select value={row.color_by ?? ''} onChange={e => onChange({ color_by: e.target.value || undefined })}
+                title="Третье свойство: цвет точки по значению поля (шкала справа). Работает без преобразований и без X из другого набора.">
+                <option value="">один цвет</option>
+                {ds.fields.filter(f => f.kind === 'number' && f.field !== row.y && f.field !== row.x).map(f => <option key={f.field} value={f.field}>{f.label}{f.unit ? `, ${f.unit}` : ''}</option>)}
+              </select>
+            </label>
+          )}
           <div className="kind-group" role="radiogroup" aria-label="Ось">
             <span className="kind-label">Ось</span>
             {AXES.map(a => (

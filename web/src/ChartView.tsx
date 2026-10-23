@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
-import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
+import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent, VisualMapContinuousComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
@@ -17,7 +17,7 @@ import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, su
 import './chart.css'
 
 echarts.use([BarChart, BoxplotChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
-  DataZoomComponent, AxisPointerComponent, CanvasRenderer])
+  DataZoomComponent, AxisPointerComponent, VisualMapContinuousComponent, CanvasRenderer])
 
 export { PALETTE }
 const SYMBOL = { circle: 'circle', square: 'rect', diamond: 'diamond', triangle: 'triangle' } as const
@@ -250,11 +250,20 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   if (category) for (const s of chart.series) for (const v of s.y) if (typeof v === 'number') { lo = Math.min(lo, v); hi = Math.max(hi, v) }
   const barFmt = formatter(chart.y, hi - lo || 1)
   const hasBox = chart.series.some(s => s.kind === 'box')
+  // точки, окрашенные третьим значением (конструктор): одна шкала цвета справа на все такие серии
+  const colored = chart.series.map((s, i) => ({ s, i })).filter(({ s }) => s.kind === 'points' && s.values?.some(v => v != null))
+  const shades = colored.flatMap(({ s }) => (s.values ?? []).filter((v): v is number => v != null && Number.isFinite(v)))
+  const shadeLo = shades.length ? shades.reduce((a, b) => Math.min(a, b)) : 0, shadeHi = shades.length ? shades.reduce((a, b) => Math.max(a, b)) : 1
+  const shadeFmt = (n: number) => n.toLocaleString('ru-RU', { maximumFractionDigits: 3 })
+  const shadeTitle = [...new Set(colored.map(({ s }) => s.values_label).filter(Boolean))].join(' / ')
   return {
     animation: false,
     useUTC: true,
     textStyle: { fontFamily: chart.style?.font ? fontCss(chart.style.font) : FONT, color: chart.style?.text_color || tk.ink },
-    grid: { left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20, top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44 },
+    ...(colored.length ? { visualMap: { type: 'continuous', min: shadeLo, max: shadeHi === shadeLo ? shadeLo + 1 : shadeHi, dimension: 4, seriesIndex: colored.map(c => c.i),
+      right: 4, top: 'middle', itemHeight: 150, itemWidth: 12, calculable: false, text: [`${shadeTitle}\n${shadeFmt(shadeHi)}`, shadeFmt(shadeLo)],
+      inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: 11 } } } : {}),
+    grid: { left: 64, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44 },
     xAxis: axis(chart.x, 'x'),
     yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
@@ -319,9 +328,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           emphasis: { itemStyle: { color: alpha(c, 0.3), borderWidth: 2 } } }
       }
       const xs = time ? s.x.map(v => { const n = toNumber(v, 'time'); return Number.isFinite(n) ? n : null }) : s.x
-      const rich = !!(s.ids || s.labels)
+      const rich = !!(s.ids || s.labels || s.values)
       const data = rich
-        ? xs.map((x, j) => [x, s.y[j], s.ids?.[j] ?? '', s.labels?.[j] ?? ''])
+        ? xs.map((x, j) => [x, s.y[j], s.ids?.[j] ?? '', s.labels?.[j] ?? '', s.values?.[j] ?? null])
         : xs.map((x, j) => [x, s.y[j]])
       let rows = s.kind === 'points' ? data.filter(([x, y]) => x !== null && y !== null) : data
       if (s.kind === 'line' && time && !excludeMode && isDense(s, rows.length) && smoothLines.get()) rows = binned(rows, SMOOTH_BINS) as typeof rows
@@ -409,7 +418,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const [patch, setPatch] = useState<Patch | null>(null)
   const windowed = useMemo<Chart>(() => {
     if (!patch || patch.base !== given) return given
-    return { ...given, series: given.series.map((s, i) => { const w = patch.series[i]; return w ? { ...s, x: w.x, y: w.y, ids: w.ids, labels: w.labels, total: w.total } : s }) }
+    return { ...given, series: given.series.map((s, i) => { const w = patch.series[i]; return w ? { ...s, x: w.x, y: w.y, ids: w.ids, labels: w.labels, values: w.values, total: w.total } : s }) }
   }, [given, patch])
   const looksAll = usePref(chartLooks)
   const looks = looksAll[chartLookKey(given)]
@@ -707,6 +716,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
             if (!exact) extra.push(`<span class="tip-sub">Ближайший замер · ${escapeHtml(fmtX()(near))}</span>`)
             if (s.labels?.[j]) extra.push(...s.labels[j].split(' · ').map(escapeHtml))
           }
+          if (s.values?.[j] != null) extra.push(escapeHtml(`${s.values_label || 'Значение'}: ${Number(s.values[j]).toLocaleString('ru-RU', { maximumFractionDigits: 3 })}`))
           extra.push(...tipsOf(chart, s).map(escapeHtml))
         }
         extra.push(...events)
