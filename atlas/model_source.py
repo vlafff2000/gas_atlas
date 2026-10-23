@@ -406,6 +406,19 @@ def restart_dates(anchor: str) -> list[str]:
         raise ModelUnavailable(f'Рестарты модели прочитать не удалось: {e}') from e
 
 
+def _pair_columns(part: pd.DataFrame, first: Mapping[str, Any], day) -> None:
+    """Колонки «ячейка на двух датах»: значение на первой дате, на второй и разность. Только у строк второй даты."""
+    a, b = f'{first["day"]:%Y-%m-%d}', f'{day:%Y-%m-%d}'
+    for col, (title, unit) in (('p', CELL_LABELS['p']), ('sg', CELL_LABELS['sg'])):
+        if col not in part or col not in first:
+            continue
+        part[f'{col}_d1'], part[f'{col}_d2'] = first[col], part[col].to_numpy()
+        part[f'd{col}'] = part[col].to_numpy() - first[col]
+        _registry[f'{col}_d1'] = (f'{title} на {a}', unit)
+        _registry[f'{col}_d2'] = (f'{title} на {b}', unit)
+        _registry[f'd{col}'] = (f'{title}: изменение {a} → {b}', unit)
+
+
 def read_cells(anchor: str, label: str, cfg: Mapping[str, Any]) -> tuple[pd.DataFrame, list[str]]:
     """Ячейки куба на выбранные даты: слои k_from…k_to, не больше max_points на дату (каждая n-я ячейка, это видно в заметке)."""
     import numpy as np
@@ -440,7 +453,8 @@ def read_cells(anchor: str, label: str, cfg: Mapping[str, Any]) -> tuple[pd.Data
             notes.append(f'Ячейки: из {len(keep)} показана каждая {stride}-я ({len(keep[::stride])}); число точек задаётся в настройке')
         pick = keep[::stride]
         parts = []
-        for day, step in step_by_day.items():
+        first: dict[str, Any] = {}
+        for day, step in sorted(step_by_day.items()):
             sg = files.read_restart_keyword(found['UNRST'], step, 'SGAS')
             pr = files.read_restart_keyword(found['UNRST'], step, 'PRESSURE')
             part = pd.DataFrame({'date': day, 'i': rep[pick] % ni + 1, 'j': (rep[pick] // ni) % nj + 1, 'k': layer[pick]})
@@ -452,6 +466,10 @@ def read_cells(anchor: str, label: str, cfg: Mapping[str, Any]) -> tuple[pd.Data
                 part['sg'] = np.asarray(model.to_units(sg, 'Sg')[0], dtype=float)[pick]
             part['porv'] = porv[pick] / 1e3
             part['restart'] = day.strftime('%Y-%m-%d')
+            if not first:
+                first = {'day': day, **{c: part[c].to_numpy() for c in ('p', 'sg') if c in part}}
+            elif len(parts) == 1:                 # вторая дата: у её строк те же ячейки на первой дате — пара для осей X и Y
+                _pair_columns(part, first, day)
             parts.append(part)
     except (OSError, ValueError, KeyError, IndexError) as e:
         raise ModelUnavailable(f'Ячейки модели «{os.path.basename(found["EGRID"])}» прочитать не удалось: {e}') from e

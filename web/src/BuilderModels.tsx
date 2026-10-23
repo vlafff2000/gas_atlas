@@ -82,7 +82,7 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
       {first?.indicators && cells && (
         <details className="builder-cells" open={cells.dates.length > 0}>
           <summary>Ячейки куба (для кроссплотов)</summary>
-          <p className="muted">Точка — ячейка модели на дату рестарта. Выберите даты (до 6) и стройте ряд «Модель ГДМ: ячейки», точками: например давление по X и газонасыщенность по Y.</p>
+          <p className="muted">Точка — ячейка модели на дату рестарта. Выберите даты (до 6) и стройте ряд «Модель ГДМ: ячейки», точками: например давление по X и газонасыщенность по Y. При двух и более датах появляются поля «… на <дата>» (первая и вторая по времени) и «изменение»: одну и ту же ячейку можно сравнить, отложив состояние на первой дате по X, на второй по Y.</p>
           <MultiSelect label="Даты рестарта" options={restarts} value={cells.dates} emptyMeaning="ничего" onChange={d => setCells({ dates: d })} />
           <label className="field"><span className="field-label">Слои с</span>
             <input type="number" min={1} defaultValue={cells.k_from} key={'f' + cells.k_from} onBlur={e => setCells({ k_from: Number(e.target.value) || 1 })} /></label>
