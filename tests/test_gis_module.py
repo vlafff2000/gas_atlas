@@ -97,3 +97,8 @@ def test_combo_chart_has_change_columns_on_both_axes():
     assert {s.axis for s in bars} == {'y', 'y2'}
     kg_bar = next(s for s in bars if s.axis == 'y')
     assert len(kg_bar.y) == 2 and kg_bar.y[0] == pytest.approx(-0.05)      # 0.30 → 0.25 и 0.25 → 0.28: два перехода
+
+
+def test_intervals_table_reaches_the_module_through_project_select():
+    """Интервалы нужны виду «Σ hi × Кг» и списку сезонов: без optional проект их отбрасывал, вкладка писала «нет интервалов»."""
+    assert DatasetKind.GIS_INTERVALS in GisModule.spec.optional

@@ -47,6 +47,7 @@ class GisModule(Module):
         group='Исследования скважин',
         description='Динамика ГВК, эффективной толщины и Кг ср.взв по скважинам и пачкам из «Базы ГИС».',
         needs=(GIS,),
+        optional=(INTERVALS,),
         order=75,
         builder_layouts=True,    # макеты «Конструктора графиков» графиками после основных
         params=(
