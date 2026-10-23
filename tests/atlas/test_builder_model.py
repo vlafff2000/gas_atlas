@@ -77,3 +77,37 @@ def test_api_choose_models_and_use(tmp_path, stub):
     data = projects.select(pid, (), tuple(K))
     assert K.MODEL in data and data.model_notes == []
     assert K.MODEL not in projects.select(pid, (), (K.PRODUCTION,))
+
+
+def two_models():
+    a, b = fake_frame('Газ-1', 1.0), fake_frame('Газ-2', 2.0)
+    return pd.concat([a, b], ignore_index=True)
+
+
+def fake_frame(name, k):
+    days = pd.to_datetime(['2025-01-01', '2025-01-02'])
+    return pd.DataFrame({'well': '31', 'date': days, 'model': name, 'wgpr': [10.0 * k, 20.0 * k]})
+
+
+def test_row_picks_model_and_names_it():
+    data = Data({K.MODEL: two_models()})
+    cat = {d['id']: d for d in builder.catalog(data)['datasets']}
+    assert cat['model']['models'] == ['Газ-1', 'Газ-2']
+    row = {'dataset': 'model', 'y': 'wgpr', 'wells': ['31']}
+    first = builder.build(data, {'series': [row]}).charts[0].series[0]
+    second = builder.build(data, {'series': [{**row, 'model': 'Газ-2'}]}).charts[0].series[0]
+    assert list(first.y) == [10.0, 20.0] and list(second.y) == [20.0, 40.0]
+    assert 'Газ-1' in first.name and 'Газ-2' in second.name
+    gone = builder.build(data, {'series': [{**row, 'model': 'нет такой'}]})
+    assert not gone.charts or not gone.charts[0].series          # модель сняли с выбора: ряд пуст, а не молча другой
+
+
+def test_model_minus_fact_formula():
+    fact = pd.DataFrame({'well': '31', 'date': pd.to_datetime(['2025-01-01', '2025-01-02']), 'kind': 'withdrawal', 'q': [8_000.0, 25_000.0]})
+    data = Data({K.PRODUCTION: fact, K.MODEL: two_models()})
+    layout = {'series': [
+        {'dataset': 'production', 'y': 'q', 'kind': 'withdrawal', 'key': 'date', 'transform': {'op': 'group', 'agg': 'sum'}},
+        {'dataset': 'model', 'y': 'wgpr', 'key': 'date', 'transform': {'op': 'group', 'agg': 'sum'}},
+        {'source': 'formula', 'formula': 'B - A', 'key': 'date', 'name': 'Модель − факт'}]}
+    diff = builder.build(data, layout).charts[0].series[-1]
+    assert list(diff.y) == [2.0, -5.0]                              # тыс. м³/сут: модель 10 и 20, факт 8 и 25
