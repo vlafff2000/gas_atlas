@@ -10,6 +10,7 @@ import { projectsApi } from './api_projects'
 import { RowFixer } from './RowFixer'
 import { SheetEditor } from './SheetEditor'
 import { TableView } from './TableView'
+import { TableDock } from './TableDock'
 import './import.css'
 import { FolderSources } from './FolderSources'
 
@@ -48,7 +49,7 @@ function ImportNote({ message, project, onProject, onMessage }:
 const DATASETS: Record<string, string> = { production: 'Эксплуатация', gdi: 'ГДИ', response: 'Реагирование' }
 
 /** Проверка загруженных значений до сохранения: что выглядит сомнительно. Ничего не исключается само. */
-function QualityReport({ quality, onDownload }: { quality: Pending['quality']; onDownload: (format: 'xlsx' | 'csv') => Promise<void> }) {
+function QualityReport({ quality }: { quality: Pending['quality'] }) {
   if (!quality || (quality.errors + quality.attention === 0)) {
     return <div className="note info">Проверка данных: сомнительных значений не найдено.</div>
   }
@@ -59,7 +60,6 @@ function QualityReport({ quality, onDownload }: { quality: Pending['quality']; o
         {' '}{quality.by_check.slice(0, 6).map(c => `${DATASETS[c.dataset] ?? c.dataset} — ${c.check.toLowerCase()}: ${c.count}`).join('; ')}.
         {' '}Загрузку это не останавливает: после сохранения находки можно разобрать и исключить в разделе «Проверка данных».
       </div>
-      {quality.table && <TableView table={{ ...quality.table, collapsed: true }} onDownload={onDownload} />}
     </>
   )
 }
@@ -490,15 +490,19 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
             <>
               <div className="note warning">Отклоненных строк / файлов: {pending.rejected}. Предупреждений: {pending.warnings}. В журнале до 2000 замечаний на файл.</div>
               <p className="muted small">Щёлкните по строке журнала, чтобы открыть её в таблице файла, исправить значения и записать их в файл.</p>
-              <TableView table={pending.issues} onDownload={format => importApi.table(project.id, pending.id, 'issues', format)}
-                         onRow={i => setFixing(pending.issue_rows[i] ?? null)} rowOpen={i => !!pending.issue_rows[i]} />
               {fixing && <RowFixer project={project} source={fixing} onFixed={fixed} onClose={() => setFixing(null)} />}
             </>
           )}
-          <QualityReport quality={pending.quality} onDownload={format => importApi.table(project.id, pending.id, 'quality', format)} />
-          {pending.previews.map(t => (
-            <TableView key={t.id} table={{ ...t, collapsed: true }} onDownload={format => importApi.table(project.id, pending.id, t.id, format)} />
-          ))}
+          <QualityReport quality={pending.quality} />
+          <TableDock scope="import-pending" tables={[
+            ...(pending.issues ? [pending.issues] : []),
+            ...(pending.quality?.table ? [{ ...pending.quality.table, id: 'quality' }] : []),
+            ...pending.previews,
+          ]} render={t => (
+            <TableView table={t} docked onDownload={format => importApi.table(project.id, pending.id, t.id, format)}
+              onRow={t.id === 'issues' ? i => setFixing(pending.issue_rows[i] ?? null) : undefined}
+              rowOpen={t.id === 'issues' ? i => !!pending.issue_rows[i] : undefined} />
+          )} />
           <fieldset className="choices">
             <legend>Повторы и обновление</legend>
             {pending.policies.map(p => (
@@ -717,8 +721,9 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
           {result.ready && (
             <div className="check-result">
               <div className="note info">{result.ready.text}</div>
-              <TableView table={result.ready.summary} onDownload={f => importApi.table(project.id, result.ready!.id, 'summary', f)} />
-              {result.ready.notes && <TableView table={{ ...result.ready.notes, collapsed: true }} onDownload={f => importApi.table(project.id, result.ready!.id, 'notes', f)} />}
+              <TableDock scope="import-ready" tables={[result.ready.summary, ...(result.ready.notes ? [result.ready.notes] : [])]} render={t => (
+                <TableView table={t} docked onDownload={f => importApi.table(project.id, result.ready!.id, t.id, f)} />
+              )} />
               {result.ready.existing && (
                 <>
                   <fieldset className="choices" title="«Добавить»: объекты с теми же названиями заменяются, остальные сохраняются.">
@@ -849,8 +854,9 @@ function GghImport({ project, onProject }: { project: Project; onProject: (p: Pr
           {result.ready && (
             <div className="check-result">
               <div className="note info">{result.ready.text}</div>
-              <TableView table={{ ...result.ready.summary, collapsed: true }} onDownload={f => importApi.table(project.id, result.ready!.id, 'summary', f)} />
-              {result.ready.issues && <TableView table={result.ready.issues} onDownload={f => importApi.table(project.id, result.ready!.id, 'issues', f)} />}
+              <TableDock scope="import-ggh" tables={[result.ready.summary, ...(result.ready.issues ? [result.ready.issues] : [])]} render={t => (
+                <TableView table={t} docked onDownload={f => importApi.table(project.id, result.ready!.id, t.id, f)} />
+              )} />
               {result.ready.existing && (
                 <fieldset className="choices">
                   <legend>Что делать с уже загруженными данными ГГХ</legend>
