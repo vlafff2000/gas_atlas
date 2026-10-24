@@ -2,17 +2,22 @@
 
     python tools/build_unified.py windows --scripts ../all_scripts  ->  dist/PXG_Unified_portable_windows_x64.zip
     python tools/build_unified.py linux   --scripts ../all_scripts  ->  dist/PXG_Unified_portable_linux_x64.tar.gz
-    python tools/build_unified.py linux   --scripts ../all_scripts --code-only  ->  dist/PXG_Unified_code_update_linux_x64.tar.gz
+    python tools/build_unified.py linux   --scripts ../all_scripts --code-only --base-manifest dist/base_manifest.json
+                                                                    ->  dist/PXG_Unified_code_update_linux_x64.tar.gz
 
---code-only собирает только программы (без Python и библиотек): архив распаковывается поверх уже установленной папки.
-Отпечаток библиотек (VERSION_LIBS.txt) есть в обоих видах архива: если он не совпал, нужен полный архив.
+Полная сборка пишет base_manifest.json (что уже лежит в архиве: Python и библиотеки с версиями).
+--code-only собирает лёгкий архив обновления: программы и только НОВЫЕ библиотеки (их версии закреплены по манифесту).
+Если поменялись Python или версия уже установленной библиотеки, лёгкий архив не собирается: нужен полный архив.
 
 Runtime, wheels and the application files of Gas Atlas come from tools/build_portable.py (same pins, glibc 2.17 / Windows 10+);
 the files and launchers of the other apps come from a checkout of the repository all_scripts. The separate archives of both
 repositories are not touched.
 """
+import csv
 import hashlib
 import importlib.util
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +40,8 @@ def load(path, name):
 
 bp = load(HERE / 'build_portable.py', 'atlas_build_portable')
 NAME = 'PXG_Unified'
+BASE_MANIFEST = 'base_manifest.json'
+FULL_NEEDED = 'Нужен полный архив PXG_Unified_portable_*'
 SCRIPTS_INCLUDE = ['pxg_base', 'gsp_maps', 'pxg_core', 'schedule_pxg', 'tnav_results', 'apps']
 HUB_WINDOWS = {'PXG_Hub.bat': 'rem Все приложения ПХГ: меню (окно или браузер).\r\n"%~dp0python\\python.exe" -s -X utf8 -m pxg_hub %*'}
 HUB_LINUX = {'pxg_hub.sh': '# Все приложения ПХГ: меню в браузере. На РЕД ОС: bash pxg_hub.sh в этой папке.\nexec "$PY" -s -X utf8 -m pxg_hub --browser "$@"'}
@@ -111,23 +118,27 @@ def write_launchers(target, folder, sp):
         (folder / 'ПРОЧТИТЕ.txt').write_text(text, encoding='utf-8')
 
 
-UPDATE_NOTE = """Обновление программ ПХГ (без Python и библиотек)
-====================================================
+UPDATE_NOTE = """Обновление программ ПХГ (без Python)
+===================================
 
 1. Закройте меню ПХГ и все окна приложений.
-2. Распакуйте этот архив поверх папки PXG_Unified: файлы программ заменятся, папки python, Проект и storage не трогаются.
-3. Сравните VERSION_LIBS.txt из этого архива с файлом python/VERSION_LIBS.txt в вашей папке (в Windows python\\VERSION_LIBS.txt).
-   Совпадают: всё готово. Не совпадают: библиотеки изменились, скачайте полный архив PXG_Unified_portable_* и распакуйте его заново.
+2. Распакуйте этот архив поверх папки PXG_Unified: программы заменятся.
+3. Новые библиотеки, если они есть, уже внутри архива (список в LIBS_ADDED.txt): они добавятся в папку python.
+   Отдельно их распаковывать не нужно.
 
-Файлы, удалённые из программ, в папке остаются.
+Папки Проект и storage, а также остальной python не трогаются. Файлы, удалённые из программ, остаются.
+Если сборка сообщила «Нужен полный архив», скачайте PXG_Unified_portable_* и распакуйте его заново.
 """
 
 
+def norm(name):
+    return re.sub(r'[-_.]+', '-', name).lower()
+
+
 def write_fingerprint(folder, target, spec, libs):
-    """Отпечаток Python и библиотек: по нему видно, нужен ли полный архив, а не только обновление программ."""
+    """Отпечаток Python и библиотек полного архива, для справки."""
     digest = hashlib.sha256('\n'.join([spec['sha256'], '3.13.16'] + sorted(libs)).encode('utf-8')).hexdigest()[:16]
-    text = ('Отпечаток Python и библиотек: %s\n'
-            'Сравните с python/VERSION_LIBS.txt в установленной папке: если отличается, нужен полный архив PXG_Unified_portable_*.\n') % digest
+    text = 'Отпечаток Python и библиотек полного архива: %s\n' % digest
     (folder / 'VERSION_LIBS.txt').write_text(text, encoding='utf-8')
     print('Отпечаток библиотек: ' + digest, flush=True)
 
@@ -137,6 +148,92 @@ def write_update_note(folder, target):
         (folder / 'ОБНОВЛЕНИЕ.txt').write_bytes(UPDATE_NOTE.replace('\n', '\r\n').encode('utf-8-sig'))
     else:
         (folder / 'ОБНОВЛЕНИЕ.txt').write_text(UPDATE_NOTE, encoding='utf-8')
+
+
+def installed_dists(site):
+    """Пакеты в папке site: {имя в нижнем регистре: (имя из METADATA, версия, папка .dist-info)}."""
+    found = {}
+    for info in sorted(site.glob('*.dist-info')):
+        name = version = None
+        for line in (info / 'METADATA').read_text(encoding='utf-8', errors='replace').splitlines():
+            if line.startswith('Name: ') and name is None:
+                name = line[len('Name: '):].strip()
+            elif line.startswith('Version: ') and version is None:
+                version = line[len('Version: '):].strip()
+            if name and version:
+                break
+        found[norm(name)] = (name, version, info)
+    return found
+
+
+def write_base_manifest(out, target, spec, libs, site):
+    """Что уже лежит в полном архиве. По нему лёгкий архив решает, какие библиотеки добавить и когда нужен полный архив."""
+    data = {'target': target, 'runtime_sha256': spec['sha256'], 'requirements': sorted(libs),
+            'installed': {key: version for key, (name, version, info) in installed_dists(site).items()}}
+    out.mkdir(parents=True, exist_ok=True)
+    (out / BASE_MANIFEST).write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True), encoding='utf-8')
+    print('Манифест библиотек: %d пакетов' % len(data['installed']), flush=True)
+
+
+def load_base(path, target, spec, libs):
+    """Манифест последнего полного архива. Если поменялись Python или версии библиотек, лёгкий архив не собирается."""
+    if not path.is_file():
+        raise SystemExit(FULL_NEEDED + ': нет манифеста полного архива (запустите «Единый архив ПХГ» вручную)')
+    base = json.loads(path.read_text(encoding='utf-8'))
+    if base['target'] != target or base['runtime_sha256'] != spec['sha256']:
+        raise SystemExit(FULL_NEEDED + ': изменился Python')
+    changed = sorted(set(base['requirements']) - set(libs))
+    if changed:
+        raise SystemExit(FULL_NEEDED + ': изменились библиотеки: ' + ', '.join(changed[:10]))
+    return base
+
+
+def add_new_libraries(spec, libs, base, site, workdir):
+    """Ставит только новые библиотеки. Уже установленные закреплены на своих версиях (constraints), поэтому
+    новая библиотека не может молча заменить старую. Возвращает список добавленных пакетов и кладёт их файлы в site."""
+    known = set(base['requirements'])
+    new = [line for line in libs if line not in known]
+    if not new:
+        return []
+    constraints = workdir / 'constraints.txt'
+    constraints.write_text(''.join('%s==%s\n' % (key, version) for key, version in sorted(base['installed'].items())), encoding='utf-8')
+    reqs = workdir / 'new.txt'
+    reqs.write_text('\n'.join(new) + '\n', encoding='utf-8')
+    wheels = workdir / 'wheels'
+    wheels.mkdir()
+    for line in new:
+        if norm(re.match(r'[A-Za-z0-9._-]+', line).group(0)) in bp.SDIST_ONLY:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'wheel', '--disable-pip-version-check', '--no-deps', '--use-pep517',
+                                   '-w', str(wheels), line])
+    tmp_site = workdir / 'site'
+    command = [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-compile', '--target', str(tmp_site),
+               '--only-binary=:all:', '--python-version', '3.13', '--implementation', 'cp', '--abi', 'cp313',
+               '--find-links', str(wheels), '-c', str(constraints), '-r', str(reqs)]
+    for platform in spec['platforms']:
+        command += ['--platform', platform]
+    if subprocess.call(command) != 0:
+        raise SystemExit('Новые библиотеки не ставятся поверх установленных версий (см. вывод pip). '
+                         'Если причина в версиях, нужен полный архив PXG_Unified_portable_*.')
+    added = []
+    for key, (name, version, info) in sorted(installed_dists(tmp_site).items()):
+        if key in base['installed']:
+            if base['installed'][key] != version:
+                raise SystemExit(FULL_NEEDED + ': изменилась версия ' + name)
+            continue
+        added.append('%s==%s' % (name, version))
+        for row in csv.reader((info / 'RECORD').read_text(encoding='utf-8').splitlines()):
+            rel = row[0] if row else ''
+            if not rel or rel.startswith(('/', 'bin/')) or '..' in Path(rel).parts:
+                continue  # скрипты запуска и пути вне папки site в архив не идут
+            if (tmp_site / rel).is_file():
+                (site / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(tmp_site / rel), str(site / rel))
+    return added
+
+
+def write_added_note(folder, added):
+    text = ('Новые библиотеки, уже добавленные в папку python:\n' + '\n'.join(added) + '\n') if added else 'Новых библиотек нет.\n'
+    (folder / 'LIBS_ADDED.txt').write_text(text, encoding='utf-8')
 
 
 def compile_check(folder):
@@ -215,8 +312,11 @@ def main(argv=None):
     parser.add_argument('--scripts', default=str(ROOT.parent / 'all_scripts'), help='папка с репозиторием all_scripts')
     parser.add_argument('--out', default=str(ROOT / 'dist'))
     parser.add_argument('--cache', default=str(ROOT / 'build' / 'cache'))
-    parser.add_argument('--code-only', action='store_true', help='только программы, без Python и библиотек (архив обновления)')
+    parser.add_argument('--code-only', action='store_true', help='лёгкий архив обновления: программы и новые библиотеки')
+    parser.add_argument('--base-manifest', help='base_manifest.json последнего полного архива (нужен для --code-only)')
     args = parser.parse_args(argv)
+    if args.code_only and not args.base_manifest:
+        parser.error('для --code-only нужен --base-manifest')
     scripts = Path(args.scripts).resolve()
     sp = load(scripts / 'tools' / 'build_portable.py', 'scripts_build_portable')
 
@@ -229,11 +329,19 @@ def main(argv=None):
     lock_requirements = bp.requirements_for
     lock_names = {r.split('=')[0].lower() for r in lock_requirements(args.target)}
     extra = scripts_requirements(scripts, lock_names)
-    write_fingerprint(folder, args.target, spec, lock_requirements(args.target) + extra)
+    full_libs = lock_requirements(args.target) + extra
     bp.SKIP_TOOLS.add('tools/build_unified.py')
     bp.INCLUDE.append('pxg_hub')
+    bp.SDIST_ONLY.add('odfpy')
 
     if args.code_only:
+        base = load_base(Path(args.base_manifest), args.target, spec, full_libs)
+        python_dir = folder / 'python'
+        with tempfile.TemporaryDirectory() as tmp:
+            added = add_new_libraries(spec, full_libs, base, python_dir / spec['site'], Path(tmp))
+        if not added:
+            shutil.rmtree(str(python_dir), ignore_errors=True)
+        write_added_note(folder, added)
         bp.copy_application(folder)
         copy_scripts(scripts, folder)
         write_launchers(args.target, folder, sp)
@@ -245,18 +353,19 @@ def main(argv=None):
         shutil.rmtree(str(build), ignore_errors=True)
         return 0
 
+    write_fingerprint(folder, args.target, spec, full_libs)
     runtime = bp.fetch(spec['url'], spec['sha256'], Path(args.cache))
     python_dir = folder / 'python'
     python_dir.mkdir(parents=True)
     bp.unpack_runtime(args.target, runtime, python_dir)
     shutil.copy2(str(folder / 'VERSION_LIBS.txt'), str(python_dir / 'VERSION_LIBS.txt'))  # в python/ код-архив не заходит
 
-    bp.SDIST_ONLY.add('odfpy')
-    bp.requirements_for = lambda target: lock_requirements(target) + extra
+    bp.requirements_for = lambda target: full_libs
     with tempfile.TemporaryDirectory() as tmp:
         bp.install_packages(args.target, python_dir / spec['site'], Path(tmp))
     for stray in (python_dir / spec['site']).glob('*.whl'):  # копии колёс в site-packages ничего не импортируют
         stray.unlink()
+    write_base_manifest(Path(args.out), args.target, spec, full_libs, python_dir / spec['site'])
     bp.copy_application(folder)
     copy_scripts(scripts, folder)
     write_launchers(args.target, folder, sp)

@@ -1,0 +1,72 @@
+name: Архив обновления ПХГ
+# Лёгкий архив (~6 МБ): программы и новые библиотеки, без Python и уже установленных библиотек. Распаковывается поверх PXG_Unified.
+# Запускается сам после push с изменениями программ в ветке gas_atlas и раз в сутки (изменения all_scripts), а также вручную.
+# Если поменялись Python или версии библиотек, сборка падает с сообщением «Нужен полный архив»: тогда запустите «Единый архив ПХГ».
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/python-backend-ui-update-zdhgen]
+    paths: ['atlas/**', 'pxg_hub/**', 'tools/**', 'requirements-lock-py313.txt']
+  schedule:
+    - cron: '17 3 * * *'
+concurrency:
+  group: update-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  code-update:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: windows, os: windows-2022}
+          - {target: linux, os: ubuntu-22.04}
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gas_atlas
+      - uses: actions/checkout@v4
+        with:
+          repository: vlafff2000/all_scripts
+          path: all_scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Манифест последнего полного архива (что уже лежит в архиве у пользователя)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p base
+          run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow portable.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -n "$run" ]; then gh run download "$run" --repo "$GITHUB_REPOSITORY" -n Base_manifest_${{ matrix.target }} -D base; fi
+          ls base || true
+      - name: Build code update (programs and new libraries; fails with «Нужен полный архив» when libraries changed)
+        run: cd gas_atlas && python tools/build_unified.py ${{ matrix.target }} --scripts ../all_scripts --code-only --base-manifest ../base/base_manifest.json
+      - name: The update has the programs and only the new libraries
+        run: |
+          cd gas_atlas/dist
+          FILE=$(ls PXG_Unified_code_update_*)
+          python - "$FILE" "${{ matrix.target }}" <<'PYEOF'
+          import sys, zipfile, tarfile
+          path, target = sys.argv[1], sys.argv[2]
+          names = zipfile.ZipFile(path).namelist() if path.endswith('.zip') else tarfile.open(path).getnames()
+          site = 'python/Lib/site-packages/' if target == 'windows' else 'python/lib/python3.13/site-packages/'
+          bad = [n for n in names if (n.startswith('python/') and not n.startswith(site)) or n.startswith(('Проект/', 'storage/'))]
+          assert not bad, bad[:10]
+          for need in ('pxg_hub/hub.py', 'ОБНОВЛЕНИЕ.txt', 'LIBS_ADDED.txt'):
+              assert need in names, need
+          print(len(names), 'записей; новые библиотеки:', sum(n.startswith(site) and n.endswith('.dist-info/METADATA') for n in names))
+          PYEOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PXG_Unified_code_update_${{ matrix.target }}
+          path: gas_atlas/dist/PXG_Unified_code_update_*
+          compression-level: 0
