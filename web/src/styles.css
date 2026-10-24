@@ -451,3 +451,17 @@ button.quiet.on { color: var(--accent-strong); border-color: var(--accent); back
 /* объединённая шапка таблицы (итоговая таблица по объектам) */
 thead tr.header-group th { position: static; padding: 4px 8px; text-align: center; font-weight: 600; font-size: 12px; }
 thead tr.header-group th.group-label { border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+
+/* Единая область таблиц */
+.table-dock { display: grid; gap: 10px; }
+.dock-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.dock-tabs, .dock-layout { display: flex; flex-wrap: wrap; gap: 6px; }
+.dock-layout { margin-left: auto; }
+.dock-tab { padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 14px; cursor: pointer; }
+.dock-tab.on { background: var(--accent-soft, var(--head-bg)); border-color: var(--accent, var(--line)); font-weight: 600; }
+.dock-layout .quiet.on { background: var(--head-bg); font-weight: 600; }
+.dock-body { display: grid; gap: 16px; align-items: start; }
+.dock-body.dock-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dock-item[hidden] { display: none; }
+.dock-item { min-width: 0; }
+@media (max-width: 1100px) { .dock-body.dock-cols { grid-template-columns: minmax(0, 1fr); } }
