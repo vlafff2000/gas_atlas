@@ -131,8 +131,17 @@ def cubes(stub, monkeypatch):
     ind = types.SimpleNamespace(
         load_model=lambda path: model,
         pick_step=lambda steps, want: min(steps, key=lambda s: abs(s.date - want)),
-        gas_pore_volume=lambda m, porv, sg, thr: types.SimpleNamespace(total=2_000_000.0 * sum(sg)),
+        gas_pore_volume=lambda m, porv, sg, thr, weight=None: types.SimpleNamespace(total=2_000_000.0 * sum(weight or sg)),
         gwc_map=lambda m, sg, thr: {(0, 0): 1.0}, gwc_stats=lambda m, g: types.SimpleNamespace(columns=1, mean=1500.0, mean_area=1510.0, min=1490.0, max=1520.0))
+    # подставной модуль критерия: логика «Sg > порога», как пресет по умолчанию
+    crit = lambda logic='sg', value=0.01, fallback=0.01: types.SimpleNamespace(logic=logic, value=value, fallback=fallback)
+    gc = types.SimpleNamespace(
+        DEFAULT_MODEL_PRESET='sg_threshold', preset=lambda pid: crit(), from_dict=lambda d, default: crit(**d) if d else default,
+        to_dict=lambda c: {'logic': c.logic, 'value': c.value, 'fallback': c.fallback}, formula=lambda c: 'газ: Sg > %g' % c.value,
+        label=lambda c: 'Sg > %g' % c.value, PRESETS=[], prepare=lambda m, init, c: c,
+        step_arrays=lambda m, unrst, step, prep: None if files.read_restart_keyword(unrst, step, 'SGAS') is None
+        else (files.read_restart_keyword(unrst, step, 'SGAS'), prep.value, files.read_restart_keyword(unrst, step, 'SGAS')))
+    monkeypatch.setattr(model_source, '_gc', lambda: gc)
     FAKE.update(steps=steps, cube=cube, calls=[])
     par = types.SimpleNamespace(map_steps=lambda fn, m, todo, ctx, egrid: FAKE['calls'].append(len(todo)) or [fn(m, s, ctx) for s in todo])
     monkeypatch.setattr(model_source, '_indicators', lambda: (ind, files, par))
@@ -273,3 +282,13 @@ def test_cell_pair_on_two_dates(cubes):
     assert (late.dp - (late.p_d2 - late.p_d1)).abs().max() < 1e-9
     assert model_source.column_meta('sg_d1')[0] == 'Газонасыщенность ячейки (модель) на 2025-01-01'
     assert 'изменение 2025-01-01 → 2025-07-01' in model_source.column_meta('dsg')[0]
+
+
+def test_criterion_key_keeps_old_cache_name_and_criterion_from_settings(stub, monkeypatch):
+    gc_mod = types.SimpleNamespace(DEFAULT_MODEL_PRESET='x', preset=lambda pid: types.SimpleNamespace(logic='sg', value=0.01, fallback=0.01),
+                                   from_dict=lambda d, default: types.SimpleNamespace(logic=d['logic'], value=d['value'], fallback=d['fallback']) if d else default)
+    monkeypatch.setattr(model_source, '_gc', lambda: gc_mod)
+    assert model_source._crit_key(types.SimpleNamespace(logic='sg', value=0.01, fallback=0.5)) == '0.01'     # прежнее имя файла кэша
+    assert model_source._crit_key(types.SimpleNamespace(logic='sw_swcr', value=0.0, fallback=0.01)) == 'sw_swcr:0.0:0.01'
+    assert model_source.criterion_of({}).value == 0.01
+    assert model_source.criterion_of({'model_criterion': {'logic': 'sg_sgcr', 'value': 0.1, 'fallback': 0.01}}).logic == 'sg_sgcr'

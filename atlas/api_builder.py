@@ -130,7 +130,7 @@ def routes(projects, E) -> list[Route]:
 
     def refresh_cubes(request, body):
         cfg = settings_of(request)
-        model_source.forget_cubes(model_source.sources_of(cfg))
+        model_source.forget_cubes(model_source.sources_of(cfg), model_source.criterion_of(cfg))
         return model_source.listing(model_source.sources_of(cfg), model_source.cubes_on(cfg), model_source.cubes_range(cfg), model_source.cells_of(cfg))
 
     def restarts(request, body):
@@ -145,6 +145,9 @@ def routes(projects, E) -> list[Route]:
     def models(request, body):
         cfg = settings_of(request)
         return model_source.listing(model_source.sources_of(cfg), model_source.cubes_on(cfg), model_source.cubes_range(cfg), model_source.cells_of(cfg))
+
+    def criterion_info(request, body):
+        return model_source.criterion_view(model_source.criterion_of(settings_of(request)))
 
     def choose_models(request, body):
         picked = body.get('selected')
@@ -165,6 +168,11 @@ def routes(projects, E) -> list[Route]:
                 cfg[key] = text
         if 'cells' in body:
             cfg[model_source.CELLS_KEY] = clean_cells(body['cells'])
+        if 'criterion' in body:
+            try:
+                cfg[model_source.CRITERION_KEY] = model_source.criterion_clean(body['criterion'])
+            except ValueError as e:
+                raise ParamError(str(e)) from None
         if all(model_source.cubes_range(cfg)) and model_source.cubes_range(cfg)[0] > model_source.cubes_range(cfg)[1]:
             raise ParamError('Рестарты «с» не могут быть позже «по»')
         save(request, cfg, {'action': 'модели ГДМ в конструкторе', 'count': len(picked)})
@@ -173,6 +181,7 @@ def routes(projects, E) -> list[Route]:
     base = '/api/projects/{pid}/builder'
     return [
         Route(base + '/layouts', E(listing), methods=['GET']),
+        Route(base + '/criterion', E(criterion_info), methods=['GET']),
         Route(base + '/layouts', E(create), methods=['POST']),
         Route(base + '/layouts/import', E(import_file), methods=['POST']),
         Route(base + '/layouts/file', E(export_file), methods=['POST']),

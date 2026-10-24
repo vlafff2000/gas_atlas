@@ -23,6 +23,7 @@ CUBES_KEY = 'model_cubes'        # True — считать кубы выбран
 CELLS_KEY = 'model_cells'        # {'dates': ['ГГГГ-ММ-ДД', …], 'k_from': 1, 'k_to': 0 (до низа), 'max_points': 20000}
 MAX_CELL_DATES = 6
 CELLS_DEFAULT = {'dates': [], 'k_from': 1, 'k_to': 0, 'max_points': 20000}
+CRITERION_KEY = 'model_criterion'     # критерий газа для ГВК и объёма по кубам: {logic, value, fallback}; пусто — пресет по умолчанию
 CUBES_RANGE = ('model_cubes_from', 'model_cubes_to')     # рестарты с … по … (включительно, 'ГГГГ-ММ-ДД'); пусто — без границы
 SG_THRESHOLD = 0.01              # порог газонасыщенности: значение заказчика, как в ГДМ
 FIELD_NAME = ':+:+:+:+'          # у векторов объекта в WGNAMES стоит этот заполнитель, скважины там нет
@@ -104,6 +105,38 @@ def _indicators():
     except ImportError as e:
         raise ModelUnavailable('Не найдена читалка tNavigator (пакет tnav_results из all_scripts).') from e
     return indicators, files, parallel
+
+
+def _gc():
+    try:
+        from tnav_results import gwc_criterion
+    except ImportError as e:
+        raise ModelUnavailable('Не найдена читалка tNavigator (пакет tnav_results из all_scripts).') from e
+    return gwc_criterion
+
+
+def criterion_of(settings: Mapping[str, Any]):
+    """Критерий газа проекта; без настройки — пресет «Sg > 0,01», как и раньше."""
+    gc = _gc()
+    return gc.from_dict(settings.get(CRITERION_KEY), gc.preset(gc.DEFAULT_MODEL_PRESET))
+
+
+def criterion_clean(body) -> dict:
+    """Критерий из формы (число можно с запятой); неверный — ValueError с текстом для пользователя."""
+    gc = _gc()
+    return gc.to_dict(gc.from_dict(body if isinstance(body, dict) else None, gc.preset(gc.DEFAULT_MODEL_PRESET)))
+
+
+def criterion_view(c) -> dict:
+    """Критерий, его формула и пресеты для выпадающего списка."""
+    gc = _gc()
+    return {'criterion': gc.to_dict(c), 'formula': gc.formula(c), 'label': gc.label(c),
+            'presets': [{**p, 'formula': gc.formula(gc.preset(p['id']))} for p in gc.PRESETS]}
+
+
+def _crit_key(c) -> str:
+    """Часть имени файла кэша. Для логики «Sg > порога» совпадает с прежним ключом (старый кэш остаётся годным)."""
+    return f'{c.value}' if c.logic == 'sg' else f'{c.logic}:{c.value}:{c.fallback}'
 
 
 def _tnav():
@@ -245,19 +278,21 @@ def _cube_row(model, step, ctx):
     """Показатели объекта на одном шаге рестарта (None — на шаге нет SGAS). Функция верхнего уровня: считается в процессах."""
     import numpy as np
     ind, files, _ = _indicators()
-    unrst, threshold, porv, factor = ctx
-    sg = files.read_restart_keyword(unrst, step, 'SGAS')
-    if sg is None:
+    gc = _gc()
+    unrst, prep, porv, factor = ctx
+    arrs = gc.step_arrays(model, unrst, step, prep)
+    if arrs is None:
         return None
+    q, thr, sg = arrs
     w = np.asarray(porv[:model.n_active], dtype=float)
     total = float(w.sum())
-    row = {'date': step.date, 'gpv': ind.gas_pore_volume(model, porv, sg, threshold).total / 1e6}
+    row = {'date': step.date, 'gpv': ind.gas_pore_volume(model, porv, q, thr, weight=sg).total / 1e6}
     if total > 0:
         row['sg_avg'] = float((np.asarray(model.to_units(sg, 'Sg')[0], dtype=float) * w).sum() / total)
         p = files.read_restart_keyword(unrst, step, 'PRESSURE')
         if p is not None:
             row['p_avg'] = float((np.asarray(model.to_units(p, 'PRESSURE')[0], dtype=float) * w).sum() / total * factor)
-    stats = ind.gwc_stats(model, ind.gwc_map(model, sg, threshold))
+    stats = ind.gwc_stats(model, ind.gwc_map(model, q, thr))
     if stats.columns:
         row.update(gwc_mean=-stats.mean, gwc_area=-stats.mean_area, gwc_min=-stats.max, gwc_max=-stats.min)    # глубина вниз → а.о. со знаком минус
     return row
@@ -271,10 +306,10 @@ def _disk_dir() -> str:
     return os.path.join(home, 'model_cache')
 
 
-def _disk_path(found: Mapping[str, str], threshold: float) -> str:
+def _disk_path(found: Mapping[str, str], criterion) -> str:
     """Файл кэша шагов одной модели. Ключ: сетка и INIT (путь, размер, время), путь к рестарту и начало рестарта. Рестарт при дозаписи
     только растёт, начало не меняется, поэтому посчитанные шаги остаются верными; пересчитанная модель меняет начало и ключ."""
-    parts = [f'{threshold}']
+    parts = [_crit_key(criterion)]
     for kind in ('EGRID', 'INIT'):
         f = found[kind]
         parts += [os.path.abspath(f), str(os.path.getsize(f)), str(os.path.getmtime(f))]
@@ -312,12 +347,12 @@ def _step_key(step) -> str:
     return f'{getattr(step, "seqnum", "")}|{pd.Timestamp(step.date):%Y-%m-%dT%H:%M:%S}'
 
 
-def forget_cubes(anchors: list[str]) -> int:
+def forget_cubes(anchors: list[str], criterion=None) -> int:
     """Сбрасывает сохранённые шаги кубов выбранных моделей (память и диск): следующее чтение считает всё заново."""
     removed = 0
     for anchor in anchors:
         try:
-            os.remove(_disk_path(_cube_files(anchor), SG_THRESHOLD))
+            os.remove(_disk_path(_cube_files(anchor), criterion or _gc().preset(_gc().DEFAULT_MODEL_PRESET)))
             removed += 1
         except (OSError, ModelUnavailable):
             pass
@@ -326,11 +361,13 @@ def forget_cubes(anchors: list[str]) -> int:
     return removed
 
 
-def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', '')) -> pd.DataFrame:
-    """Показатели объекта по датам рестарта одной модели (кэш по размеру и времени файлов)."""
+def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', ''), criterion=None) -> pd.DataFrame:
+    """Показатели объекта по датам рестарта одной модели (кэш по размеру и времени файлов и критерию газа)."""
     ind, files, parallel = _indicators()
+    gc = _gc()
+    criterion = criterion or gc.preset(gc.DEFAULT_MODEL_PRESET)
     found = _cube_files(anchor)
-    key = ('cubes', span, *(v for f in found.values() for v in (f, os.path.getmtime(f), os.path.getsize(f))))
+    key = ('cubes', span, _crit_key(criterion), *(v for f in found.values() for v in (f, os.path.getmtime(f), os.path.getsize(f))))
     with _lock:
         if key in _cache:
             return _cache[key]
@@ -342,7 +379,7 @@ def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', '')) -
                  if s.date is not None and (low is None or pd.Timestamp(s.date) >= low) and (high is None or pd.Timestamp(s.date) < high)]
         if not steps:
             raise ModelUnavailable(f'В рестарте «{os.path.basename(found["UNRST"])}» нет шагов в выбранных датах')
-        disk = _disk_path(found, SG_THRESHOLD)
+        disk = _disk_path(found, criterion)
         saved = _disk_load(disk)
         todo = [s for s in steps if _step_key(s) not in saved]
         if todo:                                                       # на диске нет только новых шагов
@@ -350,7 +387,8 @@ def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', '')) -
             porv = [v for part in model.to_units(porv_raw, 'PORV', 'sum') for v in part]
             head = files.read_restart_keyword(found['UNRST'], todo[0], 'INTEHEAD')
             factor = _PRESSURE_BY_UNITS.get(int(head[2]), 1.0) if head is not None else 1.0
-            fresh = parallel.map_steps(_cube_row, model, todo, (found['UNRST'], SG_THRESHOLD, porv, factor), found['EGRID'])
+            prep = gc.prepare(model, found['INIT'], criterion)
+            fresh = parallel.map_steps(_cube_row, model, todo, (found['UNRST'], prep, porv, factor), found['EGRID'])
             for step, row in zip(todo, fresh):
                 saved[_step_key(step)] = None if row is None else {**row, 'date': f'{pd.Timestamp(row["date"]):%Y-%m-%dT%H:%M:%S}'}
             _disk_save(disk, saved)
@@ -371,7 +409,7 @@ def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', '')) -
     return frame
 
 
-def cubes_frame(anchors: list[str], span: tuple[str, str] = ('', '')) -> tuple[pd.DataFrame | None, list[str]]:
+def cubes_frame(anchors: list[str], span: tuple[str, str] = ('', ''), criterion=None) -> tuple[pd.DataFrame | None, list[str]]:
     parts, notes = [], []
     try:
         _, catalog = _tnav()
@@ -380,7 +418,7 @@ def cubes_frame(anchors: list[str], span: tuple[str, str] = ('', '')) -> tuple[p
         return None, [str(e)]
     for anchor in anchors:
         try:
-            parts.append(read_cubes(anchor, names.get(anchor) or catalog.model_name(anchor), span))
+            parts.append(read_cubes(anchor, names.get(anchor) or catalog.model_name(anchor), span, criterion))
         except ModelUnavailable as e:
             notes.append(str(e))
     return (pd.concat(parts, ignore_index=True) if parts else None), notes
