@@ -6,6 +6,7 @@ import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
 import { PassportPage } from './PassportPage'
 import { TableView } from './TableView'
+import { TableDock } from './TableDock'
 import { formatDate } from './format'
 import { inMenu, PROJECT_PAGES, projectsApi, saveLink } from './api_projects'
 import { ProjectPages } from './ProjectPage'
@@ -470,14 +471,14 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               )}
             </>
           )}
-          {result.tables.map(t => (
-            <TableView key={t.id} table={t} mapLink={mapLink}
+          <TableDock tables={result.tables} scope={spec.id} render={t => (
+            <TableView key={t.id} table={t} mapLink={mapLink} docked
               onDownload={format => api.exportTables(spec.id, project.id, params, t.id, format)}
               onLoad={t.deferred ? () => api.table(spec.id, project.id, params, t.id) : undefined}
               onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
               onAssign={t.action?.kind !== 'assign' ? undefined : t.action.target === 'object-categories' ? assignCategories
                 : t.action.target === 'well-categories' ? assignWellCategories : assignGroups} />
-          ))}
+          )} />
         </div>
       )}
       </div>

@@ -19,10 +19,11 @@ interface Props {
   onLoad?: () => Promise<Table>      // для таблицы с `deferred`: полные строки
   onRow?: (index: number) => void    // щелчок по строке (индекс в исходной таблице); для журнала проверки импорта
   rowOpen?: (index: number) => boolean   // строку можно открыть (иначе щелчок не работает)
+  docked?: boolean                   // внутри единой области таблиц: без сворачивания, большая таблица грузится при показе
   mapLink?: (well: string) => string | null   // «Скважина» в ячейке ведёт на Карты ГСП (если скважина есть в проекте)
 }
 
-export function TableView({ table: given, onDownload, onApply, onAssign, onLoad, onRow, rowOpen, mapLink }: Props) {
+export function TableView({ table: given, onDownload, onApply, onAssign, onLoad, onRow, rowOpen, mapLink, docked }: Props) {
   const [loaded, setLoaded] = useState<Table | null>(null)
   const [loading, setLoading] = useState(false)
   useEffect(() => { setLoaded(null) }, [given])
@@ -39,6 +40,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
     setLoading(true)
     onLoad().then(setLoaded).catch(e => setFailure((e as Error).message)).finally(() => setLoading(false))
   }
+  useEffect(() => { if (docked) load(true) }, [docked, given])   // eslint-disable-line react-hooks/exhaustive-deps
   const [sort, setSort] = useState<{ col: number; dir: 1 | -1 } | null>(null)
   const [limit, setLimit] = useState(PAGE)
   const action = table.action?.kind === 'exclude' ? table.action : null
@@ -124,7 +126,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
 
   const body = (
     <>
-      {table.count === 0 ? <p className="muted table-empty">Нет строк для выбранных условий.</p> : (
+      {table.deferred && !loaded ? <p className="muted table-empty">{failure || 'Загружаю строки…'}</p> : table.count === 0 ? <p className="muted table-empty">Нет строк для выбранных условий.</p> : (
         <div className="table-scroll">
           <table className={(action ? 'has-check' : '') + (table.columns.length > 2 ? ' frozen' : '')}>
             <thead>
@@ -229,7 +231,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
     </>
   )
 
-  return table.collapsed ? (
+  return table.collapsed && !docked ? (
     <details className="table-block" onToggle={e => load((e.currentTarget as HTMLDetailsElement).open)}>
       <summary className="block-head">{head}</summary>
       {table.deferred ? <p className="muted table-empty">{failure || 'Загружаю строки…'}</p> : body}
