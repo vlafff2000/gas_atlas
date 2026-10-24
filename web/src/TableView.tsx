@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { Assignments, Cell, Column, Table } from './api'
 import { formatCell } from './format'
-import { tableBars, usePref } from './chartPrefs'
+import { tableBars, tableSync, usePref } from './chartPrefs'
+import { nextSyncId, publish, subscribe, synced } from './chartSync'
 
 const PAGE = 500
 
@@ -9,6 +10,12 @@ function compare(a: Cell, b: Cell) {
   if (typeof a === 'number' && typeof b === 'number') return a - b
   return String(a).localeCompare(String(b), 'ru', { numeric: true })
 }
+const cellTime = (v: Cell) => {
+  if (typeof v !== 'string' || !v) return null
+  const t = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(v) || !v.includes('T') ? v : v + 'Z')
+  return Number.isFinite(t) ? t : null
+}
+const DAY = 86_400_000
 const blank = (v: Cell) => v === null || v === ''
 
 interface Props {
@@ -41,6 +48,33 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
     onLoad().then(setLoaded).catch(e => setFailure((e as Error).message)).finally(() => setLoading(false))
   }
   useEffect(() => { if (docked) load(true) }, [docked, given])   // eslint-disable-line react-hooks/exhaustive-deps
+  // Связь с графиками по времени: общий курсор (chartSync) ↔ строки таблицы с датой
+  const syncOn = usePref(tableSync)
+  const dateCol = table.columns.findIndex(c => c.kind === 'date')
+  const times = useMemo(() => dateCol < 0 ? [] : table.rows[dateCol].map(cellTime), [table, dateCol])
+  const myId = useRef(0)
+  if (!myId.current) myId.current = nextSyncId()
+  const [cursor, setCursor] = useState<number | null>(null)
+  useEffect(() => {
+    if (dateCol < 0 || !syncOn) { setCursor(null); return }
+    const read = () => { const s = synced(); setCursor(s && s.source !== myId.current && s.key === 'time' ? s.x : null) }
+    read()
+    return subscribe(read)
+  }, [dateCol, syncOn])
+  useEffect(() => () => publish(myId.current, null, null), [])
+  const near = useMemo(() => {     // ближайшая дата к курсору графика: все строки с этой датой (не дальше суток)
+    if (cursor === null) return new Set<number>()
+    let best = Infinity
+    times.forEach(t => { if (t !== null) best = Math.min(best, Math.abs(t - cursor)) })
+    return best > DAY ? new Set<number>() : new Set(times.flatMap((t, i) => t !== null && Math.abs(t - cursor) <= best ? [i] : []))
+  }, [cursor, times])
+  const scroller = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const row = scroller.current?.querySelector<HTMLElement>('tr.is-synced'), box = scroller.current
+    if (!row || !box) return
+    const top = row.offsetTop, h = row.offsetHeight
+    if (top < box.scrollTop + 40 || top + h > box.scrollTop + box.clientHeight) box.scrollTop = Math.max(0, top - box.clientHeight / 2)
+  }, [near])
   const [sort, setSort] = useState<{ col: number; dir: 1 | -1 } | null>(null)
   const [limit, setLimit] = useState(PAGE)
   const action = table.action?.kind === 'exclude' ? table.action : null
@@ -127,7 +161,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
   const body = (
     <>
       {table.deferred && !loaded ? <p className="muted table-empty">{failure || 'Загружаю строки…'}</p> : table.count === 0 ? <p className="muted table-empty">Нет строк для выбранных условий.</p> : (
-        <div className="table-scroll">
+        <div className="table-scroll" ref={scroller} onMouseLeave={syncOn && dateCol >= 0 ? () => publish(myId.current, null, null) : undefined}>
           <table className={(action ? 'has-check' : '') + (table.columns.length > 2 ? ' frozen' : '')}>
             <thead>
               {table.header?.map((row, r) => (
@@ -154,7 +188,8 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
                 const on = id !== undefined && checked.has(id)
                 const changed = (id !== undefined && on !== initial.has(id)) || rowChanged(i)
                 return (
-                  <tr key={i} className={(on ? 'is-excluded' : '') + (changed ? ' is-changed' : '') + (onRow && (!rowOpen || rowOpen(i)) ? ' clickable' : '')}
+                  <tr key={i} className={(on ? 'is-excluded' : '') + (changed ? ' is-changed' : '') + (near.has(i) ? ' is-synced' : '') + (onRow && (!rowOpen || rowOpen(i)) ? ' clickable' : '')}
+                      onMouseEnter={syncOn && times[i] != null ? () => publish(myId.current, 'time', times[i]) : undefined}
                       onClick={onRow && (!rowOpen || rowOpen(i)) ? () => onRow(i) : undefined}
                       title={onRow && (!rowOpen || rowOpen(i)) ? 'Открыть эту строку в таблице файла' : undefined}>
                     {action && id !== undefined && (
@@ -218,6 +253,10 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
       <h3>{table.title}</h3>
       <span className="muted">{table.count} строк</span>
       <span className="head-actions">
+        {dateCol >= 0 && (
+          <button type="button" className={'quiet small' + (syncOn ? ' on' : '')} aria-pressed={syncOn}
+            onClick={e => { e.preventDefault(); tableSync.set(!syncOn) }} title="Связь с графиками по времени: курсор графика подсвечивает строку таблицы, наведение на строку ставит курсор на графики">Связь с графиком</button>
+        )}
         {hasBars && (
           <button type="button" className={'quiet small' + (bars ? ' on' : '')} aria-pressed={bars}
             onClick={e => { e.preventDefault(); tableBars.set(!bars) }} title="Полоски в числовых ячейках: величина относительно столбца">Полоски</button>

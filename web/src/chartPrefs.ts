@@ -67,6 +67,9 @@ export const paramsCollapsed = pref<boolean>('atlas.params.collapsed', false)
 export const tableBars = pref<boolean>('atlas.table.bars', true)
 
 /** Общий масштаб по времени: прокрутка бегунка на одном графике двигает все графики по времени. */
+/** Связь таблицы с графиками по времени: курсор на графике подсвечивает строку, наведение на строку ставит курсор на графики. */
+export const tableSync = pref<boolean>('atlas.table.sync', true, raw => raw !== 'false')
+
 export const zoomSync = pref<boolean>('atlas.chart.zoomSync', true)
 
 /** Ручные границы шкал Y по графикам (ключ — заголовок и подписи осей): помнятся между запусками. */

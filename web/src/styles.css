@@ -465,3 +465,7 @@ thead tr.header-group th.group-label { border-left: 1px solid var(--line); borde
 .dock-item[hidden] { display: none; }
 .dock-item { min-width: 0; }
 @media (max-width: 1100px) { .dock-body.dock-cols { grid-template-columns: minmax(0, 1fr); } }
+
+tr.is-synced td { background: var(--accent-soft); }
+tr.is-synced td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+table.frozen tbody tr.is-synced td:first-child { background: var(--accent-soft); }
