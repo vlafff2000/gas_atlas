@@ -130,7 +130,8 @@ def routes(projects, E) -> list[Route]:
 
     def refresh_cubes(request, body):
         cfg = settings_of(request)
-        model_source.forget_cubes(model_source.sources_of(cfg), model_source.criterion_of(cfg))
+        for crit in model_source.criterion_list_of(cfg):
+            model_source.forget_cubes(model_source.sources_of(cfg), crit)
         return model_source.listing(model_source.sources_of(cfg), model_source.cubes_on(cfg), model_source.cubes_range(cfg), model_source.cells_of(cfg))
 
     def restarts(request, body):
@@ -147,7 +148,8 @@ def routes(projects, E) -> list[Route]:
         return model_source.listing(model_source.sources_of(cfg), model_source.cubes_on(cfg), model_source.cubes_range(cfg), model_source.cells_of(cfg))
 
     def criterion_info(request, body):
-        return model_source.criterion_view(model_source.criterion_of(settings_of(request)))
+        cfg = settings_of(request)
+        return {**model_source.criterion_view(model_source.criterion_of(cfg)), 'variants': cfg.get(model_source.VARIANTS_KEY) or []}
 
     def choose_models(request, body):
         picked = body.get('selected')
@@ -168,11 +170,13 @@ def routes(projects, E) -> list[Route]:
                 cfg[key] = text
         if 'cells' in body:
             cfg[model_source.CELLS_KEY] = clean_cells(body['cells'])
-        if 'criterion' in body:
-            try:
+        try:
+            if 'criterion' in body:
                 cfg[model_source.CRITERION_KEY] = model_source.criterion_clean(body['criterion'])
-            except ValueError as e:
-                raise ParamError(str(e)) from None
+            if 'criterion_variants' in body:
+                cfg[model_source.VARIANTS_KEY] = model_source.variants_clean(body['criterion_variants'])
+        except ValueError as e:
+            raise ParamError(str(e)) from None
         if all(model_source.cubes_range(cfg)) and model_source.cubes_range(cfg)[0] > model_source.cubes_range(cfg)[1]:
             raise ParamError('Рестарты «с» не могут быть позже «по»')
         save(request, cfg, {'action': 'модели ГДМ в конструкторе', 'count': len(picked)})

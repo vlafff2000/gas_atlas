@@ -232,12 +232,16 @@ export interface SeriesWells {
 export interface ModelItem { id: string; name: string; folder: string; selected: boolean; indicators: boolean }
 export interface ModelList { available: boolean; error: string; folders: string[]; models: ModelItem[]; cubes: boolean; cubes_from: string; cubes_to: string; cells: CellsConfig }
 export interface CellsConfig { dates: string[]; k_from: number; k_to: number; max_points: number }
+export interface CriterionCfg { logic: string; value: number; fallback: number }
+export interface CriterionPreset extends CriterionCfg { id: string; title: string; formula: string }
+export interface CriterionView { criterion: CriterionCfg; formula: string; label: string; max_variants: number; presets: CriterionPreset[]; variants: CriterionCfg[] }
 export const builderApi = {
   refreshCubes: (project: string) => request<ModelList>(`/api/projects/${project}/builder/models/refresh`, json('POST', {})),
   restarts: (project: string, model: string) =>
     request<{ dates: string[] }>(`/api/projects/${project}/builder/models/restarts?model=${encodeURIComponent(model)}`),
   models: (project: string) => request<ModelList>(`/api/projects/${project}/builder/models`),
-  chooseModels: (project: string, selected: string[], extra: { cubes?: boolean; cubes_from?: string; cubes_to?: string; cells?: CellsConfig } = {}) =>
+  criterion: (project: string) => request<CriterionView>(`/api/projects/${project}/builder/criterion`),
+  chooseModels: (project: string, selected: string[], extra: { cubes?: boolean; cubes_from?: string; cubes_to?: string; cells?: CellsConfig; criterion?: CriterionCfg; criterion_variants?: CriterionCfg[] } = {}) =>
     request<ModelList>(`/api/projects/${project}/builder/models`, json('POST', { selected, ...extra })),
   seriesWells: (project: string, layout: unknown) =>
     request<SeriesWells>(`/api/projects/${project}/builder/series/wells`, json('POST', { layout })),

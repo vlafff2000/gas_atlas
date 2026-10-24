@@ -292,3 +292,15 @@ def test_criterion_key_keeps_old_cache_name_and_criterion_from_settings(stub, mo
     assert model_source._crit_key(types.SimpleNamespace(logic='sw_swcr', value=0.0, fallback=0.01)) == 'sw_swcr:0.0:0.01'
     assert model_source.criterion_of({}).value == 0.01
     assert model_source.criterion_of({'model_criterion': {'logic': 'sg_sgcr', 'value': 0.1, 'fallback': 0.01}}).logic == 'sg_sgcr'
+
+
+def test_criterion_variants_each_get_own_row(cubes):
+    var_a = types.SimpleNamespace(logic='sg', value=0.01, fallback=0.01)
+    var_b = types.SimpleNamespace(logic='sg', value=0.2, fallback=0.01)
+    frame, notes = model_source.cubes_frame([cubes], ('', ''), [var_a, var_b])
+    assert not notes
+    models = set(frame.model)
+    assert len(models) == 2 and all(' · ' in m for m in models)                  # у каждого варианта своя строка
+    assert {m.split(' · ')[-1] for m in models} == {'Sg > 0.01', 'Sg > 0.2'}
+    one, _ = model_source.cubes_frame([cubes], ('', ''), [var_a])
+    assert ' · ' not in one.model.iloc[0]                                          # один критерий — имя модели без суффикса

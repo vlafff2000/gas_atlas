@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { builderApi, type CellsConfig, type ModelList } from './api'
 import { MultiSelect } from './MultiSelect'
+import { BuilderCriterion } from './BuilderCriterion'
 
 /** Модели tNavigator из общего списка папок ГДМ: отмеченные дают поля «Модель ГДМ» в дереве. Файлы модели в проект не копируются. */
 export function BuilderModels({ project, notes, onChange }: { project: string; notes: string[]; onChange: () => void }) {
@@ -78,6 +79,9 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
           {' '}<button type="button" className="kind" disabled={busy} onClick={refresh}
             title="Сбросить сохранённые шаги и прочитать кубы заново: если модель пересчитали с теми же сеткой и началом рестарта.">Пересчитать заново</button>
         </div>
+      )}
+      {chosen > 0 && list?.cubes && (
+        <BuilderCriterion project={project} selected={list.models.filter(m => m.selected).map(m => m.id)} onChange={onChange} />
       )}
       {first?.indicators && cells && (
         <details className="builder-cells" open={cells.dates.length > 0}>

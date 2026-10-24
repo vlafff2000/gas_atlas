@@ -152,3 +152,8 @@ details.builder-recipes > summary { cursor: pointer; font-weight: 700; font-size
 .row-form .field.check { flex-direction: row; align-items: center; gap: 6px; }
 .builder-models { margin-bottom: 6px; }
 .builder-models .check { display: block; font-size: 13px; padding: 2px 0; }
+.builder-criterion { margin: 4px 0 6px; font-size: 13px; }
+.builder-criterion .muted { margin: 2px 0 6px; }
+.builder-criterion .builder-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 6px; }
+.builder-criterion input[type="number"] { width: 90px; }
+.builder-variants { margin-top: 4px; }

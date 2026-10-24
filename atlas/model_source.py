@@ -24,6 +24,7 @@ CELLS_KEY = 'model_cells'        # {'dates': ['ГГГГ-ММ-ДД', …], 'k_fro
 MAX_CELL_DATES = 6
 CELLS_DEFAULT = {'dates': [], 'k_from': 1, 'k_to': 0, 'max_points': 20000}
 CRITERION_KEY = 'model_criterion'     # критерий газа для ГВК и объёма по кубам: {logic, value, fallback}; пусто — пресет по умолчанию
+VARIANTS_KEY = 'model_criterion_variants'     # варианты «посчитать по всем опциям»: список критериев (не больше MAX_VARIANTS); пусто — один критерий
 CUBES_RANGE = ('model_cubes_from', 'model_cubes_to')     # рестарты с … по … (включительно, 'ГГГГ-ММ-ДД'); пусто — без границы
 SG_THRESHOLD = 0.01              # порог газонасыщенности: значение заказчика, как в ГДМ
 FIELD_NAME = ':+:+:+:+'          # у векторов объекта в WGNAMES стоит этот заполнитель, скважины там нет
@@ -121,6 +122,31 @@ def criterion_of(settings: Mapping[str, Any]):
     return gc.from_dict(settings.get(CRITERION_KEY), gc.preset(gc.DEFAULT_MODEL_PRESET))
 
 
+def criterion_list_of(settings: Mapping[str, Any]) -> list:
+    """Критерии для расчёта: варианты, если они заданы, иначе один критерий проекта."""
+    gc = _gc()
+    raw = settings.get(VARIANTS_KEY)
+    if not raw:
+        return [criterion_of(settings)]
+    return [gc.from_dict(d, gc.preset(gc.DEFAULT_MODEL_PRESET)) for d in raw][:gc.MAX_VARIANTS]
+
+
+def variants_clean(body) -> list:
+    """Список вариантов из формы: без повторов, не больше MAX_VARIANTS; ошибка — ValueError с текстом."""
+    gc = _gc()
+    if not isinstance(body, list):
+        raise ValueError('Варианты: список критериев')
+    out, seen = [], set()
+    for d in body:
+        c = gc.validate(gc.from_dict(d, gc.preset(gc.DEFAULT_MODEL_PRESET)))
+        if c not in seen:
+            seen.add(c)
+            out.append(gc.to_dict(c))
+    if len(out) > gc.MAX_VARIANTS:
+        raise ValueError('Вариантов больше %d: уменьшите число' % gc.MAX_VARIANTS)
+    return out
+
+
 def criterion_clean(body) -> dict:
     """Критерий из формы (число можно с запятой); неверный — ValueError с текстом для пользователя."""
     gc = _gc()
@@ -130,7 +156,7 @@ def criterion_clean(body) -> dict:
 def criterion_view(c) -> dict:
     """Критерий, его формула и пресеты для выпадающего списка."""
     gc = _gc()
-    return {'criterion': gc.to_dict(c), 'formula': gc.formula(c), 'label': gc.label(c),
+    return {'criterion': gc.to_dict(c), 'formula': gc.formula(c), 'label': gc.label(c), 'max_variants': gc.MAX_VARIANTS,
             'presets': [{**p, 'formula': gc.formula(gc.preset(p['id']))} for p in gc.PRESETS]}
 
 
@@ -367,7 +393,7 @@ def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', ''), c
     gc = _gc()
     criterion = criterion or gc.preset(gc.DEFAULT_MODEL_PRESET)
     found = _cube_files(anchor)
-    key = ('cubes', span, _crit_key(criterion), *(v for f in found.values() for v in (f, os.path.getmtime(f), os.path.getsize(f))))
+    key = ('cubes', label, span, _crit_key(criterion), *(v for f in found.values() for v in (f, os.path.getmtime(f), os.path.getsize(f))))
     with _lock:
         if key in _cache:
             return _cache[key]
@@ -409,18 +435,24 @@ def read_cubes(anchor: str, label: str = '', span: tuple[str, str] = ('', ''), c
     return frame
 
 
-def cubes_frame(anchors: list[str], span: tuple[str, str] = ('', ''), criterion=None) -> tuple[pd.DataFrame | None, list[str]]:
+def cubes_frame(anchors: list[str], span: tuple[str, str] = ('', ''), criteria=None) -> tuple[pd.DataFrame | None, list[str]]:
+    """Кубы выбранных моделей; criteria — список критериев (варианты): у каждого своя строка «модель · критерий»."""
     parts, notes = [], []
     try:
         _, catalog = _tnav()
         names = catalog.load_names()
     except ModelUnavailable as e:
         return None, [str(e)]
+    several = criteria is not None and len(criteria) > 1
     for anchor in anchors:
-        try:
-            parts.append(read_cubes(anchor, names.get(anchor) or catalog.model_name(anchor), span, criterion))
-        except ModelUnavailable as e:
-            notes.append(str(e))
+        for crit in (criteria or [None]):
+            try:
+                label = names.get(anchor) or catalog.model_name(anchor)
+                if several:
+                    label = f'{label} · {_gc().label(crit)}'
+                parts.append(read_cubes(anchor, label, span, crit))
+            except ModelUnavailable as e:
+                notes.append(str(e))
     return (pd.concat(parts, ignore_index=True) if parts else None), notes
 
 
