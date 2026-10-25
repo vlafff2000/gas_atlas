@@ -89,14 +89,15 @@ def test_pack_chart_puts_every_well_on_one_chart():
     assert sum(len(s.x) for s in upper.series) == 4
 
 
-def test_combo_chart_has_change_columns_on_both_axes():
+def test_combo_chart_has_kg_bars_and_heff_curve():
     combo = GisModule().run({GIS: _frame()}, _params(wells=['115'], view='combo')).charts
     chart = next(c for c in combo if c.id == 'gis-combo-115-верхняя')
     assert chart.y2 is not None
     bars = [s for s in chart.series if s.kind == 'bar']
-    assert {s.axis for s in bars} == {'y', 'y2'}
-    kg_bar = next(s for s in bars if s.axis == 'y')
-    assert len(kg_bar.y) == 2 and kg_bar.y[0] == pytest.approx(-0.05)      # 0.30 → 0.25 и 0.25 → 0.28: два перехода
+    assert [(s.name, s.axis) for s in bars] == [('Кг ср.взв', 'y')]
+    assert bars[0].y == pytest.approx([0.30, 0.25, 0.28])
+    lines = [s for s in chart.series if s.kind == 'line']
+    assert [(s.name, s.axis) for s in lines] == [('hг эф', 'y2')]
 
 
 def test_intervals_table_reaches_the_module_through_project_select():
