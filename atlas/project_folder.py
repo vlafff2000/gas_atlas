@@ -27,8 +27,8 @@ from starlette.routing import Route
 
 from .api import error
 from . import workspace_folders
-from .engine.core import tabular, water_monthly_import
-from .imports import Imports
+from .engine.core import gis_import, import_rules, tabular, water_monthly_import
+from .imports import Imports, base_book
 from .api_projects import internal_error_text
 from .contract import ParamError
 from .imports import POLICIES
@@ -47,6 +47,7 @@ ROLES = {
     'water': 'Вода',
     'elpro': 'ЭЛПРО (параметры работы ГСП)',
     'gas': 'БД по учету газа',
+    'gis': 'База ГИС (пачки, интервалы, замеры)',
     'geo': 'Положение и перфорация скважин (X, Y, альтитуды, перфорация)',
     'other': 'Прочее',
 }
@@ -68,7 +69,12 @@ KNOWN_RESULTS = (
     ('бд по учету газа', 'gas', False, 'БД по учету газа (База ПХГ): суточные отбор и закачка по объекту, вынос воды'),
     ('бд элпро', 'elpro', False, 'База ЭЛПРО (База ПХГ) или месячные файлы ЭЛПРО'),
     ('daily well data', None, False, 'Суточные данные по скважинам (База ПХГ), роль назначьте вручную'),
-    ('гис ', None, False, 'Данные ГИС (База ПХГ), роль назначьте вручную'),
+    ('гис свод', 'gis', False, 'База ГИС: книга «ГИС_свод» (База ПХГ)'),
+    ('gis packs', 'gis', False, 'База ГИС: пачки (База ПХГ)'),
+    ('gis intervals', 'gis', False, 'База ГИС: интервалы (База ПХГ)'),
+    ('gis observations', 'gis', False, 'База ГИС: замеры (База ПХГ)'),
+    ('гис ', 'gis', False, 'Данные ГИС (База ПХГ)'),
+    ('база шахматка', 'production', False, 'База шахматка (База ПХГ): отбор и закачка'),
     # Отчёты проверок Базы ПХГ: не данные, в проект не грузятся (иначе «Часы_…_расход_…» ушёл бы в расходы).
     ('часы ненулевые расход нулевой', None, False, 'Отчёт проверки Базы ПХГ (часы и расход не согласованы), не данные'),
     ('журнал нормировки', None, False, 'Журнал нормировки на узел учёта (База ПХГ), не данные'),
@@ -93,10 +99,83 @@ def _known(name: str) -> dict[str, Any] | None:
     return None
 
 
+SNIFF_LIMIT = 80 * 1024 * 1024          # файлы крупнее не открываются для распознавания: роль по имени или вручную
+_SNIFFED: dict[tuple, dict[str, Any] | None] = {}
+BASE_ROLES = (('база ЭЛПРО', 'elpro'), ('«БД по учету газа»', 'gas'), ('таблица «База ГИС»', 'gis'),
+              ('файл положения', 'geo'), ('замеры воды', 'water'))
+MODULE_ROLES = {'production': 'production', 'gdi': 'gdi', 'water': 'water', 'object_pressure': 'pressure', 'pressure': 'pressure'}
+
+
+def sniff(path: Path) -> dict[str, Any] | None:
+    """Тип файла по содержимому: листы и заголовки первых строк. Результат — подсказка с причиной
+    ``{'role', 'reason'}``; пусто — по содержимому не узнан. Кэш по размеру и времени изменения."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    key = (str(path), stat.st_size, int(stat.st_mtime))
+    if key in _SNIFFED:
+        return _SNIFFED[key]
+    out = None
+    if stat.st_size <= SNIFF_LIMIT:
+        try:
+            out = _sniff_tables(path.name, tabular.read_content(path.read_bytes(), path.name, 31)[1])
+        except Exception:                    # noqa: BLE001 — не читается: остаётся имя файла
+            log.info('Файл %s не открыт для распознавания', path.name, exc_info=True)
+    if len(_SNIFFED) > 2000:
+        _SNIFFED.clear()
+    _SNIFFED[key] = out
+    return out
+
+
+def _sniff_tables(name: str, tables: dict[str, Any]) -> dict[str, Any] | None:
+    special = base_book(tables, name)
+    if special:
+        role = next(r for label, r in BASE_ROLES if special.startswith(label))
+        if role == 'gis':
+            return {'role': 'gis', 'reason': 'Листы и заголовки как в выгрузке «Базы ГИС»: ' + _gis_parts(tables)}
+        reasons = {'elpro': 'лист «Данные» с колонками Дата, Режим, ГСП, Скважина, Y круг', 'gas': 'лист «БД» с колонками Режим, Дата, Файл, Лист',
+                   'geo': 'колонки положения и перфорации скважин', 'water': 'замеры воды по месяцам'}
+        return {'role': role, 'reason': f'Содержимое: {reasons[role]}'}
+    found = {}
+    for sheet, raw in tables.items():
+        if raw is None or raw.empty or sheet == 'Инструкция':
+            continue
+        module, fields = import_rules.describe(raw, 'auto')
+        if module in MODULE_ROLES:
+            found.setdefault(module, (sheet, fields))
+    if len(found) == 1:
+        module, (sheet, fields) = next(iter(found.items()))
+        return {'role': MODULE_ROLES[module], 'reason': f'Содержимое: лист «{sheet}» — {import_rules.type_label(module)} ({fields})'}
+    return None
+
+
+def _gis_parts(tables: dict[str, Any]) -> str:
+    parts = []
+    for sheet, raw in tables.items():
+        if raw is not None and not raw.empty:
+            kind = gis_import.detect(raw.iloc[0].tolist())
+            if kind:
+                parts.append(f'лист «{sheet}» — {gis_import.LABELS[kind]}')
+    return ', '.join(parts[:3]) or 'таблица ГИС'
+
+
 def _role_by_name(name: str) -> str | None:
     key = _norm(name)
     words = set(key.split())
     return next((role for word, role in NAME_HINTS if any(w.startswith(word) for w in words)), None)
+
+
+def _auto_role(path: Path, known: dict[str, Any] | None) -> tuple[str | None, str, str]:
+    """Роль без манифеста: известное имя результата Базы ПХГ, затем содержимое файла, затем слова в имени.
+    Возвращает роль, источник и причину — её видит пользователь и может сменить роль."""
+    if known:                       # известное имя результата Базы ПХГ надёжнее: отчёты проверок так и остаются «не данными»
+        return known['role'], 'name', f'По имени файла: {known["label"]}'
+    sniffed = sniff(path)
+    if sniffed:
+        return sniffed['role'], 'content', sniffed['reason']
+    role = _role_by_name(path.name)
+    return role, 'name', 'По слову в имени файла (содержимое не узнано)' if role else ''
 
 
 def _folder(raw: Any) -> Path:
@@ -184,15 +263,21 @@ def scan(raw_folder: Any, loaded: dict[str, Any] | None = None) -> dict[str, Any
         if known and has_normalized and known['role'] == 'production' and not known['normalized']:
             known = dict(known, role=None, label=SUPERSEDED)
         entry = manifest.get(name) if isinstance(manifest.get(name), dict) else {}
+        reason = ''
         if 'role' in entry and (entry['role'] is None or (isinstance(entry['role'], str) and entry['role'] in ROLES)):
             role, source = entry['role'], 'manifest'     # явное «не назначено» сохраняется и не подменяется именем
+            reason = 'Назначено вручную'
+            sniffed = sniff(path)
+            if sniffed and sniffed['role'] != role:
+                reason += f'. По содержимому файл похож на «{ROLES[sniffed["role"]]}»'
+            
         else:
-            role, source = (known['role'], 'name') if known else (_role_by_name(name), 'name')
+            role, source, reason = _auto_role(path, known)
         normalized = entry['normalized'] if isinstance(entry.get('normalized'), bool) else bool(known and known['normalized'])
         stat = path.stat()
         files.append({'name': name, 'size': stat.st_size,
                       'modified': dt.datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='minutes'),
-                      'role': role, 'role_label': ROLES.get(role, ''), 'role_source': source if role else '',
+                      'role': role, 'role_label': ROLES.get(role, ''), 'role_source': source if role else '', 'role_reason': reason if role else '',
                       'normalized': normalized, 'known': known['label'] if known else '',
                       'qc': _qc_summary(folder, name), 'load': _load_state(path, loaded)})
     if not files and not warning:
@@ -291,6 +376,8 @@ def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy:
             applied = imports.elpro_load(pid, name, path.read_bytes(), policy)
         elif role == 'gas':
             applied = imports.gas_db_load(pid, name, path.read_bytes(), policy)
+        elif role == 'gis':
+            applied = imports.gis_load(pid, name, path.read_bytes(), policy)
         elif role == 'geo':
             applied = imports.geo_load(pid, name, path.read_bytes(), policy)
         elif role == 'water' and _monthly_water(name, path):

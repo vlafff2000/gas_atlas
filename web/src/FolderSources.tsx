@@ -204,7 +204,9 @@ export function FolderSources({ project, onProject }: { project: Project | null;
                         <option value="">не назначено</option>
                         {scan.roles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                       </select>
-                      {f.role_source && !edits[f.name]?.role && <div className="muted">{f.role_source === 'manifest' ? 'из манифеста' : 'по имени'}</div>}
+                      {!edits[f.name]?.role && (f.role
+                        ? <div className="muted" title={f.role_reason}>{f.role_source === 'manifest' ? f.role_reason : `${f.role_source === 'content' ? 'по содержимому' : 'по имени'}: ${f.role_reason.replace(/^(По имени файла|Содержимое): /, '')}`}</div>
+                        : !f.known && <div className="muted">тип не определён ни по имени, ни по содержимому: выберите роль</div>)}
                     </td>
                     <td>
                       {cur.role === 'production'
