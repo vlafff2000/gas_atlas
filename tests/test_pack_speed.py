@@ -9,7 +9,8 @@ import pandas as pd
 from atlas import chart_labels, parallel, render_pool
 from atlas.engine.core import performance
 from atlas.engine.core.reporting import FigureJob
-from atlas.engine.modules import charts, production
+from atlas.engine.core.demo import demo_frames
+from atlas.engine.modules import charts, production, well_analysis
 
 
 def daily_production(days=3000):
@@ -138,3 +139,45 @@ def test_labelled_job_survives_pickling():
     job = chart_labels.LabelledJob(FigureJob('Отбор · 31', None, {}, module='production'), {'title': 'x'})
     copy = pickle.loads(pickle.dumps(job))
     assert copy.name == 'Отбор · 31' and copy.module == 'production'
+
+# --- общие расчёты «Поскважинного анализа» ---------------------------------------------------------------------------
+
+def old_seasons(d, all_data):
+    """Сезонная таблица до ускорения: база объекта и группы отбирается по всей таблице для каждой скважины и периода."""
+    rows = []
+    for period, g in d.groupby('period', sort=False):
+        base = all_data[all_data.kind.eq(g.kind.iloc[0]) & all_data.period.eq(period)]
+        dates = base.loc[base.gas_volume_m3.notna(), 'date'].drop_duplicates()
+        group = base.loc[base.group.eq(g.group.iloc[0]), 'gas_volume_m3'].sum(min_count=1)
+        obj = base.gas_volume_m3.sum(min_count=1)
+        volume = g.gas_volume_m3.sum(min_count=1)
+        rows.append({'period': period, 'object_days': len(dates), 'obj': obj, 'group': group,
+                     'group_share': volume / group * 100 if group > 0 else np.nan})
+    return pd.DataFrame(rows)
+
+
+def test_shared_season_base_matches_per_well_selection():
+    frames = {'production': production.periods(demo_frames()['production'], 11, 4)}
+    settings = {'season_start': 11, 'season_end': 4}
+    wells = sorted(frames['production'].well.unique())[:4]
+    mapping = {w: {'group': 'ГСП 2' if i % 2 else 'ГСП 1'} for i, w in enumerate(wells)}
+    context = well_analysis.dataset(frames, settings, mapping)['daily']
+    for well in wells:
+        for kind in ('withdrawal', 'injection'):
+            result = well_analysis.analyze(frames, settings, mapping, well, kind)
+            if result['daily'].empty:
+                continue
+            old = old_seasons(result['daily'], context)
+            new = result['seasons'].set_index('period').loc[old.period]
+            np.testing.assert_allclose(new.object_days.to_numpy(float), old.object_days.to_numpy(float))
+            np.testing.assert_allclose(new.group_share.to_numpy(float), old.group_share.to_numpy(float), equal_nan=True)
+            entry = [well_analysis.season_base(context, kind, p) for p in old.period]
+            np.testing.assert_allclose([e[2] for e in entry], old.obj.to_numpy(float), equal_nan=True)
+
+
+def test_until_is_shared_between_wells():
+    frame = well_analysis.dataset({'production': production.periods(demo_frames()['production'], 11, 4)}, {}, {})['daily']
+    cutoff = frame.date.median()
+    assert well_analysis.until(frame, cutoff) is well_analysis.until(frame, cutoff)
+    pd.testing.assert_frame_equal(well_analysis.until(frame, cutoff), frame[frame.date.le(cutoff)])
+    assert well_analysis.until(frame, None) is frame

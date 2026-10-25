@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape
 
 import pandas as pd
 
+from . import parallel
 from .modules._ggh import GAS, PARAMS, TICKS, caption, cell, gas_axis, rows_for, well_horizon
 
 COLORS = {key: color for key, (_, color, _) in PARAMS.items()}
@@ -208,10 +209,12 @@ def build_docx(items: list[dict[str, Any]], start: int = 1, section: str = 'В',
         raise ValueError('Нет скважин для выгрузки: выберите скважины с данными ГГХ.')
     ids = {'n': 0}
     body, media, rels = [], [], []
-    for i, item in enumerate(items, 1):
+    # рисунки независимы: рисуем процессами (PXG_WORKERS), страницы собираем подряд
+    figures = parallel.map_figures(figure_png, [(item['frame'], str(item['well']), dpi, font, style) for item in items])
+    for i, (item, figure) in enumerate(zip(items, figures), 1):
         frame, well = item['frame'], str(item['well'])
         horizon = item.get('horizon') or well_horizon(frame)
-        xml, png, name = well_page(i, frame, well, horizon, figure_png(frame, well, dpi, font, style), start + i - 1, section, ids)
+        xml, png, name = well_page(i, frame, well, horizon, figure, start + i - 1, section, ids)
         body.append(xml)
         media.append((name, png))
         rels.append(f'<Relationship Id="rIdImg{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{name}"/>')

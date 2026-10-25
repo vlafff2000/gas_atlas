@@ -3,9 +3,59 @@ import numpy as np
 import pandas as pd
 from atlas.engine.core.memo import cache_resource
 import hashlib
+import weakref
 from atlas.engine.core.config import ordered
 from atlas.engine.core.performance import signature,select_wells
 from atlas.engine.modules import production,gdi
+
+_PER_FRAME={}
+
+def per_frame(df,build):
+    """Данные, общие для всех скважин одной таблицы (не меняется после построения): считаются один раз, пока таблица жива."""
+    found=_PER_FRAME.get(id(df))
+    if found is None or found[0]() is not df:
+        key=id(df);found=(weakref.ref(df,lambda _,key=key:_PER_FRAME.pop(key,None)),build(df));_PER_FRAME[key]=found
+    return found[1]
+
+def season_base(all_data,kind,period):
+    """(строки объекта за период, даты с газом, объём объекта, суммы по группам) — одинаковы для всех скважин."""
+    def build(df):
+        return {'positions':df.groupby(['kind','period'],sort=False).indices,'seen':{}}
+    shared=per_frame(all_data,build);key=(kind,period)
+    entry=shared['seen'].get(key)
+    if entry is None:
+        positions=shared['positions'].get(key)
+        base=all_data.iloc[positions] if positions is not None else all_data.iloc[0:0]
+        dates=base.loc[base.gas_volume_m3.notna(),'date'].drop_duplicates()
+        entry=shared['seen'][key]=(base,dates,base.gas_volume_m3.sum(min_count=1),{})
+    return entry
+
+def reference(all_data,kind,periods,group):
+    """Дни объекта и группы за выбранные периоды (подстановка дней без записи у скважины): общие для скважин группы с теми же периодами."""
+    shared=per_frame(all_data,lambda df:{'positions':df.groupby(['kind','period'],sort=False).indices,'seen':{}})
+    refs=shared.setdefault('refs',{});key=(kind,tuple(sorted(map(str,periods))),group)
+    if key in refs:return refs[key]
+    parts=[shared['positions'][(kind,p)] for p in periods if (kind,p) in shared['positions']]
+    base=all_data.iloc[np.sort(np.concatenate(parts)) if parts else np.array([],dtype=int)]
+    ref=base[['date','period','period_start','object_volume']].drop_duplicates('date')
+    mine=base[base.group.eq(group)]
+    gv=mine.groupby('date').gas_volume_m3.sum(min_count=1).rename('group_volume')
+    gw=mine[mine.gas_volume_m3.gt(0)].groupby('date').well.nunique().rename('group_wells')
+    ref=ref.join(gv,on='date').join(gw,on='date').sort_values('date')
+    ref['object_cumulative']=ref.groupby('period',sort=False).object_volume.cumsum()/1e6
+    ref['group_cumulative']=ref.groupby('period',sort=False).group_volume.cumsum()/1e6
+    if len(refs)>=64:refs.clear()
+    refs[key]=ref
+    return ref
+
+def until(original,cutoff):
+    """Таблица по ``cutoff`` включительно: одна и та же для всех скважин (иначе у каждой скважины свой экземпляр и общие расчёты не работают)."""
+    if cutoff is None or original.empty:return original
+    cuts=per_frame(original,lambda df:{})
+    if cutoff not in cuts:
+        if len(cuts)>=4:cuts.clear()
+        cuts[cutoff]=original[original.date.le(cutoff)]
+    return cuts[cutoff]
 
 def plain(df):
     d=df.copy(deep=False);d.attrs={};return d
@@ -74,12 +124,12 @@ SEASON_LABELS={'period':'Период','gas_volume':'Объем газа, млн
 def seasons(d,all_data):
     rows=[]
     for period,g in d.groupby('period',sort=False):
-        base=all_data[all_data.kind.eq(g.kind.iloc[0])&all_data.period.eq(period)]
-        dates=base.loc[base.gas_volume_m3.notna(),'date'].drop_duplicates()
+        base,dates,obj,groups=season_base(all_data,g.kind.iloc[0],period)
         hours=g.work_hours.notna();both=g.work_hours.gt(0)&g.gas_volume_m3.notna()
         active=g.active&g.gas_volume_m3.notna();volume=g.gas_volume_m3.sum(min_count=1)
-        group=base.loc[base.group.eq(g.group.iloc[0]),'gas_volume_m3'].sum(min_count=1)
-        obj=base.gas_volume_m3.sum(min_count=1)
+        name=g.group.iloc[0]
+        if name not in groups:groups[name]=base.loc[base.group.eq(name),'gas_volume_m3'].sum(min_count=1)
+        group=groups[name]
         rows.append({'period':period,'gas_volume':volume/1e6,'mean_active':g.loc[active,'gas_volume_m3'].mean()/1000,
             'active_days':int(g.active.sum()),'hours':g.work_hours.sum(min_count=1),'hours_days':int(hours.sum()),
             'q_work':g.loc[both,'gas_volume_m3'].sum()/g.loc[both,'work_hours'].sum()*24/1000 if both.any() else np.nan,
@@ -203,7 +253,7 @@ def metrics(a):
 def _analyze(frames,settings,mapping,well,kind='withdrawal',periods=None,delta=None,threshold=10,method=None,asof=None):
     context=dataset(frames,settings,mapping);all_data=context['daily']
     cutoff=pd.Timestamp(asof) if asof is not None else None
-    if cutoff is not None and not all_data.empty:all_data=all_data[all_data.date.le(cutoff)]
+    all_data=until(all_data,cutoff)
     original=context['daily']
     d=original.iloc[context.get('positions',{}).get(well,[])].copy() if not original.empty else pd.DataFrame()
     if cutoff is not None and not d.empty:d=d[d.date.le(cutoff)]
@@ -212,14 +262,8 @@ def _analyze(frames,settings,mapping,well,kind='withdrawal',periods=None,delta=N
         if periods is not None:d=d[d.period.isin(periods)]
         if not d.empty:
             # Preserve object/group observations on days when this well has no record.
-            base=all_data[all_data.kind.eq(kind)&all_data.period.isin(d.period.unique())]
             group=mapping.get(well,{}).get('group','Без группы')
-            ref=base[['date','period','period_start','object_volume']].drop_duplicates('date')
-            gv=base[base.group.eq(group)].groupby('date').gas_volume_m3.sum(min_count=1).rename('group_volume')
-            gw=base[base.group.eq(group)&base.gas_volume_m3.gt(0)].groupby('date').well.nunique().rename('group_wells')
-            ref=ref.join(gv,on='date').join(gw,on='date').sort_values('date')
-            ref['object_cumulative']=ref.groupby('period',sort=False).object_volume.cumsum()/1e6
-            ref['group_cumulative']=ref.groupby('period',sort=False).group_volume.cumsum()/1e6
+            ref=reference(all_data,kind,d.period.unique(),group)
             d=ref.merge(d.drop(columns=['period','period_start','object_volume','group_volume','share_group','share_object']),on='date',how='outer')
             d['well']=well;d['group']=group;d['kind']=kind;d['active']=d.active.fillna(False)
             d['share_group']=d.gas_volume_m3/d.group_volume.where(d.group_volume.gt(0))*100

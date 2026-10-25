@@ -81,3 +81,16 @@ def map_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float
              initializer: Optional[Callable] = None, initargs: tuple = ()) -> List[Any]:
     """[fn(job) для job из jobs] по порядку (см. ``iter_jobs``)."""
     return list(iter_jobs(fn, jobs, mb_per_worker, workers, initializer, initargs))
+
+
+def _star(task):
+    fn, args = task
+    return fn(*args)
+
+
+def map_figures(fn: Callable[..., Any], arguments: Sequence[tuple], min_jobs: int = 12, mb_per_worker: float = 600) -> List[Any]:
+    """[fn(*args) для args из arguments] по порядку; fn — функция верхнего уровня модуля. Мало рисунков (меньше ``min_jobs``) — здесь же:
+    запуск процесса занимает секунды. Процессов не больше, чем по ~6 рисунков на каждый."""
+    arguments = list(arguments)
+    workers = min(default_workers(mb_per_worker), max(2, len(arguments) // 6))
+    return list(iter_jobs(_star, [(fn, a) for a in arguments], mb_per_worker, workers, min_jobs=min_jobs))
