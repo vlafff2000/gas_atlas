@@ -180,3 +180,6 @@
 .cs-hint { margin: 0; font-size: 12px; color: var(--muted); }
 .cs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .cs-row label { grid-template-columns: 1fr; gap: 2px; }
+.axis-editor .axis-step span { display: flex; gap: 4px; }
+.axis-editor .axis-step span input { flex: 1; min-width: 0; }
+.axis-editor select { font: inherit; padding: 4px 4px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }

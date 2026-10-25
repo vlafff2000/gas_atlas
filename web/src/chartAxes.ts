@@ -123,3 +123,46 @@ export function fitAxisName(label: string, unit: string, width: number, fontSize
   const all = [...lines, ...u]
   return { text: all.join('\n'), lines: all.length, cut }
 }
+
+/** Основной интервал делений, заданный вручную: у числовой оси unit = 'num', у оси дат — календарная единица. */
+export type StepUnit = 'num' | 'year' | 'month' | 'week' | 'day'
+export interface AxisStep { n: number; unit: StepUnit }
+export const STEP_UNITS: { unit: Exclude<StepUnit, 'num'>; label: string }[] = [
+  { unit: 'year', label: 'лет' }, { unit: 'month', label: 'месяцев' }, { unit: 'week', label: 'недель' }, { unit: 'day', label: 'дней' },
+]
+export const MAX_TICKS = 1500      // больше делений не рисуем: подписи слились бы, а холст завис
+
+/** Шаг из текста поля: пусто — авто (null); число > 0 (запятая допустима); для дат — целое. */
+export function parseStep(text: string, unit: StepUnit): AxisStep | null | 'bad' {
+  const s = text.trim()
+  if (!s) return null
+  const n = Number(s.replace(/\s/g, '').replace(',', '.'))
+  if (!Number.isFinite(n) || n <= 0 || (unit !== 'num' && !Number.isInteger(n))) return 'bad'
+  return { n, unit }
+}
+
+/** Деления оси дат (мс, UTC) в [lo, hi]: годы — с 1 января, месяцы — с 1-го числа, недели — с понедельника, дни — с полуночи. */
+export function calendarTicks(lo: number, hi: number, step: AxisStep): number[] {
+  if (step.unit === 'num' || !(hi >= lo)) return []
+  const d = new Date(lo)
+  let cur: number
+  const at = (k: number) => step.unit === 'year' ? Date.UTC(d.getUTCFullYear() + k * step.n, 0, 1)
+    : step.unit === 'month' ? Date.UTC(d.getUTCFullYear(), k * step.n, 1) : 0
+  const out: number[] = []
+  if (step.unit === 'year' || step.unit === 'month') {
+    for (let k = 0; out.length <= MAX_TICKS; k++) {
+      cur = at(k)
+      if (cur > hi) break
+      if (cur >= lo) out.push(cur)
+    }
+    return out
+  }
+  const day = 86400e3, ms = step.n * (step.unit === 'week' ? 7 : 1) * day
+  const mon = Date.UTC(1970, 0, 5)      // понедельник
+  const origin = step.unit === 'week' ? mon : 0
+  let t = origin + Math.ceil((lo - origin) / ms - 1e-9) * ms
+  for (; t <= hi && out.length <= MAX_TICKS; t += ms) out.push(t)
+  return out
+}
+
+export const stepText = (s: AxisStep | null | undefined) => (s ? String(s.n).replace('.', ',') : '')
