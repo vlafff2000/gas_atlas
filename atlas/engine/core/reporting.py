@@ -5,6 +5,7 @@ from collections.abc import Mapping
 import pandas as pd
 from atlas.engine.core import exclusions
 from atlas.engine.core.config import ordered
+from atlas.engine.core.performance import with_index
 from atlas.engine.modules import production,gdi,response,charts,group_analysis
 
 @dataclass
@@ -102,7 +103,7 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
             continue
         if not ws and module!='object_pressure':continue
         if module=='production':
-            d=production.periods(frames[module],settings['season_start'],settings['season_end'])
+            d=with_index(production.periods(frames[module],settings['season_start'],settings['season_end']),module)
             for kind,ps in cfg.get('periods',{}).items():
                 if not ps:continue
                 chosen=production.rank_wells(d,kind,ps,ws,cfg.get('direction','number'));split=cfg.get('split','well');view=cfg.get('view','mixed')

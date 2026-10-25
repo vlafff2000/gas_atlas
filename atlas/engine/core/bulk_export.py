@@ -28,7 +28,7 @@ def _modules(plan):
     for module,jobs in groups.items():
         yield module,jobs,module_tables.get(module,plan.tables if len(groups)==1 else {})
 
-def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metadata=None,progress=None,chunk_size=40,max_part_bytes=70*1024**2,height_mm=None):
+def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metadata=None,progress=None,chunk_size=40,max_part_bytes=70*1024**2,height_mm=None,renderer=None):
     # Legacy keyword arguments remain accepted; they no longer split the output.
     if chunk_size<1:raise ValueError('Размер части должен быть положительным')
     if any(fmt not in ('svg','pdf','png') for fmt in formats):raise ValueError('Неизвестный формат графика')
@@ -38,15 +38,25 @@ def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metada
         for module,jobs,tables in _modules(plan):
             label=MODULES.get(module,'Результаты');current=Path(tmp)/'module.zip';local_errors=[];records=[];good_count=0
             with zipfile.ZipFile(current,'w',zipfile.ZIP_DEFLATED,allowZip64=True) as z:
+                # ``renderer(jobs)`` (процессы) отдаёт по заданию ([(формат, байты, ошибка)], ошибка построения) по порядку; без него — подряд здесь
+                stream=iter(renderer([j for _,j in jobs])) if renderer and formats and jobs else None
                 for i,job in jobs:
-                    good=False;fig=None
+                    good=False;fig=None;ready=None
                     if formats:
-                        try:fig=job.render()
-                        except Exception as error:local_errors.append({'График':job.name,'Формат':'Все','Ошибка':str(error)})
-                        if fig is not None:
+                        if stream is not None:
+                            ready,failed=next(stream)
+                            if failed is not None:local_errors.append({'График':job.name,'Формат':'Все','Ошибка':failed})
+                        else:
+                            try:fig=job.render()
+                            except Exception as error:local_errors.append({'График':job.name,'Формат':'Все','Ошибка':str(error)})
+                        if fig is not None or ready is not None:
                             for fmt in formats:
                                 try:
-                                    content=figure_bytes(fig,fmt,dpi,width_mm,height_mm,font=metadata.get('font','default'),font_size=metadata.get('font_size'),look=metadata.get('look','default'));member='charts/{:05}_{}.{}'.format(i,safe_name(job.name),fmt)
+                                    if ready is not None:
+                                        content=next(c for f,c,_ in ready if f==fmt)
+                                        if content is None:raise ValueError(next(e for f,_,e in ready if f==fmt))
+                                    else:content=figure_bytes(fig,fmt,dpi,width_mm,height_mm,font=metadata.get('font','default'),font_size=metadata.get('font_size'),look=metadata.get('look','default'))
+                                    member='charts/{:05}_{}.{}'.format(i,safe_name(job.name),fmt)
                                     z.writestr(member,content);files+=1;good=True;records.append({'chart':job.name,'format':fmt,'file':member,'status':'ok'})
                                     del content
                                 except Exception as error:local_errors.append({'График':job.name,'Формат':fmt,'Ошибка':str(error)})

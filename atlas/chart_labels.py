@@ -131,6 +131,8 @@ class LabelledJob:
         self._job, self._cfg, self._format = job, cfg, format
 
     def __getattr__(self, name):
+        if name.startswith('_'):        # до разбора при передаче процессу ``_job`` ещё нет: без этой проверки — бесконечная рекурсия
+            raise AttributeError(name)
         return getattr(self._job, name)
 
     def render(self):

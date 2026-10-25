@@ -1,4 +1,4 @@
-"""Независимые задания (например, файлы при загрузке) раздаются процессам: ядра до 16, PXG_WORKERS задаёт число вручную.
+"""Независимые задания (например, файлы при загрузке) раздаются процессам: ядра до 20, PXG_WORKERS задаёт число вручную.
 
 Мало заданий (PXG_PARALLEL_MIN, по умолчанию 4) — считаем в этом же процессе: запуск процессов дороже. Сбой пула
 (процесс убит из-за нехватки памяти, не запустился) — те же задания подряд, а не ошибка пользователю.
@@ -7,14 +7,15 @@ from __future__ import annotations
 
 import logging
 import os
+import pickle
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from multiprocessing import get_context
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, Iterator, List, Optional, Sequence
 
 from . import progress
 
-MAX_WORKERS = 16
+MAX_WORKERS = 20
 RESERVE_MB = 1024            # столько свободной памяти оставляем системе и основной программе
 log = logging.getLogger(__name__)
 
@@ -27,7 +28,11 @@ def _free_mb() -> Optional[float]:
                     return int(line.split()[1]) / 1024.0
     except (OSError, ValueError, IndexError):
         pass
-    return None
+    try:
+        from pxg_core.workers import available_mb       # Windows: GlobalMemoryStatusEx
+        return available_mb()
+    except Exception:
+        return None
 
 
 def default_workers(mb_per_worker: float = 0.0) -> int:
@@ -41,30 +46,38 @@ def default_workers(mb_per_worker: float = 0.0) -> int:
     return max(1, n)
 
 
-def _each(fn: Callable[[Any], Any], jobs: Sequence[Any]) -> List[Any]:
-    """Результаты по порядку; после каждого отмечается ход задачи (шкала выполнения в окне)."""
-    progress.report(0, len(jobs))
-    out = []
-    for j in jobs:
-        out.append(fn(j))
-        progress.advance()
-    return out
+def iter_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float = 0.0, workers: Optional[int] = None,
+              initializer: Optional[Callable] = None, initargs: tuple = (), min_jobs: int = 4) -> Iterator[Any]:
+    """Результаты ``fn(job)`` по порядку по мере готовности: потребитель обрабатывает их, пока процессы считают дальше
+    (в памяти не копится всё сразу). fn и initializer — функции верхнего уровня модуля (picklable).
 
-
-def map_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float = 0.0, workers: Optional[int] = None) -> List[Any]:
-    """[fn(job) для job из jobs] по порядку; fn — функция верхнего уровня модуля (picklable)."""
+    ``initializer(*initargs)`` выполняется один раз в каждом процессе (и в этом же процессе, если считаем в нём): так общие
+    большие данные передаются процессу один раз, а не с каждым заданием. Меньше ``min_jobs`` заданий считаем здесь же."""
     jobs = list(jobs)
     n = min(default_workers(mb_per_worker) if workers is None else max(1, workers), len(jobs))
-    if n < 2 or len(jobs) < int(os.environ.get('PXG_PARALLEL_MIN') or 4):
-        return _each(fn, jobs)
-    try:
-        progress.report(0, len(jobs))
-        with ProcessPoolExecutor(max_workers=n, mp_context=get_context('spawn')) as ex:
-            out = []
-            for res in ex.map(fn, jobs, chunksize=1):
-                out.append(res)
-                progress.advance()
-            return out
-    except (BrokenProcessPool, MemoryError, PermissionError):
-        log.exception('%d процессов не справились, считаем в одном', n)
-        return _each(fn, jobs)
+    done = 0
+    if n >= 2 and len(jobs) >= int(os.environ.get('PXG_PARALLEL_MIN') or min_jobs):
+        try:
+            progress.report(0, len(jobs))
+            with ProcessPoolExecutor(max_workers=n, mp_context=get_context('spawn'), initializer=initializer, initargs=initargs) as ex:
+                for res in ex.map(fn, jobs, chunksize=1):
+                    done += 1
+                    progress.advance()
+                    yield res
+            return
+        except (BrokenProcessPool, MemoryError, PermissionError, pickle.PicklingError, AttributeError, TypeError):
+            # процесс убит или не запустился, либо задания нельзя передать процессу (не picklable)
+            log.exception('%d процессов не справились, считаем в одном', n)
+    progress.report(done, len(jobs))
+    if initializer:
+        initializer(*initargs)
+    for j in jobs[done:]:
+        res = fn(j)
+        progress.advance()
+        yield res
+
+
+def map_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float = 0.0, workers: Optional[int] = None,
+             initializer: Optional[Callable] = None, initargs: tuple = ()) -> List[Any]:
+    """[fn(job) для job из jobs] по порядку (см. ``iter_jobs``)."""
+    return list(iter_jobs(fn, jobs, mb_per_worker, workers, initializer, initargs))

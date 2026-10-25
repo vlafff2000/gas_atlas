@@ -6,6 +6,7 @@ from pathlib import Path
 import hashlib
 import json
 import threading
+import weakref
 import copy
 import numpy as np
 import pandas as pd
@@ -55,6 +56,15 @@ class FrameIndex:
 def index_for(df):
     value=df.attrs.get('_atlas_index')
     return value if value is not None and value.owner==id(df) else None
+
+
+def with_index(df,module):
+    """Таблица с индексом по скважинам/периодам (быстрый путь расчётов графиков). Для копии, не наследующей индекс исходной
+    (например, другое правило сезонов), индекс строится заново, а метка кэша графиков — по содержимому, а не от исходной таблицы."""
+    if index_for(df) is not None or len(df)<20000:return df
+    df.attrs['_atlas_token']=frame_digest(df)
+    df.attrs['_atlas_index']=FrameIndex(df,module)
+    return df
 
 
 def select_wells(df,wells):
@@ -223,6 +233,21 @@ def context(root,pid,manifest,fast=True):
     return project,Frames(project),Frames(project,manifest['settings'],fast)
 
 
+_DIGESTS={}
+
+
+def frame_digest(df):
+    """Хеш содержимого таблицы. Один и тот же объект (в «Пакете по фонду» — таблица эксплуатации на ~10^6 строк, общая для всех графиков)
+    хешируется один раз, пока жив; таблицы после построения графиков не меняются."""
+    found=_DIGESTS.get(id(df))
+    if found is not None and found[0]() is df and found[1]==df.shape:return found[2]
+    digest=hashlib.sha256(pd.util.hash_pandas_object(df,index=True).values.tobytes()+str(list(df.columns)).encode('utf8')).hexdigest()
+    key=id(df)
+    if len(df)>=20000:      # маленькие таблицы хешируются быстрее, чем стоит учёт
+        _DIGESTS[key]=(weakref.ref(df,lambda _,key=key:_DIGESTS.pop(key,None)),df.shape,digest)
+    return digest
+
+
 @cache_resource()
 def chart_cache():
     return {'lock':threading.RLock(),'entries':OrderedDict(),'bytes':0,'hits':0,'misses':0}
@@ -232,10 +257,10 @@ def cached_chart(builder):
     @wraps(builder)
     def wrapped(df,*args,**kwargs):
         token=df.attrs.get('_atlas_token') if index_for(df) is not None else None
-        if token is None:token=hashlib.sha256(pd.util.hash_pandas_object(df,index=True).values.tobytes()+str(list(df.columns)).encode('utf8')).hexdigest()
+        if token is None:token=frame_digest(df)
         def freeze(value):
             if isinstance(value,pd.DataFrame):
-                return ('frame',hashlib.sha256(pd.util.hash_pandas_object(value,index=True).values.tobytes()+str(list(value.columns)).encode()).hexdigest())
+                return ('frame',frame_digest(value))
             if isinstance(value,dict):return tuple(sorted((k,freeze(v)) for k,v in value.items()))
             if isinstance(value,(list,tuple)):return tuple(freeze(v) for v in value)
             if isinstance(value,set):return tuple(sorted(freeze(v) for v in value))
