@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import itertools
 import json
 import logging
 import tempfile
@@ -25,14 +26,14 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from atlas.engine.core import performance, reporting
+from atlas.engine.core import reporting
 from atlas.engine.core.bulk_export import bundle_exports, export_plan, migrate_preset
 from atlas.engine.core.config import MODULES, VERSION as VERSION_58, ordered
 from .modules._production import visible_periods
 from atlas.engine.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
 from atlas.engine.core.export import figure_bytes
 
-from . import VERSION, chart_format, chart_labels, parallel, word_export
+from . import VERSION, chart_format, chart_labels, render_pool, word_export
 from .contract import Data, ParamError
 from .modules._elpro_series import EXTRAS as ELPRO_EXTRAS
 from .projects import Conflict, Projects
@@ -409,39 +410,34 @@ def optimized_png(png: bytes, colors: int = 48) -> bytes:
         return out.getvalue()
 
 
-PACK_MB_PER_WORKER = 1500       # процессу пакета нужна своя копия таблиц эксплуатации
-_PACK: dict = {}
+def _word_meta(job, _params, _payload) -> dict:
+    """Описание графика (модуль, скважины, периоды) для подписи — в процессе-исполнителе."""
+    return dict(job.render().layout.meta or {})
 
 
-def _job_frames(jobs) -> list:
-    """Таблицы, на которых строятся графики (первые аргументы заданий), без повторов."""
-    out = {}
-    for job in jobs:
-        while hasattr(job, '_job'):
-            job = job._job
-        for arg in getattr(getattr(job, 'factory', None), 'args', ()):
-            if isinstance(arg, pd.DataFrame):
-                out[id(arg)] = arg
-    return list(out.values())
+def _word_png(job, params, caption_h) -> tuple:
+    """(PNG, ширина, высота в мм) графика в размер на листе — в процессе-исполнителе."""
+    lay, font, font_size, look = params
+    return word_export.render_png(job.render(), lay, caption_h, font, font_size, look)
 
 
-def _pack_init(jobs, params, indexed) -> None:
-    """Один раз в процессе: графики пакета, параметры рисунка и таблицы, у которых был свой индекс (``indexed``).
-    Индекс привязан к объекту таблицы (``id``) — после передачи процессу объект новый, поэтому привязываем заново:
-    расчёт кривых идёт по индексу, а не по всей таблице. Чужой индекс (у копии он остаётся от исходной таблицы) не привязывается."""
-    for frame in indexed:
-        frame.attrs['_atlas_index'].owner = id(frame)
-    _PACK['jobs'], _PACK['params'] = jobs, params
+def _archive_work(job, params, _payload) -> list:
+    """[(формат, байты, ошибка)] графика во всех форматах архива — в процессе-исполнителе; сбой построения — исключение."""
+    formats, dpi, width_mm, height_mm, font, font_size, look = params
+    figure = job.render()
+    out = []
+    for fmt in formats:
+        try:
+            out.append((fmt, figure_bytes(figure, fmt, dpi, width_mm, height_mm, font=font, font_size=font_size, look=look), None))
+        except Exception as e:
+            out.append((fmt, None, str(e)))
+    return out
 
 
-def _pack_png(i: int):
-    """(PNG графика пакета, None) или (None, текст ошибки)."""
-    dpi, image_w, image_h, font, font_size, look = _PACK['params']
-    try:
-        return optimized_png(figure_bytes(_PACK['jobs'][i].render(), 'png', dpi, image_w, image_h, compact=True, font=font, font_size=font_size, look=look)), None
-    except Exception as e:
-        return None, str(e)
-
+def _pack_work(job, params, _payload) -> bytes:
+    """PNG графика пакета (в процессе-исполнителе)."""
+    dpi, image_w, image_h, font, font_size, look = params
+    return optimized_png(figure_bytes(job.render(), 'png', dpi, image_w, image_h, compact=True, font=font, font_size=font_size, look=look))
 
 def pack_label(template: str, section: str, number: int, well: str, kind: str, years: str) -> str:
     return template.format_map({'раздел': section, 'номер': number, 'скважина': well, 'режим': PACK_KINDS[kind][1], 'годы': years})
@@ -748,7 +744,17 @@ def routes(projects: Projects) -> list[Route]:
         pid, form = request.path_params['pid'], form_of(body)
         options, plan, data = need_plan(pid, form)
         meta = metadata(pid, data, options, form)
-        result = export_plan(plan, projects.store, pid, meta['formats'], meta['dpi'], meta['width_mm'], meta, height_mm=meta.get('height_mm'))
+        params = (meta['formats'], meta['dpi'], meta['width_mm'], meta.get('height_mm'), meta.get('font', 'default'), meta.get('font_size'), meta.get('look', 'default'))
+        # один пул на весь план: графики модулей в том порядке, в каком их берёт export_plan
+        groups: dict = {}
+        for job in plan.jobs:
+            groups.setdefault(getattr(job, 'module', '') or 'results', []).append(job)
+        stream = render_pool.iter_run([j for js in groups.values() for j in js], _archive_work, params)
+        try:
+            result = export_plan(plan, projects.store, pid, meta['formats'], meta['dpi'], meta['width_mm'], meta, height_mm=meta.get('height_mm'),
+                                 renderer=lambda jobs: itertools.islice(stream, len(jobs)))
+        finally:
+            stream.close()
         projects.store.event(pid, 'Экспорт', meta)
         return result_json(result)
 
@@ -774,10 +780,59 @@ def routes(projects: Projects) -> list[Route]:
         before, mark, after = word_export.caption_split(text)
         return before, (None if mark is None else number), after
 
+    def word_items_pooled(jobs, lay, captions, font, font_size, look, progress=None):
+        """То же, что ``word_items`` без ``only``, но графики строятся процессами: сначала у каждого берётся описание
+        (по нему подписи и их нумерация подряд), затем в размер на листе рисуется сам график."""
+        from types import SimpleNamespace
+        cell = lay.cell()
+        metas = render_pool.run(jobs, _word_meta)
+        counters, errors, todo, caps = {}, [], [], {}
+        for k, (job, (meta, failed)) in enumerate(zip(jobs, metas)):
+            try:
+                if failed is not None:
+                    raise ValueError(failed)
+                before, number, after = word_caption(SimpleNamespace(layout=SimpleNamespace(meta=meta)), captions, counters)
+                item = word_export.Item(job.name, before, number, after, module=getattr(job, 'module', ''))
+                caps[k] = word_export.caption_height(lay, item.text, cell)
+                todo.append((k, item))
+            except Exception as e:
+                errors.append({'График': job.name, 'Формат': 'docx', 'Ошибка': str(e)})
+        items = []
+        drawn = render_pool.iter_run(jobs, _word_png, (lay, font, font_size, look), payloads=[caps.get(k) for k in range(len(jobs))], indices=[k for k, _ in todo])
+        for n, ((k, item), (result, failed)) in enumerate(zip(todo, drawn), 1):
+            if failed is None:
+                item.png, item.w, item.h = result
+                items.append(item)
+            else:
+                errors.append({'График': item.name, 'Формат': 'docx', 'Ошибка': failed})
+            if progress:
+                progress(n)
+        return items, errors
+
+    def word_sizes(jobs, lay, captions, font, font_size, look):
+        """Подписи и размеры всех графиков без их рисования (предпросмотр): описания берутся процессами, размер всех — по первому графику."""
+        from types import SimpleNamespace
+        cell, counters, items, shape = lay.cell(), {}, [], None
+        for job, (meta, failed) in zip(jobs, render_pool.run(jobs, _word_meta)):
+            if failed is not None:
+                raise ValueError(failed)
+            before, number, after = word_caption(SimpleNamespace(layout=SimpleNamespace(meta=meta)), captions, counters)
+            item = word_export.Item(job.name, before, number, after, module=getattr(job, 'module', ''))
+            cap_h = word_export.caption_height(lay, item.text, cell)
+            if shape is None:
+                item.png, item.w, item.h = word_export.render_png(job.render(), lay, cap_h, font, font_size, look)
+                shape = (item.h / item.w, cap_h)
+            else:
+                item.w, item.h = word_export.fit(lay, shape[0], cap_h)
+            items.append(item)
+        return items
+
     def word_items(jobs, layout, captions, font, font_size, dpi=None, look='default', only=None, progress=None):
         """Готовые к вёрстке графики. ``only`` (предпросмотр) — какие строить по-настоящему; остальные берут размеры у первого."""
         from dataclasses import replace
         lay = replace(layout, dpi=dpi) if dpi else layout
+        if only is None:
+            return word_items_pooled(jobs, lay, captions, font, font_size, look, progress)
         counters, items, errors, shape = {}, [], [], None
         cell = lay.cell()
         for k, job in enumerate(jobs):
@@ -847,11 +902,15 @@ def routes(projects: Projects) -> list[Route]:
         doc = min(max(int(body.get('doc') or 0), 0), len(groups) - 1)
         module, label, jobs = groups[doc]
         # размеры по первому графику, затем уточняются для графиков показанного листа
-        items, _ = word_items(jobs, layout, captions, font, font_size, dpi=150, look=look_from(form), only=set())
+        from dataclasses import replace
+        lay150, look = replace(layout, dpi=150), look_from(form)
+        items = word_sizes(jobs, lay150, captions, font, font_size, look)
         page = max(1, int(body.get('page') or 1))
         rows = word_export.paginate(layout, items)
         shown = [i for row in rows[min(page, len(rows)) - 1] for i in row]
-        items, _ = word_items(jobs, layout, captions, font, font_size, dpi=150, look=look_from(form), only=set(shown))
+        for k in shown:         # рисуются только графики показанного листа; подписи и размеры остальных уже известны
+            cap_h = word_export.caption_height(lay150, items[k].text, lay150.cell())
+            items[k].png, items[k].w, items[k].h = word_export.render_png(jobs[k].render(), lay150, cap_h, font, font_size, look)
         image, pages = word_export.preview_png(layout, items, page, {i: items[i].png for i in shown if items[i].png})
         pw, ph = layout.page()
         return {'documents': [{'id': m, 'label': lb, 'charts': len(js)} for m, lb, js in groups], 'doc': doc, 'page': min(page, pages), 'pages': pages,
@@ -891,9 +950,7 @@ def routes(projects: Projects) -> list[Route]:
         by_kind = {kind: [j for j in plan.jobs if j.name.startswith(label + ' · ')] for kind, (_, _, label) in PACK_KINDS.items()}
         every = [j for jobs in by_kind.values() for j in jobs]
         # графики независимы: рисуем процессами на всех ядрах (PXG_WORKERS, лимит по памяти); результат тот же, что подряд
-        rendered = iter(parallel.map_jobs(_pack_png, range(len(every)), PACK_MB_PER_WORKER, initializer=_pack_init,
-                                          initargs=(every, (dpi, image_w, image_h, pack_font, pack_font_size, look_from(form)),
-                                                    [f for f in _job_frames(every) if performance.index_for(f) is not None])))
+        rendered = render_pool.iter_run(every, _pack_work, (dpi, image_w, image_h, pack_font, pack_font_size, look_from(form)))
         for kind, (section_default, _, label) in PACK_KINDS.items():
             jobs = by_kind[kind]
             if not jobs:

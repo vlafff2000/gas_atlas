@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import logging
 import os
+import pickle
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from multiprocessing import get_context
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, Iterator, List, Optional, Sequence
 
 from . import progress
 
@@ -45,36 +46,38 @@ def default_workers(mb_per_worker: float = 0.0) -> int:
     return max(1, n)
 
 
-def _each(fn: Callable[[Any], Any], jobs: Sequence[Any], initializer: Optional[Callable] = None, initargs: tuple = ()) -> List[Any]:
-    """Результаты по порядку; после каждого отмечается ход задачи (шкала выполнения в окне)."""
-    progress.report(0, len(jobs))
+def iter_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float = 0.0, workers: Optional[int] = None,
+              initializer: Optional[Callable] = None, initargs: tuple = (), min_jobs: int = 4) -> Iterator[Any]:
+    """Результаты ``fn(job)`` по порядку по мере готовности: потребитель обрабатывает их, пока процессы считают дальше
+    (в памяти не копится всё сразу). fn и initializer — функции верхнего уровня модуля (picklable).
+
+    ``initializer(*initargs)`` выполняется один раз в каждом процессе (и в этом же процессе, если считаем в нём): так общие
+    большие данные передаются процессу один раз, а не с каждым заданием. Меньше ``min_jobs`` заданий считаем здесь же."""
+    jobs = list(jobs)
+    n = min(default_workers(mb_per_worker) if workers is None else max(1, workers), len(jobs))
+    done = 0
+    if n >= 2 and len(jobs) >= int(os.environ.get('PXG_PARALLEL_MIN') or min_jobs):
+        try:
+            progress.report(0, len(jobs))
+            with ProcessPoolExecutor(max_workers=n, mp_context=get_context('spawn'), initializer=initializer, initargs=initargs) as ex:
+                for res in ex.map(fn, jobs, chunksize=1):
+                    done += 1
+                    progress.advance()
+                    yield res
+            return
+        except (BrokenProcessPool, MemoryError, PermissionError, pickle.PicklingError, AttributeError, TypeError):
+            # процесс убит или не запустился, либо задания нельзя передать процессу (не picklable)
+            log.exception('%d процессов не справились, считаем в одном', n)
+    progress.report(done, len(jobs))
     if initializer:
         initializer(*initargs)
-    out = []
-    for j in jobs:
-        out.append(fn(j))
+    for j in jobs[done:]:
+        res = fn(j)
         progress.advance()
-    return out
+        yield res
 
 
 def map_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float = 0.0, workers: Optional[int] = None,
              initializer: Optional[Callable] = None, initargs: tuple = ()) -> List[Any]:
-    """[fn(job) для job из jobs] по порядку; fn и initializer — функции верхнего уровня модуля (picklable).
-
-    ``initializer(*initargs)`` выполняется один раз в каждом процессе (и в этом же процессе, если считаем в нём): так общие
-    большие данные передаются процессу один раз, а не с каждым заданием."""
-    jobs = list(jobs)
-    n = min(default_workers(mb_per_worker) if workers is None else max(1, workers), len(jobs))
-    if n < 2 or len(jobs) < int(os.environ.get('PXG_PARALLEL_MIN') or 4):
-        return _each(fn, jobs, initializer, initargs)
-    try:
-        progress.report(0, len(jobs))
-        with ProcessPoolExecutor(max_workers=n, mp_context=get_context('spawn'), initializer=initializer, initargs=initargs) as ex:
-            out = []
-            for res in ex.map(fn, jobs, chunksize=1):
-                out.append(res)
-                progress.advance()
-            return out
-    except (BrokenProcessPool, MemoryError, PermissionError):
-        log.exception('%d процессов не справились, считаем в одном', n)
-        return _each(fn, jobs, initializer, initargs)
+    """[fn(job) для job из jobs] по порядку (см. ``iter_jobs``)."""
+    return list(iter_jobs(fn, jobs, mb_per_worker, workers, initializer, initargs))

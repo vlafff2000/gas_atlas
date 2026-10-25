@@ -6,7 +6,7 @@ import pickle
 import numpy as np
 import pandas as pd
 
-from atlas import api_export, parallel
+from atlas import chart_labels, parallel, render_pool
 from atlas.engine.core import performance
 from atlas.engine.core.reporting import FigureJob
 from atlas.engine.modules import charts, production
@@ -65,10 +65,10 @@ def test_pack_init_reattaches_index_after_pickle():
     d = performance.with_index(daily_production(), 'production')
     job = FigureJob('Отбор · 31', None, {})
     job.factory = __import__('functools').partial(charts.production_curve, d, 'withdrawal', ['2012-2013'], ['31'])
-    jobs, indexed = pickle.loads(pickle.dumps(([job], [f for f in api_export._job_frames([job]) if performance.index_for(f) is not None])))
+    jobs, indexed = pickle.loads(pickle.dumps(([job], [f for f in render_pool.job_frames([job]) if performance.index_for(f) is not None])))
     frame = jobs[0].factory.args[0]
     assert performance.index_for(frame) is None          # объект новый — прежняя привязка по id потеряна
-    api_export._pack_init(jobs, (), indexed)
+    render_pool._init(0, jobs, indexed, None, None)
     assert performance.index_for(frame) is not None
 
 
@@ -79,9 +79,9 @@ def test_pack_init_does_not_adopt_foreign_index():
     assert performance.index_for(copy) is None
     job = FigureJob('Отбор · 31', None, {})
     job.factory = __import__('functools').partial(charts.production_curve, copy, 'withdrawal', ['2012-2013'], ['31'])
-    jobs, indexed = pickle.loads(pickle.dumps(([job], [f for f in api_export._job_frames([job]) if performance.index_for(f) is not None])))
+    jobs, indexed = pickle.loads(pickle.dumps(([job], [f for f in render_pool.job_frames([job]) if performance.index_for(f) is not None])))
     assert indexed == []
-    api_export._pack_init(jobs, (), indexed)
+    render_pool._init(0, jobs, indexed, None, None)
     assert performance.index_for(jobs[0].factory.args[0]) is None
 
 
@@ -107,3 +107,34 @@ def test_map_jobs_initializer_in_pool(monkeypatch):
     monkeypatch.setenv('PXG_WORKERS', '2')
     monkeypatch.setenv('PXG_PARALLEL_MIN', '1')
     assert parallel.map_jobs(_times, range(6), initializer=_set, initargs=(4,)) == [0, 4, 8, 12, 16, 20]
+
+
+# --- общий пул построения графиков ---------------------------------------------------------------------------------
+
+def _name_and_payload(job, params, payload):
+    if job.name == 'bad':
+        raise ValueError('не построился')
+    return job.name + params + str(payload)
+
+
+def test_render_pool_keeps_order_and_isolates_errors(monkeypatch):
+    monkeypatch.setenv('PXG_WORKERS', '1')
+    jobs = [FigureJob(name, None, {}) for name in ('a', 'bad', 'c')]
+    assert render_pool.run(jobs, _name_and_payload, '!', payloads=[1, 2, 3]) == [('a!1', None), (None, 'не построился'), ('c!3', None)]
+    assert render_pool.run(jobs, _name_and_payload, '!', indices=[2]) == [('c!None', None)]
+
+
+def test_render_pool_in_pool_matches_in_process(monkeypatch):
+    jobs = [FigureJob(f'g{i}', None, {}) for i in range(30)]
+    monkeypatch.setenv('PXG_WORKERS', '1')
+    single = render_pool.run(jobs, _name_and_payload, '?')
+    monkeypatch.setenv('PXG_WORKERS', '2')
+    monkeypatch.setenv('PXG_PARALLEL_MIN', '2')
+    assert render_pool.run(jobs, _name_and_payload, '?') == single
+
+
+def test_labelled_job_survives_pickling():
+    """Без охраны ``__getattr__`` разбор при передаче процессу уходил в бесконечную рекурсию (``_job`` ещё нет)."""
+    job = chart_labels.LabelledJob(FigureJob('Отбор · 31', None, {}, module='production'), {'title': 'x'})
+    copy = pickle.loads(pickle.dumps(job))
+    assert copy.name == 'Отбор · 31' and copy.module == 'production'
