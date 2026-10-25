@@ -52,7 +52,7 @@ def _port_open(url: str) -> bool:
 
 def _maps_note(text: str) -> HTMLResponse:
     """Страница-пояснение вместо перехода в Карты, когда перейти нельзя."""
-    return HTMLResponse(f'<!doctype html><meta charset="utf-8"><title>Карты ГСП</title>'
+    return HTMLResponse(f'<!doctype html><meta charset="utf-8"><title>Карты</title>'
                         f'<p style="font-family:sans-serif;margin:24px">{text}</p>')
 
 
@@ -138,19 +138,19 @@ def create_app(projects: Projects | None = None) -> Starlette:
         return projects.list()
 
     def app_links(request, body):
-        """Адрес Карт ГСП: переменная PXG_MAPS_URL (её передаёт меню pxg_hub); пусто — кнопки на карту не будет."""
+        """Адрес Карт: переменная PXG_MAPS_URL (её передаёт меню pxg_hub); пусто — кнопки на карту не будет."""
         return {'maps_url': os.environ.get('PXG_MAPS_URL', '').strip()}
 
     def maps_open(request):
-        """«Показать на карте»: переход в Карты ГСП на скважине (#/map?well=…); если Карт нет — понятная страница."""
+        """«Показать на карте»: переход в Карты на скважине (#/map?well=…); если Карт нет — понятная страница."""
         well = request.query_params.get('well', '').strip()
         if not well.isdigit():
             return error(400, 'Номер скважины — целое число')
         base = os.environ.get('PXG_MAPS_URL', '').strip().rstrip('/')
         if not base:
-            return _maps_note('Адрес Карт ГСП не задан. Откройте Атлас через меню запуска (pxg_hub), тогда кнопка «Показать на карте» заработает.')
+            return _maps_note('Адрес Карт не задан. Откройте Атлас через меню запуска (pxg_hub), тогда кнопка «Показать на карте» заработает.')
         if not _port_open(base):
-            return _maps_note('Карты ГСП не запущены. Запустите «Карты» в меню запуска и нажмите «Показать на карте» ещё раз.')
+            return _maps_note('Карты не запущены. Запустите «Карты» в меню запуска и нажмите «Показать на карте» ещё раз.')
         return RedirectResponse(f'{base}/#/map?well={well}', status_code=302)
 
     def project_wells(request, body):

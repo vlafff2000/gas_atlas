@@ -123,11 +123,9 @@ def main(argv=None) -> None:
             try:
                 import webview
                 webview.create_window('ПХГ — все приложения', url, width=980, height=640)
-                window = True
                 webview.start()
-            except Exception as error:
-                if window:
-                    return
+                window = True  # окно открылось и было закрыто пользователем
+            except Exception as error:  # нет WebView2/библиотеки окна: меню откроется в браузере, а не молча закроется
                 print('Окно приложения недоступно (%s) — открываю в браузере' % error)
         if not window:
             webbrowser.open(url)
