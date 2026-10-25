@@ -65,3 +65,25 @@ def test_gis_book_loads_all_three_tables_without_unassigned_rows(folder, tmp_pat
     assert out['results'][0]['status'] == 'loaded', out
     tables = api.get(f'/api/projects/{pid}').json()['tables']
     assert (tables['gis_packs'], tables['gis_intervals'], tables['gis_observations']) == (2, 1, 2)
+
+
+def test_signatures_recognise_outputs_under_any_name(tmp_path):
+    out = tmp_path / 'x'
+    out.mkdir()
+    with pd.ExcelWriter(out / 'a.xlsx') as xw:
+        pd.DataFrame({'Скважина': ['1'], 'Дата': ['2024-01-01'], 'Категория': ['Эксплуатационные'], 'Руст': [10.0]}).to_excel(xw, sheet_name='Данные', index=False)
+    with pd.ExcelWriter(out / 'b.xlsx') as xw:
+        pd.DataFrame({'Скважина': ['1'], 'Дата': ['2024-01-01'], 'Давление, бар': [100.0]}).to_excel(xw, sheet_name='include_эксплуатационные', index=False)
+    with pd.ExcelWriter(out / 'c.xlsx') as xw:
+        pd.DataFrame({'a': [1]}).to_excel(xw, sheet_name='Отборы', index=False)
+        pd.DataFrame({'a': [1]}).to_excel(xw, sheet_name='Закачка', index=False)
+    files = _by_name(project_folder.scan(str(out)))
+    assert files['a.xlsx']['role'] is None and 'Пересчёт_давлений' in files['a.xlsx']['role_reason']      # узнан, но не грузится: причина видна
+    assert files['b.xlsx']['role'] == 'pressure' and files['c.xlsx']['role'] == 'production'
+    assert 'листы «Закачка», «Отборы»' in files['c.xlsx']['role_reason']
+
+
+def test_registry_lists_every_known_output_family():
+    labels = ' '.join(r['label'] for r in project_folder.registry())
+    for word in ('ЭЛПРО', 'учету газа', 'База ГИС', 'расходов', 'ГДИ', 'воды', 'межколонок', 'Пересчёт давлений', 'шахматка'):
+        assert word in labels
