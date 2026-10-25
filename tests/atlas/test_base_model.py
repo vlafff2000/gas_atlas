@@ -13,6 +13,7 @@ from atlas.imports import Imports
 from atlas.projects import Projects
 
 NAN = np.nan
+CALLS = []      # с какими аргументами читалка модели вызывалась
 
 
 def frame(rows):
@@ -45,13 +46,16 @@ def test_apply_fill_keeps_file_values_replace_overrides_chosen_fields_only():
 
 @pytest.fixture()
 def project(tmp_path, monkeypatch):
+    CALLS.clear()
     monkeypatch.setenv('PXG_HOME', str(tmp_path / 'pxg'))
     monkeypatch.setattr(config, 'STORAGE', tmp_path / 'storage')
     projects = Projects(tmp_path / 'storage')
-    catalog = types.SimpleNamespace(load_folders=lambda: ['/m'], scan=lambda folders: [
-        {'id': '/m/A.SMSPEC', 'name': 'Модель A', 'folder': '/m', 'summary': True, 'indicators': True}])
+    saved = []
+    catalog = types.SimpleNamespace(load_folders=lambda: ['/m'] + saved, save_folders=lambda f: saved.extend(x for x in f if x not in ['/m'] + saved),
+                                    scan=lambda folders: [{'id': '/m/A.SMSPEC', 'name': 'Модель A', 'folder': '/m', 'summary': False, 'indicators': False}])
     monkeypatch.setattr(model_source, '_tnav', lambda: (types.SimpleNamespace(), catalog))
-    monkeypatch.setattr(base_model, 'read', lambda anchor: (MODEL, {}, ['заметка']))
+    monkeypatch.setattr(base_model, 'read', lambda anchor, folder='': (CALLS.append((anchor, folder)), (MODEL, {}, ['заметка']))[1])
+    monkeypatch.setattr(base_model, 'data_files', lambda anchor, folder='': {'used': ['M.data'], 'auto': ['Z.data'], 'source': 'folder' if folder else 'auto'})
     return Imports(projects), projects, projects.store.create('Тест')
 
 
@@ -100,3 +104,18 @@ def test_routes_answer(project):
     r = client.post(f'/api/projects/{pid}/import/base-model', json={'model': '/m/A.SMSPEC'})
     assert r.json()['selected'] == '/m/A.SMSPEC'
     assert client.post(f'/api/projects/{pid}/import/base-model/apply', json={'fields': []}).status_code == 400
+
+
+def test_models_without_summary_are_listed_and_data_dir_is_used_and_folder_can_be_added(project, tmp_path):
+    imports, projects, pid = project
+    assert [m['name'] for m in imports.base_model_state(pid)['models']] == ['Модель A']        # сводка SMSPEC/UNSMRY не обязательна
+    st = imports.base_model_choose(pid, {'model': '/m/A.SMSPEC', 'data_dir': '/inputs'})
+    assert st['data_dir'] == '/inputs' and st['data_files']['source'] == 'folder' and st['data_files']['auto'] == ['Z.data']
+    assert CALLS[-1] == ('/m/A.SMSPEC', '/inputs')                                    # читается из явной папки, а не рядом с результатами
+    assert imports.base_model_choose(pid, {'data_dir': ''})['data_dir'] == ''                  # сброс не трогает модель
+    assert projects.manifest(pid)['settings']['base_model'] == '/m/A.SMSPEC'
+    added = tmp_path / 'models'
+    added.mkdir()
+    assert str(added) in imports.base_model_add_folder({'folder': str(added)})['folders']
+    with pytest.raises(Exception, match='не найдена'):
+        imports.base_model_add_folder({'folder': str(tmp_path / 'нет')})

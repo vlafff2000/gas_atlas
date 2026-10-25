@@ -17,6 +17,7 @@ import pandas as pd
 from .engine.core import well_geo_import as geo
 
 KEY = 'base_model'
+DATA_KEY = 'base_model_data'      # папка с входными файлами модели (.data и include), если автопоиск рядом с результатами не подходит
 FIELDS = {'x': ('x',), 'y': ('y',), 'altitude': ('altitude',), 'perf': ('perf_top', 'perf_bottom')}
 LABELS = {'x': 'X', 'y': 'Y', 'altitude': 'Альтитуда', 'perf': 'Перфорация (верх, низ)'}
 TOLERANCE = {'x': 1.0, 'y': 1.0, 'altitude': 1.0, 'perf_top': 1.0, 'perf_bottom': 1.0}     # м: меньшее расхождение не считается
@@ -31,6 +32,23 @@ def selected(settings: Mapping[str, Any]) -> str:
     return str(settings.get(KEY) or '').strip().strip('"')
 
 
+def data_dir(settings: Mapping[str, Any]) -> str:
+    return str(settings.get(DATA_KEY) or '').strip().strip('"')
+
+
+def data_files(anchor: str, folder: str = '') -> dict[str, Any]:
+    """Какие .data читаются: из заданной папки или найденные рядом с моделью, и что нашёл бы автопоиск (для подсказки)."""
+    try:
+        from tnav_results import perforations
+    except ImportError:
+        return {'used': [], 'auto': [], 'source': 'none'}
+    auto = [os.path.basename(f) for f in perforations.find_data_files(anchor)] if anchor else []
+    if folder:
+        used = [os.path.basename(f) for f in perforations.find_data_files(folder)]
+        return {'used': used, 'auto': auto, 'source': 'folder'}
+    return {'used': auto, 'auto': auto, 'source': 'auto' if auto else 'none'}
+
+
 def _egrid(anchor: str) -> str | None:
     folder, name = os.path.split(anchor)
     stem = os.path.splitext(name)[0].lower()
@@ -43,14 +61,14 @@ def _egrid(anchor: str) -> str | None:
     return None
 
 
-def read(anchor: str) -> tuple[pd.DataFrame, dict[str, dict[str, str]], list[str]]:
+def read(anchor: str, folder: str = '') -> tuple[pd.DataFrame, dict[str, dict[str, str]], list[str]]:
     """Параметры скважин модели в формате ``well_geo``: (таблица, источники значений по скважинам, замечания)."""
     try:
         from tnav_results import base_model, perforations
     except ImportError as e:
         raise BaseModelUnavailable('Не найдена читалка tNavigator (пакет tnav_results из all_scripts).') from e
     try:
-        res = base_model.well_params(anchor)
+        res = base_model.well_params(folder or anchor)
     except (OSError, ValueError) as e:
         raise BaseModelUnavailable(f'Входные файлы модели не прочитаны: {e}') from e
     notes = list(res['notes'])

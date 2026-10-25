@@ -930,17 +930,23 @@ class Imports:
 
     # ---------- Базовая модель: параметры скважин из входных файлов модели tNavigator ----------
     def base_model_state(self, pid: str) -> dict[str, Any]:
-        """Выбранная базовая модель, список моделей из общего списка папок tNav и сверка с загруженным ``well_geo``."""
+        """Выбранная базовая модель, все модели общего списка папок tNav (для базовой нужны только входные файлы, сводка не обязательна),
+        папка с .data и сверка с загруженным ``well_geo``."""
         m = self.projects.manifest(pid)
-        current = base_model.selected(m.get('settings', {}))
-        listing = model_source.listing([], False, ('', ''), None)
-        out: dict[str, Any] = {'available': listing['available'], 'error': listing['error'], 'selected': current,
-                               'models': [{'id': x['id'], 'name': x['name'], 'folder': x['folder']} for x in listing['models']],
+        cfg = m.get('settings', {})
+        current, folder = base_model.selected(cfg), base_model.data_dir(cfg)
+        out: dict[str, Any] = {'available': True, 'error': '', 'selected': current, 'data_dir': folder, 'folders': [], 'models': [],
                                'fields': [{'key': k, 'label': v} for k, v in base_model.LABELS.items()],
-                               'compare': None, 'notes': [], 'error_model': ''}
+                               'data_files': base_model.data_files(current, folder), 'compare': None, 'notes': [], 'error_model': ''}
+        try:
+            _, catalog = model_source._tnav()
+            out['folders'] = catalog.load_folders()
+            out['models'] = [{'id': x['id'], 'name': x['name'], 'folder': x['folder']} for x in catalog.scan(out['folders'])]
+        except model_source.ModelUnavailable as e:
+            out.update(available=False, error=str(e))
         if current:
             try:
-                model, _src, notes = base_model.read(current)
+                model, _src, notes = base_model.read(current, folder)
                 out['notes'] = notes
                 out['compare'] = base_model.compare(model, self._raw_frames(pid, m).get('well_geo'))
             except base_model.BaseModelUnavailable as e:
@@ -948,15 +954,35 @@ class Imports:
         return out
 
     def base_model_choose(self, pid: str, body: dict) -> dict[str, Any]:
-        path = str(body.get('model') or '').strip().strip('"')
+        """Модель (файл результатов) и/или папка с .data; пустое значение сбрасывает. Ключ в теле — только то, что меняется."""
         m = self.projects.manifest(pid)
         cfg = dict(m.get('settings', {}))
-        if path:
-            cfg[base_model.KEY] = path
-        else:
-            cfg.pop(base_model.KEY, None)
-        self.projects._commit(pid, cfg, m.get('revision'), 'Базовая модель', {'model': path})
+        for key, field in ((base_model.KEY, 'model'), (base_model.DATA_KEY, 'data_dir')):
+            if field in body:
+                value = str(body.get(field) or '').strip().strip('"')
+                if value:
+                    cfg[key] = value
+                else:
+                    cfg.pop(key, None)
+        self.projects._commit(pid, cfg, m.get('revision'), 'Базовая модель', {'model': cfg.get(base_model.KEY, ''), 'data_dir': cfg.get(base_model.DATA_KEY, '')})
         return self.base_model_state(pid)
+
+    def base_model_add_folder(self, body: dict) -> dict[str, Any]:
+        """Добавить папку с моделями в общий список tNav (тот же ~/.pxg/tnav_folders.json, что читают Карты и ГДМ)."""
+        path = str(body.get('folder') or '').strip().strip('"')
+        if not path or not Path(path).is_dir():
+            raise ParamError('Папка не найдена: укажите существующую папку с результатами модели')
+        try:
+            _, catalog = model_source._tnav()
+        except model_source.ModelUnavailable as e:
+            raise ParamError(str(e)) from e
+        folders = catalog.load_folders()
+        if path not in folders:
+            try:
+                catalog.save_folders(folders + [path])
+            except OSError as e:
+                raise ParamError(f'Список папок не записан: {e}') from e
+        return {'folders': catalog.load_folders(), 'models': len(catalog.scan([path]))}
 
     def base_model_apply(self, pid: str, body: dict) -> dict[str, Any]:
         """Записать параметры базовой модели в ``well_geo`` по выбранным полям: ``fill`` — только пропуски, ``replace`` — заменить."""
@@ -969,7 +995,7 @@ class Imports:
         if not current:
             raise ParamError('Сначала выберите базовую модель')
         try:
-            model, _src, _notes = base_model.read(current)
+            model, _src, _notes = base_model.read(current, base_model.data_dir(m.get('settings', {})))
         except base_model.BaseModelUnavailable as e:
             raise ParamError(str(e)) from e
         raw = self._raw_frames(pid, m)

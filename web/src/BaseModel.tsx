@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { importApi, type BaseModelCell, type BaseModelState } from './api_import'
+import { openFilePicker } from './FilePicker'
 import type { Project } from './api'
 
 const STATE_TEXT: Record<BaseModelCell['state'], string> = { same: 'совпало', diff: 'расходится', only_model: 'есть только в модели', only_file: 'есть только в файле' }
 const num = (v: number | null) => (v === null ? '—' : v.toLocaleString('ru-RU', { maximumFractionDigits: 1 }))
 
 /** Базовая модель проекта: из неё берутся устье, альтитуда и перфорация скважин. Это подсказка: сверка с файлом видна,
- *  в таблицу значения попадают только по кнопке, файл можно оставить главным. */
+ *  в таблицу значения попадают только по кнопке, файл можно оставить главным. Блок виден всегда, пока открыт проект. */
 export function BaseModel({ project, onProject }: { project: Project | null; onProject?: (p: Project) => void }) {
   const [state, setState] = useState<BaseModelState | null>(null)
   const [fields, setFields] = useState<string[]>(['x', 'y', 'perf'])
@@ -17,22 +18,38 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
 
   useEffect(() => {
     setState(null)
-    if (pid) importApi.baseModel(pid).then(setState).catch(e => setMessage((e as Error).message))
+    if (pid) importApi.baseModel(pid).then(setState).catch(e => setMessage('Базовая модель: ' + (e as Error).message))
   }, [pid])
 
-  if (!project || !state) return message ? <div className="note warning">{message}</div> : null
+  if (!project) return null
   const run = async (job: () => Promise<void>) => {
     setBusy(true); setMessage('')
     try { await job() } catch (e) { setMessage((e as Error).message) } finally { setBusy(false) }
   }
-  const choose = (model: string) => run(async () => setState(await importApi.chooseBaseModel(project.id, model)))
+  const choose = (body: { model?: string; data_dir?: string }) => run(async () => setState(await importApi.chooseBaseModel(project.id, body)))
+  const addFolder = () => run(async () => {
+    const folder = await openFilePicker({ mode: 'folder', title: 'Папка с результатами модели (там, где лежат EGRID, INIT, UNRST)' })
+    if (!folder) return
+    const r = await importApi.addModelFolder(folder)
+    setState(await importApi.baseModel(project.id))
+    setMessage(r.models ? `Папка добавлена, моделей найдено: ${r.models}` : 'Папка добавлена, но файлов модели (EGRID, INIT, SMSPEC, UNRST) в ней не нашлось')
+  })
+  const pickModelFile = () => run(async () => {
+    const file = await openFilePicker({ mode: 'file', title: 'Любой файл результатов модели (EGRID, INIT, SMSPEC, UNRST)' })
+    if (file) setState(await importApi.chooseBaseModel(project.id, { model: file }))
+  })
+  const pickDataDir = () => run(async () => {
+    const folder = await openFilePicker({ mode: 'folder', start: state?.data_dir || undefined, title: 'Папка с входными файлами модели (.data и include)' })
+    if (folder) setState(await importApi.chooseBaseModel(project.id, { data_dir: folder }))
+  })
   const apply = () => run(async () => {
     const r = await importApi.applyBaseModel(project.id, fields, mode)
     setState(r.state); setMessage(r.message); onProject?.(r.project)
   })
   const toggle = (k: string) => setFields(fields.includes(k) ? fields.filter(x => x !== k) : [...fields, k])
-  const cmp = state.compare
-  const diffRows = cmp ? cmp.rows : []
+  const cmp = state?.compare
+  const files = state?.data_files
+  const known = state ? state.models.some(m => m.id === state.selected) : true
 
   return (
     <section className="folder-sources" aria-label="Базовая модель">
@@ -40,22 +57,40 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
       <p className="muted small">Из входных файлов модели (.data) берутся устье X, Y, альтитуда и интервалы перфорации. Значения только предлагаются:
         сверка с загруженным файлом ниже, в проект они попадают по кнопке. Файл остаётся главным, пока вы не выберете «заменить».
         Карты и ГДМ читают тот же проект.</p>
-      {!state.available && <div className="note warning">{state.error}</div>}
-      {state.available && (
-        <div className="row">
-          <label>Модель{' '}
-            <select disabled={busy} value={state.selected} onChange={e => choose(e.target.value)}>
-              <option value="">не выбрана</option>
-              {state.selected && !state.models.some(m => m.id === state.selected) && <option value={state.selected}>{state.selected}</option>}
-              {state.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select></label>
-          <span className="muted small">список — из общего списка папок tNavigator</span>
-        </div>
+      {!state && !message && <p className="muted small">Загрузка…</p>}
+      {state && !state.available && <div className="note warning">{state.error}</div>}
+      {state && state.available && (
+        <>
+          <div className="row">
+            <label>Модель{' '}
+              <select disabled={busy} value={state.selected} onChange={e => choose({ model: e.target.value })}>
+                <option value="">не выбрана</option>
+                {state.selected && !known && <option value={state.selected}>{state.selected}</option>}
+                {state.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select></label>
+            <button disabled={busy} onClick={addFolder} title="Папка добавится в общий список tNavigator: его же видят Карты и ГДМ">Добавить папку с моделями…</button>
+            <button disabled={busy} onClick={pickModelFile}>Выбрать файл модели…</button>
+          </div>
+          {!state.models.length && <p className="note">В общем списке папок tNavigator моделей нет. Нажмите «Добавить папку с моделями…» и укажите папку, где лежат
+            результаты (EGRID, INIT, UNRST), или выберите файл модели. Нужна только папка с результатами: сводка SMSPEC/UNSMRY для базовой модели не обязательна.</p>}
+          <div className="row">
+            <span className="small">Путь до папки с .data:</span>
+            <span title={state.data_dir}>{state.data_dir || <span className="muted">не задан, ищется рядом с результатами и на 1–3 папки выше</span>}</span>
+            <button disabled={busy} onClick={pickDataDir}>Выбрать папку…</button>
+            {state.data_dir && <button disabled={busy} onClick={() => choose({ data_dir: '' })}>Сбросить</button>}
+          </div>
+          {state.selected && files && (
+            <p className="small muted">
+              {files.used.length ? `Читаются файлы .data (${files.source === 'folder' ? 'из указанной папки' : 'найдены автоматически'}): ${files.used.join(', ')}`
+                : 'Файлов .data не найдено: укажите папку с .data выше.'}
+              {files.source === 'folder' && files.auto.length > 0 && files.auto.join() !== files.used.join() && ` Автопоиск нашёл бы другие: ${files.auto.join(', ')}.`}
+            </p>)}
+        </>
       )}
-      {state.error_model && <div className="note warning">{state.error_model}</div>}
-      {state.notes.length > 0 && <details><summary className="small">Замечания к чтению модели: {state.notes.length}</summary>
+      {state?.error_model && <div className="note warning">{state.error_model}</div>}
+      {state && state.notes.length > 0 && <details><summary className="small">Замечания к чтению модели: {state.notes.length}</summary>
         <ul>{state.notes.slice(0, 20).map((n, i) => <li key={i} className="small">{n}</li>)}</ul></details>}
-      {cmp && (
+      {state && cmp && (
         <>
           <table className="raw"><thead><tr><th>Параметр</th><th>совпало</th><th>расходится</th><th>только в модели</th><th>только в файле</th><th>взять</th></tr></thead>
             <tbody>{state.fields.map(f => <tr key={f.key}><td>{f.label}</td>
@@ -67,10 +102,10 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
             <button disabled={busy || !fields.length} onClick={apply}>Взять из модели</button>
           </div>
           <p className="muted small">Альтитуды лучше сверять с файлом: по умолчанию они не отмечены.</p>
-          {diffRows.length > 0 && (
-            <details><summary className="small">Расхождения и недостающие значения: скважин {diffRows.length}{cmp.truncated ? ` (показаны первые, ещё ${cmp.truncated})` : ''}</summary>
+          {cmp.rows.length > 0 && (
+            <details><summary className="small">Расхождения и недостающие значения: скважин {cmp.rows.length}{cmp.truncated ? ` (показаны первые, ещё ${cmp.truncated})` : ''}</summary>
               <table className="raw"><thead><tr><th>Скважина</th><th>Поле</th><th>Модель</th><th>Файл</th><th>Статус</th></tr></thead>
-                <tbody>{diffRows.flatMap(r => Object.entries(r).filter(([k, v]) => k !== 'well' && typeof v === 'object' && (v as BaseModelCell).state !== 'same')
+                <tbody>{cmp.rows.flatMap(r => Object.entries(r).filter(([k, v]) => k !== 'well' && typeof v === 'object' && (v as BaseModelCell).state !== 'same')
                   .map(([k, v]) => <tr key={r.well + k}><td>{r.well}</td><td>{k}</td><td>{num((v as BaseModelCell).model)}</td><td>{num((v as BaseModelCell).file)}</td>
                     <td>{STATE_TEXT[(v as BaseModelCell).state]}</td></tr>))}</tbody></table></details>
           )}
