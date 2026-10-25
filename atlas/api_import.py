@@ -17,6 +17,7 @@
 | `POST /api/projects/{pid}/import/table` `{pending, table, format}` | журнал проверки / таблица CSV, XLSX |
 | `POST /api/projects/{pid}/import/pressure` `{files, choices, overrides, duplicate}` | данные давлений: роли листов и сопоставление |
 | `POST /api/projects/{pid}/import/pressure/apply` `{pending, mode}` | сохранить данные давлений |
+| `GET /api/projects/{pid}/import/base-model` · `POST …` `{model}` · `POST …/apply` `{fields, mode}` | базовая модель проекта: выбор, сверка с `well_geo`, перенос X, Y, альтитуды, перфорации (`atlas/base_model.py`) |
 | `POST /api/projects/{pid}/import/ggh` `{token, sheet}` · `…/ggh/apply` `{pending, mode}` | данные ГГХ: проверка листа и сохранение (`atlas/engine/core/ggh_import.py`) |
 | `GET /api/import/pressure-demo`, `GET /api/import/pressure-demo/{variant}/{name}` | демонстрационные варианты кроссплота и их книги |
 | `POST /api/projects/{pid}/import/pressure-demo` `{variant}` | вариант сразу в демонстрационный проект |
@@ -134,6 +135,9 @@ def routes(projects) -> list[Route]:
         Route('/api/projects/{pid}/import/pressure', _wrap(lambda r, b: imports.pressure_inspect(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/pressure/apply', _wrap(lambda r, b: imports.pressure_apply(pid(r), b)),
               methods=['POST']),
+        Route('/api/projects/{pid}/import/base-model', _wrap(lambda r, b: imports.base_model_state(pid(r)))),
+        Route('/api/projects/{pid}/import/base-model', _wrap(lambda r, b: imports.base_model_choose(pid(r), b)), methods=['POST']),
+        Route('/api/projects/{pid}/import/base-model/apply', _wrap(lambda r, b: imports.base_model_apply(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/ggh', _wrap(lambda r, b: imports.ggh_inspect(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/ggh/apply', _wrap(lambda r, b: imports.ggh_apply(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/pressure-demo', _wrap(lambda r, b: imports.pressure_demo_apply(pid(r), b)),

@@ -108,9 +108,20 @@ async function save(response: Response, fallback: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+export interface BaseModelCell { model: number | null; file: number | null; state: 'same' | 'diff' | 'only_model' | 'only_file' }
+export interface BaseModelState {
+  available: boolean; error: string; error_model: string; selected: string; notes: string[]
+  models: { id: string; name: string; folder: string }[]; fields: { key: string; label: string }[]
+  compare: null | { wells: number; truncated: number; counts: Record<string, Record<'same' | 'diff' | 'only_model' | 'only_file', number>>
+    rows: ({ well: string } & Record<string, BaseModelCell | string>)[] }
+}
 export interface PressureDemo { value: string; label: string; description: string; books: string[] }
 
 export const importApi = {
+  baseModel: async (project: string) => (await send(`/api/projects/${project}/import/base-model`)).json() as Promise<BaseModelState>,
+  chooseBaseModel: (project: string, model: string) => post<BaseModelState>(`/api/projects/${project}/import/base-model`, { model }),
+  applyBaseModel: (project: string, fields: string[], mode: 'fill' | 'replace') =>
+    post<Applied & { state: BaseModelState }>(`/api/projects/${project}/import/base-model/apply`, { fields, mode }),
   options: async () => (await send('/api/import/options')).json() as Promise<ImportOptions>,
   upload: async (file: Blob, name: string) =>
     (await send(`/api/import/files?name=${encodeURIComponent(name)}`, { method: 'POST', body: file })).json() as Promise<Upload>,
