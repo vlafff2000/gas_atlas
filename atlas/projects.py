@@ -394,6 +394,25 @@ class Projects:
         settings = with_well_categories(self.manifest(pid).get('settings', {}), changes)
         return self.summary(self._commit(pid, settings, expected, WELL_CATEGORIES_JOURNAL, {'wells': len(changes)}))
 
+    def well_funds(self, pid: str) -> dict[str, Any]:
+        """Таблица фондов скважин: итог, подсказка с причиной, признак ручного выбора."""
+        from . import well_funds as well_fund
+        m = self.manifest(pid)
+        cache = self._cache(pid, m)
+        groups = {w: v.get('group', '') for w, v in cache.catalog()['mapping'].items()}
+        for well, value in m.get('groups', {}).items():
+            if isinstance(value, dict) and value.get('group'):
+                groups[well] = value['group']
+        rows = well_fund.table(self._raw_frames(pid, m), groups, m.get('settings', {}))
+        return {'funds': [{'id': k, 'label': v} for k, v in well_fund.FUNDS], 'wells': rows, 'revision': m.get('revision')}
+
+    def assign_well_funds(self, pid: str, changes: Mapping[str, Any], expected: int | None = None) -> dict[str, Any]:
+        """Фонды скважин проекта (``settings['well_funds']``): ручной выбор инженера важнее подсказки."""
+        from . import well_funds as well_fund
+        settings = well_fund.with_funds(self.manifest(pid).get('settings', {}), changes)
+        self._commit(pid, settings, expected, 'Фонды скважин', {'wells': len(changes)})
+        return self.well_funds(pid)
+
     # --- сохранённые параметры и расчёты ---
     def saved_state(self, pid: str, module, panel_index: int = 0) -> dict[str, Any]:
         m = self.manifest(pid)

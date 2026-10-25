@@ -141,7 +141,7 @@ const PAGE_OF: Record<string, string> = {
   response: 'Графики реагирования', pressure: 'Кроссплот давлений', wells: 'Поскважинный анализ', groups: 'Группы', fund: 'Аналитика фонда',
   an_report: 'Авторский надзор: сезон', an_revision: 'Авторский надзор: ревизия КРУ', quality: 'Проверка данных',
   '@import': 'Импорт данных', '@export': 'Экспорт', exclusions: 'Исключенные точки', filter_history: 'История фильтра',
-  overview: 'Обзор', '@projects': 'Проекты', '@passport': 'Паспорт скважины', '@settings': 'Настройки',
+  overview: 'Обзор', '@projects': 'Проекты', '@passport': 'Паспорт скважины', '@funds': 'Настройки', '@settings': 'Настройки',
 }
 export function inMenu(id: string, project: Project | null): boolean {
   const page = PAGE_OF[id]
@@ -151,6 +151,7 @@ export function inMenu(id: string, project: Project | null): boolean {
 
 export const PROJECT_PAGES = [
   { id: '@passport', title: 'Паспорт скважины' },
+  { id: '@funds', title: 'Фонды скважин' },
   { id: '@export', title: 'Экспорт' },
   { id: '@projects', title: 'Проекты' },
   { id: '@settings', title: 'Настройки' },

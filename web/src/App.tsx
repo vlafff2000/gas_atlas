@@ -5,6 +5,7 @@ import { ChartBuilder } from './ChartBuilder'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
 import { PassportPage } from './PassportPage'
+import { FundPage } from './FundPage'
 import { TableView } from './TableView'
 import { TableDock } from './TableDock'
 import { formatDate } from './format'
@@ -164,6 +165,8 @@ export function App() {
                       onCreated={async id => { await loadProjects(); setProjectId(id) }} />
         ) : projects && projects.length === 0 ? (
           <NewProjectSteps onDemo={createDemo} onOpen={openProject} />
+        ) : page === '@funds' && project ? (
+          <FundPage key={project.id} project={project} onProject={updateProject} />
         ) : page === '@passport' && project ? (
           <PassportPage key={project.id} project={project} onProject={updateProject} />
         ) : page && project && projects ? (
