@@ -111,6 +111,7 @@ async function save(response: Response, fallback: string) {
 export interface BaseModelCell { model: number | null; file: number | null; state: 'same' | 'diff' | 'only_model' | 'only_file' }
 export interface BaseModelState {
   available: boolean; error: string; error_model: string; selected: string; notes: string[]
+  data_dir: string; folders: string[]; data_files: { used: string[]; auto: string[]; source: 'folder' | 'auto' | 'none' }
   models: { id: string; name: string; folder: string }[]; fields: { key: string; label: string }[]
   compare: null | { wells: number; truncated: number; counts: Record<string, Record<'same' | 'diff' | 'only_model' | 'only_file', number>>
     rows: ({ well: string } & Record<string, BaseModelCell | string>)[] }
@@ -119,7 +120,8 @@ export interface PressureDemo { value: string; label: string; description: strin
 
 export const importApi = {
   baseModel: async (project: string) => (await send(`/api/projects/${project}/import/base-model`)).json() as Promise<BaseModelState>,
-  chooseBaseModel: (project: string, model: string) => post<BaseModelState>(`/api/projects/${project}/import/base-model`, { model }),
+  chooseBaseModel: (project: string, body: { model?: string; data_dir?: string }) => post<BaseModelState>(`/api/projects/${project}/import/base-model`, body),
+  addModelFolder: (folder: string) => post<{ folders: string[]; models: number }>('/api/import/base-model/folder', { folder }),
   applyBaseModel: (project: string, fields: string[], mode: 'fill' | 'replace') =>
     post<Applied & { state: BaseModelState }>(`/api/projects/${project}/import/base-model/apply`, { fields, mode }),
   options: async () => (await send('/api/import/options')).json() as Promise<ImportOptions>,
