@@ -25,14 +25,14 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from atlas.engine.core import reporting
+from atlas.engine.core import performance, reporting
 from atlas.engine.core.bulk_export import bundle_exports, export_plan, migrate_preset
 from atlas.engine.core.config import MODULES, VERSION as VERSION_58, ordered
 from .modules._production import visible_periods
 from atlas.engine.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
 from atlas.engine.core.export import figure_bytes
 
-from . import VERSION, chart_format, chart_labels, word_export
+from . import VERSION, chart_format, chart_labels, parallel, word_export
 from .contract import Data, ParamError
 from .modules._elpro_series import EXTRAS as ELPRO_EXTRAS
 from .projects import Conflict, Projects
@@ -407,6 +407,40 @@ def optimized_png(png: bytes, colors: int = 48) -> bytes:
         out = io.BytesIO()
         image.convert('RGB').quantize(colors=colors, method=Image.MEDIANCUT, dither=Image.NONE).save(out, 'PNG', optimize=True)
         return out.getvalue()
+
+
+PACK_MB_PER_WORKER = 1500       # процессу пакета нужна своя копия таблиц эксплуатации
+_PACK: dict = {}
+
+
+def _job_frames(jobs) -> list:
+    """Таблицы, на которых строятся графики (первые аргументы заданий), без повторов."""
+    out = {}
+    for job in jobs:
+        while hasattr(job, '_job'):
+            job = job._job
+        for arg in getattr(getattr(job, 'factory', None), 'args', ()):
+            if isinstance(arg, pd.DataFrame):
+                out[id(arg)] = arg
+    return list(out.values())
+
+
+def _pack_init(jobs, params, indexed) -> None:
+    """Один раз в процессе: графики пакета, параметры рисунка и таблицы, у которых был свой индекс (``indexed``).
+    Индекс привязан к объекту таблицы (``id``) — после передачи процессу объект новый, поэтому привязываем заново:
+    расчёт кривых идёт по индексу, а не по всей таблице. Чужой индекс (у копии он остаётся от исходной таблицы) не привязывается."""
+    for frame in indexed:
+        frame.attrs['_atlas_index'].owner = id(frame)
+    _PACK['jobs'], _PACK['params'] = jobs, params
+
+
+def _pack_png(i: int):
+    """(PNG графика пакета, None) или (None, текст ошибки)."""
+    dpi, image_w, image_h, font, font_size, look = _PACK['params']
+    try:
+        return optimized_png(figure_bytes(_PACK['jobs'][i].render(), 'png', dpi, image_w, image_h, compact=True, font=font, font_size=font_size, look=look)), None
+    except Exception as e:
+        return None, str(e)
 
 
 def pack_label(template: str, section: str, number: int, well: str, kind: str, years: str) -> str:
@@ -854,8 +888,14 @@ def routes(projects: Projects) -> list[Route]:
         pack_font, pack_font_size = font_from(form)
         name = projects.manifest(pid)['name']
         paths, errors, planned, done = [], [], 0, 0
+        by_kind = {kind: [j for j in plan.jobs if j.name.startswith(label + ' · ')] for kind, (_, _, label) in PACK_KINDS.items()}
+        every = [j for jobs in by_kind.values() for j in jobs]
+        # графики независимы: рисуем процессами на всех ядрах (PXG_WORKERS, лимит по памяти); результат тот же, что подряд
+        rendered = iter(parallel.map_jobs(_pack_png, range(len(every)), PACK_MB_PER_WORKER, initializer=_pack_init,
+                                          initargs=(every, (dpi, image_w, image_h, pack_font, pack_font_size, look_from(form)),
+                                                    [f for f in _job_frames(every) if performance.index_for(f) is not None])))
         for kind, (section_default, _, label) in PACK_KINDS.items():
-            jobs = [j for j in plan.jobs if j.name.startswith(label + ' · ')]
+            jobs = by_kind[kind]
             if not jobs:
                 continue
             planned += len(jobs)
@@ -864,11 +904,11 @@ def routes(projects: Projects) -> list[Route]:
             entries = []
             for job in jobs:
                 well = job.name.split(' · ', 1)[1]
-                try:
-                    entries.append((optimized_png(figure_bytes(job.render(), 'png', dpi, image_w, image_h, compact=True, font=pack_font, font_size=pack_font_size, look=look_from(form))),
-                                    pack_label(template, section, len(entries) + 1, well, kind, years)))
-                except Exception as e:
-                    errors.append({'График': job.name, 'Формат': 'pack', 'Ошибка': str(e)})
+                png, failed = next(rendered)
+                if failed is None:
+                    entries.append((png, pack_label(template, section, len(entries) + 1, well, kind, years)))
+                else:
+                    errors.append({'График': job.name, 'Формат': 'pack', 'Ошибка': failed})
             done += len(entries)
             if not entries:
                 continue

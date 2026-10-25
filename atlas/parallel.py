@@ -27,7 +27,11 @@ def _free_mb() -> Optional[float]:
                     return int(line.split()[1]) / 1024.0
     except (OSError, ValueError, IndexError):
         pass
-    return None
+    try:
+        from pxg_core.workers import available_mb       # Windows: GlobalMemoryStatusEx
+        return available_mb()
+    except Exception:
+        return None
 
 
 def default_workers(mb_per_worker: float = 0.0) -> int:
@@ -41,9 +45,11 @@ def default_workers(mb_per_worker: float = 0.0) -> int:
     return max(1, n)
 
 
-def _each(fn: Callable[[Any], Any], jobs: Sequence[Any]) -> List[Any]:
+def _each(fn: Callable[[Any], Any], jobs: Sequence[Any], initializer: Optional[Callable] = None, initargs: tuple = ()) -> List[Any]:
     """Результаты по порядку; после каждого отмечается ход задачи (шкала выполнения в окне)."""
     progress.report(0, len(jobs))
+    if initializer:
+        initializer(*initargs)
     out = []
     for j in jobs:
         out.append(fn(j))
@@ -51,15 +57,19 @@ def _each(fn: Callable[[Any], Any], jobs: Sequence[Any]) -> List[Any]:
     return out
 
 
-def map_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float = 0.0, workers: Optional[int] = None) -> List[Any]:
-    """[fn(job) для job из jobs] по порядку; fn — функция верхнего уровня модуля (picklable)."""
+def map_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float = 0.0, workers: Optional[int] = None,
+             initializer: Optional[Callable] = None, initargs: tuple = ()) -> List[Any]:
+    """[fn(job) для job из jobs] по порядку; fn и initializer — функции верхнего уровня модуля (picklable).
+
+    ``initializer(*initargs)`` выполняется один раз в каждом процессе (и в этом же процессе, если считаем в нём): так общие
+    большие данные передаются процессу один раз, а не с каждым заданием."""
     jobs = list(jobs)
     n = min(default_workers(mb_per_worker) if workers is None else max(1, workers), len(jobs))
     if n < 2 or len(jobs) < int(os.environ.get('PXG_PARALLEL_MIN') or 4):
-        return _each(fn, jobs)
+        return _each(fn, jobs, initializer, initargs)
     try:
         progress.report(0, len(jobs))
-        with ProcessPoolExecutor(max_workers=n, mp_context=get_context('spawn')) as ex:
+        with ProcessPoolExecutor(max_workers=n, mp_context=get_context('spawn'), initializer=initializer, initargs=initargs) as ex:
             out = []
             for res in ex.map(fn, jobs, chunksize=1):
                 out.append(res)
@@ -67,4 +77,4 @@ def map_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float
             return out
     except (BrokenProcessPool, MemoryError, PermissionError):
         log.exception('%d процессов не справились, считаем в одном', n)
-        return _each(fn, jobs)
+        return _each(fn, jobs, initializer, initargs)
