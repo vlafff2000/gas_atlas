@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from . import parallel
 from .ggh_report import CM, GRAPH_CM, MARGINS, PAGE, _font_size, _run, _table, package
 from .modules.gis import METRICS, SPRING
 
@@ -106,10 +107,12 @@ def build_docx(items: list[dict[str, Any]], start: int = 1, dpi: int = 200, font
         raise ValueError('Нет скважин для выгрузки: выберите скважины с данными ГИС.')
     ids = {'n': 0}
     body, media, rels = [], [], []
-    for i, item in enumerate(items, 1):
+    frames = [item['frame'].sort_values('date').reset_index(drop=True) for item in items]
+    # рисунки независимы: рисуем процессами (PXG_WORKERS), страницы собираем подряд
+    pngs = parallel.map_figures(figure_png, [(frame, str(item['well']), dpi, font) for frame, item in zip(frames, items)])
+    for i, (item, frame, figure) in enumerate(zip(items, frames, pngs), 1):
         well = str(item['well'])
-        frame = item['frame'].sort_values('date').reset_index(drop=True)
-        xml, png, name = well_page(i, frame, well, figure_png(frame, well, dpi, font), start + i - 1, ids)
+        xml, png, name = well_page(i, frame, well, figure, start + i - 1, ids)
         body.append(xml)
         media.append((name, png))
         rels.append(f'<Relationship Id="rIdImg{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{name}"/>')
