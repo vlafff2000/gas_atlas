@@ -79,6 +79,13 @@ KNOWN_RESULTS = (
     ('часы ненулевые расход нулевой', None, False, 'Отчёт проверки Базы ПХГ (часы и расход не согласованы), не данные'),
     ('журнал нормировки', None, False, 'Журнал нормировки на узел учёта (База ПХГ), не данные'),
     ('даты к проверке', None, False, 'Даты к проверке (База ПХГ), не данные'),
+    ('журнал поправки по пзрг', None, False, 'Журнал поправок по ПЗРГ (schedule, База ПХГ), не данные'),
+    ('невязка по суткам', None, False, 'Невязка по суткам (schedule, База ПХГ), не данные'),
+    ('гис разбор', None, False, 'Разбор ГИС по листам (База ПХГ), для Атласа берите «ГИС_свод»'),
+    ('gis bottom', None, False, 'Текущий забой по ГИС (База ПХГ): в Атлас не грузится'),
+    ('отчет копирования', None, False, 'Отчёт копирования файлов (База ПХГ), не данные'),
+    ('отчёт копирования', None, False, 'Отчёт копирования файлов (База ПХГ), не данные'),
+    ('include ', 'pressure', False, 'Include-таблица давлений для tNavigator (База ПХГ): скважина, дата, давление, бар'),
 )
 # Нормированная база — итог Базы ПХГ: рядом с ней исходная база расходов роли не получает, иначе сутки загрузятся дважды.
 SUPERSEDED = 'Есть нормированная база расходов: эта исходная не загружается (роль можно назначить вручную)'
@@ -103,6 +110,16 @@ SNIFF_LIMIT = 80 * 1024 * 1024          # файлы крупнее не отк�
 _SNIFFED: dict[tuple, dict[str, Any] | None] = {}
 BASE_ROLES = (('база ЭЛПРО', 'elpro'), ('«БД по учету газа»', 'gas'), ('таблица «База ГИС»', 'gis'),
               ('файл положения', 'geo'), ('замеры воды', 'water'))
+# Признаки по листам и колонкам для файлов с любым именем: (роль, название, листы, колонки хотя бы на одном листе).
+# Роль None — файл узнан, но в Атлас не грузится (отчёт или сырая база): причина всё равно показывается.
+SIGNATURES = (
+    (None, 'База давлений по замерам (сырые Руст и Рпл): для Атласа загрузите «Пересчёт_давлений»', {'Данные'}, {'Скважина', 'Дата', 'Категория', 'Руст'}),
+    ('pressure', 'Пересчёт давлений или include-таблица: скважина, дата, давление', set(), {'Скважина', 'Дата', 'Давление, бар'}),
+    ('pressure', 'Пересчёт давлений: приведённое Рпл по скважинам', {'Пересчёт'}, set()),
+    ('production', 'База расходов Базы ПХГ (листы «Отборы» и «Закачка»)', {'Отборы', 'Закачка'}, set()),
+    (None, 'Отчёт о несоответствиях часов и расхода (Базы ПХГ), не данные', {'Несоответствия'}, set()),
+    (None, 'Журнал нормировки на узел учёта (Базы ПХГ), не данные', {'Параметры', 'Журнал'}, set()),
+)
 MODULE_ROLES = {'production': 'production', 'gdi': 'gdi', 'water': 'water', 'object_pressure': 'pressure', 'pressure': 'pressure'}
 
 
@@ -129,6 +146,15 @@ def sniff(path: Path) -> dict[str, Any] | None:
 
 
 def _sniff_tables(name: str, tables: dict[str, Any]) -> dict[str, Any] | None:
+    sheets = {str(k).strip() for k in tables}
+    heads = [{str(v).strip() for v in raw.iloc[0].tolist()} for raw in tables.values() if raw is not None and not raw.empty]
+    special_book = base_book(tables, name)
+    if not special_book:
+        for role, label, need_sheets, need_cols in SIGNATURES:
+            if (need_sheets or need_cols) and need_sheets <= sheets and (not need_cols or any(need_cols <= h for h in heads)):
+                found = ('листы ' + ', '.join(f'«{x}»' for x in sorted(need_sheets))) if need_sheets else ''
+                cols = ('колонки ' + ', '.join(sorted(need_cols))) if need_cols else ''
+                return {'role': role, 'reason': f'Содержимое: {label} ({"; ".join(x for x in (found, cols) if x)})'}
     special = base_book(tables, name)
     if special:
         role = next(r for label, r in BASE_ROLES if special.startswith(label))
@@ -176,6 +202,18 @@ def _auto_role(path: Path, known: dict[str, Any] | None) -> tuple[str | None, st
         return sniffed['role'], 'content', sniffed['reason']
     role = _role_by_name(path.name)
     return role, 'name', 'По слову в имени файла (содержимое не узнано)' if role else ''
+
+
+def registry() -> list[dict[str, Any]]:
+    """Что Атлас узнаёт: известные имена результатов Базы ПХГ и признаки по содержимому (показывается в окне)."""
+    names = [{'by': 'name', 'match': prefix, 'role': role, 'label': label} for prefix, role, _, label in KNOWN_RESULTS]
+    signs = [{'by': 'content', 'match': ' + '.join(sorted(sheets) + sorted(cols)), 'role': role, 'label': label}
+             for role, label, sheets, cols in SIGNATURES]
+    books = [{'by': 'content', 'match': match, 'role': role, 'label': label} for match, role, label in (
+        ('лист «Данные»: Дата, Режим, ГСП, Скважина, Y круг', 'elpro', 'База ЭЛПРО'),
+        ('лист «БД»: Режим, Дата, Файл, Лист', 'gas', 'БД по учету газа'),
+        ('листы «Свод», «Интервалы», «Замеры» или csv gis_*', 'gis', 'База ГИС'))]
+    return books + signs + names
 
 
 def _folder(raw: Any) -> Path:
@@ -277,13 +315,13 @@ def scan(raw_folder: Any, loaded: dict[str, Any] | None = None) -> dict[str, Any
         stat = path.stat()
         files.append({'name': name, 'size': stat.st_size,
                       'modified': dt.datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='minutes'),
-                      'role': role, 'role_label': ROLES.get(role, ''), 'role_source': source if role else '', 'role_reason': reason if role else '',
+                      'role': role, 'role_label': ROLES.get(role, ''), 'role_source': source if role else '', 'role_reason': reason,
                       'normalized': normalized, 'known': known['label'] if known else '',
                       'qc': _qc_summary(folder, name), 'load': _load_state(path, loaded)})
     if not files and not warning:
         warning = 'В папке нет таблиц Excel или CSV: положите файлы данных или выберите другую папку.'
     return {'folder': str(folder), 'manifest': bool(manifest) or (folder / MANIFEST).exists(), 'warning': warning,
-            'roles': [{'value': k, 'label': v} for k, v in ROLES.items()], 'files': files}
+            'roles': [{'value': k, 'label': v} for k, v in ROLES.items()], 'files': files, 'registry': registry()}
 
 
 def save_manifest(raw_folder: Any, files: Any, loaded: dict[str, Any] | None = None) -> dict[str, Any]:

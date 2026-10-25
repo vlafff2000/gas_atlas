@@ -204,8 +204,8 @@ export function FolderSources({ project, onProject }: { project: Project | null;
                         <option value="">не назначено</option>
                         {scan.roles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                       </select>
-                      {!edits[f.name]?.role && (f.role
-                        ? <div className="muted" title={f.role_reason}>{f.role_source === 'manifest' ? f.role_reason : `${f.role_source === 'content' ? 'по содержимому' : 'по имени'}: ${f.role_reason.replace(/^(По имени файла|Содержимое): /, '')}`}</div>
+                      {!edits[f.name]?.role && (f.role_reason
+                        ? <div className="muted" title={f.role_reason}>{f.role_source === 'manifest' ? f.role_reason : `${f.role_source === 'content' || !f.role ? 'по содержимому' : 'по имени'}: ${f.role_reason.replace(/^(По имени файла|Содержимое): /, '')}`}</div>
                         : !f.known && <div className="muted">тип не определён ни по имени, ни по содержимому: выберите роль</div>)}
                     </td>
                     <td>
@@ -228,6 +228,22 @@ export function FolderSources({ project, onProject }: { project: Project | null;
               })}
             </tbody>
           </table>
+
+          <details>
+            <summary className="muted">Что Атлас узнаёт из выходных файлов Базы ПХГ ({scan.registry.length})</summary>
+            <table className="folder-table">
+              <thead><tr><th>Признак</th><th>Что это</th><th>Роль при загрузке</th></tr></thead>
+              <tbody>
+                {scan.registry.map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.by === 'name' ? `имя начинается с «${r.match}»` : r.match}</td>
+                    <td>{r.label}</td>
+                    <td>{r.role ? scan.roles.find(x => x.value === r.role)?.label ?? r.role : 'не грузится'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
 
           <div className="folder-row">
             <button type="button" onClick={save} disabled={busy || !dirty}>Сохранить роли</button>

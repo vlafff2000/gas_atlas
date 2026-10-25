@@ -51,6 +51,7 @@ export interface FolderScan {
   manifest: boolean
   warning: string
   roles: FolderRole[]
+  registry: { by: 'name' | 'content'; match: string; role: string | null; label: string }[]
   files: FolderFile[]
 }
 
