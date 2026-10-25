@@ -1,5 +1,6 @@
 """«Сезонные показатели по группам»: доли и Δ доли, простои, баланс закачки и отбора, подсказки с причиной."""
 import io
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -120,3 +121,35 @@ def test_module_run_and_excel():
     assert set(one.tables[0].frame.group) == {'ГСП 1'}
     empty = SeasonalGroupsModule().run(Data({PROD: frame().iloc[0:0]}), {})
     assert not empty.tables and empty.notes
+
+
+KRU_HISTORY = Path(__file__).parent / 'data' / 'revision_history_2021_2025.xlsx'
+
+
+def test_kru_streaks_for_group():
+    from atlas.engine.modules import revision_report as rr
+    from atlas.modules import _group_problems as P
+    dataset = rr.parse_history(KRU_HISTORY)
+    kru = P.kru_table(dataset, ['ГСП 1'], 2)
+    assert not kru.empty and set(kru.gsp) == {'ГСП-1'}
+    assert kru.streak.is_monotonic_decreasing                       # сортировка: самые длинные серии сверху
+    assert (kru.hint.ne('') == kru.streak.ge(2)).all()              # подсказка есть ровно там, где серия не короче порога
+    top = kru.iloc[0]
+    assert top.hint.startswith(f'вскрывалась {top.streak} сезона подряд') or top.streak < 2
+    assert P.kru_table(dataset, ['Несуществующая'], 2).empty
+
+
+def test_module_builds_kru_and_gdi_tables():
+    from pathlib import Path as _P
+    from atlas.domain import DatasetKind as DK
+    from atlas.engine.core.demo import well_demo_frames
+    gdi = well_demo_frames()['gdi']
+    data = Data({PROD: frame(), DK.GDI: gdi})
+    data.mapping = {str(w): {'group': 'ГСП 1'} for w in gdi.well.unique()}
+    r = SeasonalGroupsModule().run(data, {'groups': [], 'balance_tol': 10, 'work_low': 50, 'kru_history': str(KRU_HISTORY),
+                                          'kru_streak': 2, 'gdi_change': 10})
+    ids = {t.id for t in r.tables}
+    assert 'seasonal-groups-kru' in ids
+    assert 'seasonal-groups-gdi' in ids
+    bad = SeasonalGroupsModule().run(data, {'groups': [], 'balance_tol': 10, 'work_low': 50, 'kru_history': str(_P('/нет/файла.xlsx'))})
+    assert any(n.level == 'warning' and 'КРУ' in n.text for n in bad.notes)
