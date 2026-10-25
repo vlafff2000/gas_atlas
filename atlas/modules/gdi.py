@@ -248,7 +248,10 @@ class GdiModule(Module):
                   formula='изменение = (Q последнего надёжного − Q первого надёжного) / Q первого × 100%',
                   example='Q было 180, стало 153: −15% — при пороге 5% это «Ухудшение».'),
             Param('orientation', 'Оси', 'choice', default='standard', section='Вид', options=(
-                Option('standard', 'X = Q, Y = ΔP²'), Option('swapped', 'X = ΔP², Y = Q'))),
+                Option('standard', 'X = Q, Y = ΔP²'), Option('swapped', 'X = ΔP², Y = Q'),
+                Option('linear', 'X = Q, Y = ΔP²/Q')),
+                  help='«X = Q, Y = ΔP²/Q» — линейная форма уравнения притока: ΔP²/Q = a + b·Q. По прямой видны коэффициенты: '
+                       'a — отрезок на оси Y, b — наклон. Линии — подсказка по расчёту и БД; лишние точки исключает инженер.'),
             Param('curves', 'Расчетные кривые', 'boolean', default=True, section='Вид'),
             Param('db_curves', 'Кривые по коэффициентам БД', 'boolean', default=True, section='Вид'),
             Param('crosshair', 'Перекрестная линейка', 'boolean', default=True, section='Вид'),
@@ -443,8 +446,10 @@ class GdiModule(Module):
     def chart(points: pd.DataFrame, studies: pd.DataFrame, original: pd.DataFrame, well: str, params) -> Chart:
         """Как ``atlas.engine.modules.charts.gdi_chart``: цвет по дате (последняя — красная), маркер по исследованию."""
         swapped = params['orientation'] == 'swapped'
+        linear = params['orientation'] == 'linear'
         q_axis = Axis('Q', UNITS['q_gdi'], from_zero=True)
-        dp_axis = Axis('ΔP²', UNITS['dp2'], from_zero=True)
+        dp_axis = Axis('ΔP²/Q', f"{UNITS['dp2']}/{UNITS['q_gdi']}", from_zero=True) if linear \
+            else Axis('ΔP²', UNITS['dp2'], from_zero=True)
         chart = Chart(f'gdi-{well}', f'Скважина {well}', *(dp_axis, q_axis) if swapped else (q_axis, dp_axis),
                       crosshair=params['crosshair'])
         dates = sorted(points.date.unique(), reverse=True)
@@ -454,12 +459,18 @@ class GdiModule(Module):
         def xy(q, y):
             return (y, q) if swapped else (q, y)
 
+        if linear:
+            # точки с Q ≤ 0 в координатах ΔP²/Q не определены
+            points = points[points.q > 0]
+            original = original[original.q > 0]
+
         for i, (key, g) in enumerate(points.groupby(legacy.KEYS, sort=False, dropna=False)):
             _, date, method, study = key
             row = coefficients[(date, method, study)]
             label = study_label(date)
             color = palette[date]
-            chart.series.append(Series(label, *xy(g.q.to_numpy(float), g.dp2.to_numpy(float)), 'points', group=label,
+            chart.series.append(Series(label, *xy(g.q.to_numpy(float), (g.dp2 / g.q if linear else g.dp2).to_numpy(float)), 'points',
+                                       group=label,
                                        color=color, symbol=SYMBOLS[i % len(SYMBOLS)],
                                        ids=g['_point_id'].tolist() if '_point_id' in g else None, dataset=GDI))
             grid = np.linspace(0, max(float(g.q.max()), 1.0) * 1.05, CURVE_POINTS)
@@ -472,12 +483,13 @@ class GdiModule(Module):
                 if a is None or b is None or not np.isfinite(a + b):
                     continue
                 tip = f'a = {a:.6g}, b = {b:.6g}' + (f', R² = {r2:.4f}' if r2 is not None and np.isfinite(r2) else '')
-                chart.series.append(Series(f'{label}, {suffix}', *xy(grid, a * grid + b * grid * grid), 'line',
+                chart.series.append(Series(f'{label}, {suffix}', *xy(grid, a + b * grid if linear else a * grid + b * grid * grid), 'line',
                                            group=label, color=color, dashed=dashed, legend=False, tooltip=tip))
         if params['show_excluded'] and '_point_id' in original and '_point_id' in points:
             gone = original[~original['_point_id'].isin(points['_point_id'])]
             if not gone.empty:
-                chart.series.append(Series('Исключенные точки', *xy(gone.q.to_numpy(float), gone.dp2.to_numpy(float)),
+                chart.series.append(Series('Исключенные точки', *xy(gone.q.to_numpy(float),
+                                                  (gone.dp2 / gone.q if linear else gone.dp2).to_numpy(float)),
                                            'points', color=EXCLUDED_COLOR, hollow=True,
                                            tooltip='Исключено из расчета'))
         return chart
