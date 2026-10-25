@@ -339,8 +339,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       if (s.kind === 'bar') {
         // столбцы под линиями и точками (z), у соседних рядов зазор, у стопки одна колонка
         const own = chart.id.startsWith('builder')
-        return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : { barMaxWidth: 24 }), barGap: '12%',
-          itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : {}) },
+        const wide = chart.id.startsWith('gis-combo')   // редких замеров мало: столбцы широкие, полупрозрачные, кривая поверх
+        return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : { barMaxWidth: 24 }), barGap: '12%',
+          itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
           emphasis: { focus: 'none', itemStyle: { color: c } } }
       }
       const width = L.width ?? (s.width || 2)

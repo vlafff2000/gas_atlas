@@ -57,7 +57,7 @@ class GisModule(Module):
             Param('seasons', 'Сезоны', 'multi', default=[], dynamic=True, empty='все', section=SECTION),
             Param('view', 'График', 'choice', default='all', section='Вид', chart_kind=True, options=(
                 Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()),
-                Option('combo', 'Кривые и столбцы: Кг и hэф'), Option('svod', 'Свод по пачкам, все скважины'),
+                Option('combo', 'Кривая hэф и столбцы Кг'), Option('svod', 'Свод по пачкам, все скважины'),
                 Option('hikg', 'Σ hi × Кг по исследованиям'))),
             Param('start', 'С даты', 'date', default='', section=SECTION),
             Param('end', 'По дату', 'date', default='', section=SECTION),
@@ -225,22 +225,19 @@ class GisModule(Module):
 
     @staticmethod
     def chart_combo(well: str, pack: str, frame: pd.DataFrame) -> Chart:
-        """Кривые Кг ср.взв (слева) и hг эф (справа) по замерам пачки и столбцы — изменение к предыдущему замеру."""
+        """Кг ср.взв столбцами по замерам пачки (слева) и hг эф кривой (справа)."""
         frame = frame.sort_values('date')
-        chart = Chart(f'gis-combo-{well}-{pack}', f'Скважина №{well}, пачка «{pack}»: Кг ср.взв и hг эф с изменениями',
+        chart = Chart(f'gis-combo-{well}-{pack}', f'Скважина №{well}, пачка «{pack}»: Кг ср.взв (столбцы) и hг эф (кривая)',
                       Axis('Дата', scale='time'), Axis('Кг ср.взв', 'д.ед.'), crosshair=True, y2=Axis('hг эф', 'м'))
-        for key, axis in (('kg', 'y'), ('h_eff', 'y2')):
-            column, label, unit, _ = METRICS[key]
-            values = frame[frame[column].notna()]
-            if values.empty:
-                continue
-            ids = values['_point_id'].tolist() if '_point_id' in values else None
-            change = values[column].diff()
-            moved = values[change.notna()]
-            chart.series.append(Series(f'Δ {label}', list(moved['date']), change.dropna().tolist(), 'bar', group=key,
-                                       axis=axis, legend=False, labels=[f'{v:+.2f}' for v in change.dropna()]))
-            chart.series.append(Series(label, list(values['date']), values[column].tolist(), 'line', group=key, markers=True,
-                                       axis=axis, labels=[f'{v:g}' for v in values[column]], ids=ids,
+        kg = frame[frame['kg_avg'].notna()]
+        if len(kg):
+            chart.series.append(Series('Кг ср.взв', list(kg['date']), kg['kg_avg'].tolist(), 'bar', axis='y',
+                                       labels=[f'{v:g}' for v in kg['kg_avg']]))
+        heff = frame[frame['h_eff_m'].notna()]
+        if len(heff):
+            ids = heff['_point_id'].tolist() if '_point_id' in heff else None
+            chart.series.append(Series('hг эф', list(heff['date']), heff['h_eff_m'].tolist(), 'line', markers=True,
+                                       axis='y2', labels=[f'{v:g}' for v in heff['h_eff_m']], ids=ids,
                                        dataset=GIS if ids else None))
         return chart
 
