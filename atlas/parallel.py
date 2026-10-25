@@ -12,6 +12,8 @@ from concurrent.futures.process import BrokenProcessPool
 from multiprocessing import get_context
 from typing import Any, Callable, List, Optional, Sequence
 
+from . import progress
+
 MAX_WORKERS = 16
 RESERVE_MB = 1024            # столько свободной памяти оставляем системе и основной программе
 log = logging.getLogger(__name__)
@@ -39,15 +41,30 @@ def default_workers(mb_per_worker: float = 0.0) -> int:
     return max(1, n)
 
 
+def _each(fn: Callable[[Any], Any], jobs: Sequence[Any]) -> List[Any]:
+    """Результаты по порядку; после каждого отмечается ход задачи (шкала выполнения в окне)."""
+    progress.report(0, len(jobs))
+    out = []
+    for j in jobs:
+        out.append(fn(j))
+        progress.advance()
+    return out
+
+
 def map_jobs(fn: Callable[[Any], Any], jobs: Sequence[Any], mb_per_worker: float = 0.0, workers: Optional[int] = None) -> List[Any]:
     """[fn(job) для job из jobs] по порядку; fn — функция верхнего уровня модуля (picklable)."""
     jobs = list(jobs)
     n = min(default_workers(mb_per_worker) if workers is None else max(1, workers), len(jobs))
     if n < 2 or len(jobs) < int(os.environ.get('PXG_PARALLEL_MIN') or 4):
-        return [fn(j) for j in jobs]
+        return _each(fn, jobs)
     try:
+        progress.report(0, len(jobs))
         with ProcessPoolExecutor(max_workers=n, mp_context=get_context('spawn')) as ex:
-            return list(ex.map(fn, jobs, chunksize=1))
+            out = []
+            for res in ex.map(fn, jobs, chunksize=1):
+                out.append(res)
+                progress.advance()
+            return out
     except (BrokenProcessPool, MemoryError, PermissionError):
         log.exception('%d процессов не справились, считаем в одном', n)
-        return [fn(j) for j in jobs]
+        return _each(fn, jobs)

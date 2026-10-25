@@ -1,0 +1,14 @@
+/* Шкала выполнения (BusyBar.tsx): карточка внизу по центру, поверх страницы */
+.pxg-busy { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 12px; width: min(460px, calc(100vw - 24px)); padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 24px rgba(0, 0, 0, .22); font-size: 13px; pointer-events: none; }
+.pxg-busy-spin { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--line-strong); border-top-color: var(--accent); animation: pxg-spin .9s linear infinite; }
+.pxg-busy-body { flex: 1; min-width: 0; }
+.pxg-busy-row { display: flex; justify-content: space-between; gap: 10px; }
+.pxg-busy-row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pxg-busy-time { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pxg-busy-bar { position: relative; height: 6px; margin: 6px 0 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.pxg-busy-bar i { display: block; height: 100%; background: var(--accent); transition: width .4s ease; }
+.pxg-busy-bar.indet i { position: absolute; width: 35%; animation: pxg-slide 1.3s ease-in-out infinite; }
+.pxg-busy-sub { color: var(--muted); font-size: 12px; }
+@keyframes pxg-spin { to { transform: rotate(360deg); } }
+@keyframes pxg-slide { from { left: -35%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .pxg-busy-spin, .pxg-busy-bar.indet i { animation-duration: 3s; } }
