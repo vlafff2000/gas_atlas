@@ -231,12 +231,12 @@ class GisModule(Module):
                       Axis('Дата', scale='time'), Axis('Кг ср.взв', 'д.ед.'), crosshair=True, y2=Axis('hг эф', 'м'))
         kg = frame[frame['kg_avg'].notna()]
         if len(kg):
-            chart.series.append(Series('Кг ср.взв', list(kg['date']), kg['kg_avg'].tolist(), 'bar', group='kg', axis='y',
+            chart.series.append(Series('Кг ср.взв', list(kg['date']), kg['kg_avg'].tolist(), 'bar', axis='y',
                                        labels=[f'{v:g}' for v in kg['kg_avg']]))
         heff = frame[frame['h_eff_m'].notna()]
         if len(heff):
             ids = heff['_point_id'].tolist() if '_point_id' in heff else None
-            chart.series.append(Series('hг эф', list(heff['date']), heff['h_eff_m'].tolist(), 'line', group='h_eff', markers=True,
+            chart.series.append(Series('hг эф', list(heff['date']), heff['h_eff_m'].tolist(), 'line', markers=True,
                                        axis='y2', labels=[f'{v:g}' for v in heff['h_eff_m']], ids=ids,
                                        dataset=GIS if ids else None))
         return chart
