@@ -12,6 +12,7 @@ import { SheetEditor } from './SheetEditor'
 import { TableView } from './TableView'
 import { TableDock } from './TableDock'
 import './import.css'
+import { BaseModel } from './BaseModel'
 import { FolderSources } from './FolderSources'
 
 const ACCEPT = 'xlsx xls xlsm ods csv tsv txt dat'
@@ -90,6 +91,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
       </header>
       {failure && <div className="note warning">{failure}</div>}
       <FolderSources key={project?.id ?? 'no-project'} project={project} onProject={onProject} />
+      <BaseModel key={'bm-' + (project?.id ?? 'no-project')} project={project} onProject={onProject} />
       <NewProject project={project} onCreated={onCreated} />
       {project && options && (
         <>

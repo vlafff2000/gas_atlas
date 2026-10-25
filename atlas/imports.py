@@ -35,7 +35,7 @@ from atlas.engine.core.templates import input_templates
 from atlas.engine.core.well_import import REQUIRED
 
 from .contract import Column, ParamError, Table, _table_json
-from . import import_fix, quality
+from . import base_model, import_fix, model_source, quality
 from .parallel import map_jobs
 from .projects import Conflict, Projects
 
@@ -927,6 +927,59 @@ class Imports:
                              details={'file': name, 'rows': len(new)})
         self._keep_originals(pid, [(name, content)])
         return {'message': message, 'warnings': warnings, 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    # ---------- Базовая модель: параметры скважин из входных файлов модели tNavigator ----------
+    def base_model_state(self, pid: str) -> dict[str, Any]:
+        """Выбранная базовая модель, список моделей из общего списка папок tNav и сверка с загруженным ``well_geo``."""
+        m = self.projects.manifest(pid)
+        current = base_model.selected(m.get('settings', {}))
+        listing = model_source.listing([], False, ('', ''), None)
+        out: dict[str, Any] = {'available': listing['available'], 'error': listing['error'], 'selected': current,
+                               'models': [{'id': x['id'], 'name': x['name'], 'folder': x['folder']} for x in listing['models']],
+                               'fields': [{'key': k, 'label': v} for k, v in base_model.LABELS.items()],
+                               'compare': None, 'notes': [], 'error_model': ''}
+        if current:
+            try:
+                model, _src, notes = base_model.read(current)
+                out['notes'] = notes
+                out['compare'] = base_model.compare(model, self._raw_frames(pid, m).get('well_geo'))
+            except base_model.BaseModelUnavailable as e:
+                out['error_model'] = str(e)
+        return out
+
+    def base_model_choose(self, pid: str, body: dict) -> dict[str, Any]:
+        path = str(body.get('model') or '').strip().strip('"')
+        m = self.projects.manifest(pid)
+        cfg = dict(m.get('settings', {}))
+        if path:
+            cfg[base_model.KEY] = path
+        else:
+            cfg.pop(base_model.KEY, None)
+        self.projects._commit(pid, cfg, m.get('revision'), 'Базовая модель', {'model': path})
+        return self.base_model_state(pid)
+
+    def base_model_apply(self, pid: str, body: dict) -> dict[str, Any]:
+        """Записать параметры базовой модели в ``well_geo`` по выбранным полям: ``fill`` — только пропуски, ``replace`` — заменить."""
+        fields = [f for f in (body.get('fields') or []) if f in base_model.FIELDS]
+        mode = body.get('mode') if body.get('mode') in ('fill', 'replace') else 'fill'
+        if not fields:
+            raise ParamError('Отметьте, какие параметры взять из модели')
+        m = self.projects.manifest(pid)
+        current = base_model.selected(m.get('settings', {}))
+        if not current:
+            raise ParamError('Сначала выберите базовую модель')
+        try:
+            model, _src, _notes = base_model.read(current)
+        except base_model.BaseModelUnavailable as e:
+            raise ParamError(str(e)) from e
+        raw = self._raw_frames(pid, m)
+        frames = dict(raw)
+        frames['well_geo'] = base_model.apply(raw.get('well_geo'), model, fields, mode)
+        label = {'fill': 'дополнены пропуски', 'replace': 'значения заменены'}[mode]
+        saved = self._commit(pid, frames, m['revision'], 'Параметры скважин из базовой модели',
+                             details={'model': current, 'fields': fields, 'mode': mode, 'wells': len(model)})
+        return {'message': f'Из модели взяты параметры {", ".join(base_model.LABELS[f] for f in fields)}: {label}, скважин в модели {len(model)}',
+                'project': self.projects.summary(saved), 'undo': self._undo(pid), 'state': self.base_model_state(pid)}
 
     # ---------- ГГХ: газогидрохимические исследования ----------
     def ggh_inspect(self, pid: str, body: dict) -> dict[str, Any]:
