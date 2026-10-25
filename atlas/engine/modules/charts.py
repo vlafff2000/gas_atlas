@@ -89,16 +89,17 @@ def histogram(df,kind,ps,wells,axis='well',title=None):
 
 @cached_chart
 def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves=True,crosshair=True,raw_df=None,show_excluded=True):
-    swapped=orientation=='swapped'
+    swapped=orientation=='swapped';linear=orientation=='linear'
     fig=base(well_title([well]),
-        'ΔP²' if swapped else 'Q, тыс. м³/сут','Q, тыс. м³/сут' if swapped else 'ΔP²')
+        'ΔP²' if swapped else 'Q, тыс. м³/сут','Q, тыс. м³/сут' if swapped else 'ΔP²/Q' if linear else 'ΔP²')
     d=prepare(df);d=d[d.well.eq(well)]
+    if linear:d=d[d.q>0]
     ds=sorted(d.date.unique(),reverse=True);palette={date:COLORS[i%len(COLORS)] for i,date in enumerate(ds)}
     for i,(key,g) in enumerate(d.groupby(KEYS,sort=False,dropna=False)):
         _,date,method,study=key;color=palette[date];r=analyze_study(g,threshold)
         label=date.strftime('%d.%m.%Y')+(' · '+method if method else '')+(' · '+study if study else '')
         ids=g['_point_id'] if '_point_id' in g else pd.Series('',index=g.index)
-        fig.add_trace(go.Scatter(x=g.dp2 if swapped else g.q,y=g.q if swapped else g.dp2,mode='markers',name=label,legendgroup=label,
+        fig.add_trace(go.Scatter(x=g.dp2 if swapped else g.q,y=g.q if swapped else (g.dp2/g.q if linear else g.dp2),mode='markers',name=label,legendgroup=label,
             marker={'color':color,'size':9,'symbol':['circle','square','diamond','triangle-up'][i%4]},
             meta={'module':'gdi','selectable':True},customdata=np.column_stack([ids,g.q,g.dp2]),
             hovertemplate=label+'<br>Q: %{customdata[1]:.3f} тыс. м³/сут<br>ΔP²: %{customdata[2]:.3f}<extra></extra>'))
@@ -106,7 +107,7 @@ def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves
         for show,a,b,r2,suffix,dash in [(curves,r['a_calc'],r['b_calc'],r['r2_calc'],'расчет','solid'),
                                       (db_curves,r['a_db'],r['b_db'],r['r2_db'],'БД','dash')]:
             if not show or a is None or b is None:continue
-            y=a*q+b*q*q
+            y=a+b*q if linear else a*q+b*q*q
             hover=label+f' · {suffix}<br>a = {a:.6g}<br>b = {b:.6g}'
             if r2 is not None:hover+=f'<br>R² = {r2:.4f}'
             hover+='<br>Q: %{customdata[0]:.3f} тыс. м³/сут<br>ΔP²: %{customdata[1]:.3f}<extra></extra>'
@@ -117,8 +118,9 @@ def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves
         legend={'orientation':'h','y':-.13,'x':0,'yanchor':'top','font':{'size':10},'groupclick':'togglegroup'})
     if show_excluded and raw_df is not None and '_point_id' in raw_df:
         excluded=raw_df[raw_df.well.eq(well)&~raw_df['_point_id'].isin(df.get('_point_id',[]))]
+        if linear:excluded=excluded[excluded.q>0]
         if not excluded.empty:
-            fig.add_trace(go.Scatter(x=excluded.dp2 if swapped else excluded.q,y=excluded.q if swapped else excluded.dp2,mode='markers',name='Исключенные точки',
+            fig.add_trace(go.Scatter(x=excluded.dp2 if swapped else excluded.q,y=excluded.q if swapped else (excluded.dp2/excluded.q if linear else excluded.dp2),mode='markers',name='Исключенные точки',
                 marker={'size':10,'color':'#969da5','symbol':'circle-open','line':{'width':2}},meta={'module':'gdi','selectable':False},
                 hovertemplate='Исключено из расчета<br>X: %{x:.3f}<br>Y: %{y:.3f}<extra></extra>'))
     fig.update_xaxes(rangemode='tozero');fig.update_yaxes(rangemode='tozero')

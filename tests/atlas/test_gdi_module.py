@@ -121,6 +121,21 @@ def test_view_toggles(frame):
     assert all(s.dashed for s in only_db.series if s.kind == 'line')
 
 
+def test_linear_orientation_plots_dp2_over_q(frame):
+    chart = run(frame, wells=['31'], orientation='linear').charts[0]
+    assert chart.x.label == 'Q' and chart.y.label == 'ΔP²/Q'
+    standard = run(frame, wells=['31']).charts[0]
+    pts = [s for s in chart.series if s.kind == 'points']
+    ref = [s for s in standard.series if s.kind == 'points']
+    for new, old in zip(pts, ref):
+        q, dp2 = np.asarray(old.x, float), np.asarray(old.y, float)
+        assert np.allclose(np.asarray(new.y, float), dp2 / q)
+    # прямая a + b·Q совпадает с кривой ΔP² = aQ + bQ² после деления на Q
+    for new, old in zip([s for s in chart.series if s.kind == 'line'], [s for s in standard.series if s.kind == 'line']):
+        q = np.asarray(old.x, float)[1:]
+        assert np.allclose(np.asarray(new.y, float)[1:], np.asarray(old.y, float)[1:] / q)
+
+
 def test_exclusion_changes_fit_and_shows_hollow_point(frame):
     target = frame[(frame.well == '45') & (frame.date == frame.date.max())].iloc[2]
     excluded = {target['_point_id']: {'id': target['_point_id'], 'module': 'gdi', 'reason': 'тест'}}
