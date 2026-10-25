@@ -7,8 +7,11 @@ import '@fontsource/pt-sans/latin-700.css'
 import './styles.css'
 import './filepicker.css'
 import './logbutton.css'
+import './busybar.css'
 import { App } from './App'
 import { mountLogButton } from './LogButton'
+import { mountBusyBar } from './BusyBar'
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)
 mountLogButton()
+mountBusyBar()

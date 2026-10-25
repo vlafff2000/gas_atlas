@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Route
 
-from . import VERSION
+from . import VERSION, progress
 from .engine.core.config import ROOT
 
 log = logging.getLogger('atlas.runlog')
@@ -95,7 +95,8 @@ def timed(label: str, **info: Any) -> Iterator[dict]:
     extra: dict = {}
     start = time.perf_counter()
     try:
-        yield extra
+        with progress.task(label):
+            yield extra
     except Exception:
         log.exception('этап «%s» завершился ошибкой за %.2f с', label, time.perf_counter() - start)
         raise
@@ -121,7 +122,11 @@ class RequestLog:
 
         start = time.perf_counter()
         try:
-            await self.app(scope, receive, wrapped)
+            if path.startswith('/api/progress') or path.startswith('/api/log'):
+                await self.app(scope, receive, wrapped)
+            else:
+                with progress.task(progress.label_for(path)):       # шкала выполнения в окне
+                    await self.app(scope, receive, wrapped)
         except Exception:
             log.exception('%s %s: необработанная ошибка', method, path)
             raise
@@ -196,6 +201,7 @@ async def open_dir(request: Request):
 
 def routes() -> list[Route]:
     return [
+        *progress.routes(),
         Route('/api/log/info', info),
         Route('/api/log/bundle', bundle, methods=['POST']),
         Route('/api/log/bundle/{name}', bundle_file),
