@@ -18,7 +18,8 @@ export interface FolderFile {
   modified: string
   role: string | null
   role_label: string
-  role_source: '' | 'manifest' | 'name'
+  role_source: '' | 'manifest' | 'name' | 'content'
+  role_reason: string
   normalized: boolean
   known: string
   qc: QcSummary | null

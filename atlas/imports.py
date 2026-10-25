@@ -1077,19 +1077,24 @@ class Imports:
         if policy not in POLICIES:
             raise ParamError('Неизвестное правило повторов')
         try:
-            table, new, warnings = gis_import.read(name, content, table)
+            parts = gis_import.read_all(name, content, table)
         except (ValueError, OSError) as e:
             raise ParamError(f'«{name}»: файл не прочитан ({e})') from e
-        if new.empty:
+        parts = [p for p in parts if not p[1].empty]
+        if not parts:
             raise ParamError(f'«{name}»: нет строк с датой и скважиной.')
         m = self.projects.manifest(pid)
         raw = self._raw_frames(pid, m)
-        final = gis_import.merge(raw.get(table), new, keep_old=policy == 'old')
         frames = dict(raw)
-        frames[table] = final
-        message = (f'База ГИС, {gis_import.LABELS[table]} «{name}»: строк {len(new)}, скважин {new["well"].nunique()}; '
-                   f'в проекте всего строк {len(final)}')
-        saved = self._commit(pid, frames, m['revision'], 'Импорт базы ГИС', details={'file': name, 'table': table, 'rows': len(new)})
+        notes, warnings = [], []
+        for kind, new, warn in parts:
+            final = gis_import.merge(raw.get(kind), new, keep_old=policy == 'old')
+            frames[kind] = final
+            warnings += warn
+            notes.append(f'{gis_import.LABELS[kind]}: строк {len(new)}, скважин {new["well"].nunique()} (в проекте {len(final)})')
+        message = f'База ГИС «{name}» — ' + '; '.join(notes)
+        saved = self._commit(pid, frames, m['revision'], 'Импорт базы ГИС',
+                             details={'file': name, 'tables': [p[0] for p in parts], 'rows': sum(len(p[1]) for p in parts)})
         self._keep_originals(pid, [(name, content)])
         return {'message': message, 'warnings': warnings, 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
