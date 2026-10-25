@@ -40,7 +40,7 @@ def test_maps_open_explains_when_maps_not_running(client, monkeypatch):
         port = srv.getsockname()[1]   # порт свободен: слушателя нет
     monkeypatch.setenv('PXG_MAPS_URL', f'http://127.0.0.1:{port}')
     r = client.get('/api/app/maps?well=123')
-    assert r.status_code == 200 and 'Карты ГСП не запущены' in r.text
+    assert r.status_code == 200 and 'Карты не запущены' in r.text
 
 
 def test_maps_open_rejects_bad_well(client, monkeypatch):
