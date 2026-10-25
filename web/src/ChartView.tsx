@@ -1170,8 +1170,9 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     }
     // Общий масштаб по времени: своё окно — другим графикам, чужое — себе (повтор того же окна ничего не делает)
     const sameWindow = (a: [number, number], from: number, to: number) => Math.abs(a[0] - from) <= (to - from) * 1e-3 && Math.abs(a[1] - to) <= (to - from) * 1e-3
+    let applying = false      // окно пришло от другого графика: не рассылать его обратно (иначе график с узким периодом данных схлопывает общее окно)
     const shareZoom = () => {
-      if (!zoomSync.get() || st.chart.x.scale !== 'time') return
+      if (applying || !zoomSync.get() || st.chart.x.scale !== 'time') return
       const z = (ch.getOption() as { dataZoom?: { start?: number; end?: number }[] }).dataZoom?.[0]
       const e = st.edges()
       if (!z || !e) return
@@ -1189,7 +1190,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       }
       const e = st.edges()
       if (e && sameWindow(e, z.from, z.to)) return
-      ch.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: z.from, endValue: z.to })
+      applying = true
+      try { ch.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: z.from, endValue: z.to }) } finally { applying = false }
     }
     const unzoom = subscribeZoom(() => st.applyZoom())
     const unpref = zoomSync.subscribe(() => st.applyZoom())
