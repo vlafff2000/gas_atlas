@@ -9,8 +9,8 @@ import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, Wind
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
-import { Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
-import { chartLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
+import { chartLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { applyLooks, chartLookKey, markerSymbol, type Look } from './chartStyle'
 import { ChartSettings } from './ChartSettings'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
@@ -62,6 +62,8 @@ type Manual = Record<YName, Range | null>      // границы шкал Y, з�
 type AxisPin = { x: [number, number] | null } & Record<YName, [number, number] | null>
 
 const NO_RANGES: Manual = { y: null, y2: null, y3: null, y4: null, y5: null }
+type Steps = Partial<Record<AxisName, AxisStep>>      // основной интервал делений, заданный вручную
+const NO_STEPS: Steps = {}
 /** Шкалы Y, которые есть у графика, по порядку: левая, затем правые. */
 const yCount = (chart: Chart) => yAxesOf(chart).length
 const yAxisAt = (chart: Chart, index: number): Axis => yAxesOf(chart)[index] ?? chart.y
@@ -186,7 +188,7 @@ export const hasNavigator = (chart: Chart) => xSpan(chart) > (chart.x.scale === 
 /** Холст рисуется минимум в двойном разрешении: на обычных мониторах (масштаб 100%) линии и подписи иначе выходят «мыльными». */
 function pixelRatio() { return Math.max(2, window.devicePixelRatio || 1) }
 
-function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode, pin: AxisPin | null, base: Chart, manual: Manual): echarts.EChartsCoreOption {
+function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode, pin: AxisPin | null, base: Chart, manual: Manual, steps: Steps): echarts.EChartsCoreOption {
   const color = colorOf(chart)
   const tips = new Map<string, string[]>()
   for (const s of chart.series) {
@@ -206,8 +208,27 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const nameLines = manyRight ? Math.max(...rightNames.slice(1).map(n => n.lines)) : 1
   const axis = (a: Axis, position: 'x' | YName) => {
     const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position !== 'x' ? dual?.[position] : undefined
-    if (fixed) return { ...plain, min: fixed[0], max: fixed[1], ...(twin ? { interval: (fixed[1] - fixed[0]) / TICK_INTERVALS } : {}) }
-    return grid ? { ...plain, min: grid.min, max: grid.max, interval: grid.step } : plain
+    const st = steps[position]
+    if (fixed) return withStep({ ...plain, min: fixed[0], max: fixed[1], ...(twin ? { interval: (fixed[1] - fixed[0]) / TICK_INTERVALS } : {}) }, a, st)
+    return withStep(grid ? { ...plain, min: grid.min, max: grid.max, interval: grid.step } : plain, a, st)
+  }
+  /** Ручной основной интервал: у числовой оси — interval, у оси дат — календарные деления по всему размаху рядов. */
+  const withStep = <T extends object>(opt: T, a: Axis, st: AxisStep | undefined): T => {
+    if (!st) return opt
+    if (a.scale === 'value' && st.unit === 'num') {
+      const o = opt as { min?: number; max?: number }
+      const lo = typeof o.min === 'number' ? o.min : null, hi = typeof o.max === 'number' ? o.max : null
+      return lo !== null && hi !== null && (hi - lo) / st.n > MAX_TICKS ? opt : { ...opt, interval: st.n }
+    }
+    if (a.scale === 'time' && st.unit !== 'num') {
+      let lo = Infinity, hi = -Infinity
+      for (const s of base.series) for (const v of [s.x[0], s.x[s.x.length - 1]]) { const n = toNumber(v ?? null, 'time'); if (Number.isFinite(n)) { lo = Math.min(lo, n); hi = Math.max(hi, n) } }
+      const ticks = calendarTicks(lo, hi, st)
+      if (!ticks.length || ticks.length > MAX_TICKS) return opt
+      const o = opt as { axisLabel?: object; splitLine?: object }
+      return { ...opt, axisLabel: { ...o.axisLabel, customValues: ticks }, splitLine: { ...o.splitLine, customValues: ticks } }
+    }
+    return opt
   }
   const axisBase = (a: Axis, position: 'x' | YName) => {
     const y = position !== 'x'
@@ -427,7 +448,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const [settings, setSettings] = useState(false)
   const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
   const state = useRef({
-    ranges: NO_RANGES as Manual, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
+    ranges: NO_RANGES as Manual, steps: NO_STEPS as Steps, setSteps: (() => {}) as (s: Steps) => void, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
     applyZoom: (() => {}) as () => void,
@@ -478,8 +499,19 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     if (facetOff.size) view.facets = [...facetOff]
     return view
   }
-  const [editor, setEditor] = useState<{ axis: AxisName; lo: string; hi: string; at: [number, number]; error: string } | null>(null)
+  const [steps, setStepsState] = useState<Steps>(() => savedSteps.get()[rangeKey] ?? NO_STEPS)      // основной интервал делений: хранится вместе с границами
+  type Editor = { axis: AxisName; lo: string; hi: string; lo0: string; hi0: string; step: string; unit: StepUnit; at: [number, number]; error: string }
+  const [editor, setEditor] = useState<Editor | null>(null)
   state.current.ranges = ranges
+  state.current.steps = steps
+  state.current.setSteps = (n: Steps) => {
+    setStepsState(n)
+    const all = { ...savedSteps.get() }
+    if (Object.keys(n).length) { delete all[rangeKey]; all[rangeKey] = n } else delete all[rangeKey]
+    const keys = Object.keys(all)
+    for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete all[k]
+    savedSteps.set(all)
+  }
   state.current.setRanges = (r: Manual) => {
     setRangesState(r)
     const all = { ...savedRanges.get() }
@@ -493,6 +525,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     if (firstKey.current === rangeKey) return
     firstKey.current = rangeKey
     setRangesState({ ...NO_RANGES, ...savedRanges.get()[rangeKey] })
+    setStepsState(savedSteps.get()[rangeKey] ?? NO_STEPS)
   }, [rangeKey])
   // «Те же границы на всех графиках раздела»: приём границ с графика, у которого такая же ось Y
   useEffect(() => sharedRange.subscribe(() => {
@@ -508,20 +541,28 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const commitEditor = (autoAxis: boolean) => {
     if (!editor) return
     const a = editor.axis, ax = a === 'x' ? chart.x : yAxisAt(chart, Y_NAMES.indexOf(a))
+    const { [a]: _drop, ...restSteps } = state.current.steps
     if (autoAxis) {
       if (a === 'x') instance.current?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
       else state.current.setRanges({ ...state.current.ranges, [a]: null })
+      state.current.setSteps(restSteps)
       setEditor(null)
       return
     }
     const time = ax.scale === 'time'
-    let lo = parseBound(editor.lo, time), hi = parseBound(editor.hi, time)
-    if (lo === null || hi === null) { setEditor({ ...editor, error: time ? 'Дата вида 2024-05-17 или 17.05.2024' : 'Введите числа' }); return }
-    if (lo > hi) [lo, hi] = [hi, lo]
-    if (!(hi > lo)) { setEditor({ ...editor, error: 'Минимум должен быть меньше максимума' }); return }
-    if (ax.scale === 'log' && lo <= 0) { setEditor({ ...editor, error: 'На логарифмической шкале значения больше нуля' }); return }
-    if (a === 'x') instance.current?.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: lo, endValue: hi })
-    else state.current.setRanges({ ...state.current.ranges, [a]: [lo, hi] })
+    const step = ax.scale === 'category' ? null : parseStep(editor.step, time ? editor.unit : 'num')
+    if (step === 'bad') { setEditor({ ...editor, error: time ? 'Шаг — целое число больше нуля' : 'Шаг — число больше нуля' }); return }
+    const rangeSame = editor.lo === editor.lo0 && editor.hi === editor.hi0      // границы не трогали: не фиксируем их заодно с шагом
+    if (!rangeSame) {
+      let lo = parseBound(editor.lo, time), hi = parseBound(editor.hi, time)
+      if (lo === null || hi === null) { setEditor({ ...editor, error: time ? 'Дата вида 2024-05-17 или 17.05.2024' : 'Введите числа' }); return }
+      if (lo > hi) [lo, hi] = [hi, lo]
+      if (!(hi > lo)) { setEditor({ ...editor, error: 'Минимум должен быть меньше максимума' }); return }
+      if (ax.scale === 'log' && lo <= 0) { setEditor({ ...editor, error: 'На логарифмической шкале значения больше нуля' }); return }
+      if (a === 'x') instance.current?.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: lo, endValue: hi })
+      else state.current.setRanges({ ...state.current.ranges, [a]: [lo, hi] })
+    }
+    state.current.setSteps(step ? { ...restSteps, [a]: step } : restSteps)
     setEditor(null)
   }
   state.current.excludeMode = excludeMode
@@ -986,7 +1027,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       const rect = gridRect()
       const at: [number, number] = a === 'x' ? [Math.max(4, (rect?.x ?? 0) + (rect?.width ?? 0) / 2 - 110), (rect?.y ?? 0) + (rect?.height ?? 0) - 120]
         : a === 'y' ? [(rect?.x ?? 0) + 8, (rect?.y ?? 0) + 8] : [Math.max(4, (rect?.x ?? 0) + (rect?.width ?? 0) - 228), (rect?.y ?? 0) + 8]
-      setEditor({ axis: a, lo: formatBound(r[0], time, span), hi: formatBound(r[1], time, span), at, error: '' })
+      const lo = formatBound(r[0], time, span), hi = formatBound(r[1], time, span), cur = st.steps[a]
+      setEditor({ axis: a, lo, hi, lo0: lo, hi0: hi, step: stepText(cur), unit: time ? (cur?.unit && cur.unit !== 'num' ? cur.unit : 'month') : 'num', at, error: '' })
     }
     const onAxisDblclick = (e: MouseEvent) => {
       const box = host.getBoundingClientRect()
@@ -1200,7 +1242,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     st.focused = -1
     const view = (st.patch && st.patch.base === given) || st.lastChart === chart ? st.edges() : null      // масштаб сохраняется при подмене точек окна и смене границ осей
     st.lastChart = chart
-    instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode, st.patch ? st.pin : null, given, st.ranges), { notMerge: true })
+    instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode, st.patch ? st.pin : null, given, st.ranges, st.steps), { notMerge: true })
     if (view) instance.current?.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: view[0], endValue: view[1] })
     st.applyZoom()
     st.selected = {}
@@ -1211,7 +1253,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     const later = window.setTimeout(st.ensure, 0)
     return () => window.clearTimeout(later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart, excludeMode, mode, theme, ranges, smooth])
+  }, [chart, excludeMode, mode, theme, ranges, steps, smooth])
 
   // новый расчёт (другие параметры, исключение точки) — подгруженное окно относится к прежнему графику
   useEffect(() => { state.current.patch = null; state.current.pin = null; setPatch(null) }, [given])
@@ -1342,6 +1384,16 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
           <b>{editor.axis === 'x' ? 'Ось X' : editor.axis === 'y' ? 'Ось Y' : Y_NAMES.indexOf(editor.axis as YName) === 1 ? 'Ось Y справа' : `Ось Y справа (${['', '', 'третья', 'четвёртая', 'пятая'][Y_NAMES.indexOf(editor.axis as YName)]})`}</b>
           <label>Минимум<input autoFocus value={editor.lo} onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, lo: e.target.value, error: '' })} /></label>
           <label>Максимум<input value={editor.hi} onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, hi: e.target.value, error: '' })} /></label>
+          {(editor.axis === 'x' ? chart.x : yAxisAt(chart, Y_NAMES.indexOf(editor.axis as YName))).scale !== 'category' && (
+            <label className="axis-step">Шаг делений
+              <span>
+                <input value={editor.step} placeholder="авто" onFocus={e => e.target.select()} onChange={e => setEditor({ ...editor, step: e.target.value, error: '' })} />
+                {(editor.axis === 'x' ? chart.x : yAxisAt(chart, Y_NAMES.indexOf(editor.axis as YName))).scale === 'time' && (
+                  <select value={editor.unit} onChange={e => setEditor({ ...editor, unit: e.target.value as StepUnit })}>
+                    {STEP_UNITS.map(u => <option key={u.unit} value={u.unit}>{u.label}</option>)}
+                  </select>)}
+              </span>
+            </label>)}
           {editor.error && <span className="axis-error">{editor.error}</span>}
           <span className="axis-buttons">
             <button type="submit" className="primary">Применить</button>
