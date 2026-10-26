@@ -130,40 +130,40 @@ def _aligned_table(plt: Any, fig: Any, ax: Any, table: Any, n: int) -> None:
 
 
 def _strip_figure(plt: Any, chart: Chart):
-    """Скважины × сезоны: цветные квадраты (цвет ГСП), штриховка — по ГСП в сезоне ревизии не было."""
+    """Скважины × сезоны плитками: номер, ряд мелких квадратов (цвет ГСП; серый — нет; штриховка — ревизии не было), число сезонов."""
     from matplotlib.patches import Rectangle
     st = chart.strips
     groups = list(dict.fromkeys(st.groups))
     palette = ['#2a6f97', '#d1495b', '#3a9d5d', '#e0a100', '#7b4fa3', '#e07a1f', '#2b9aa0', '#8c5a3c', '#5b6c8f', '#a3a33a']
     color = {g: palette[i % len(palette)] for i, g in enumerate(groups)}
     blocks = [(g, [i for i, x in enumerate(st.groups) if x == g]) for g in groups] if st.layout == 'panels' else [('', list(range(len(st.rows))))]
-    tall = max(len(idx) for _, idx in blocks)
-    cols = min(4, len(blocks))
-    rows_n = -(-len(blocks) // cols)
-    fig, axes = plt.subplots(rows_n, cols, figsize=(cols * (0.45 * len(st.columns) + 2.2), rows_n * (0.26 * tall + 1.6) + 0.6), squeeze=False)
-    for ax in axes.flat[len(blocks):]:
-        ax.axis('off')
-    for ax, (name, idx) in zip(axes.flat, blocks):
-        for r, i in enumerate(idx):
-            for j, v in enumerate(st.cells[i]):
-                if v is None:
-                    ax.add_patch(Rectangle((j - 0.45, r - 0.42), 0.9, 0.84, fill=False, hatch='////', ec='#aaa', lw=0))
-                else:
-                    ax.add_patch(Rectangle((j - 0.45, r - 0.42), 0.9, 0.84, fc=color[st.groups[i]] if v else '#e4eaec', lw=0))
-            ax.text(len(st.columns) - 0.3, r, str(st.counts[i]), ha='left', va='center', fontsize=9, fontweight='bold')
-        ax.set_xlim(-0.6, len(st.columns) + 0.3)
-        ax.set_ylim(tall - 0.5, -0.7)
-        ax.set_xticks(range(len(st.columns)))
-        ax.set_xticklabels(st.columns, rotation=45, ha='right', fontsize=9)
-        ax.set_yticks(range(len(idx)))
-        ax.set_aspect('auto')
-        ax.set_yticklabels([st.rows[i] for i in idx], fontsize=9)
-        ax.tick_params(length=0)
-        ax.spines[:].set_visible(False)
+    n, sq, gap = len(st.columns), 0.2, 0.03
+    chip_w = 0.7 + n * (sq + gap) + 0.45                 # номер + квадраты + число
+    per_row = 9
+    lines = sum(-(-len(idx) // per_row) + (1 if name else 0) for name, idx in blocks)
+    fig, ax = plt.subplots(figsize=(per_row * chip_w * 0.5 + 0.4, 0.42 * lines + 1.3))
+    y = 0.0
+    for name, idx in blocks:
         if name:
-            ax.set_title(name, color=color[name], fontsize=12, fontweight='bold')
-    fig.suptitle(chart.title, fontsize=13)
-    fig.tight_layout()
+            ax.text(0, y + 0.35, name, color=color[name], fontsize=12, fontweight='bold', va='center')
+            y += 0.8
+        for k, i in enumerate(idx):
+            x0, y0 = (k % per_row) * (chip_w + 0.15), y + (k // per_row) * 0.8
+            ax.add_patch(Rectangle((x0, y0), chip_w, 0.62, fill=False, ec='#b9c4c7', lw=0.8))
+            ax.text(x0 + 0.62, y0 + 0.31, st.rows[i].replace('№ ', ''), ha='right', va='center', fontsize=9, fontweight='bold')
+            for j, v in enumerate(st.cells[i]):
+                xs = x0 + 0.7 + j * (sq + gap)
+                if v is None:
+                    ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fill=False, hatch='////', ec='#aaa', lw=0))
+                else:
+                    ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fc=color[st.groups[i]] if v else '#e4eaec', lw=0))
+            ax.text(x0 + chip_w - 0.1, y0 + 0.31, str(st.counts[i]), ha='right', va='center', fontsize=9, color='#555')
+        y += -(-len(idx) // per_row) * 0.8 + 0.2
+    ax.set_xlim(-0.05, per_row * (chip_w + 0.15))
+    ax.set_ylim(y, -0.2)
+    ax.axis('off')
+    ax.set_title(chart.title, fontsize=13)
+    fig.text(0.01, 0.01, 'Квадраты слева направо: ' + ' · '.join(st.columns) + '; число справа — сколько сезонов', fontsize=9, color='#555')
     return fig
 
 

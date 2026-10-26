@@ -212,14 +212,16 @@
 
 .strip-wrap { padding: 4px 8px 8px; overflow: auto; max-height: 640px; }
 .strip-panels { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
-.strip-table { border-collapse: separate; border-spacing: 2px; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 12px; }
-.strip-table th { font-weight: 400; padding: 1px 4px; white-space: nowrap; }
-.strip-table thead th { font-weight: 600; }
-.strip-table tbody th { text-align: right; }
-.strip-table td { width: 22px; height: 18px; padding: 0; border-radius: 2px; background: var(--chart-axis, #e4eaec); opacity: .35; }
-.strip-table td.on { opacity: 1; }
-.strip-table td.miss { background: repeating-linear-gradient(45deg, transparent 0 3px, #b9c4c7 3px 4px); opacity: 1; }
-.strip-table td.count { width: auto; background: none; opacity: 1; text-align: left; padding-left: 6px; font-weight: 600; }
+.strip-panels { display: block; }
+.strip-group { margin-bottom: 8px; }
+.strip-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.strip-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 5px; border: 1px solid var(--chart-axis, #c9d4d7); border-radius: 4px; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 12px; }
+.strip-chip b { font-weight: 600; min-width: 24px; text-align: right; }
+.strip-chip em { font-style: normal; font-weight: 600; opacity: .7; }
+.strip-chip .dots { display: inline-flex; gap: 1px; }
+.strip-chip .dots i { width: 9px; height: 12px; border-radius: 1px; background: var(--chart-axis, #e4eaec); opacity: .45; }
+.strip-chip .dots i.on { opacity: 1; }
+.strip-chip .dots i.miss { background: repeating-linear-gradient(45deg, transparent 0 2px, #b9c4c7 2px 3px); opacity: 1; }
 .strip-sub { font-weight: 600; margin: 0 0 4px; font-family: 'Times New Roman', 'Liberation Serif', serif; }
 .strip-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
 .strip-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 5px; border-radius: 2px; vertical-align: -2px; }
