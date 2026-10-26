@@ -417,9 +417,12 @@ class Imports:
                 problems.append(item.name + ': ' + str(e))
                 continue
             if mode == 'auto' and rules.is_pressure_book(tables):
-                rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
+                rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': True, 'module': 'book',
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
-                             'status': 'Это книга факта и моделей давлений: загрузите ее в разделе «Данные давлений» ниже'})
+                             'status': 'Определено: книга факта и моделей давлений (кроссплот). Проверяется и загружается вместе с остальными; '
+                                       'роли листов и сценарии можно уточнить на вкладке «Данные давлений»',
+                             'base': 'pressure'})
+                options[item.token] = {'sheets': {}, 'encoding': enc, 'delimiter': delim, 'auto': False, 'special': 'pressure', 'table': ''}
                 continue
             kind_special, special = special_kind(tables, item.name)
             if kind_special:
@@ -598,8 +601,9 @@ class Imports:
         for item, opts in specials:
             kind_s = opts['special']
             try:
-                r = folder_check.KINDS[kind_s](item.name, item.content, opts['table']) if kind_s == 'gis' \
-                    else folder_check.KINDS[kind_s](item.name, item.content)
+                r = (self._pressure_dry(pid, item) if kind_s == 'pressure'
+                     else folder_check.KINDS[kind_s](item.name, item.content, opts['table']) if kind_s == 'gis'
+                     else folder_check.KINDS[kind_s](item.name, item.content))
             except Exception as e:                    # файл отклонён целиком, остальные продолжают
                 issues.append({'Файл': item.name, 'Лист': '', 'Строка': 0, 'Уровень': 'ошибка', 'Причина': str(e)})
                 sources.append(item.token)
@@ -734,7 +738,7 @@ class Imports:
         undo = out['undo'] if out else None
         notes = [out['message']] if out else []
         loaders = {'elpro': self.elpro_load, 'gas': self.gas_db_load, 'geo': self.geo_load, 'water': self.water_monthly_load,
-                   'ggh': self.ggh_load}
+                   'ggh': self.ggh_load, 'pressure': self.pressure_load}
         saved = None
         for sp in specials:                  # файлы со своим разбором: тот же шаг «Применить», отдельная запись в проект на файл
             try:
@@ -780,6 +784,26 @@ class Imports:
                         'при повторной загрузке); проверьте журнал исключений и исключите их заново.')
         return {'message': message, 'duplicates': duplicates, 'lost_exclusions': lost,
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def _pressure_dry(self, pid: str, item: Upload) -> dict[str, Any]:
+        """Книга кроссплота: автоматическое сопоставление листов, без записи. Ошибки сопоставления — отказ файла с причиной."""
+        out = self.pressure_inspect(pid, {'files': [{'token': item.token}]})
+        if out['ready']:
+            self.discard(out['ready']['id'])
+        problems = out['bad'] + out['errors']
+        if problems or not out['ready']:
+            raise ParamError('; '.join(problems) or 'Сопоставление листов не получилось: уточните его на вкладке «Данные давлений».')
+        return folder_check._ok('Давления (кроссплот): ' + out['ready']['text'].replace('Готово к сохранению: ', ''), out['warnings'],
+                                out['counts']['sheets'])
+
+    def pressure_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+        up = self.upload(name, content)
+        if up['error']:
+            raise ParamError(up['error'])
+        shown = self.pressure_inspect(pid, {'files': [{'token': up['token']}]})
+        if not shown['ready']:
+            raise ParamError('; '.join(shown['bad'] + shown['errors']) or 'Сопоставление листов не получилось')
+        return self.pressure_apply(pid, {'pending': shown['ready']['id'], 'mode': 'add'})
 
     def ggh_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
         """Файл ГГХ целиком (лист находится сам): проверка строк и запись с правилом «при совпадении взять новую запись»."""
