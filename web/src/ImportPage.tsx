@@ -4,7 +4,7 @@ import { pickLocalFiles } from './FilePicker'
 import type { Project } from './api'
 import {
   importApi, type Applied, type Book, type CheckFile, type FileInfo, type FileOptions, type ImportOptions, type IssueSource, type Pending,
-  type GghInspect, type PressureChoice, type PressureDemo, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
+  type PressureChoice, type PressureDemo, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
 } from './api_import'
 import { projectsApi } from './api_projects'
 import { RowFixer } from './RowFixer'
@@ -85,7 +85,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
         <div>
           <h1>Импорт данных</h1>
           <p className="lede">Простой режим: перетащите все файлы сразу. Подробный: настройка шапки и колонок каждого листа.
-            Газогидрохимия (ГГХ) загружается на той же вкладке ниже; данные давлений для кроссплота — отдельная вкладка.
+            ЭЛПРО, учёт газа, ГИС, положение скважин, замеры воды и ГГХ распознаются сами и идут в той же проверке и той же загрузке; данные давлений для кроссплота — отдельная вкладка.
             Какие колонки и форматы нужны — в <a href={tab === 'pressure' ? '#/@help/pressure' : '#/@help'}>справке по форматам данных</a>.</p>
         </div>
       </header>
@@ -104,8 +104,6 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
             ? (
               <>
                 <TablesImport key={project.id} project={project} options={options} onProject={onProject} />
-                <h2>Газогидрохимия (ГГХ)</h2>
-                <GghImport key={`ggh-${project.id}`} project={project} onProject={onProject} />
               </>
             )
             : <PressureImport key={project.id} project={project} options={options} onProject={onProject} />}
@@ -300,7 +298,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const body = () => ({
     view, mode, kind, production_unit: punit, gdi_unit: gunit, pressure_unit: pressureUnit, production_duplicates: duplicates,
     files: files.map((f): CheckFile => {
-      const base = { token: f.token, ...opts(f.token) }
+      const base = { token: f.token, ...opts(f.token), table: gisTable[f.token] ?? '' }
       if (view === 'simple') return { ...base, choices: choices[f.token] ?? {} }
       const specs = Object.fromEntries(Object.entries(detailed[f.token] ?? {}).filter(([, s]) => s.spec).map(([k, s]) => [k, s.spec!]))
       const book = books[f.token]
@@ -332,16 +330,6 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   }
 
   const [gisTable, setGisTable] = useState<Record<string, string>>({})   // тип таблицы «База ГИС», выбранный вручную; пусто — по заголовкам
-  const loadBase = async (token: string) => {
-    setBusy(true)
-    try {
-      const r: Applied = await importApi.baseLoad(project.id, token, policy, gisTable[token] ?? '')
-      onProject(r.project)
-      uploads.clear(); setChoices({}); setDetailed({}); setFileOpts({}); setFine('')
-      setMessage({ text: r.message, ok: true, undo: r.undo?.snapshot })
-    } catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
-    setBusy(false)
-  }
 
   const fineRow = simple?.rows.find(r => r.token + sep + r.sheet === fine)
   const sheetTypes = options.sheet_types
@@ -413,7 +401,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
                             <option value="gis_observations">замеры</option>
                             <option value="gis_intervals">интервалы</option>
                           </select></>}
-                          {r.base && <> <button type="button" disabled={busy} onClick={() => loadBase(r.token)}>Загрузить в проект</button></>}</td>
+</td>
                       </tr>
                     ))}
                   </tbody>
@@ -801,77 +789,5 @@ function PressureDemos({ project, onProject, onMessage, onTry }: {
         <p className="muted small">Загрузить вариант сразу в проект можно только в демонстрационном проекте: рабочие проекты не заполняются выдуманными замерами.</p>
       )}
     </details>
-  )
-}
-
-// ---------------------------------------------------------------- ГГХ
-/** Лист «Общий» книги отчёта по ГГХ: по строке на отбор пробы (скважина, дата, горизонт, газонасыщенность, состав газа). */
-function GghImport({ project, onProject }: { project: Project; onProject: (p: Project) => void }) {
-  const uploads = useUploads()
-  const file = uploads.files[0]
-  const [sheet, setSheet] = useState('')
-  const [result, setResult] = useState<GghInspect | null>(null)
-  const [running, setRunning] = useState(false)
-  const [mode, setMode] = useState('merge')
-  const [message, setMessage] = useState<Message | null>(null)
-
-  useEffect(() => {
-    if (!file) { setResult(null); return }
-    const ctrl = new AbortController()
-    setRunning(true)
-    importApi.ggh(project.id, { token: file.token, ...(sheet ? { sheet } : {}) }, ctrl.signal)
-      .then(r => { setResult(r); setRunning(false) })
-      .catch(e => { if ((e as Error).name !== 'AbortError') { setMessage({ text: (e as Error).message, ok: false }); setRunning(false) } })
-    return () => ctrl.abort()
-  }, [file, sheet, project.id])
-
-  const save = async () => {
-    if (!result?.ready) return
-    try {
-      const r = await importApi.gghApply(project.id, result.ready.id, mode)
-      onProject(r.project)
-      uploads.clear(); setSheet(''); setResult(null)
-      setMessage({ text: r.message, ok: true, undo: r.undo?.snapshot })
-    } catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
-  }
-
-  return (
-    <section className="panel import">
-      <FilePicker uploads={uploads}
-                  help="Перетащите книгу Excel с данными ГГХ: нужен лист с колонками «№№ скв.», «Дата отбора», «Водоносный горизонт», «Газонасыщенность», «Сумма УВ», «Не», «Н2», «N2», «O2», «СО2» (лист «Общий» отчёта)." />
-      {uploads.files.length > 1 && <div className="note info">Обрабатывается первый файл ({file.name}); остальные уберите или загрузите после сохранения.</div>}
-      {!file && <div className="note info">Выберите файл. Лист с данными найдётся сам; числа с запятой читаются, строки без номера скважины или даты отклоняются и перечисляются ниже. После загрузки данные видны в разделе «ГГХ», а графики для отчёта — в разделе «Экспорт».</div>}
-      <ImportNote message={message} project={project} onProject={onProject} onMessage={setMessage} />
-      {running && <span className="pulse">Проверка листа…</span>}
-      {result && (
-        <>
-          {result.sheets.length > 1 && (
-            <label className="field">Лист
-              <select value={result.sheet ?? ''} onChange={e => setSheet(e.target.value)}>
-                {result.sheets.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </label>
-          )}
-          {result.error && <div className="note warning">{result.error}</div>}
-          {result.ready && (
-            <div className="check-result">
-              <div className="note info">{result.ready.text}</div>
-              <TableDock scope="import-ggh" tables={[result.ready.summary, ...(result.ready.issues ? [result.ready.issues] : [])]} render={t => (
-                <TableView table={t} docked onDownload={f => importApi.table(project.id, result.ready!.id, t.id, f)} />
-              )} />
-              {result.ready.existing && (
-                <fieldset className="choices">
-                  <legend>Что делать с уже загруженными данными ГГХ</legend>
-                  {result.ready.modes.map(m => <label key={m.value}><input type="radio" checked={mode === m.value} onChange={() => setMode(m.value)} />{m.label}</label>)}
-                  <p className="muted small">В проекте: {result.ready.existing.rows} замеров, скважин {result.ready.existing.wells}.
-                    Совпадают по номеру: {result.ready.existing.replaced.length}.</p>
-                </fieldset>
-              )}
-              <button type="button" className="primary" disabled={running} onClick={save}>Сохранить в проект</button>
-            </div>
-          )}
-        </>
-      )}
-    </section>
   )
 }

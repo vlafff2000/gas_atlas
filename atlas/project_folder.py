@@ -29,7 +29,7 @@ from .api import error
 from . import folder_check, workspace_folders
 from .engine.core import ggh_import as ggh
 from .engine.core import gis_import, import_rules, tabular, water_monthly_import
-from .imports import Imports, base_book
+from .imports import Imports, base_book, looks_ggh
 from .api_projects import internal_error_text
 from .contract import ParamError
 from .imports import POLICIES
@@ -159,7 +159,7 @@ def _sniff_tables(name: str, tables: dict[str, Any]) -> dict[str, Any] | None:
                 cols = ('колонки ' + ', '.join(sorted(need_cols))) if need_cols else ''
                 return {'role': role, 'reason': f'Содержимое: {label} ({"; ".join(x for x in (found, cols) if x)})'}
     special = base_book(tables, name)
-    if not special and any(_looks_ggh(raw) for raw in tables.values()):
+    if not special and any(looks_ggh(raw) for raw in tables.values()):
         return {'role': 'ggh', 'reason': 'Содержимое: ' + GGH_REASON}
     if special:
         role = next(r for label, r in BASE_ROLES if special.startswith(label))
@@ -179,17 +179,6 @@ def _sniff_tables(name: str, tables: dict[str, Any]) -> dict[str, Any] | None:
         module, (sheet, fields) = next(iter(found.items()))
         return {'role': MODULE_ROLES[module], 'reason': f'Содержимое: лист «{sheet}» — {import_rules.type_label(module)} ({fields})'}
     return None
-
-
-def _looks_ggh(raw: Any) -> bool:
-    """Лист ГГХ: в строке шапки скважина, дата и ещё минимум два признака пробы (газ, горизонт, состав): одной «Скважина + Дата» мало."""
-    if raw is None or raw.empty:
-        return False
-    row = ggh.find_header(raw)
-    if row is None:
-        return False
-    fields = {ggh._field(v) for v in raw.iloc[row].tolist()}
-    return len(fields - {None, 'well', 'date'}) >= 2
 
 
 def _gis_parts(tables: dict[str, Any]) -> str:
@@ -416,16 +405,6 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
 REJECTED = ('skip', 'accept', 'keep')      # файл с отклонёнными строками: не грузить / только корректные / все, плохие исключены
 
 
-def _load_ggh(imports, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
-    up = imports.upload(name, content)
-    if up['error']:
-        raise ParamError(up['error'])
-    shown = imports.ggh_inspect(pid, {'token': up['token']})
-    if not shown['ready']:
-        raise ParamError(shown['error'] or 'В файле нет данных ГГХ')
-    return imports.ggh_apply(pid, {'pending': shown['ready']['id'], 'mode': 'merge'})
-
-
 def _monthly_water(name: str, path: Path) -> bool:
     """Замеры воды за месяц (старый формат Карт ГСП): такой файл грузится своим разбором, остальные «вода» — как раньше."""
     try:
@@ -450,7 +429,7 @@ def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy:
         elif role == 'geo':
             applied = imports.geo_load(pid, name, path.read_bytes(), policy)
         elif role == 'ggh':
-            applied = _load_ggh(imports, pid, name, path.read_bytes(), policy)
+            applied = imports.ggh_load(pid, name, path.read_bytes(), policy)
         elif role == 'water' and _monthly_water(name, path):
             applied = imports.water_monthly_load(pid, name, path.read_bytes(), policy)
         else:
