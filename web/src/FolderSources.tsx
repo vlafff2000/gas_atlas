@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { folderApi, FolderEdit, FolderFile, FolderLoad, FolderLoadResult, FolderScan, ProjectFolders } from './api_folder'
+import { folderApi, FolderCheck, FolderEdit, FolderFile, FolderLoad, FolderLoadResult, FolderScan, ProjectFolders, RejectedMode } from './api_folder'
 import { openFilePicker } from './FilePicker'
 import { api, type Project } from './api'
 
@@ -15,6 +15,7 @@ function rememberFolder(pid: string, folder: string) {
 }
 const KIND_LABEL: Record<string, string> = { production: 'Расходы', pressure: 'Давления', gdi: 'ГДИ', water: 'Вода' }
 const LOAD_LABEL: Record<FolderLoad, string> = { loaded: 'загружен', changed: 'изменился, нужна загрузка', not_loaded: 'не загружен' }
+const CHECK_LABEL: Record<FolderCheck['status'], string> = { ok: 'Готов к загрузке', attention: 'Есть замечания', error: 'Ошибка', skip: 'Тип не определён' }
 const RESULT_LABEL: Record<FolderLoadResult['status'], string> = { loaded: 'Загружено', attention: 'Нужно внимание', error: 'Ошибка' }
 
 function kb(bytes: number) {
@@ -36,11 +37,16 @@ export function FolderSources({ project, onProject }: { project: Project | null;
   /** Папка проекта, выбранная в «Базе ПХГ»: подпапки «готовые» и «выгрузки». */
   const [projectFolders, setProjectFolders] = useState<ProjectFolders | null>(null)
 
+  /** Сводная проверка всех файлов с ролью (без записи в проект) и выбор, что грузить: решение за инженером, по умолчанию отмечено всё, что разобралось. */
+  const [checks, setChecks] = useState<Record<string, FolderCheck>>({})
+  const [picked, setPicked] = useState<Record<string, boolean>>({})
+  const [rejectedMode, setRejectedMode] = useState<RejectedMode>('skip')
+
   const run = async (work: () => Promise<FolderScan>, done: string) => {
     setBusy(true); setError(''); setMessage('')
     try {
       const next = await work()
-      setScan(next); setFolder(next.folder); setEdits({}); setMessage(done); setResults([]); setWarning('')
+      setScan(next); setFolder(next.folder); setEdits({}); setMessage(done); setResults([]); setWarning(''); setChecks({}); setPicked({})
       if (project) rememberFolder(project.id, next.folder)
     } catch (e) {
       setScan(null); setEdits({})          // старый список не должен выглядеть как открытая папка
@@ -120,13 +126,46 @@ export function FolderSources({ project, onProject }: { project: Project | null;
     }
   }
 
+  const checkable = scan?.files.filter(f => f.role).map(f => f.name) ?? []
+  const isPicked = (name: string) => picked[name] ?? (checks[name] ? checks[name].status === 'ok' || checks[name].status === 'attention' : false)
+  const chosen = Object.keys(checks).filter(isPicked)
+
+  const checkAll = async () => {
+    if (!project || !scan || dirty) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const reply = await folderApi.check(project.id, scan.folder, checkable)
+      setChecks(Object.fromEntries(reply.results.map(r => [r.name, r]))); setPicked({}); setResults([])
+      const bad = reply.results.filter(r => r.status === 'error' || r.status === 'skip').length
+      setMessage(`Проверено файлов: ${reply.results.length}. В проект ничего не записано.` + (bad ? ` Не разобрано или без типа: ${bad}, остальные можно загружать.` : ''))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const loadChosen = async () => {
+    if (!project || !scan || dirty || !chosen.length) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const reply = await folderApi.load(project.id, scan.folder, chosen, 'new', rejectedMode)
+      setScan(reply.folder); setResults(reply.results); setWarning(reply.warning); setUndo(reply.undo ?? '')
+      setMessage(`Загрузка выполнена: ${reply.results.filter(r => r.status === 'loaded').length} из ${reply.results.length}.`)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const counts = (kind: string) => scan?.files.filter(f => current(f).role === kind).length ?? 0
   const dirty = Object.keys(edits).length > 0
 
   return (
     <section className="folder-sources" aria-label="Источники данных">
       <h2>Источники</h2>
-      <p className="lede">Папка с файлами проекта: какой файл чем является. Здесь только роли файлов: роли и признак нормированной базы сохраняются в папке рядом с данными.</p>
+      <p className="lede">Папка с файлами проекта: какой файл чем является. Укажите роли (многие определяются сами), нажмите «Проверить всё»: по каждому файлу будет сводка без записи в проект. Затем «Загрузить всё отмеченное». Роли и признак нормированной базы сохраняются в папке рядом с данными.</p>
 
       {project && projectFolders?.project && (
         <div className="folder-row" aria-label="Папка проекта из Базы ПХГ">
@@ -173,9 +212,27 @@ export function FolderSources({ project, onProject }: { project: Project | null;
                 Загрузить новые и изменённые ({pending.length})
               </button>
               <span className="muted">Грузятся только файлы с ролью. Загрузка идёт через общий импорт проекта «{project.name}».</span>
+              <button type="button" onClick={checkAll} disabled={busy || dirty || checkable.length === 0}
+                title="Пробный разбор каждого файла по его роли: сколько строк, скважин, какой период и замечания. В проект ничего не пишется.">
+                Проверить всё ({checkable.length})
+              </button>
               {undo && <button type="button" className="quiet" onClick={undoLoad} disabled={busy}>Откатить загрузку из папки</button>}
             </div>
           )}
+          {chosen.length > 0 || Object.keys(checks).length > 0 ? (
+            <div className="folder-row">
+              <button type="button" className="primary" onClick={loadChosen} disabled={busy || dirty || chosen.length === 0}>
+                Загрузить всё отмеченное ({chosen.length})
+              </button>
+              <label className="muted">Файл с отклонёнными строками:{' '}
+                <select value={rejectedMode} onChange={e => setRejectedMode(e.target.value as RejectedMode)}>
+                  <option value="skip">не загружать, разобрать вручную</option>
+                  <option value="accept">загрузить только корректные строки</option>
+                  <option value="keep">загрузить все, плохие исключить из расчётов</option>
+                </select></label>
+              <span className="muted">Отметки в колонке «Загрузить» можно менять: ошибка в одном файле остальные не блокирует.</span>
+            </div>
+          ) : null}
           {!project && <div className="note">Выберите проект, чтобы видеть, что загружено, и загружать файлы.</div>}
           {unknownLoad && <div className="note">Статус загрузки не показан для выбранного проекта: нажмите «Показать файлы» ещё раз.</div>}
           {dirty && <div className="note">Сначала сохраните роли: загрузка идёт по сохранённым ролям.</div>}
@@ -190,7 +247,7 @@ export function FolderSources({ project, onProject }: { project: Project | null;
 
           <table className="folder-table">
             <thead>
-              <tr><th>Файл</th><th>Размер</th><th>Роль</th><th>Нормирована</th><th>Загрузка</th><th>Результат Базы ПХГ и проверка</th></tr>
+              <tr><th>Файл</th><th>Размер</th><th>Роль</th><th>Нормирована</th><th>Загрузка</th><th>Проверка перед загрузкой</th><th>Результат Базы ПХГ и проверка</th></tr>
             </thead>
             <tbody>
               {scan.files.map(f => {
@@ -215,6 +272,18 @@ export function FolderSources({ project, onProject }: { project: Project | null;
                     </td>
                     <td>
                       {f.load ? LOAD_LABEL[f.load] : <span className="muted">—</span>}
+                    </td>
+                    <td>
+                      {checks[f.name] ? (
+                        <>
+                          <label><input type="checkbox" checked={isPicked(f.name)} onChange={e => setPicked(prev => ({ ...prev, [f.name]: e.target.checked }))}
+                            aria-label={`Загрузить ${f.name}`} /> <strong>{CHECK_LABEL[checks[f.name].status]}</strong></label>
+                          <div>{checks[f.name].message}</div>
+                          {checks[f.name].issues.length > 0 && (
+                            <details><summary className="muted">Замечания: {checks[f.name].issues_count}</summary>
+                              <ul>{checks[f.name].issues.map((x, i) => <li key={i} className="small">{x.level ? `${x.level}: ` : ''}{x.reason}</li>)}</ul></details>)}
+                        </>
+                      ) : <span className="muted">не проверялся</span>}
                     </td>
                     <td>
                       {f.known && <div>{f.known}</div>}

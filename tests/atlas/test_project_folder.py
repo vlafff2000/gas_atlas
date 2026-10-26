@@ -1,6 +1,8 @@
 """Папка проекта: роли файлов по именам и манифесту, известные результаты Базы ПХГ, отчёт проверки, ошибки."""
 import json
 
+import pandas as pd
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -141,7 +143,7 @@ def test_load_from_folder_marks_loaded_then_changed(client, tmp_path):
     assert before['files'][0]['load'] == 'not_loaded'
     r = client.post(f'/api/projects/{pid}/folder/load', json={'folder': str(folder), 'files': ['добыча.csv']})
     assert r.status_code == 200, r.text
-    assert r.json()['results'][0]['status'] == 'loaded'
+    assert r.json()["results"][0]["status"] == "loaded", r.json()["results"][0]
     assert r.json()['folder']['files'][0]['load'] == 'loaded'
     # файл изменился: отпечаток не совпадает
     make_csv(folder / 'добыча.csv', [('73', '01.11.2025', '2000')] * 3)
@@ -205,3 +207,46 @@ def test_base_outputs_are_known_results():
     assert pf._known('БД_ЭЛПРО.xlsx')['role'] == 'elpro'
     assert pf._known('daily_well_data_2019_01_2024_04.xlsx') is not None
     assert pf._known('Пересчёт_давлений.xlsx')['role'] == 'pressure'
+
+
+def test_check_all_is_dry_run_and_isolates_errors(client, tmp_path):
+    folder = tmp_path / 'папка'
+    folder.mkdir()
+    make_csv(folder / 'добыча.csv', [('73', '01.11.2025', '2000'), ('73', '02.11.2025', '2100')])
+    make_csv(folder / 'плохой.csv', [('73', 'не дата', '2000')])
+    pid = client.post('/api/projects', json={'name': 'П'}).json()['id']
+    before = client.get(f'/api/projects/{pid}').json()['revision']
+    r = client.post(f'/api/projects/{pid}/folder/check',
+                    json={'folder': str(folder), 'files': ['../нет.csv', 'добыча.csv', 'плохой.csv']})
+    assert r.status_code == 200, r.text
+    got = {x['name']: x for x in r.json()['results']}
+    assert got['../нет.csv']['status'] == 'error'
+    assert got['добыча.csv']['status'] == 'ok' and 'строк 2' in got['добыча.csv']['message']
+    assert got['плохой.csv']['status'] in ('attention', 'error')
+    assert client.get(f'/api/projects/{pid}').json()['revision'] == before, 'проверка ничего не пишет в проект'
+
+
+def test_folder_load_can_take_valid_rows_of_file_with_rejected(client, tmp_path):
+    folder = tmp_path / 'папка'
+    folder.mkdir()
+    make_csv(folder / 'смесь.csv', [('73', '01.11.2025', '2000'), ('73', 'не дата', '2000')])
+    pid = client.post('/api/projects', json={'name': 'П'}).json()['id']
+    skipped = client.post(f'/api/projects/{pid}/folder/load', json={'folder': str(folder), 'files': ['смесь.csv']}).json()
+    assert skipped['results'][0]['status'] == 'attention'
+    taken = client.post(f'/api/projects/{pid}/folder/load',
+                        json={'folder': str(folder), 'files': ['смесь.csv'], 'rejected': 'accept'}).json()
+    assert taken['results'][0]['status'] == 'loaded'
+
+
+def test_ggh_book_is_recognised_checked_and_loaded(client, tmp_path):
+    folder = tmp_path / 'папка'
+    folder.mkdir()
+    pd.DataFrame({'№№ скв.': ['115', '116'], 'Дата отбора': ['01.10.2024', '02.10.2024'], 'Водоносный горизонт': ['K1', 'K1'],
+                  'Газонасыщенность, см3/л': [120, 80], 'СН4': [90.1, 91.2]}).to_excel(folder / 'отчёт.xlsx', sheet_name='Общий', index=False)
+    pid = client.post('/api/projects', json={'name': 'П'}).json()['id']
+    scan = client.post('/api/folder/scan', json={'folder': str(folder), 'project': pid}).json()
+    assert scan['files'][0]['role'] == 'ggh'
+    checked = client.post(f'/api/projects/{pid}/folder/check', json={'folder': str(folder), 'files': ['отчёт.xlsx']}).json()
+    assert checked['results'][0]['status'] in ('ok', 'attention') and 'ГГХ' in checked['results'][0]['message']
+    loaded = client.post(f'/api/projects/{pid}/folder/load', json={'folder': str(folder), 'files': ['отчёт.xlsx']}).json()
+    assert loaded['results'][0]['status'] == 'loaded', loaded

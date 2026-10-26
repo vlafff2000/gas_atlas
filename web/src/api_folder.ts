@@ -55,6 +55,20 @@ export interface FolderScan {
   files: FolderFile[]
 }
 
+/** Пробная проверка файла без записи в проект: ok — можно грузить, attention — есть замечания, error — не разобран, skip — тип не определён. */
+export interface FolderCheck {
+  name: string
+  role: string | null
+  role_label: string
+  status: 'ok' | 'attention' | 'error' | 'skip'
+  message: string
+  issues: { level: string; reason: string }[]
+  issues_count: number
+}
+
+/** Что делать с файлом, где есть отклонённые строки: не грузить / только корректные / все, плохие исключить из расчётов. */
+export type RejectedMode = 'skip' | 'accept' | 'keep'
+
 export interface FolderEdit { role?: string | null; normalized?: boolean }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -80,8 +94,10 @@ export const folderApi = {
     return data as ProjectFolders
   },
   scan: (folder: string, project?: string) => post<FolderScan>('/api/folder/scan', project ? { folder, project } : { folder }),
-  load: (project: string, folder: string, files: string[], policy = 'new') =>
-    post<FolderLoadReply>(`/api/projects/${encodeURIComponent(project)}/folder/load`, { folder, files, policy }),
+  load: (project: string, folder: string, files: string[], policy = 'new', rejected: RejectedMode = 'skip') =>
+    post<FolderLoadReply>(`/api/projects/${encodeURIComponent(project)}/folder/load`, { folder, files, policy, rejected }),
+  check: (project: string, folder: string, files: string[]) =>
+    post<{ results: FolderCheck[] }>(`/api/projects/${encodeURIComponent(project)}/folder/check`, { folder, files }),
   undo: (project: string, snapshot: string, revision: number) =>
     post<Project>(`/api/projects/${encodeURIComponent(project)}/folder/undo`, { snapshot, revision }),
   saveManifest: (folder: string, files: Record<string, FolderEdit>, project?: string) =>
