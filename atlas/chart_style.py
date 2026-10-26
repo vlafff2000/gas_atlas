@@ -86,7 +86,7 @@ LABELS = {
 }
 
 LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DASHES, 'marker': 'bool', 'shape': SHAPES,
-        'size': ('num', 2, 24), 'markerColor': 'color', 'opacity': ('num', 0.05, 1)}
+        'size': ('num', 2, 24), 'markerColor': 'color', 'opacity': ('num', 0.05, 1), 'valueLabels': 'bool'}
 AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FORMATS, 'font': FONTS, 'tick_size': ('num', 5, 30),
             'title_size': ('num', 5, 30)}
 CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,

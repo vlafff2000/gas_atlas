@@ -47,3 +47,12 @@ def test_right_axis_color_follows_series_color():
     assert out.y2.color == '#22aa22'
     chart.series.append(Series('C', [1], [1], kind='points', axis='y2'))     # у части рядов цвет не задан — шкала не меняется
     assert apply_view(chart, {'looks': {'B|points': {'color': '#22aa22'}}}).y2.color == '#111111'
+
+
+def test_bar_value_labels_follow_view_and_export():
+    from atlas import render
+    bars = Chart('t-2', 'Столбцы', Axis('Группа', scale='category', categories=['ГСП 1', 'ГСП 2']), Axis('Объём', 'млн м³', from_zero=True),
+                 [Series('План', ['ГСП 1', 'ГСП 2'], [12.4, 1234.6], kind='bar')])
+    assert b'>1235<' not in render.chart_file(bars, 'svg', 150)[0]
+    shown = render.chart_file(apply_view(bars, {'looks': {'План|bar': {'valueLabels': True}}}), 'svg', 150)[0]
+    assert b'>1235<' in shown and b'>12<' in shown       # целые числа, без знаков после запятой

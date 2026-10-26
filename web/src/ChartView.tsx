@@ -363,6 +363,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         const wide = chart.id.startsWith('gis-combo')   // редких замеров мало: столбцы широкие, полупрозрачные, кривая поверх
         return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : { barMaxWidth: 24 }), barGap: '12%',
           itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
+          // подписи значений: целые, над столбиком; при тесноте ECharts прячет лишние, чтобы соседние не налезали
+          ...(L.valueLabels ? { label: { show: true, position: 'top', distance: 2, fontFamily: fontCss('times'), fontSize: 11, color: tk.ink,
+            formatter: (p: { value: unknown }) => String(Math.round(Number(Array.isArray(p.value) ? p.value[1] : p.value))) }, labelLayout: { hideOverlap: true } } : {}),
           emphasis: { focus: 'none', itemStyle: { color: c } } }
       }
       const width = L.width ?? (s.width || 2)

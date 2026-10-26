@@ -192,10 +192,10 @@ def to_plotly(chart: Chart):
                                      showlegend=s.legend and first, marker_color=color, boxpoints=False))
                 first = False
         elif s.kind == 'bar':
-            extra = {}
+            extra = {'meta': {'value_labels': True}} if look.get('valueLabels') else {}     # подписи значений: рисует atlas/engine/core/export.py
             if combo:       # конструктор: столбцы на своей оси, рядом или стопкой по имени, дата остаётся датой
                 extra = dict(yaxis=s.axis, offsetgroup=s.stack or f'bar{n}', opacity=look.get('opacity'),
-                             meta={'combo': True, 'stack': s.stack})
+                             meta={'combo': True, 'stack': s.stack, **extra.get('meta', {})})
             fig.add_trace(go.Bar(x=list(s.x) if stacked_bars or combo else [str(v) for v in s.x], y=list(s.y), name=s.name,
                                  showlegend=s.legend, marker_color=color, **extra))
         elif s.kind == 'line':
