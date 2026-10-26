@@ -503,8 +503,8 @@ def chart_csv(chart: Chart) -> tuple[bytes, str, str]:
 
 def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_size=None) -> tuple[bytes, str, str]:
     from . import chart_special
-    if chart.heat is not None and fmt in ('xlsx', 'csv'):
-        frame = chart_special.heat_frame(chart)
+    if (chart.heat is not None or chart.strips is not None) and fmt in ('xlsx', 'csv'):
+        frame = chart_special.heat_frame(chart) if chart.heat is not None else chart_special.strips_frame(chart)
         if fmt == 'csv':
             return csv_bytes(frame), f'{safe_name(chart.title)}.csv', 'text/csv; charset=utf-8'
         return xlsx_bytes({chart.title: frame}), f'{safe_name(chart.title)}.xlsx', XLSX

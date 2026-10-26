@@ -327,6 +327,7 @@ class ChartTable:
     columns: list[str]
     cells: list[list[str]]           # cells[строка][столбец]
     colors: list[str] = field(default_factory=list)   # цвет подписи строки; пусто — цвет ряда с тем же номером
+    aligned: bool = False            # столбцы (кроме двух первых: подпись строки и «Фонд») стоят точно под столбиками графика; график уступает слева место под подписи
     swatches: bool = True            # цветной маркер у строк: строки таблицы — ряды графика; False — строки сами по себе (группы)
 
 
@@ -340,6 +341,18 @@ class HeatMap:
     unit: str = ''                     # подпись шкалы цвета: «Скважин», «% от фонда ГСП»
     maximum: float | None = None       # верх шкалы цвета; None — максимум значений
     missing_text: str = 'нет данных'
+
+
+@dataclass
+class WellStrips:
+    """Скважины × сезоны: строка — скважина, квадрат — сезон (есть в перечне / нет / ревизии не было). Цвет квадрата — цвет ГСП."""
+    rows: list[str]                    # «№ 38»
+    groups: list[str]                  # ГСП каждой строки
+    columns: list[str]                 # сезоны
+    cells: list[list[int | None]]      # 1 — скважина в перечне сезона, 0 — нет, None — по ГСП в сезоне ревизии не было
+    counts: list[int]                  # в скольких сезонах скважина встретилась
+    layout: Literal['matrix', 'panels'] = 'matrix'   # matrix — один список; panels — отдельная колонка на каждую ГСП
+    missing_text: str = 'нет ревизии'
 
 
 @dataclass
@@ -359,6 +372,7 @@ class Chart:
     callouts: Literal['box', 'dot'] = 'box'   # узкие сегменты столбцов с ``Series.segments``: 'box' — выноска в рамке цвета ряда, 'dot' — точка (числа в ``table``)
     table: ChartTable | None = None  # таблица под графиком (экран и экспорт)
     heat: HeatMap | None = None      # тепловая карта вместо рядов (series пуст)
+    strips: WellStrips | None = None  # скважины × сезоны вместо рядов (series пуст)
 
     def right_axes(self) -> list[tuple[str, Axis]]:
         """Правые шкалы по порядку от графика наружу: [('y2', ...), ('y3', ...), ...]; идут подряд, без пропусков."""
@@ -594,4 +608,5 @@ def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
             'series': [_series_json(s, kept.get(i)) for i, s in enumerate(c.series)],
             'events': [{'x': _event_x(e.x), 'label': e.label, 'kind': e.kind,
                         'well': e.well} for e in c.events],
-            'callouts': c.callouts, 'table': asdict(c.table) if c.table else None, 'heat': asdict(c.heat) if c.heat else None}
+            'callouts': c.callouts, 'table': asdict(c.table) if c.table else None, 'heat': asdict(c.heat) if c.heat else None,
+            'strips': asdict(c.strips) if c.strips else None}

@@ -20,7 +20,7 @@ from atlas.engine.modules import revision_report as rr
 from atlas.engine.core.config import ordered
 from atlas.engine.core.loader import canonical_gsp
 
-from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Stat, Table
+from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table, WellStrips
 from ..domain import DatasetKind
 from . import an_charts, an_wells
 from ._production import periods_of
@@ -28,7 +28,12 @@ from .an_report import well_scopes
 
 SECTION = 'Выбор данных'
 CHARTS = (Option('count', 'Тепловая карта: число скважин по ГСП и сезонам'),
-          Option('share', 'Тепловая карта: доля фонда ГСП (нужен «Отбор и закачка»)'))
+          Option('share', 'Тепловая карта: доля фонда ГСП (нужен «Отбор и закачка»)'),
+          Option('freq', 'Частота повторов: сколько скважин встретилось в 1, 2, … сезонах'),
+          Option('chronic', 'Хронические скважины по ГСП (в 3 сезонах и больше)'),
+          Option('matrix', 'Матрица «скважина × сезон» (скважины в 2 сезонах и больше)'))
+CHRONIC_FROM = 3        # хроническая скважина: перечень выноса песка в стольких сезонах и больше
+MATRIX_FROM = 2
 TITLE_19 = 'Перечень скважин с выносом пластового песка по сезонам отбора'
 
 
@@ -53,6 +58,44 @@ def heat_matrix(data: rr.Dataset) -> tuple[list[str], list[list[int | None]]]:
     return [str(g) for g in canonical_gsp(pd.Series(data.gsps, dtype=object))], rows
 
 
+def well_presence(data: rr.Dataset) -> pd.DataFrame:
+    """Скважины с песком: ГСП (единое написание), номер, по сезонам 1 / 0 / None (ревизии не было) и число сезонов с песком.
+
+    Скважина — уникальная пара «ГСП + номер», как в аналитике ``rr.analyse``."""
+    names = dict(zip(data.gsps, canonical_gsp(pd.Series(data.gsps, dtype=object))))
+    rows = []
+    for g in data.gsps:
+        entries = [data.get(g, s) for s in data.seasons]
+        for well in sorted({w for e in entries for w in e.unique}, key=rr.sort_key):
+            cells = [None if not e.known else int(well in e.unique) for e in entries]
+            rows.append({'group': str(names[g]), 'well': well, 'cells': cells, 'k': sum(c or 0 for c in cells)})
+    return pd.DataFrame(rows, columns=['group', 'well', 'cells', 'k'])
+
+
+def strips_chart(data: rr.Dataset, presence: pd.DataFrame, chart_id: str, title: str, layout: str, at_least: int) -> Any:
+    part = presence[presence.k.ge(at_least)]
+    part = part.assign(order=part.group.map({g: i for i, g in enumerate(dict.fromkeys(presence.group))}))
+    part = part.sort_values(['order', 'k'], ascending=[True, False], kind='stable') if layout == 'panels' \
+        else part.sort_values(['k', 'order'], ascending=[False, True], kind='stable')
+    seasons = [s.replace('-', '/') for s in data.seasons]
+    strips = WellStrips([f'№ {w}' for w in part.well], list(part.group), seasons, [list(c) for c in part.cells], [int(k) for k in part.k], layout)
+    return an_charts.well_strips_chart(chart_id, title, strips)
+
+
+def frequency_chart(data: rr.Dataset, presence: pd.DataFrame) -> Any:
+    """Сколько скважин встретилось в 1, 2, … сезонах: столбики по числу сезонов, цвет — ГСП, число скважин внутри сегмента."""
+    top = len(data.seasons)
+    cats = [str(k) for k in range(1, top + 1)]
+    chart = Chart('an-rev-frequency', 'Как часто скважины выносят песок: число скважин по числу сезонов с выносом',
+                  Axis('В скольких сезонах скважина выносила песок', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
+    for group in dict.fromkeys(presence.group):
+        counts = [int(((presence.group == group) & (presence.k == k)).sum()) for k in range(1, top + 1)]
+        if any(counts):
+            chart.series.append(Series(str(group), cats, [float(c) for c in counts], 'bar', stack='freq',
+                                       segments=[str(c) if c else '' for c in counts], labels=[f'{c} скв.' for c in counts]))
+    return chart
+
+
 def sand_charts(data: rr.Dataset, shown: list[str], production: pd.DataFrame | None, mapping: Any) -> tuple[list[Any], list[str]]:
     """Тепловые карты табл. 1.8: число скважин с песком и доля фонда ГСП. Второй результат — замечания для экрана."""
     names, counts = heat_matrix(data)
@@ -62,6 +105,16 @@ def sand_charts(data: rr.Dataset, shown: list[str], production: pd.DataFrame | N
         charts.append(an_charts.heat_chart('an-rev-heat-count', 'Скважины с выносом песка по ГСП и сезонам', names, seasons, counts,
                                            [['' if v is None else str(v) for v in row] for row in counts], 'Скважин с выносом песка',
                                            missing_text='нет ревизии'))
+    presence = well_presence(data) if {'freq', 'chronic', 'matrix'} & set(shown) else None
+    if presence is not None and presence.empty:
+        notes.append('Графики по скважинам не построены: в перечнях нет ни одного номера скважины.')
+    elif presence is not None:
+        if 'freq' in shown:
+            charts.append(frequency_chart(data, presence))
+        if 'chronic' in shown:
+            charts.append(strips_chart(data, presence, 'an-rev-chronic', f'Хронические скважины: песок в {CHRONIC_FROM} сезонах и больше', 'panels', CHRONIC_FROM))
+        if 'matrix' in shown:
+            charts.append(strips_chart(data, presence, 'an-rev-matrix', f'Скважины с песком по сезонам ({MATRIX_FROM} сезона и больше)', 'matrix', MATRIX_FROM))
     if 'share' not in shown:
         return charts, notes
     if production is None or production.empty:

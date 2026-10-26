@@ -19,7 +19,7 @@ SERIF = ['Times New Roman', 'Liberation Serif', 'DejaVu Serif']
 
 
 def is_special(chart: Chart) -> bool:
-    return chart.heat is not None or any(s.segments is not None for s in chart.series)
+    return chart.heat is not None or chart.strips is not None or any(s.segments is not None for s in chart.series)
 
 
 def _luma(color: str) -> float:
@@ -47,7 +47,8 @@ def figure_file(chart: Chart, fmt: str, dpi: int) -> bytes:
     from .render import group_colors, series_color
     plt = _setup()
     try:
-        fig = _heat_figure(plt, chart) if chart.heat is not None else _stack_figure(plt, chart, group_colors(chart), series_color)
+        fig = _heat_figure(plt, chart) if chart.heat is not None else _strip_figure(plt, chart) if chart.strips is not None \
+            else _stack_figure(plt, chart, group_colors(chart), series_color)
         return _bytes(fig, fmt, dpi)
     finally:
         plt.close('all')
@@ -91,7 +92,9 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
         ax.set_ylim(chart.y.minimum or 0, chart.y.maximum)
     ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', frameon=False, fontsize=11)
     ax.set_title(chart.title, fontsize=13)
-    if table:
+    if table and table.aligned:
+        _aligned_table(plt, fig, ax, table, len(cats))
+    elif table:
         tb = ax.table(cellText=table.cells, rowLabels=table.rows, colLabels=table.columns, loc='bottom', cellLoc='center',
                       bbox=[0, -0.06 * (len(table.rows) + 1) - 0.04, 1, 0.06 * (len(table.rows) + 1)])
         tb.auto_set_font_size(False)
@@ -100,6 +103,67 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
             for i, color in enumerate(table.colors or colors):
                 tb[i + 1, -1].set_facecolor(color)
                 tb[i + 1, -1].get_text().set_color('white' if _luma(color) < 140 else '#111')
+    return fig
+
+
+def _aligned_table(plt: Any, fig: Any, ax: Any, table: Any, n: int) -> None:
+    """Таблица под графиком: столбцы месяцев точно под столбиками, подписи строк и «Фонд» — левее поля графика."""
+    rows = len(table.rows) + 1
+    pos = ax.get_position()
+    height = 0.04 * rows
+    tab = fig.add_axes([pos.x0, pos.y0 - height - 0.02, pos.width, height], sharex=ax)
+    tab.axis('off')
+    tab.set_ylim(rows, 0)
+    left = ax.get_xlim()[0]
+    edge = lambda y: tab.plot([left, ax.get_xlim()[1]], [y, y], color='#888', lw=0.6, clip_on=False)
+    for y in range(rows + 1):
+        edge(y)
+    heads = table.columns
+    for k, head in enumerate(heads[1:]):
+        tab.text(k, 0.5, head, ha='center', va='center', fontsize=9, fontweight='bold')
+    tab.text(left - 0.05, 0.5, heads[0], ha='right', va='center', fontsize=9, fontweight='bold', clip_on=False)
+    for i, (label, cells) in enumerate(zip(table.rows, table.cells), start=1):
+        tab.text(left - 0.55, i + 0.5, label, ha='right', va='center', fontsize=9, clip_on=False)
+        tab.text(left - 0.05, i + 0.5, cells[0], ha='right', va='center', fontsize=9, fontweight='bold', clip_on=False)
+        for k, v in enumerate(cells[1:]):
+            tab.text(k, i + 0.5, v, ha='center', va='center', fontsize=9)
+
+
+def _strip_figure(plt: Any, chart: Chart):
+    """Скважины × сезоны: цветные квадраты (цвет ГСП), штриховка — по ГСП в сезоне ревизии не было."""
+    from matplotlib.patches import Rectangle
+    st = chart.strips
+    groups = list(dict.fromkeys(st.groups))
+    palette = ['#2a6f97', '#d1495b', '#3a9d5d', '#e0a100', '#7b4fa3', '#e07a1f', '#2b9aa0', '#8c5a3c', '#5b6c8f', '#a3a33a']
+    color = {g: palette[i % len(palette)] for i, g in enumerate(groups)}
+    blocks = [(g, [i for i, x in enumerate(st.groups) if x == g]) for g in groups] if st.layout == 'panels' else [('', list(range(len(st.rows))))]
+    tall = max(len(idx) for _, idx in blocks)
+    cols = min(4, len(blocks))
+    rows_n = -(-len(blocks) // cols)
+    fig, axes = plt.subplots(rows_n, cols, figsize=(cols * (0.45 * len(st.columns) + 2.2), rows_n * (0.26 * tall + 1.6) + 0.6), squeeze=False)
+    for ax in axes.flat[len(blocks):]:
+        ax.axis('off')
+    for ax, (name, idx) in zip(axes.flat, blocks):
+        for r, i in enumerate(idx):
+            for j, v in enumerate(st.cells[i]):
+                if v is None:
+                    ax.add_patch(Rectangle((j - 0.45, r - 0.42), 0.9, 0.84, fill=False, hatch='////', ec='#aaa', lw=0))
+                else:
+                    ax.add_patch(Rectangle((j - 0.45, r - 0.42), 0.9, 0.84, fc=color[st.groups[i]] if v else '#e4eaec', lw=0))
+            ax.text(len(st.columns) - 0.3, r, str(st.counts[i]), ha='left', va='center', fontsize=9, fontweight='bold')
+        ax.set_xlim(-0.6, len(st.columns) + 0.3)
+        ax.set_ylim(tall - 0.5, -0.7)
+        ax.set_xticks(range(len(st.columns)))
+        ax.set_xticklabels(st.columns, rotation=45, ha='right', fontsize=9)
+        ax.set_yticks(range(len(idx)))
+        ax.set_aspect('auto')
+        ax.set_yticklabels([st.rows[i] for i in idx], fontsize=9)
+        ax.tick_params(length=0)
+        ax.spines[:].set_visible(False)
+        if name:
+            ax.set_title(name, color=color[name], fontsize=12, fontweight='bold')
+    fig.suptitle(chart.title, fontsize=13)
+    fig.tight_layout()
     return fig
 
 
@@ -135,4 +199,15 @@ def heat_frame(chart: Chart):
     h = chart.heat
     frame = pd.DataFrame(h.values, columns=h.columns)
     frame.insert(0, chart.y.label, h.rows)
+    return frame
+
+
+def strips_frame(chart: Chart):
+    """Данные матрицы для Excel и CSV: строка — скважина, столбец — сезон (1 — в перечне, 0 — нет, пусто — ревизии не было)."""
+    import pandas as pd
+    st = chart.strips
+    frame = pd.DataFrame(st.cells, columns=st.columns, dtype='object')
+    frame.insert(0, 'Раз', st.counts)
+    frame.insert(0, 'ГСП', st.groups)
+    frame.insert(0, 'Скважина', st.rows)
     return frame

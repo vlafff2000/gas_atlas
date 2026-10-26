@@ -110,3 +110,22 @@ def test_heat_share_without_production_is_a_note(dataset):
     from atlas.modules import an_revision
     charts, notes = an_revision.sand_charts(dataset, ['share'], None, {})
     assert charts == [] and 'Отбор и закачка' in notes[0]
+
+
+def test_well_strips_and_frequency_from_real_history(dataset):
+    from atlas.modules import an_revision
+    presence = an_revision.well_presence(dataset)
+    assert presence.k.max() <= len(dataset.seasons) and (presence.k >= 1).all()
+    gsp1 = presence[presence.group.eq('ГСП 1')]
+    assert len(gsp1) == 25                                                  # 25 уникальных скважин ГСП-1 (как в аналитике)
+    row = presence[(presence.group == 'ГСП 6') & presence.cells.map(lambda c: c[-1] is None)]
+    assert len(row) == len(presence[presence.group == 'ГСП 6'])             # ГСП-6, 2025/26: ревизии нет → None, а не 0
+    charts, _ = an_revision.sand_charts(dataset, ['freq', 'chronic', 'matrix'], None, {})
+    freq, chronic, matrix = charts
+    assert sum(sum(s.y) for s in freq.series) == len(presence)             # каждая скважина учтена один раз
+    assert chronic.strips.layout == 'panels' and all(k >= 3 for k in chronic.strips.counts)
+    assert matrix.strips.counts == sorted(matrix.strips.counts, reverse=True) and min(matrix.strips.counts) >= 2
+    from atlas import render
+    for chart in (chronic, matrix, freq):
+        assert render.chart_file(chart, 'png', 150)[0][:4] == b'\x89PNG'
+    assert 'Скважина' in render.chart_file(matrix, 'csv', 150)[0].decode('utf-8-sig')
