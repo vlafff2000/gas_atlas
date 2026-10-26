@@ -28,7 +28,7 @@ _LABELS = [
     (r'/modules/[^/]+/export', 'Выгрузка раздела'),
     (r'/import/ggh', 'Разбор ГГХ'),
     (r'/import/pressure', 'Разбор замеров давления'),
-    (r'/import/(apply|check|fix|table|base-load)', 'Загрузка данных в проект'),
+    (r'/import/(apply|check|fix|table)', 'Загрузка данных в проект'),
     (r'/import/', 'Чтение файла импорта'),
     (r'/folder/(load|scan)', 'Чтение папки проекта'),
     (r'/passport', 'Паспорт скважины'),

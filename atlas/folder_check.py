@@ -41,9 +41,9 @@ def _stats(rows: int, wells: int | None = None, period: str = '') -> str:
     return ', '.join(parts)
 
 
-def _ok(message: str, notes: list[str] | None = None) -> dict[str, Any]:
+def _ok(message: str, notes: list[str] | None = None, rows: int = 0) -> dict[str, Any]:
     notes = [str(n) for n in (notes or []) if n]
-    return {'status': 'attention' if notes else 'ok', 'message': message,
+    return {'rows': rows, 'status': 'attention' if notes else 'ok', 'message': message,
             'issues': [{'level': 'замечание', 'reason': n} for n in notes[:LIMIT]], 'issues_count': len(notes)}
 
 
@@ -57,7 +57,7 @@ def _elpro(name: str, content: bytes) -> dict[str, Any]:
     new, _extra = elpro.keep_first(elpro.to_db(data))
     gaps = int((cov['Статус'] != 'есть').sum()) if not cov.empty else 0
     notes = list(warn) + ([f'Пропусков покрытия (ГСП × месяц): {gaps}'] if gaps else [])
-    return _ok('ЭЛПРО: ' + _stats(len(new), new.well.nunique(), _period(new)), notes)
+    return _ok('ЭЛПРО: ' + _stats(len(new), new.well.nunique(), _period(new)), notes, len(new))
 
 
 def _gas(name: str, content: bytes) -> dict[str, Any]:
@@ -68,27 +68,27 @@ def _gas(name: str, content: bytes) -> dict[str, Any]:
     if new.empty:
         raise ParamError('В «БД по учету газа» нет суток с объёмом по объекту: проверьте лист «БД».')
     return _ok(f'БД по учету газа: суток отбора {int((new.kind == "withdrawal").sum())}, закачки {int((new.kind == "injection").sum())}, '
-               + _period(new))
+               + _period(new), rows=len(new))
 
 
-def _gis(name: str, content: bytes) -> dict[str, Any]:
-    parts = [p for p in gis_import.read_all(name, content, '') if not p[1].empty]
+def _gis(name: str, content: bytes, table: str = '') -> dict[str, Any]:
+    parts = [p for p in gis_import.read_all(name, content, table) if not p[1].empty]
     if not parts:
         raise ParamError('Нет строк с датой и скважиной.')
     notes = [w for _kind, _new, warn in parts for w in warn]
-    return _ok('База ГИС: ' + '; '.join(f'{gis_import.LABELS[k]} — строк {len(n)}, скважин {n["well"].nunique()}' for k, n, _ in parts), notes)
+    return _ok('База ГИС: ' + '; '.join(f'{gis_import.LABELS[k]} — строк {len(n)}, скважин {n["well"].nunique()}' for k, n, _ in parts), notes, sum(len(n) for _k, n, _w in parts))
 
 
 def _geo(name: str, content: bytes) -> dict[str, Any]:
     new, warnings = well_geo_import.build(name, content)
     if new.empty:
         raise ParamError('Не нашлось строк «скважина, X, Y» или перфорации и альтитуд.')
-    return _ok(f'Положение и перфорация: скважин {len(new)}', warnings)
+    return _ok(f'Положение и перфорация: скважин {len(new)}', warnings, len(new))
 
 
 def _water(name: str, content: bytes) -> dict[str, Any]:
     new, warnings = water_monthly_import.build(name, content)
-    return _ok('Замеры воды за месяц: ' + _stats(len(new), new['well'].nunique(), _period(new)), warnings)
+    return _ok('Замеры воды за месяц: ' + _stats(len(new), new['well'].nunique(), _period(new)), warnings, len(new))
 
 
 def _ggh(name: str, content: bytes) -> dict[str, Any]:
@@ -97,10 +97,11 @@ def _ggh(name: str, content: bytes) -> dict[str, Any]:
     if sheet is None:
         raise ParamError('В файле нет листа ГГХ: нужна шапка с колонками «№№ скв.» и «Дата отбора».')
     data, notes = ggh.normalize(tables[sheet])
-    return _ok(f'ГГХ, лист «{sheet}»: ' + _stats(len(data), data.well.nunique(), _period(data)), [f'строка {n[0]}: {n[2]}' for n in notes])
+    return _ok(f'ГГХ, лист «{sheet}»: ' + _stats(len(data), data.well.nunique(), _period(data)), [f'строка {n[0]}: {n[2]}' for n in notes], len(data))
 
 
 SPECIAL = {'elpro': _elpro, 'gas': _gas, 'gis': _gis, 'geo': _geo, 'ggh': _ggh}
+KINDS = {**SPECIAL, 'water': _water}       # все виды файлов со своим разбором (общее окно импорта)
 
 
 def _general(imports, pid: str, name: str, content: bytes) -> dict[str, Any]:

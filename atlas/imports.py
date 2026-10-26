@@ -36,6 +36,7 @@ from atlas.engine.core.well_import import REQUIRED
 
 from .contract import Column, ParamError, Table, _table_json
 from . import base_model, import_fix, model_source, quality
+from . import folder_check
 from .parallel import map_jobs
 from .projects import Conflict, Projects
 
@@ -60,6 +61,32 @@ EDITOR_REQUIRED = {'production': ['well', 'date', 'q'], 'gdi': ['well', 'date', 
 def ggh_well_horizon(values) -> str:
     names = [v for v in values if v]
     return max(set(names), key=names.count) if names else ''
+
+
+def looks_ggh(raw: Any) -> bool:
+    """Лист ГГХ: в строке шапки скважина, дата и ещё минимум два признака пробы (газ, горизонт, состав): одной «Скважина + Дата» мало."""
+    if raw is None or raw.empty:
+        return False
+    row = ggh.find_header(raw)
+    if row is None:
+        return False
+    fields = {ggh._field(v) for v in raw.iloc[row].tolist()}
+    return len(fields - {None, 'well', 'date'}) >= 2
+
+
+SPECIAL_KINDS = {'база ЭЛПРО': 'elpro', '«БД по учету газа»': 'gas', 'газогидрохимия (ГГХ)': 'ggh'}
+
+
+def special_kind(tables: dict[str, pd.DataFrame], name: str = '') -> tuple[str, str]:
+    """(вид, подпись) файла со своим разбором: elpro / gas / gis / geo / water / ggh; пусто — обычная таблица."""
+    text = base_book(tables, name)
+    if not text and any(looks_ggh(raw) for raw in tables.values()):
+        text = 'газогидрохимия (ГГХ)'
+    if not text:
+        return '', ''
+    kind = SPECIAL_KINDS.get(text) or ('geo' if text.startswith('файл положения') else 'water' if text.startswith('замеры воды')
+                                       else 'gis' if text.startswith('таблица') else 'gas')
+    return kind, text
 
 
 def base_book(tables: dict[str, pd.DataFrame], name: str = '') -> str:
@@ -358,30 +385,6 @@ class Imports:
                            'use': sum(r['use'] for r in rows),
                            'unknown': sum(r['status'] == 'Таблица не распознана' for r in rows)}}
 
-    def base_load(self, pid: str, body: dict) -> dict[str, Any]:
-        """«Загрузить в проект» для «БД_ЭЛПРО», «БД по учету газа» и таблиц «База ГИС» прямо из общего импорта (тот же разбор, что в «Источниках»).
-        `table` — тип таблицы ГИС, выбранный вручную (gis_packs / gis_observations / gis_intervals); пусто — определяется по заголовкам."""
-        policy = body.get('policy') or 'new'
-        if policy not in POLICIES:
-            raise ParamError('Неизвестное правило повторов')
-        item = self.file(body.get('token'))
-        table = body.get('table') or ''
-        if table and table not in gis_import.TABLES:
-            raise ParamError('Неизвестный тип таблицы «База ГИС»')
-        special = 'таблица «База ГИС»' if table else base_book(
-            self.sample(item.token, body.get('encoding') or 'auto', body.get('delimiter') or 'auto')[1], item.name)
-        if not special:
-            raise ParamError('Это не «БД_ЭЛПРО», не «БД по учету газа» и не таблица «База ГИС» Базы ПХГ.')
-        if special.startswith('таблица'):
-            out = self.gis_load(pid, item.name, item.content, policy, table)
-        else:
-            load = (self.elpro_load if special == 'база ЭЛПРО' else self.geo_load if special.startswith('файл положения')
-                    else self.water_monthly_load if special.startswith('замеры воды') else self.gas_db_load)
-            out = load(pid, item.name, item.content, policy)
-        with self.lock:
-            self.files.pop(item.token, None)
-        return out
-
     def _file_info(self, f: dict, mode: str) -> dict[str, Any]:
         """Подробный режим (``import_editor.file_editor``): листы файла и признаки книги давлений."""
         item = self.file(f.get('token'))
@@ -418,14 +421,14 @@ class Imports:
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
                              'status': 'Это книга факта и моделей давлений: загрузите ее в разделе «Данные давлений» ниже'})
                 continue
-            special = base_book(tables, item.name)
-            if special:
-                rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': False, 'module': 'book',
+            kind_special, special = special_kind(tables, item.name)
+            if kind_special:
+                rows.append({'token': item.token, 'file': item.name, 'sheet': '(вся книга)', 'use': True, 'module': 'book',
                              'found': None, 'fields': '', 'book': True, 'custom': False, 'binary': item.binary,
-                             'status': (f'Это {special}: у него свой разбор. Нажмите «Загрузить в проект» справа' if not special.startswith(('база', '«'))
-                                        else f'Это {special} из Базы ПХГ: у неё свой разбор. Нажмите «Загрузить в проект» справа (или загрузите её через блок «Источники»)'),
-                             'base': 'elpro' if special == 'база ЭЛПРО' else 'geo' if special.startswith('файл положения') else 'water' if special.startswith('замеры воды')
-                             else 'gis' if special.startswith('таблица') else 'gas'})
+                             'status': f'Определено: {special}. Проверяется и загружается вместе с остальными файлами',
+                             'base': kind_special})
+                options[item.token] = {'sheets': {}, 'encoding': enc, 'delimiter': delim, 'auto': False, 'special': kind_special,
+                                       'table': f.get('table') or ''}
                 continue
             sheets, any_rows, auto_use = {}, False, False
             for sheet, raw in tables.items():
@@ -549,12 +552,16 @@ class Imports:
         kept = {}                     # отклонённые строки с датой и скважиной: их можно загрузить исключёнными
         sources = []                  # к каждому замечанию: из какого загруженного файла (для правки строки)
         with tempfile.TemporaryDirectory(prefix='gas_atlas_import_') as staging:
+            specials = []             # файлы со своим разбором (ЭЛПРО, ГИС, учёт газа, ГГХ…): та же проверка и та же загрузка
             todo = []                 # файлы по порядку: (файл, параметры, путь); загрузка обычных файлов идёт по ядрам
             for i, f in enumerate(files):
                 item = self.file(f.get('token'))
                 if item.token not in options:
                     continue
                 opts = options[item.token]
+                if opts.get('special'):
+                    specials.append((item, opts))
+                    continue
                 path = Path(staging) / str(i) / item.name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(item.content)
@@ -587,7 +594,24 @@ class Imports:
                     issues.append({'Файл': item.name, 'Лист': '', 'Строка': 0, 'Уровень': 'ошибка', 'Причина': str(e)})
                     sources.append(item.token)
                     rejected += 1
-        pending = {'id': uuid.uuid4().hex, 'kind': 'general', 'pid': pid, 'revision': m.get('revision'),
+        loads, counts_special = [], []
+        for item, opts in specials:
+            kind_s = opts['special']
+            try:
+                r = folder_check.KINDS[kind_s](item.name, item.content, opts['table']) if kind_s == 'gis' \
+                    else folder_check.KINDS[kind_s](item.name, item.content)
+            except Exception as e:                    # файл отклонён целиком, остальные продолжают
+                issues.append({'Файл': item.name, 'Лист': '', 'Строка': 0, 'Уровень': 'ошибка', 'Причина': str(e)})
+                sources.append(item.token)
+                rejected += 1
+                continue
+            for note in r['issues']:
+                issues.append({'Файл': item.name, 'Лист': '', 'Строка': 0, 'Уровень': note['level'] or 'замечание', 'Причина': note['reason']})
+                sources.append(item.token)
+            warnings += r['issues_count']
+            counts_special.append({'module': 'special:' + kind_s, 'label': f'{item.name}: {r["message"]}', 'rows': r['rows']})
+            loads.append({'name': item.name, 'content': item.content, 'kind': kind_s, 'table': opts['table']})
+        pending = {'id': uuid.uuid4().hex, 'kind': 'general', 'specials': loads, 'special_counts': counts_special, 'pid': pid, 'revision': m.get('revision'),
                    'frames': parsed, 'kept': kept, 'issues': pd.DataFrame(issues, columns=ISSUE_COLUMNS), 'rejected': rejected,
                    'warnings': warnings, 'originals': originals, 'tokens': [f.get('token') for f in files],
                    'sources': sources, 'file_options': {f.get('token'): {'encoding': f.get('encoding') or 'auto',
@@ -597,7 +621,7 @@ class Imports:
         return self._pending_json(pending)
 
     def _pending_json(self, p: dict) -> dict[str, Any]:
-        counts = [{'module': k, 'label': module_label(k), 'rows': len(v)} for k, v in p['frames'].items()]
+        counts = [{'module': k, 'label': module_label(k), 'rows': len(v)} for k, v in p['frames'].items()] + p.get('special_counts', [])
         out = {'id': p['id'], 'counts': counts, 'rejected': p['rejected'],
                'kept': sum(len(v) for v in p.get('kept', {}).values()), 'warnings': p['warnings'],
                'policies': [{'value': k, 'label': v} for k, v in POLICIES.items()]}
@@ -701,10 +725,33 @@ class Imports:
         if policy not in POLICIES:
             raise ParamError('Неизвестное правило повторов')
         keep = bool(body.get('keep_rejected')) and bool(p.get('kept'))
-        if not p['frames'] and not keep:
+        specials = p.get('specials') or []
+        if not p['frames'] and not keep and not specials:
             raise ParamError('Нет строк для загрузки')
         if p['rejected'] and not (body.get('accept') or keep):
             raise ParamError('Есть отклонённые строки: подтвердите загрузку корректных строк.')
+        out = self._apply_general(pid, p, policy, keep) if (p['frames'] or keep) else None
+        undo = out['undo'] if out else None
+        notes = [out['message']] if out else []
+        loaders = {'elpro': self.elpro_load, 'gas': self.gas_db_load, 'geo': self.geo_load, 'water': self.water_monthly_load,
+                   'ggh': self.ggh_load}
+        saved = None
+        for sp in specials:                  # файлы со своим разбором: тот же шаг «Применить», отдельная запись в проект на файл
+            try:
+                done = (self.gis_load(pid, sp['name'], sp['content'], policy, sp['table']) if sp['kind'] == 'gis'
+                        else loaders[sp['kind']](pid, sp['name'], sp['content'], policy))
+            except (ParamError, Conflict) as e:
+                notes.append(f"«{sp['name']}» не загружен: {e}")
+                continue
+            notes.append(done['message'])
+            saved = done['project']
+            undo = undo or done['undo']
+        self._forget(p)
+        if out is None:
+            out = {'duplicates': 0, 'lost_exclusions': 0, 'project': saved or self.projects.summary(self.projects.manifest(pid))}
+        return dict(out, message='. '.join(notes), undo=undo, project=saved or out['project'])
+
+    def _apply_general(self, pid: str, p: dict, policy: str, keep: bool) -> dict[str, Any]:
         m = self.projects.manifest(pid)
         parsed = dict(p['frames'])
         if keep:
@@ -733,6 +780,16 @@ class Imports:
                         'при повторной загрузке); проверьте журнал исключений и исключите их заново.')
         return {'message': message, 'duplicates': duplicates, 'lost_exclusions': lost,
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def ggh_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+        """Файл ГГХ целиком (лист находится сам): проверка строк и запись с правилом «при совпадении взять новую запись»."""
+        up = self.upload(name, content)
+        if up['error']:
+            raise ParamError(up['error'])
+        shown = self.ggh_inspect(pid, {'token': up['token']})
+        if not shown['ready']:
+            raise ParamError(shown['error'] or 'В файле нет данных ГГХ')
+        return self.ggh_apply(pid, {'pending': shown['ready']['id'], 'mode': 'merge'})
 
     def discard(self, pending_id: str) -> None:
         """Забыть проверку, которую не применяем (пробная проверка без записи в проект)."""

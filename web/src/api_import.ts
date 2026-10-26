@@ -37,6 +37,8 @@ export interface Book { fact: string; models: string[]; fonds: string[]; object:
 export interface FileInfo { token: string; name: string; binary: boolean; error: string; format?: string; sheets: string[]; book: Book | null }
 export interface CheckFile {
   token: string; encoding?: string; delimiter?: string
+  /** Тип таблицы «База ГИС», выбранный вручную; пусто — по заголовкам. */
+  table?: string
   choices?: Record<string, SheetChoice>
   sheets?: Record<string, Spec>
   pressure_book?: Book & { duplicate: string; sheets: Record<string, Spec> }
@@ -137,8 +139,6 @@ export const importApi = {
   templates: async () => (await send('/api/import/templates')).json() as Promise<{ name: string; kind: string }[]>,
   template: async (name: string) => save(await send(`/api/import/templates/${encodeURIComponent(name)}`), name),
   check: (project: string, body: CheckBody) => post<Pending>(`/api/projects/${project}/import/check`, body),
-  baseLoad: (project: string, token: string, policy: string, table = '') =>
-    post<Applied>(`/api/projects/${project}/import/base-load`, { token, policy, table }),
   apply: (project: string, pending: string, policy: string, accept: boolean, keepRejected = false) =>
     post<Applied>(`/api/projects/${project}/import/apply`, { pending, policy, accept, keep_rejected: keepRejected }),
   rows: (body: { token: string; sheet: string; row: number; encoding?: string; delimiter?: string; radius?: number }) =>

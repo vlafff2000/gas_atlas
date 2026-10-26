@@ -115,11 +115,13 @@ def test_elpro_and_gas_db_books_are_sent_to_sources(tmp_path):
     imports = Imports(Projects(tmp_path / 'storage'))
     token = imports.upload(path.name, path.read_bytes())['token']
     rows, _problems, options, _errors = imports.simple([{'token': token}], 'auto')
-    assert rows[0]['book'] and 'Источники' in rows[0]['status'] and token not in options
+    assert rows[0]['book'] and rows[0]['use'] and options[token]['special'] == 'elpro'
     assert rows[0]['base'] == 'elpro'
 
     pid = imports.projects.create_demo()
-    out = imports.base_load(pid, {'token': token})
+    pending = imports.check(pid, {'files': [{'token': token}], 'mode': 'auto', 'view': 'simple'})
+    assert pending['counts'] and 'ЭЛПРО' in pending['counts'][0]['label']
+    out = imports.apply(pid, {'pending': pending['id']})
     assert 'ЭЛПРО' in out['message'] and 'elpro' in imports.projects.data(pid)
 
 
@@ -143,3 +145,23 @@ def test_check_parallel_equals_serial(tmp_path, monkeypatch):
         pd.testing.assert_frame_equal(a['frames'][k], b['frames'][k])
     pd.testing.assert_frame_equal(a['issues'], b['issues'])
     assert (a['rejected'], a['warnings'], a['sources']) == (b['rejected'], b['warnings'], b['sources'])
+
+
+def test_one_window_checks_and_loads_mixed_files_the_same_way(tmp_path):
+    """Расходы, ГГХ и ГИС в одной пачке: одна проверка, один «Применить»; сломанный файл остальные не блокирует."""
+    imports = Imports(Projects(tmp_path / 'storage'))
+    pid = imports.projects.create_demo()
+    ggh_book = tmp_path / 'ггх.xlsx'
+    pd.DataFrame({'№№ скв.': ['115'], 'Дата отбора': ['01.10.2024'], 'Водоносный горизонт': ['K1'],
+                  'Газонасыщенность, см3/л': [120], 'СН4': [90.1]}).to_excel(ggh_book, sheet_name='Общий', index=False)
+    gis_book = tmp_path / 'gis.xlsx'
+    pd.DataFrame({'Скважина': ['115'], 'Дата': ['01.10.2024'], 'Сезон': ['осень'], 'Пачка': ['верхняя'], 'hг эф, м': [1.5],
+                  'Кг ср.взв': [0.3], 'ГВК а.о., м': [-1000.0]}).to_excel(gis_book, sheet_name='Свод', index=False)
+    prod = tmp_path / 'добыча.csv'
+    prod.write_bytes('Скважина;Дата;Расход\r\n73;01.11.2025;2000\r\n'.encode('cp1251'))
+    files = [{'token': imports.upload(p.name, p.read_bytes())['token']} for p in (prod, ggh_book, gis_book)]
+    pending = imports.check(pid, {'files': files, 'mode': 'auto', 'view': 'simple'})
+    assert len(pending['counts']) == 3 and pending['rejected'] == 0
+    out = imports.apply(pid, {'pending': pending['id']})
+    data = imports.projects.data(pid)
+    assert 'ggh' in data and 'gis_packs' in data and out['undo']
