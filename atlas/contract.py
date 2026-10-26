@@ -326,7 +326,8 @@ class ChartTable:
     rows: list[str]
     columns: list[str]
     cells: list[list[str]]           # cells[строка][столбец]
-    colors: list[str] = field(default_factory=list)   # цвет подписи строки; пусто — без цвета
+    colors: list[str] = field(default_factory=list)   # цвет подписи строки; пусто — цвет ряда с тем же номером
+    swatches: bool = True            # цветной маркер у строк: строки таблицы — ряды графика; False — строки сами по себе (группы)
 
 
 @dataclass

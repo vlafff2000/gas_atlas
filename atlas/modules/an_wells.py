@@ -67,6 +67,29 @@ def class_table(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+MONTH_NAMES = ('Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек')
+
+
+def month_working(prod: pd.DataFrame, kind: str, period: str, scopes: Mapping[str, str]) -> tuple[pd.DataFrame, list[str]]:
+    """Табл. 1.4 отчёта: по группам — фонд сезона и число скважин, работавших в каждом месяце (хотя бы одни сутки с расходом).
+
+    Строка «Всего» — первая; колонки ``m0``…``m{n-1}`` идут по месяцам сезона, подписи месяцев — во втором результате («Ноя.24»)."""
+    d = prod[prod.kind.eq(kind) & prod.period.eq(period)][['well', 'date', 'q']].copy()
+    d['well'] = d.well.astype(str)
+    d['group'] = d.well.map(scopes)
+    d['month'] = d.date.dt.to_period('M')
+    months = sorted(d.month.unique())
+    working = d[d.q.gt(0)].groupby(['group', 'month']).well.nunique()
+    fund = d.groupby('group').well.nunique()
+    total_working = d[d.q.gt(0)].groupby('month').well.nunique()
+    keys = [f'm{i}' for i in range(len(months))]
+    rows = [{'group': TOTAL, 'fund': int(d.well.nunique()), **{k: int(total_working.get(m, 0)) for k, m in zip(keys, months)}}]
+    for group in ordered(d.group.dropna().unique()):
+        rows.append({'group': group, 'fund': int(fund.get(group, 0)),
+                     **{k: int(working.get((group, m), 0)) for k, m in zip(keys, months)}})
+    return pd.DataFrame(rows), [f'{MONTH_NAMES[m.month - 1]}.{str(m.year)[2:]}' for m in months]
+
+
 def class_counts(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
     """Табл. 1.5 отчёта: по группам число скважин в каждом из семи классов производительности; строка «Всего» — первая.
 

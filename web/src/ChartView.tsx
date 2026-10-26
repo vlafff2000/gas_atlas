@@ -1465,7 +1465,7 @@ function ChartTableView({ table, colors }: { table: NonNullable<Chart['table']>;
         <thead><tr><th />{table.columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
         <tbody>
           {table.rows.map((r, i) => (
-            <tr key={r}><th scope="row"><i style={{ background: table.colors[i] || colors[i] }} />{r}</th>
+            <tr key={r}><th scope="row">{table.swatches && <i style={{ background: table.colors[i] || colors[i] }} />}{r}</th>
               {table.cells[i].map((v, j) => <td key={j}>{v}</td>)}</tr>))}
         </tbody>
       </table>

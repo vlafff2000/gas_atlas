@@ -294,6 +294,26 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: st
     return chart
 
 
+def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: list[str]) -> Chart | None:
+    """Табл. 1.4: по месяцам сезона — работавшие и простаивавшие скважины объекта (столбики с числами), под графиком — таблица по группам."""
+    total = months[months.group.eq(an_wells.TOTAL)]
+    if total.empty or not labels:
+        return None
+    fund = int(total.fund.iloc[0])
+    working = np.array([int(total[f'm{i}'].iloc[0]) for i in range(len(labels))])
+    idle = fund - working
+    chart = Chart(f'an-month-working-{kind}-{period}', f'Работавшие скважины по месяцам · {period}',
+                  Axis('Месяц', scale='category', categories=labels), Axis('Скважин', 'скв.', from_zero=True))
+    chart.series.append(Series('Работало', labels, working.astype(float), 'bar', stack='months', segments=[str(v) for v in working],
+                               labels=[f'{v} из {fund} скв., {v / fund * 100:.0f} %' for v in working]))
+    chart.series.append(Series('Не работало', labels, idle.astype(float), 'bar', stack='months', segments=[str(v) if v else '' for v in idle],
+                               labels=[f'{v} из {fund} скв.' for v in idle]))
+    rows = [str(g) for g in months.group]
+    cells = [[str(int(f))] + [str(int(r[f'm{i}'])) for i in range(len(labels))] for f, (_, r) in zip(months.fund, months.iterrows())]
+    chart.table = ChartTable(rows, ['Фонд', *labels], cells, swatches=False)
+    return chart
+
+
 def annulus_charts(wells: pd.DataFrame, label: str) -> list[Chart]:
     """Давление МКД и расход из МКП по скважинам с замерами (максимумы за выбранные сезоны), по убыванию."""
     out: list[Chart] = []
