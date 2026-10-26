@@ -222,7 +222,7 @@ def test_templates_and_pressure_book_hint(env, tmp_path):
     path = tmp_path / 'Объект.xlsx'
     make_book(path, 0, 3, 5)
     rows = client.post('/api/import/inspect', json={'files': [{'token': upload(client, path.name, path.read_bytes())}]}).json()
-    assert rows['rows'][0]['book'] and rows['blocked']
+    assert rows['rows'][0]['book'] and rows['rows'][0]['base'] == 'pressure' and not rows['blocked']
 
 
 def test_pressure_book_in_detailed_mode_like_58(env, tmp_path):
@@ -351,3 +351,16 @@ def test_keep_rejected_rows_as_exclusions(env):
     assert m['tables'] == {'production': 2}
     reasons = [v['reason'] for v in m['settings']['excluded_points'].values()]
     assert len(reasons) == 1 and reasons[0].startswith('Отклонено при импорте')
+
+
+def test_pressure_book_goes_through_the_common_check_and_apply(env, tmp_path):
+    client, store = env
+    path = tmp_path / 'Объект.xlsx'
+    make_book(path, 0, 4, 10)
+    token = upload(client, path.name, path.read_bytes())
+    pid = store.create('П')
+    pending = client.post(f'/api/projects/{pid}/import/check', json={'files': [{'token': token}], 'mode': 'auto', 'view': 'simple'}).json()
+    assert pending['counts'] and 'Давления' in pending['counts'][0]['label'] and pending['rejected'] == 0
+    r = client.post(f'/api/projects/{pid}/import/apply', json={'pending': pending['id']})
+    assert r.status_code == 200, r.text
+    assert 'pressure_match' in store.load(pid)[1]

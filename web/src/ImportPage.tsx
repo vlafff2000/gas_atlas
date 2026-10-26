@@ -85,7 +85,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
         <div>
           <h1>Импорт данных</h1>
           <p className="lede">Простой режим: перетащите все файлы сразу. Подробный: настройка шапки и колонок каждого листа.
-            ЭЛПРО, учёт газа, ГИС, положение скважин, замеры воды и ГГХ распознаются сами и идут в той же проверке и той же загрузке; данные давлений для кроссплота — отдельная вкладка.
+            ЭЛПРО, учёт газа, ГИС, положение скважин, замеры воды и ГГХ распознаются сами и идут в той же проверке и той же загрузке, как и книги давлений для кроссплота. Вкладка «Давления: тонкая настройка» нужна только чтобы вручную уточнить роли листов и сценарии.
             Какие колонки и форматы нужны — в <a href={tab === 'pressure' ? '#/@help/pressure' : '#/@help'}>справке по форматам данных</a>.</p>
         </div>
       </header>
@@ -97,7 +97,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
         <>
           <div className="tabs" role="tablist">
             <button type="button" role="tab" aria-selected={tab === 'tables'} onClick={() => setTab('tables')}>Таблицы исследований, эксплуатации и ГГХ</button>
-            <button type="button" role="tab" aria-selected={tab === 'pressure'} onClick={() => setTab('pressure')}>Данные давлений (кроссплот)</button>
+            <button type="button" role="tab" aria-selected={tab === 'pressure'} onClick={() => setTab('pressure')}>Давления: тонкая настройка листов и сценариев</button>
           </div>
           {project.demo && <div className="note warning">Это демонстрационный проект. Для рабочих файлов создайте отдельный проект.</div>}
           {tab === 'tables'
