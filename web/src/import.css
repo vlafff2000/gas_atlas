@@ -97,3 +97,4 @@ table.fix-grid td.changed { background: #fff3c4; }
 .checklist-items .missing { color: inherit; }
 .checklist-detail { border: 1px solid var(--line, #d0d7de); border-radius: 6px; padding: 8px 12px; margin-top: 8px; }
 .checklist-detail h3 { margin: 0 0 4px; }
+.checklist-facts th { text-align: left; font-weight: 600; white-space: nowrap; padding-right: 12px; }

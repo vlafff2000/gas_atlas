@@ -378,3 +378,4 @@ def test_import_checklist_counts_loaded_and_describes_missing(env):
     client.post(f'/api/projects/{pid}/import/apply', json={'pending': pending['id']})
     after = {i['key']: i for i in client.get(f'/api/projects/{pid}/import/checklist').json()['items']}
     assert after['gdi']['count'] > 0 and after['production']['count'] == 0
+    assert dict(after['gdi']['details'])['Скважин'] and 'скважин' in after['gdi']['summary'] and after['production']['details'] == []

@@ -127,7 +127,7 @@ def routes(projects) -> list[Route]:
         Route('/api/import/templates/{name}', _wrap(template)),
         Route('/api/import/pressure-demo', _wrap(lambda r, b: imports.pressure_demo_variants())),
         Route('/api/import/pressure-demo/{variant}/{name}', _wrap(demo_book)),
-        Route('/api/projects/{pid}/import/checklist', _wrap(lambda r, b: {'items': import_checklist.build(projects.manifest(pid(r)))})),
+        Route('/api/projects/{pid}/import/checklist', _wrap(lambda r, b: {'items': imports.checklist(pid(r))})),
         Route('/api/projects/{pid}/import/check', _wrap(lambda r, b: imports.check(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/apply', _wrap(lambda r, b: imports.apply(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/fix', _wrap(lambda r, b: imports.fix(pid(r), b)), methods=['POST']),

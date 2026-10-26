@@ -121,7 +121,7 @@ export interface BaseModelState {
 export interface PressureDemo { value: string; label: string; description: string; books: string[] }
 
 export interface ChecklistItem {
-  key: string; label: string; used: string; count: number; unit: string
+  key: string; label: string; used: string; count: number; unit: string; summary: string; details: [string, string][]
   columns: string[]; example: string[]; note: string; template: string | null; example_file: string | null
 }
 

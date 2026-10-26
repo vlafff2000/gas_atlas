@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react'
 import { importApi, type ChecklistItem } from './api_import'
 import type { Project } from './api'
 
-const num = (n: number) => n.toLocaleString('ru-RU')
-
 /** Чек-лист всего, что можно загрузить в проект: что уже есть (и сколько), чего нет. Щелчок по строке показывает, в каком виде нужен файл. */
 export function ImportChecklist({ project }: { project: Project }) {
   const [items, setItems] = useState<ChecklistItem[] | null>(null)
@@ -24,7 +22,7 @@ export function ImportChecklist({ project }: { project: Project }) {
     <section className="import-checklist" aria-label="Чек-лист данных проекта">
       <details open>
         <summary><strong>Чек-лист данных</strong> · загружено {have} из {items.length}</summary>
-        <p className="muted small">Что можно загрузить в проект и что уже загружено. Щёлкните по строке, чтобы увидеть, в каком виде нужен файл.</p>
+        <p className="muted small">Что можно загрузить в проект и что уже загружено. Щёлкните по строке: что именно загружено (скважины, сезоны, периоды) и в каком виде нужен файл.</p>
         <ul className="checklist-items">
           {items.map(i => (
             <li key={i.key}>
@@ -32,14 +30,22 @@ export function ImportChecklist({ project }: { project: Project }) {
                       onClick={() => setOpen(open === i.key ? '' : i.key)}>
                 <span aria-hidden="true">{i.count > 0 ? '✓' : '○'}</span> {i.label}
               </button>
-              <span className="muted small"> {i.count > 0 ? `${num(i.count)} ${i.unit}` : 'нет данных'}</span>
+              <span className="muted small"> {i.count > 0 ? (i.summary || `${i.count} ${i.unit}`) : 'нет данных'}</span>
             </li>
           ))}
         </ul>
         {shown && (
           <div className="checklist-detail">
             <h3>{shown.label}</h3>
-            <p className="small">{shown.count > 0 ? `Уже в проекте: ${num(shown.count)} ${shown.unit}.` : 'В проекте пока нет.'} Нужно для: {shown.used}.</p>
+            <p className="small">{shown.count > 0 ? 'Уже в проекте.' : 'В проекте пока нет.'} Нужно для: {shown.used}.</p>
+            {shown.details.length > 0 && (
+              <table className="raw checklist-facts" aria-label="Что загружено">
+                <tbody>{shown.details.map(([k, v]) => <tr key={k}><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
+              </table>
+            )}
+            {shown.columns.length > 0 && (
+              <p className="small muted">В каком виде нужен файл:</p>
+            )}
             {shown.columns.length > 0 && (
               <div className="table-scroll">
                 <table className="raw">

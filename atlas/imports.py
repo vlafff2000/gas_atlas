@@ -36,7 +36,7 @@ from atlas.engine.core.well_import import REQUIRED
 
 from .contract import Column, ParamError, Table, _table_json
 from . import base_model, import_fix, model_source, quality
-from . import folder_check
+from . import folder_check, import_checklist
 from .parallel import map_jobs
 from .projects import Conflict, Projects
 
@@ -155,6 +155,7 @@ class Imports:
         self.full: OrderedDict[tuple, dict] = OrderedDict()
         self.parsed: OrderedDict[tuple, dict] = OrderedDict()
         self.pending: OrderedDict[str, dict] = OrderedDict()
+        self.checklists: OrderedDict[tuple, list] = OrderedDict()
 
     # ---------- файлы ----------
     @staticmethod
@@ -814,6 +815,18 @@ class Imports:
         if not shown['ready']:
             raise ParamError(shown['error'] or 'В файле нет данных ГГХ')
         return self.ggh_apply(pid, {'pending': shown['ready']['id'], 'mode': 'merge'})
+
+    def checklist(self, pid: str) -> list[dict[str, Any]]:
+        """Чек-лист видов данных проекта с содержанием таблиц; считается один раз на ревизию проекта."""
+        m = self.projects.manifest(pid)
+        key = (pid, m.get('revision'))
+        with self.lock:
+            cached = self.checklists.get(key)
+        if cached is None:
+            cached = import_checklist.build(m, self._raw_frames(pid, m))
+            with self.lock:
+                self._keep(self.checklists, key, cached, 4)
+        return cached
 
     def discard(self, pending_id: str) -> None:
         """Забыть проверку, которую не применяем (пробная проверка без записи в проект)."""
