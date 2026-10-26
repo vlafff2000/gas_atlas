@@ -17,9 +17,18 @@ import pandas as pd
 
 from atlas.engine.modules import revision_report as rr
 
-from ..contract import Column, Data, Module, ModuleSpec, Note, Param, Result, Stat, Table
+from atlas.engine.core.config import ordered
+from atlas.engine.core.loader import canonical_gsp
+
+from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Stat, Table
+from ..domain import DatasetKind
+from . import an_charts, an_wells
+from ._production import periods_of
+from .an_report import well_scopes
 
 SECTION = 'Выбор данных'
+CHARTS = (Option('count', 'Тепловая карта: число скважин по ГСП и сезонам'),
+          Option('share', 'Тепловая карта: доля фонда ГСП (нужен «Отбор и закачка»)'))
 TITLE_19 = 'Перечень скважин с выносом пластового песка по сезонам отбора'
 
 
@@ -36,6 +45,39 @@ def season_frame(data: rr.Dataset) -> pd.DataFrame:
             row[f'w{i}'] = '' if note else rr.text(wells)
         rows.append(row)
     return pd.DataFrame(rows, columns=['gsp'] + [f'{k}{i}' for i in range(len(data.seasons)) for k in ('c', 'w')])
+
+
+def heat_matrix(data: rr.Dataset) -> tuple[list[str], list[list[int | None]]]:
+    """ГСП × сезоны: число уникальных скважин; None — по ГСП в сезоне нет данных (ревизии не было)."""
+    rows = [[len(data.get(g, s).unique) if data.get(g, s).known else None for s in data.seasons] for g in data.gsps]
+    return [str(g) for g in canonical_gsp(pd.Series(data.gsps, dtype=object))], rows
+
+
+def sand_charts(data: rr.Dataset, shown: list[str], production: pd.DataFrame | None, mapping: Any) -> tuple[list[Any], list[str]]:
+    """Тепловые карты табл. 1.8: число скважин с песком и доля фонда ГСП. Второй результат — замечания для экрана."""
+    names, counts = heat_matrix(data)
+    seasons = [s.replace('-', '/') for s in data.seasons]
+    charts, notes = [], []
+    if 'count' in shown:
+        charts.append(an_charts.heat_chart('an-rev-heat-count', 'Скважины с выносом песка по ГСП и сезонам', names, seasons, counts,
+                                           [['' if v is None else str(v) for v in row] for row in counts], 'Скважин с выносом песка',
+                                           missing_text='нет ревизии'))
+    if 'share' not in shown:
+        return charts, notes
+    if production is None or production.empty:
+        return charts, ['Доля фонда не построена: загрузите «Отбор и закачка» (фонд ГСП берётся из последнего сезона отбора).']
+    period = periods_of(production, 'withdrawal')[-1:] or periods_of(production, 'injection')[-1:]
+    kind = 'withdrawal' if periods_of(production, 'withdrawal') else 'injection'
+    wells = an_wells.season_wells(production, kind, period[0])
+    fund = pd.Series(well_scopes(mapping, ordered(wells.well))).value_counts()
+    labels = [f'{n} ({int(fund.get(n, 0))})' for n in names]
+    share = [[None if v is None or not fund.get(n) else v / fund[n] * 100 for v in row] for n, row in zip(names, counts)]
+    charts.append(an_charts.heat_chart('an-rev-heat-share', 'Доля фонда ГСП с выносом песка', labels, seasons, share,
+                                       [['' if v is None and c is None else 'нет фонда' if v is None else f'{v:.0f} %' for v, c in zip(row, crow)]
+                                        for row, crow in zip(share, counts)], '% от фонда ГСП',
+                                       missing_text='нет ревизии'))
+    notes.append(f'Доля фонда: фонд ГСП (в скобках) — скважины сезона {period[0]} из «Отбор и закачка», один и тот же для всех сезонов.')
+    return charts, notes
 
 
 def season_table(data: rr.Dataset) -> Table:
@@ -94,6 +136,7 @@ class RevisionModule(Module):
         group='Авторский надзор',
         description='Перечень скважин с выносом песка по ГСП за сезоны: историческая сводная и ревизия нового сезона, повторяемость, частота.',
         needs=(),
+        optional=(DatasetKind.PRODUCTION,),
         order=115,
         save_label='Сохранить вид',
         params=(
@@ -104,6 +147,8 @@ class RevisionModule(Module):
             Param('season', 'Новый сезон', 'text', default='', section=SECTION, help='Например 2025/26 или 2025-2026.'),
             Param('filter', 'Фильтр строк ревизии', 'text', default='', section=SECTION,
                   help='Регулярное выражение по тексту строки ревизии; пусто — все строки с номерами.'),
+            Param('charts', 'Графики', 'multi', default=[], section='Вид', empty='ничего', options=CHARTS,
+                  help='Тепловые карты по таблице 1.8: число скважин с песком и доля от фонда ГСП. Таблицы остаются как есть.'),
             Param('absent_zero', 'Отсутствующий в ревизии ГСП — нулевой перечень', 'boolean', default=False, section=SECTION,
                   help='Без галочки такой ГСП помечается «нет данных».'),
         ),
@@ -132,6 +177,9 @@ class RevisionModule(Module):
             return result
         analytics = rr.analyse(dataset)
         latest = analytics['totals'][-1]
+        result.charts, chart_notes = sand_charts(dataset, params.get('charts') or [], data[DatasetKind.PRODUCTION] if DatasetKind.PRODUCTION in data else None,
+                                                 data.mapping)
+        result.notes += [Note(text) for text in chart_notes]
         result.tables.append(season_table(dataset))
         result.tables.append(summary_table(analytics, dataset.seasons))
         result.tables.append(transitions_table(analytics))

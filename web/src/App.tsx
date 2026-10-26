@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
+import { HeatView } from './HeatView'
 import { ChartBuilder } from './ChartBuilder'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
@@ -450,7 +451,11 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             <>
               {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее из расчета. Расчетные кривые и серые исключенные точки не выбираются.</div>}
               <div className="chart-grid">
-                {shown.map(c => (
+                {shown.map(c => c.heat ? (
+                  <HeatView key={c.id} chart={c}
+                    onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
+                    onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
+                ) : (
                   <ChartView key={c.id} chart={c} excludeMode={excludeMode} onExclude={excludePoint}
                     mapLink={mapLink}
                     onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({

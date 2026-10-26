@@ -13,7 +13,7 @@ import pandas as pd
 
 from atlas.engine.modules.charts import well_colors
 
-from ..contract import Axis, Chart, ChartTable, Series
+from ..contract import Axis, Chart, ChartTable, HeatMap, Series
 from . import an_wells
 
 Q_UNIT = 'тыс. м³/сут'
@@ -311,6 +311,14 @@ def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: li
     rows = [str(g) for g in months.group]
     cells = [[str(int(f))] + [str(int(r[f'm{i}'])) for i in range(len(labels))] for f, (_, r) in zip(months.fund, months.iterrows())]
     chart.table = ChartTable(rows, ['Фонд', *labels], cells, swatches=False)
+    return chart
+
+
+def heat_chart(chart_id: str, title: str, rows: list[str], columns: list[str], values: list[list[float | None]], texts: list[list[str]],
+               unit: str, maximum: float | None = None, missing_text: str = 'нет данных') -> Chart:
+    """Тепловая карта строка × столбец (ГСП × сезоны): оси нужны только подписями, ряды пусты."""
+    chart = Chart(chart_id, title, Axis('Сезон', scale='category', categories=columns), Axis('ГСП', scale='category', categories=rows))
+    chart.heat = HeatMap(rows, columns, values, texts, unit, maximum, missing_text)
     return chart
 
 
