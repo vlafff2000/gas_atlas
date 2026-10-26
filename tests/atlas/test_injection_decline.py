@@ -26,9 +26,9 @@ def pressure():
     return pd.DataFrame(p22 + p23, columns=['date', 'pressure'])
 
 
-def run(params=None, frame=None, pres=None):
+def run(params=None, frame=None, pres=None, manual=None):
     data = Data({PROD: production() if frame is None else frame, OBJ: pressure() if pres is None else pres})
-    base = {'seasons': 5, 'periods': [], 'source': 'auto', 'last_days': 30, 'tail_days': 45, 'manual': None}
+    base = {'seasons': 5, 'periods': [], 'source': 'auto', 'last_days': 30, 'tail_days': 45, 'manual': manual}
     return InjectionDeclineModule().run(data, {**base, **(params or {})})
 
 
@@ -82,3 +82,29 @@ def test_no_pressure_is_a_note_not_an_error():
 def test_no_seasons_gives_note():
     result = run({'periods': ['нет такого']})
     assert not result.tables and result.notes
+
+
+def test_pressure_at_end_takes_first_measurement_after_end():
+    pres = pd.concat([pressure(), pd.DataFrame({'date': [pd.Timestamp('2022-07-01')], 'pressure': [108.0]})], ignore_index=True)
+    row = table(run(pres=pres)).loc['2022']
+    assert row.p_end == pytest.approx(108.0)                    # замер через 2 сут после конца, а не 111 за 4 сут до него
+    assert row.fall == pytest.approx(3.0)
+    assert 'через 2 сут после конца' in row.basis
+
+
+def test_rate_needed_to_hold_peak():
+    frame = production()
+    frame.loc[frame.period.eq('2023'), 'q'] = 120000.0          # средний темп 2023 — 120 тыс. м³/сут
+    result = run(frame=frame, pres=pressure())
+    hold = [t for t in result.tables if t.id == 'decline-hold-rate'][0].frame.set_index('period')
+    assert hold.loc['2022', 'rate_req'] == pytest.approx(100.0) and hold.loc['2023', 'rate_req'] == pytest.approx(120.0)
+    assert hold.loc['2023', 'gap_last'] == pytest.approx(120.0 - hold.loc['2023', 'last_mean'])
+    assert any(c.id == 'decline-hold' for c in result.charts)
+    assert any(s.label == 'Связь давления и темпа' for s in result.summary)
+
+
+def test_fit_excluded_by_manual_flag_gives_note():
+    manual = {'2023': {'fit': False}}
+    result = run(manual=manual)
+    assert not any(t.id == 'decline-hold-rate' for t in result.tables)
+    assert any('не рассчитан' in n.text for n in result.notes)
