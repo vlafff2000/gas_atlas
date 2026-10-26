@@ -200,7 +200,7 @@ class RevisionModule(Module):
             Param('season', 'Новый сезон', 'text', default='', section=SECTION, help='Например 2025/26 или 2025-2026.'),
             Param('filter', 'Фильтр строк ревизии', 'text', default='', section=SECTION,
                   help='Регулярное выражение по тексту строки ревизии; пусто — все строки с номерами.'),
-            Param('charts', 'Графики', 'multi', default=[], section='Вид', empty='ничего', options=CHARTS,
+            Param('charts', 'Графики', 'multi', default=['chronic'], section='Вид', empty='ничего', options=CHARTS,
                   help='Тепловые карты по таблице 1.8: число скважин с песком и доля от фонда ГСП. Таблицы остаются как есть.'),
             Param('absent_zero', 'Отсутствующий в ревизии ГСП — нулевой перечень', 'boolean', default=False, section=SECTION,
                   help='Без галочки такой ГСП помечается «нет данных».'),

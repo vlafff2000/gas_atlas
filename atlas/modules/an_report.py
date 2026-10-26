@@ -359,7 +359,7 @@ class AuthorReportModule(Module):
             Param('class_chart', 'Классы производительности (табл. 1.5)', 'choice', default='none', section='Вид', chart_kind=True,
                   options=CLASS_CHARTS, help='Только для отбора. Добавляет таблицу «Количество скважин по классам производительности» и график к ней: '
                   'столбики — доли классов по группам, числа скважин внутри сегментов, узкие сегменты — выноской или точкой с таблицей под графиком.'),
-            Param('month_chart', 'Работавшие по месяцам (табл. 1.4)', 'choice', default='none', section='Вид', chart_kind=True,
+            Param('month_chart', 'Работавшие по месяцам (табл. 1.4)', 'choice', default='table', section='Вид', chart_kind=True,
                   options=MONTH_CHARTS, help='Только для отбора. Добавляет таблицу «Работавшие скважины по месяцам» и график к ней: '
                   'работавшие и простаивавшие скважины объекта по месяцам сезона, под графиком — таблица по группам.'),
             Param('pressure_source', 'Давление объекта', 'choice', default='auto', section='Выбор данных',
