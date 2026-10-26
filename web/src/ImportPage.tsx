@@ -6,6 +6,7 @@ import {
   importApi, type Applied, type Book, type CheckFile, type FileInfo, type FileOptions, type ImportOptions, type IssueSource, type Pending,
   type PressureChoice, type PressureDemo, type PressureInspect, type SheetChoice, type SimpleInspect, type Spec, type Upload,
 } from './api_import'
+import { ImportChecklist } from './ImportChecklist'
 import { projectsApi } from './api_projects'
 import { RowFixer } from './RowFixer'
 import { SheetEditor } from './SheetEditor'
@@ -90,6 +91,7 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
         </div>
       </header>
       {failure && <div className="note warning">{failure}</div>}
+      {project && <ImportChecklist project={project} />}
       <FolderSources key={project?.id ?? 'no-project'} project={project} onProject={onProject} />
       <BaseModel key={'bm-' + (project?.id ?? 'no-project')} project={project} onProject={onProject} />
       <NewProject project={project} onCreated={onCreated} />

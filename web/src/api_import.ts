@@ -120,7 +120,13 @@ export interface BaseModelState {
 }
 export interface PressureDemo { value: string; label: string; description: string; books: string[] }
 
+export interface ChecklistItem {
+  key: string; label: string; used: string; count: number; unit: string
+  columns: string[]; example: string[]; note: string; template: string | null; example_file: string | null
+}
+
 export const importApi = {
+  checklist: async (project: string) => ((await send(`/api/projects/${project}/import/checklist`)).json() as Promise<{ items: ChecklistItem[] }>),
   baseModel: async (project: string) => (await send(`/api/projects/${project}/import/base-model`)).json() as Promise<BaseModelState>,
   chooseBaseModel: (project: string, body: { model?: string; data_dir?: string }) => post<BaseModelState>(`/api/projects/${project}/import/base-model`, body),
   addModelFolder: (folder: string) => post<{ folders: string[]; models: number }>('/api/import/base-model/folder', { folder }),
