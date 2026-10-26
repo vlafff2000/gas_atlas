@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { folderApi, FolderCheck, FolderEdit, FolderFile, FolderLoad, FolderLoadResult, FolderScan, ProjectFolders, RejectedMode } from './api_folder'
 import { openFilePicker } from './FilePicker'
 import { api, type Project } from './api'
+import { importApi } from './api_import'
 
 const KINDS = ['production', 'pressure', 'gdi', 'water'] as const
 
@@ -15,8 +16,26 @@ function rememberFolder(pid: string, folder: string) {
 }
 const KIND_LABEL: Record<string, string> = { production: 'Расходы', pressure: 'Давления', gdi: 'ГДИ', water: 'Вода' }
 const LOAD_LABEL: Record<FolderLoad, string> = { loaded: 'загружен', changed: 'изменился, нужна загрузка', not_loaded: 'не загружен' }
+/** Базовая модель участвует в общей проверке и загрузке как ещё один источник: подсказка, берутся только пропуски (файл главнее). */
+const MODEL_FIELDS = ['x', 'y', 'perf']
 const CHECK_LABEL: Record<FolderCheck['status'], string> = { ok: 'Готов к загрузке', attention: 'Есть замечания', error: 'Ошибка', skip: 'Тип не определён' }
 const RESULT_LABEL: Record<FolderLoadResult['status'], string> = { loaded: 'Загружено', attention: 'Нужно внимание', error: 'Ошибка' }
+
+/** Пробная проверка базовой модели проекта: сколько пропусков устья и перфорации она заполнит (расхождения с файлом не трогаются). */
+async function checkModel(pid: string): Promise<FolderCheck | null> {
+  const base = { name: 'Базовая модель', role: null, role_label: 'Базовая модель', issues: [], issues_count: 0 }
+  try {
+    const st = await importApi.baseModel(pid)
+    if (!st.selected) return { ...base, status: 'skip', message: 'Модель не выбрана: выберите её в блоке «Базовая модель» выше, если нужны устье и перфорация из модели.' }
+    if (st.error || st.error_model || !st.compare) return { ...base, status: 'error', message: st.error_model || st.error || 'Модель не прочитана' }
+    const c = st.compare.counts
+    const fill = MODEL_FIELDS.reduce((n, k) => n + (c[k]?.only_model ?? 0), 0)
+    const diff = MODEL_FIELDS.reduce((n, k) => n + (c[k]?.diff ?? 0), 0)
+    return { ...base, status: 'ok', message: `Скважин в модели: ${st.compare.wells}. Заполнит пропусков (устье X, Y, перфорация): ${fill}; расхождений с файлом: ${diff}, они не заменяются (файл главнее).` }
+  } catch (e) {
+    return { ...base, status: 'error', message: (e as Error).message }
+  }
+}
 
 function kb(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} КБ` : `${(bytes / 1024 / 1024).toFixed(1)} МБ`
@@ -40,13 +59,15 @@ export function FolderSources({ project, onProject }: { project: Project | null;
   /** Сводная проверка всех файлов с ролью (без записи в проект) и выбор, что грузить: решение за инженером, по умолчанию отмечено всё, что разобралось. */
   const [checks, setChecks] = useState<Record<string, FolderCheck>>({})
   const [picked, setPicked] = useState<Record<string, boolean>>({})
+  const [model, setModel] = useState<FolderCheck | null>(null)
+  const [modelPicked, setModelPicked] = useState<boolean | null>(null)
   const [rejectedMode, setRejectedMode] = useState<RejectedMode>('skip')
 
   const run = async (work: () => Promise<FolderScan>, done: string) => {
     setBusy(true); setError(''); setMessage('')
     try {
       const next = await work()
-      setScan(next); setFolder(next.folder); setEdits({}); setMessage(done); setResults([]); setWarning(''); setChecks({}); setPicked({})
+      setScan(next); setFolder(next.folder); setEdits({}); setMessage(done); setResults([]); setWarning(''); setChecks({}); setPicked({}); setModel(null)
       if (project) rememberFolder(project.id, next.folder)
     } catch (e) {
       setScan(null); setEdits({})          // старый список не должен выглядеть как открытая папка
@@ -136,6 +157,7 @@ export function FolderSources({ project, onProject }: { project: Project | null;
     try {
       const reply = await folderApi.check(project.id, scan.folder, checkable)
       setChecks(Object.fromEntries(reply.results.map(r => [r.name, r]))); setPicked({}); setResults([])
+      setModel(await checkModel(project.id)); setModelPicked(null)
       const bad = reply.results.filter(r => r.status === 'error' || r.status === 'skip').length
       setMessage(`Проверено файлов: ${reply.results.length}. В проект ничего не записано.` + (bad ? ` Не разобрано или без типа: ${bad}, остальные можно загружать.` : ''))
     } catch (e) {
@@ -145,13 +167,27 @@ export function FolderSources({ project, onProject }: { project: Project | null;
     }
   }
 
+  const modelOn = !!model && (modelPicked ?? model.status === 'ok')
+  const total = chosen.length + (modelOn ? 1 : 0)
+
   const loadChosen = async () => {
-    if (!project || !scan || dirty || !chosen.length) return
+    if (!project || !scan || dirty || !total) return
     setBusy(true); setError(''); setMessage('')
     try {
-      const reply = await folderApi.load(project.id, scan.folder, chosen, 'new', rejectedMode)
-      setScan(reply.folder); setResults(reply.results); setWarning(reply.warning); setUndo(reply.undo ?? '')
-      setMessage(`Загрузка выполнена: ${reply.results.filter(r => r.status === 'loaded').length} из ${reply.results.length}.`)
+      const reply = chosen.length ? await folderApi.load(project.id, scan.folder, chosen, 'new', rejectedMode)
+        : { folder: scan, results: [], warning: '', undo: '' }
+      const out = [...reply.results]
+      if (modelOn) {
+        try {
+          const r = await importApi.applyBaseModel(project.id, MODEL_FIELDS, 'fill')
+          onProject?.(r.project)
+          out.push({ name: 'Базовая модель', status: 'loaded', message: r.message })
+        } catch (e) {
+          out.push({ name: 'Базовая модель', status: 'error', message: (e as Error).message })
+        }
+      }
+      setScan(reply.folder); setResults(out); setWarning(reply.warning); setUndo(reply.undo ?? '')
+      setMessage(`Загрузка выполнена: ${out.filter(r => r.status === 'loaded').length} из ${out.length}.`)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -219,10 +255,10 @@ export function FolderSources({ project, onProject }: { project: Project | null;
               {undo && <button type="button" className="quiet" onClick={undoLoad} disabled={busy}>Откатить загрузку из папки</button>}
             </div>
           )}
-          {chosen.length > 0 || Object.keys(checks).length > 0 ? (
+          {total > 0 || Object.keys(checks).length > 0 || model ? (
             <div className="folder-row">
-              <button type="button" className="primary" onClick={loadChosen} disabled={busy || dirty || chosen.length === 0}>
-                Загрузить всё отмеченное ({chosen.length})
+              <button type="button" className="primary" onClick={loadChosen} disabled={busy || dirty || total === 0}>
+                Загрузить всё отмеченное ({total})
               </button>
               <label className="muted">Файл с отклонёнными строками:{' '}
                 <select value={rejectedMode} onChange={e => setRejectedMode(e.target.value as RejectedMode)}>
@@ -233,6 +269,13 @@ export function FolderSources({ project, onProject }: { project: Project | null;
               <span className="muted">Отметки в колонке «Загрузить» можно менять: ошибка в одном файле остальные не блокирует.</span>
             </div>
           ) : null}
+          {model && (
+            <div className="note" aria-label="Базовая модель в общей загрузке">
+              <label><input type="checkbox" checked={modelOn} disabled={model.status === 'skip' || model.status === 'error'}
+                onChange={e => setModelPicked(e.target.checked)} /> <strong>Базовая модель: {CHECK_LABEL[model.status]}</strong></label>
+              <div>{model.message}</div>
+            </div>
+          )}
           {!project && <div className="note">Выберите проект, чтобы видеть, что загружено, и загружать файлы.</div>}
           {unknownLoad && <div className="note">Статус загрузки не показан для выбранного проекта: нажмите «Показать файлы» ещё раз.</div>}
           {dirty && <div className="note">Сначала сохраните роли: загрузка идёт по сохранённым ролям.</div>}
