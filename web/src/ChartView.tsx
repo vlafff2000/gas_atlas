@@ -1465,7 +1465,7 @@ function ChartTableView({ table, colors }: { table: NonNullable<Chart['table']>;
         <thead><tr><th />{table.columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
         <tbody>
           {table.rows.map((r, i) => (
-            <tr key={r}><th scope="row"><i style={{ background: table.colors[i] || colors[i] }} />{r}</th>
+            <tr key={r}><th scope="row">{table.swatches && <i style={{ background: table.colors[i] || colors[i] }} />}{r}</th>
               {table.cells[i].map((v, j) => <td key={j}>{v}</td>)}</tr>))}
         </tbody>
       </table>
@@ -1672,7 +1672,7 @@ function pill(g: CanvasRenderingContext2D, text: string, x: number, y: number, s
 }
 
 /** «Копировать»: картинка графика в буфер обмена. Если окно не даёт доступа к буферу — сообщение и совет скачать PNG. */
-function CopyButton({ onCopy }: { onCopy: () => Promise<Blob> }) {
+export function CopyButton({ onCopy }: { onCopy: () => Promise<Blob> }) {
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle')
   const [why, setWhy] = useState('')
   const go = async () => {
@@ -1701,7 +1701,7 @@ function CopyButton({ onCopy }: { onCopy: () => Promise<Blob> }) {
   )
 }
 
-function DownloadMenu({ onDownload }: { onDownload: (format: string, dpi: number) => Promise<void> }) {
+export function DownloadMenu({ onDownload }: { onDownload: (format: string, dpi: number) => Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [format, setFormat] = useState('svg')
   const [dpi, setDpi] = useState(300)

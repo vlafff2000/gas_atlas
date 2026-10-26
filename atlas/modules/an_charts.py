@@ -13,7 +13,7 @@ import pandas as pd
 
 from atlas.engine.modules.charts import well_colors
 
-from ..contract import Axis, Chart, ChartTable, Series
+from ..contract import Axis, Chart, ChartTable, HeatMap, Series
 from . import an_wells
 
 Q_UNIT = 'тыс. м³/сут'
@@ -291,6 +291,34 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: st
                                    segments=[str(v) if v else '' for v in n], labels=[f'{v} из {int(t)} скв.' for v, t in zip(n, size)]))
     if chart.callouts == 'dot':
         chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in an_wells.CLASS_KEYS])
+    return chart
+
+
+def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: list[str]) -> Chart | None:
+    """Табл. 1.4: по месяцам сезона — работавшие и простаивавшие скважины объекта (столбики с числами), под графиком — таблица по группам."""
+    total = months[months.group.eq(an_wells.TOTAL)]
+    if total.empty or not labels:
+        return None
+    fund = int(total.fund.iloc[0])
+    working = np.array([int(total[f'm{i}'].iloc[0]) for i in range(len(labels))])
+    idle = fund - working
+    chart = Chart(f'an-month-working-{kind}-{period}', f'Работавшие скважины по месяцам · {period}',
+                  Axis('Месяц', scale='category', categories=labels), Axis('Скважин', 'скв.', from_zero=True))
+    chart.series.append(Series('Работало', labels, working.astype(float), 'bar', stack='months', segments=[str(v) for v in working],
+                               labels=[f'{v} из {fund} скв., {v / fund * 100:.0f} %' for v in working]))
+    chart.series.append(Series('Не работало', labels, idle.astype(float), 'bar', stack='months', segments=[str(v) if v else '' for v in idle],
+                               labels=[f'{v} из {fund} скв.' for v in idle]))
+    rows = [str(g) for g in months.group]
+    cells = [[str(int(f))] + [str(int(r[f'm{i}'])) for i in range(len(labels))] for f, (_, r) in zip(months.fund, months.iterrows())]
+    chart.table = ChartTable(rows, ['Фонд', *labels], cells, swatches=False)
+    return chart
+
+
+def heat_chart(chart_id: str, title: str, rows: list[str], columns: list[str], values: list[list[float | None]], texts: list[list[str]],
+               unit: str, maximum: float | None = None, missing_text: str = 'нет данных') -> Chart:
+    """Тепловая карта строка × столбец (ГСП × сезоны): оси нужны только подписями, ряды пусты."""
+    chart = Chart(chart_id, title, Axis('Сезон', scale='category', categories=columns), Axis('ГСП', scale='category', categories=rows))
+    chart.heat = HeatMap(rows, columns, values, texts, unit, maximum, missing_text)
     return chart
 
 

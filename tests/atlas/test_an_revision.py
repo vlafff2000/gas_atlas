@@ -86,3 +86,27 @@ def test_file_param_coerce_strips_quotes():
     assert param.coerce(None) == ''
     with pytest.raises(ParamError):
         spec.coerce({'unknown': 1})
+
+
+def test_heat_charts_count_and_share_of_fund(dataset):
+    import pandas as pd
+    from atlas.modules import an_revision
+    wells = [f'{n}' for n in range(1, 101)]
+    prod = pd.DataFrame({'well': wells, 'date': pd.to_datetime('2025-01-10'), 'q': 1.0, 'kind': 'withdrawal', 'period': '2024-2025'})
+    mapping = {w: {'group': 'ГСП-1'} for w in wells}
+    charts, notes = an_revision.sand_charts(dataset, ['count', 'share'], prod, mapping)
+    count, share = charts
+    assert count.heat.rows[0] == 'ГСП 1' and count.heat.columns == dataset.seasons
+    assert count.heat.values[0][3] == 18 and count.heat.texts[0][3] == '18'            # ГСП-1, 2024/25: 19 в источнике, 18 уникальных
+    assert count.heat.values[8][3] is None                                               # ГСП-9, 2024/25: ревизии не было
+    assert share.heat.rows[0] == 'ГСП 1 (100)' and share.heat.values[0][3] == pytest.approx(18.0)
+    assert share.heat.values[1][3] is None or share.heat.rows[1] == 'ГСП 2 (0)'          # у ГСП без скважин в «Отбор и закачка» доли нет
+    from atlas import render
+    fig = render.to_plotly(share)
+    assert fig.data[0].type == 'heatmap' and any(a.text == '18 %' for a in fig.layout.annotations)
+
+
+def test_heat_share_without_production_is_a_note(dataset):
+    from atlas.modules import an_revision
+    charts, notes = an_revision.sand_charts(dataset, ['share'], None, {})
+    assert charts == [] and 'Отбор и закачка' in notes[0]

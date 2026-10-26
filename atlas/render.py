@@ -201,7 +201,8 @@ def segment_marks(fig, chart: Chart, palette: dict) -> None:
                                font={'size': 12, 'color': '#111'})
     if chart.table is not None:
         t = chart.table
-        colors = [(s.look or {}).get('color') or (series_color(s.color) if s.color else palette[s.group or s.name]) for s in bars]
+        colors = [(s.look or {}).get('color') or (series_color(s.color) if s.color else palette[s.group or s.name]) for s in bars] if t.swatches else []
+        colors = colors + ['white'] * (len(t.rows) - len(colors))
         fig.add_trace(go.Table(domain={'x': [0.0, 1.0], 'y': [0.0, 0.36]}, columnwidth=[2.4] + [1] * len(t.columns),
                                header={'values': [''] + list(t.columns), 'fill_color': 'white', 'align': 'center', 'font': {'size': 12}},
                                cells={'values': [list(t.rows)] + [[row[j] for row in t.cells] for j in range(len(t.columns))],
@@ -210,8 +211,33 @@ def segment_marks(fig, chart: Chart, palette: dict) -> None:
         fig.update_layout(yaxis={'domain': [0.42, 1.0]}, height=720)
 
 
+def heat_plotly(chart: Chart):
+    """Тепловая карта: цветная таблица с числами в ячейках; ячейки без данных — серые с подписью."""
+    import plotly.graph_objects as go
+    h = chart.heat
+    z = [[None if v is None else float(v) for v in row] for row in h.values]
+    top = h.maximum if h.maximum else max([v for row in z for v in row if v is not None] or [1.0])
+    fig = go.Figure(go.Heatmap(z=z, x=h.columns, y=h.rows, zmin=0, zmax=top, colorscale='OrRd', xgap=2, ygap=2, hoverongaps=False,
+                               colorbar={'title': {'text': h.unit}}))
+    for i, (row, texts) in enumerate(zip(h.values, h.texts)):
+        for j, (v, text) in enumerate(zip(row, texts)):
+            if v is None:
+                fig.add_shape(type='rect', xref='x', yref='y', x0=j - 0.5, x1=j + 0.5, y0=i - 0.5, y1=i + 0.5,
+                              fillcolor='#e6e6e6', line={'width': 0}, layer='below')
+                fig.add_annotation(x=h.columns[j], y=h.rows[i], text=text or h.missing_text, showarrow=False, font={'size': 10, 'color': '#555'})
+            elif text:
+                fig.add_annotation(x=h.columns[j], y=h.rows[i], text=text, showarrow=False,
+                                   font={'size': 13, 'color': 'white' if v > top * 0.55 else '#111'})
+    fig.update_layout(title={'text': chart.title}, meta={'module': chart.id.split('-', 1)[0]})
+    fig.update_yaxes(autorange='reversed', type='category')
+    fig.update_xaxes(type='category', side='bottom')
+    return fig
+
+
 def to_plotly(chart: Chart):
     import plotly.graph_objects as go
+    if chart.heat is not None:
+        return heat_plotly(chart)
     palette = group_colors(chart)
     fig = go.Figure()
     stacked_bars = any(s.kind == 'bar' and s.stack for s in chart.series)
@@ -476,12 +502,20 @@ def chart_csv(chart: Chart) -> tuple[bytes, str, str]:
 
 
 def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_size=None) -> tuple[bytes, str, str]:
+    from . import chart_special
+    if chart.heat is not None and fmt in ('xlsx', 'csv'):
+        frame = chart_special.heat_frame(chart)
+        if fmt == 'csv':
+            return csv_bytes(frame), f'{safe_name(chart.title)}.csv', 'text/csv; charset=utf-8'
+        return xlsx_bytes({chart.title: frame}), f'{safe_name(chart.title)}.xlsx', XLSX
     if fmt == 'xlsx':
         return chart_xlsx(chart)
     if fmt == 'csv':
         return chart_csv(chart)
     if fmt not in FORMATS:
         raise ValueError('Формат графика: svg, pdf, png, xlsx или csv')
+    if chart_special.is_special(chart):      # подписи в сегментах, выноски, таблица под графиком, тепловая карта — общий экспортёр их не рисует
+        return chart_special.figure_file(chart, fmt, dpi), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
     return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
 
 

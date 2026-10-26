@@ -120,3 +120,42 @@ def test_class_share_chart_exports_with_callouts_and_table():
     assert [a.text for a in box.layout.annotations if a.bordercolor] == ['1', '1']      # узкий сегмент (1 из 44) — выноска в рамке
     dot = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'dot'))
     assert any(t.type == 'table' for t in dot.data) and [a.text for a in dot.layout.annotations] == ['●', '●']
+
+
+def test_month_working_counts_wells_with_flow_in_each_month():
+    prod = production([('1', '2024-02-01', 100), ('1', '2024-03-01', 0), ('2', '2024-02-01', 50), ('2', '2024-03-05', 70),
+                       ('3', '2024-03-01', 0), ('4', '2024-02-10', 10)])
+    mapping = {w: {'group': 'ГСП-1' if w in '12' else 'ГСП-2'} for w in '1234'}
+    scopes = an_report.well_scopes(mapping, list('1234'))
+    frame, labels = an_wells.month_working(prod, 'withdrawal', '2023-2024', scopes)
+    assert labels == ['Фев.24', 'Мар.24']
+    total = frame.set_index('group').loc[an_wells.TOTAL]
+    assert total.fund == 4 and (total.m0, total.m1) == (3, 1)           # в феврале работали 1, 2, 4; в марте только 2
+    assert frame.set_index('group').loc['ГСП 2', ['fund', 'm0', 'm1']].tolist() == [2, 1, 0]
+
+
+def test_month_working_chart_has_group_table_under_bars():
+    from atlas.modules import an_charts
+    frame, labels = an_wells.month_working(PROD, 'withdrawal', '2023-2024', SCOPES)
+    chart = an_charts.month_working_chart('withdrawal', '2023-2024', frame, labels)
+    assert [s.name for s in chart.series] == ['Работало', 'Не работало'] and chart.table.swatches is False
+    assert chart.table.columns == ['Фонд', *labels] and chart.table.rows[0] == an_wells.TOTAL
+    assert chart.series[0].y[0] + chart.series[1].y[0] == 4             # работало + не работало = фонд
+
+
+def test_special_charts_export_to_png_pdf_svg_not_as_grouped_bars():
+    """Общий экспортёр рисует только ряды; графики с подписями в сегментах, выносками, таблицей и тепловые карты рисует chart_special."""
+    from atlas import render
+    from atlas.modules import an_charts
+    counts = pd.DataFrame({'group': ['ГСП 1', an_wells.TOTAL], 'zero_numbers': ['0', '0'],
+                           **{k: v for k, v in zip(an_wells.CLASS_KEYS, ([0, 0], [1, 1], [0, 0], [3, 3], [0, 0], [0, 0], [40, 40]))}})
+    for mode in ('box', 'dot'):
+        chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, mode)
+        assert render.chart_file(chart, 'png', 150)[0][:8] == b'\x89PNG\r\n\x1a\n'
+    frame, labels = an_wells.month_working(PROD, 'withdrawal', '2023-2024', SCOPES)
+    chart = an_charts.month_working_chart('withdrawal', '2023-2024', frame, labels)
+    assert render.chart_file(chart, 'svg', 150)[0].lstrip().startswith(b'<?xml') and render.chart_file(chart, 'pdf', 150)[0][:4] == b'%PDF'
+    heat = an_charts.heat_chart('an-rev-heat-count', 'Песок', ['ГСП 1', 'ГСП 9'], ['21/22', '22/23'], [[6, None], [2, 13]],
+                                [['6', 'нет ревизии'], ['2', '13']], 'Скважин')
+    assert render.chart_file(heat, 'png', 150)[0][:4] == b'\x89PNG'
+    assert 'ГСП 9' in render.chart_file(heat, 'csv', 150)[0].decode('utf-8-sig')

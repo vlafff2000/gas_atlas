@@ -335,6 +335,7 @@ PRESSURE_SOURCES = (Option('auto', 'Авто: столбец «Давление 
                     Option('match', 'Опорная сетка: кроссплот, факт'))
 CLASS_CHARTS = (Option('none', 'Только таблица классов (номера скважин)'), Option('box', 'График: узкие сегменты — выноска в рамке'),
                 Option('dot', 'График: узкие сегменты — точка, числа в таблице под графиком'))
+MONTH_CHARTS = (Option('none', 'Нет'), Option('table', 'График с таблицей по группам под ним'))
 SIDES = (Option('fund', 'Фонд и работавшие скважины'), Option('none', 'Нет'),
          *(o for o in VIEWS if o.value != 'canvas'))
 
@@ -358,6 +359,9 @@ class AuthorReportModule(Module):
             Param('class_chart', 'Классы производительности (табл. 1.5)', 'choice', default='none', section='Вид', chart_kind=True,
                   options=CLASS_CHARTS, help='Только для отбора. Добавляет таблицу «Количество скважин по классам производительности» и график к ней: '
                   'столбики — доли классов по группам, числа скважин внутри сегментов, узкие сегменты — выноской или точкой с таблицей под графиком.'),
+            Param('month_chart', 'Работавшие по месяцам (табл. 1.4)', 'choice', default='none', section='Вид', chart_kind=True,
+                  options=MONTH_CHARTS, help='Только для отбора. Добавляет таблицу «Работавшие скважины по месяцам» и график к ней: '
+                  'работавшие и простаивавшие скважины объекта по месяцам сезона, под графиком — таблица по группам.'),
             Param('pressure_source', 'Давление объекта', 'choice', default='auto', section='Выбор данных',
                   options=PRESSURE_SOURCES, help='Откуда берётся Рпл объекта и динамика по группам. «Авто» — столбец БД, иначе опорная сетка.'),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
@@ -412,7 +416,7 @@ class AuthorReportModule(Module):
         if not periods:
             result.notes.append(Note('Выберите сезон: в проекте нет данных для выбранного режима.'))
         summaries, means = [], []
-        fund, classes, wet, counts = [], [], [], []
+        fund, classes, wet, counts, month_tables = [], [], [], [], []
         if PLAN not in data:
             result.notes.append(Note('План по группам не загружен: график «План и факт по группам» пропущен.', 'warning'))
         if kind == 'withdrawal' and WATER not in data:
@@ -426,7 +430,8 @@ class AuthorReportModule(Module):
             means.append(table.assign(period_season=period))
             result.summary += [Stat(f'Длительность · {period}', f'{summary["days"]} сут', 'Календарные сутки с расходом'),
                                Stat(f'Средний расход · {period}', f'{summary["mean"]:.1f} {Q_UNIT}'.replace('.', ','))]
-            self.fund_details(result, data, kind, period, summary, fund, classes, wet, counts, params.get('class_chart') or 'none')
+            self.fund_details(result, data, kind, period, summary, fund, classes, wet, counts, params.get('class_chart') or 'none',
+                              params.get('month_chart') or 'none', month_tables)
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
             group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'])
             if group_pressure is not None:
@@ -446,6 +451,8 @@ class AuthorReportModule(Module):
             result.tables.append(self.class_table_report(classes))
         if counts:
             result.tables.append(self.class_counts_report(counts))
+        if month_tables:
+            result.tables.append(self.month_working_report(month_tables))
         if wet:
             result.tables.append(self.wet_table_report(wet))
         result.notes.append(Note(NOTE))
@@ -628,12 +635,19 @@ class AuthorReportModule(Module):
 
     def fund_details(self, result: Result, data: Data, kind: str, period: str, summary: dict[str, Any],
                      fund: list[pd.DataFrame], classes: list[pd.DataFrame], wet: list[pd.DataFrame],
-                     counts: list[pd.DataFrame], class_chart: str = 'none') -> None:
+                     counts: list[pd.DataFrame], class_chart: str = 'none',
+                     month_chart: str = 'none', months: list[pd.DataFrame] | None = None) -> None:
         """Фонд сезона: табл. 1.4 и 1.5, а для отбора — табл. 1.6 по воде и сводка по воде для текста."""
         wells = an_wells.season_wells(data[PRODUCTION], kind, period)
         scopes = well_scopes(data.mapping, ordered(wells.well))
         fund_frame = an_wells.fund_table(wells, scopes).assign(season=period)
         fund.append(fund_frame)
+        if kind == 'withdrawal' and month_chart != 'none' and months is not None:
+            by_month, labels = an_wells.month_working(data[PRODUCTION], kind, period, scopes)
+            months.append(by_month.assign(season=period, labels=[labels] * len(by_month)))
+            chart = an_charts.month_working_chart(kind, period, by_month, labels)
+            if chart is not None:
+                result.charts.append(chart)
         if kind != 'withdrawal':
             return                                   # закачка: классы — табл. 2.3 (injection_class_table)
         classes.append(an_wells.class_table(wells, scopes).assign(season=period))
@@ -743,6 +757,17 @@ class AuthorReportModule(Module):
                     for key, name in zip(an_wells.CLASS_KEYS, an_wells.CLASS_NAMES)]
         return Table('an-fund-class-counts', 'Количество скважин с различной производительностью', frame, columns,
                      note='Расход — средний за сутки с расходом, тыс. м³/сут; граница класса относится к верхнему. Класс «0» — скважины без суток с расходом.')
+
+    @staticmethod
+    def month_working_report(parts: list[pd.DataFrame]) -> Table:
+        first = parts[0]
+        keys = [c for c in first.columns if c.startswith('m') and c[1:].isdigit()]
+        frame = pd.concat([p[['season', 'group', 'fund', *keys]] for p in parts], ignore_index=True)
+        columns = [Column('season', 'Сезон'), Column('group', 'Группа'), Column('fund', 'Фонд', decimals=0, kind='number')]
+        columns += [Column(k, label, decimals=0, kind='number') for k, label in zip(keys, first.labels.iloc[0])]
+        return Table('an-fund-months', 'Количество эксплуатационных скважин, участвующих в отборе газа по месяцам', frame, columns,
+                     note='Работавшая скважина — с хотя бы одними сутками с расходом в месяце. Фонд — скважины с данными за сезон. '
+                          'Если у сезонов разное число месяцев, берутся подписи первого сезона.')
 
     @staticmethod
     def wet_table_report(parts: list[pd.DataFrame]) -> Table:
