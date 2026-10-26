@@ -364,3 +364,18 @@ def test_pressure_book_goes_through_the_common_check_and_apply(env, tmp_path):
     r = client.post(f'/api/projects/{pid}/import/apply', json={'pending': pending['id']})
     assert r.status_code == 200, r.text
     assert 'pressure_match' in store.load(pid)[1]
+
+
+def test_import_checklist_counts_loaded_and_describes_missing(env):
+    client, store = env
+    pid = store.create('П')
+    items = {i['key']: i for i in client.get(f'/api/projects/{pid}/import/checklist').json()['items']}
+    assert items['production']['count'] == 0 and items['production']['columns'][:2] == ['Скважина', 'Дата']
+    assert items['elpro']['columns'] and items['gis_packs']['columns'][0] == 'Скважина'
+    path = Path(__file__).resolve().parents[2] / 'examples' / '06_GDI_5_columns.csv'
+    token = upload(client, path.name, path.read_bytes())
+    pending = client.post(f'/api/projects/{pid}/import/check', json={'files': [{'token': token}], 'mode': 'auto', 'view': 'simple'}).json()
+    client.post(f'/api/projects/{pid}/import/apply', json={'pending': pending['id']})
+    after = {i['key']: i for i in client.get(f'/api/projects/{pid}/import/checklist').json()['items']}
+    assert after['gdi']['count'] > 0 and after['production']['count'] == 0
+    assert dict(after['gdi']['details'])['Скважин'] and 'скважин' in after['gdi']['summary'] and after['production']['details'] == []

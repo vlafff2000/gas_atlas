@@ -18,6 +18,7 @@
 | `POST /api/projects/{pid}/import/pressure/apply` `{pending, mode}` | сохранить данные давлений |
 | `GET /api/projects/{pid}/import/base-model` · `POST …` `{model}` · `POST …/apply` `{fields, mode}` | базовая модель проекта: выбор, сверка с `well_geo`, перенос X, Y, альтитуды, перфорации (`atlas/base_model.py`) |
 | `POST /api/projects/{pid}/import/ggh` `{token, sheet}` · `…/ggh/apply` `{pending, mode}` | данные ГГХ: проверка листа и сохранение (`atlas/engine/core/ggh_import.py`) |
+| `GET /api/projects/{pid}/import/checklist` | чек-лист видов данных: сколько строк уже в проекте и в каком виде нужен файл |
 | `GET /api/import/pressure-demo`, `GET /api/import/pressure-demo/{variant}/{name}` | демонстрационные варианты кроссплота и их книги |
 | `POST /api/projects/{pid}/import/pressure-demo` `{variant}` | вариант сразу в демонстрационный проект |
 """
@@ -32,7 +33,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import render
+from . import import_checklist, render
 from .api import Failure, error
 from .contract import MissingData, ParamError
 from .imports import Imports
@@ -126,6 +127,7 @@ def routes(projects) -> list[Route]:
         Route('/api/import/templates/{name}', _wrap(template)),
         Route('/api/import/pressure-demo', _wrap(lambda r, b: imports.pressure_demo_variants())),
         Route('/api/import/pressure-demo/{variant}/{name}', _wrap(demo_book)),
+        Route('/api/projects/{pid}/import/checklist', _wrap(lambda r, b: {'items': imports.checklist(pid(r))})),
         Route('/api/projects/{pid}/import/check', _wrap(lambda r, b: imports.check(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/apply', _wrap(lambda r, b: imports.apply(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/fix', _wrap(lambda r, b: imports.fix(pid(r), b)), methods=['POST']),
