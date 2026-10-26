@@ -16,6 +16,10 @@ from atlas.engine.core.config import ordered
 
 LOW_LIMIT = 100          # тыс. м³/сут: граница класса «менее 100 тысяч» (табл. 1.5)
 TOTAL = 'Всего'
+# Табл. 1.5 отчёта: классы среднего расхода за сутки с расходом, тыс. м³/сут; граница класса — в верхнем. Нулевой класс — скважины без суток с расходом.
+CLASS_EDGES = (100, 150, 200, 250, 300)
+CLASS_NAMES = ('0', 'Менее 100', 'От 100 до 150', 'От 150 до 200', 'От 200 до 250', 'От 250 до 300', 'Более 300')
+CLASS_KEYS = tuple(f'k{i}' for i in range(len(CLASS_NAMES)))
 WF_UNIT = 'л/тыс. м³'
 
 
@@ -60,6 +64,21 @@ def class_table(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
             'low': _numbers(ordered(part[part.cls.eq('low')].well)),
             'high': _numbers(ordered(part[part.cls.eq('high')].well)),
         })
+    return pd.DataFrame(rows)
+
+
+def class_counts(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
+    """Табл. 1.5 отчёта: по группам число скважин в каждом из семи классов производительности; строка «Всего» — первая.
+
+    Колонки ``k0``…``k6`` — числа, ``zero_numbers`` — номера скважин нулевого класса."""
+    w = wells.assign(group=wells.well.map(scopes), rate_k=wells.rate / 1000)
+    index = np.searchsorted(np.array(CLASS_EDGES, float), w.rate_k.to_numpy(float), side='right') + 1
+    w['cls'] = np.where(w.days.eq(0), 0, index)
+    rows = []
+    for name, part in [(TOTAL, w)] + [(g, w[w.group.eq(g)]) for g in ordered(w.group.unique())]:
+        counts = np.bincount(part.cls.to_numpy(int), minlength=len(CLASS_KEYS))
+        rows.append({'group': name, **dict(zip(CLASS_KEYS, (int(v) for v in counts))),
+                     'zero_numbers': _numbers(ordered(part[part.cls.eq(0)].well))})
     return pd.DataFrame(rows)
 
 

@@ -300,6 +300,7 @@ class Series:
     captions: Sequence[str] | None = None  # текст над каждой точкой на графике (подписи причин без замера); в подсказке — labels
     values: Sequence[float | None] | None = None   # третье значение каждой точки: по нему красятся точки (точки 'points'); None — цвет серии
     values_label: str = ''           # подпись третьего значения для шкалы цвета и подсказки: «Газонасыщенность, д.ед.»
+    segments: Sequence[str] | None = None   # подпись внутри каждого сегмента столбца (число скважин); узкий сегмент — выноска или точка, см. ``Chart.callouts``
 
 
 @dataclass
@@ -320,6 +321,15 @@ class Stat:
 
 
 @dataclass
+class ChartTable:
+    """Таблица под графиком: строка на ряд (цвет — цвет ряда), столбец на категорию оси X."""
+    rows: list[str]
+    columns: list[str]
+    cells: list[list[str]]           # cells[строка][столбец]
+    colors: list[str] = field(default_factory=list)   # цвет подписи строки; пусто — без цвета
+
+
+@dataclass
 class Chart:
     id: str
     title: str
@@ -333,6 +343,8 @@ class Chart:
     y5: Axis | None = None           # пятая шкала справа, снаружи от y4 (требует y4)
     style: dict[str, Any] = field(default_factory=dict)   # ручное оформление графика (atlas/chart_style.py): заголовок, легенда, сетка, фон
     events: list[Event] = field(default_factory=list)   # отметки: дата на оси времени, число на числовой оси (накопленный объём)
+    callouts: Literal['box', 'dot'] = 'box'   # узкие сегменты столбцов с ``Series.segments``: 'box' — выноска в рамке цвета ряда, 'dot' — точка (числа в ``table``)
+    table: ChartTable | None = None  # таблица под графиком (экран и экспорт)
 
     def right_axes(self) -> list[tuple[str, Axis]]:
         """Правые шкалы по порядку от графика наружу: [('y2', ...), ('y3', ...), ...]; идут подряд, без пропусков."""
@@ -567,4 +579,5 @@ def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
             'y4': asdict(c.y4) if c.y4 else None, 'y5': asdict(c.y5) if c.y5 else None,
             'series': [_series_json(s, kept.get(i)) for i, s in enumerate(c.series)],
             'events': [{'x': _event_x(e.x), 'label': e.label, 'kind': e.kind,
-                        'well': e.well} for e in c.events]}
+                        'well': e.well} for e in c.events],
+            'callouts': c.callouts, 'table': asdict(c.table) if c.table else None}

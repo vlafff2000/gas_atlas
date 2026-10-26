@@ -333,6 +333,8 @@ PRESSURE_SOURCES = (Option('auto', 'Авто: столбец «Давление 
                     Option('object', 'Столбец «Давление объекта» из БД'),
                     Option('grid', 'Опорная сетка: реагирование, давление (пересчёт)'),
                     Option('match', 'Опорная сетка: кроссплот, факт'))
+CLASS_CHARTS = (Option('none', 'Только таблица классов (номера скважин)'), Option('box', 'График: узкие сегменты — выноска в рамке'),
+                Option('dot', 'График: узкие сегменты — точка, числа в таблице под графиком'))
 SIDES = (Option('fund', 'Фонд и работавшие скважины'), Option('none', 'Нет'),
          *(o for o in VIEWS if o.value != 'canvas'))
 
@@ -353,6 +355,9 @@ class AuthorReportModule(Module):
                   empty='ничего', section='Выбор данных'),
             Param('view', 'График', 'choice', default='canvas', section='Вид', chart_kind=True, options=VIEWS),
             Param('side', 'Правый график', 'choice', default='fund', section='Вид', chart_kind=True, options=SIDES),
+            Param('class_chart', 'Классы производительности (табл. 1.5)', 'choice', default='none', section='Вид', chart_kind=True,
+                  options=CLASS_CHARTS, help='Только для отбора. Добавляет таблицу «Количество скважин по классам производительности» и график к ней: '
+                  'столбики — доли классов по группам, числа скважин внутри сегментов, узкие сегменты — выноской или точкой с таблицей под графиком.'),
             Param('pressure_source', 'Давление объекта', 'choice', default='auto', section='Выбор данных',
                   options=PRESSURE_SOURCES, help='Откуда берётся Рпл объекта и динамика по группам. «Авто» — столбец БД, иначе опорная сетка.'),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
@@ -407,7 +412,7 @@ class AuthorReportModule(Module):
         if not periods:
             result.notes.append(Note('Выберите сезон: в проекте нет данных для выбранного режима.'))
         summaries, means = [], []
-        fund, classes, wet = [], [], []
+        fund, classes, wet, counts = [], [], [], []
         if PLAN not in data:
             result.notes.append(Note('План по группам не загружен: график «План и факт по группам» пропущен.', 'warning'))
         if kind == 'withdrawal' and WATER not in data:
@@ -421,7 +426,7 @@ class AuthorReportModule(Module):
             means.append(table.assign(period_season=period))
             result.summary += [Stat(f'Длительность · {period}', f'{summary["days"]} сут', 'Календарные сутки с расходом'),
                                Stat(f'Средний расход · {period}', f'{summary["mean"]:.1f} {Q_UNIT}'.replace('.', ','))]
-            self.fund_details(result, data, kind, period, summary, fund, classes, wet)
+            self.fund_details(result, data, kind, period, summary, fund, classes, wet, counts, params.get('class_chart') or 'none')
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
             group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'])
             if group_pressure is not None:
@@ -439,6 +444,8 @@ class AuthorReportModule(Module):
             result.tables.append(self.fund_table_report(fund))
         if classes:
             result.tables.append(self.class_table_report(classes))
+        if counts:
+            result.tables.append(self.class_counts_report(counts))
         if wet:
             result.tables.append(self.wet_table_report(wet))
         result.notes.append(Note(NOTE))
@@ -620,7 +627,8 @@ class AuthorReportModule(Module):
                                        f'На конец сезона {stop_p:.1f}, на начало {start_p:.1f}'.replace('.', ',')))
 
     def fund_details(self, result: Result, data: Data, kind: str, period: str, summary: dict[str, Any],
-                     fund: list[pd.DataFrame], classes: list[pd.DataFrame], wet: list[pd.DataFrame]) -> None:
+                     fund: list[pd.DataFrame], classes: list[pd.DataFrame], wet: list[pd.DataFrame],
+                     counts: list[pd.DataFrame], class_chart: str = 'none') -> None:
         """Фонд сезона: табл. 1.4 и 1.5, а для отбора — табл. 1.6 по воде и сводка по воде для текста."""
         wells = an_wells.season_wells(data[PRODUCTION], kind, period)
         scopes = well_scopes(data.mapping, ordered(wells.well))
@@ -629,6 +637,12 @@ class AuthorReportModule(Module):
         if kind != 'withdrawal':
             return                                   # закачка: классы — табл. 2.3 (injection_class_table)
         classes.append(an_wells.class_table(wells, scopes).assign(season=period))
+        if class_chart != 'none':
+            by_class = an_wells.class_counts(wells, scopes)
+            counts.append(by_class.assign(season=period))
+            chart = an_charts.class_share_chart(kind, period, by_class, class_chart)
+            if chart is not None:
+                result.charts.append(chart)
         by_well = an_wells.water_by_well(data[WATER] if WATER in data else None, wells, scopes,
                                          summary['start'], summary['stop'])
         if by_well is None:
@@ -720,6 +734,15 @@ class AuthorReportModule(Module):
                    Column('high', f'Расход {an_wells.LOW_LIMIT} тыс. м³/сут и более, скв. (номера)')]
         return Table('an-fund-classes', 'Классы производительности скважин', frame, columns,
                      note='Расход — средний за сутки с расходом, тыс. м³/сут. Номера скважин — в скобках.')
+
+    @staticmethod
+    def class_counts_report(parts: list[pd.DataFrame]) -> Table:
+        frame = pd.concat(parts, ignore_index=True)[['season', 'group', *an_wells.CLASS_KEYS]]
+        columns = [Column('season', 'Сезон'), Column('group', 'Группа')]
+        columns += [Column(key, name if name == '0' else f'{name}, тыс. м³/сут', decimals=0, kind='number')
+                    for key, name in zip(an_wells.CLASS_KEYS, an_wells.CLASS_NAMES)]
+        return Table('an-fund-class-counts', 'Количество скважин с различной производительностью', frame, columns,
+                     note='Расход — средний за сутки с расходом, тыс. м³/сут; граница класса относится к верхнему. Класс «0» — скважины без суток с расходом.')
 
     @staticmethod
     def wet_table_report(parts: list[pd.DataFrame]) -> Table:

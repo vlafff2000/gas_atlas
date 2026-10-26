@@ -172,6 +172,44 @@ def style_meta(chart: Chart) -> dict:
     return {'chart': dict(chart.style), 'axes': axes}
 
 
+NARROW = 5      # сегмент стопки уже 5 % высоты: число не помещается внутрь (как на экране, ChartView.tsx)
+
+
+def segment_marks(fig, chart: Chart, palette: dict) -> None:
+    """Узкие сегменты стопки с подписями: выноска в рамке цвета ряда (по очереди вправо и влево) или точка; таблица под графиком."""
+    import plotly.graph_objects as go
+    bars = [s for s in chart.series if s.kind == 'bar' and s.segments is not None]
+    if not bars:
+        return
+    below = np.zeros(len(bars[0].x))
+    used = [0] * len(bars[0].x)
+    for s in bars:
+        color = (s.look or {}).get('color') or (series_color(s.color) if s.color else palette[s.group or s.name])
+        for j, (x, y, text) in enumerate(zip(s.x, s.y, s.segments)):
+            y = 0.0 if y is None else float(y)
+            middle = below[j] + y / 2
+            below[j] += y
+            if not text or y >= NARROW:
+                continue
+            if chart.callouts == 'dot':
+                fig.add_annotation(x=x, y=middle, text='●', showarrow=False, font={'size': 9, 'color': '#111'})
+                continue
+            side = 1 if used[j] % 2 == 0 else -1
+            used[j] += 1
+            fig.add_annotation(x=x, y=middle, text=text, showarrow=True, ax=side * 44, ay=0, axref='pixel', ayref='pixel', arrowhead=0,
+                               arrowwidth=0.8, arrowcolor='#888', bordercolor=color, borderwidth=1.5, borderpad=2, bgcolor='white',
+                               font={'size': 12, 'color': '#111'})
+    if chart.table is not None:
+        t = chart.table
+        colors = [(s.look or {}).get('color') or (series_color(s.color) if s.color else palette[s.group or s.name]) for s in bars]
+        fig.add_trace(go.Table(domain={'x': [0.0, 1.0], 'y': [0.0, 0.36]}, columnwidth=[2.4] + [1] * len(t.columns),
+                               header={'values': [''] + list(t.columns), 'fill_color': 'white', 'align': 'center', 'font': {'size': 12}},
+                               cells={'values': [list(t.rows)] + [[row[j] for row in t.cells] for j in range(len(t.columns))],
+                                      'fill_color': [colors] + [['white'] * len(t.rows)] * len(t.columns), 'align': ['left'] + ['center'] * len(t.columns),
+                                      'font': {'size': 12}, 'height': 22}))
+        fig.update_layout(yaxis={'domain': [0.42, 1.0]}, height=720)
+
+
 def to_plotly(chart: Chart):
     import plotly.graph_objects as go
     palette = group_colors(chart)
@@ -196,8 +234,13 @@ def to_plotly(chart: Chart):
             if combo:       # конструктор: столбцы на своей оси, рядом или стопкой по имени, дата остаётся датой
                 extra = dict(yaxis=s.axis, offsetgroup=s.stack or f'bar{n}', opacity=look.get('opacity'),
                              meta={'combo': True, 'stack': s.stack, **extra.get('meta', {})})
+            if s.segments is not None:       # стопка с числами внутри сегментов: узкие — выноской или точкой (``segment_marks``)
+                wide = [t if (y is not None and y >= NARROW) else '' for t, y in zip(s.segments, s.y)]
+                extra.update(text=wide, textposition='inside', insidetextanchor='middle', textfont={'size': 13},
+                             marker={'color': color, 'line': {'color': '#222', 'width': 0.4}})
+                extra.pop('marker_color', None)
             fig.add_trace(go.Bar(x=list(s.x) if stacked_bars or combo else [str(v) for v in s.x], y=list(s.y), name=s.name,
-                                 showlegend=s.legend, marker_color=color, **extra))
+                                 showlegend=s.legend, **({} if 'marker' in extra else {'marker_color': color}), **extra))
         elif s.kind == 'line':
             dash = LOOK_DASH.get(look.get('dash', ''), s.dash or ('dash' if s.dashed else 'solid'))
             shown = look.get('line', True)
@@ -243,6 +286,7 @@ def to_plotly(chart: Chart):
                 scale_title = scale_title if scale_title is not None else s.values_label
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='markers', name=s.name, showlegend=s.legend,
                                      yaxis=s.axis, meta=look_meta(look), opacity=s.opacity, marker=marker))
+    segment_marks(fig, chart, palette)
     module = chart.id.split('-', 1)[0]
     meta: dict = {'module': module}
     if chart.id.startswith('builder') or chart.style or any(a.style for a in (chart.x, chart.y, *(a for _, a in chart.right_axes()))):

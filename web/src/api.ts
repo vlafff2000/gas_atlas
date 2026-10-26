@@ -97,15 +97,19 @@ export interface Series {
   captions?: string[] | null                // текст над каждой точкой (подписи причин отсутствия замеров)
   values?: (number | null)[] | null         // третье значение точки: по нему красятся точки (шкала цвета справа)
   values_label?: string
+  segments?: string[] | null                // подпись внутри каждого сегмента столбца стопки (число скважин)
   look?: Look                              // личный вид ряда из окна «Настройка» (только на клиенте)
 }
 /** Точки серии в видимом окне оси X (ответ /window): `window` — сколько их в окне до прореживания. */
 export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'values' | 'total'> & { window: number }
 export interface WindowReply { chart: string; revision: number; series: Record<string, WindowSeries> }
 export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'peak' | 'other'; well: string }
+export interface ChartTable { rows: string[]; columns: string[]; cells: string[][]; colors: string[] }
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean
   events?: ChartEvent[]
+  callouts?: 'box' | 'dot'                  // узкие сегменты с подписью: выноска в рамке или точка (числа — в table)
+  table?: ChartTable | null                 // таблица под графиком
   style?: ChartStyle
 }
 export interface Stat { label: string; value: string; hint: string }
