@@ -21,11 +21,20 @@ P_UNIT = 'кгс/см²'
 Q_UNIT = 'тыс. м³/сут'
 SECTION_DATA, SECTION_CALC, SECTION_MANUAL = 'Выбор данных', 'Расчёт', 'Вручную'
 END_WINDOW_DAYS = 3        # максимум в последние дни сезона — подсказка «проверьте границу»
+AFTER_END_DAYS = 4         # давление на конец закачки: замер в первые 4 суток после её окончания
 NOTE = ('Сезоны закачки; объём и темп — по суткам с расходом, как в «Сезонных показателях». Давление — абсолютное. '
         'Подсказки: границы сезона — из проекта («Настройки → Расписание периодов» или автоопределение); максимум — наибольший '
-        'замер внутри сезона; конец закачки — ближайший замер не позже 30 суток. Всё это можно поправить в параметре «Вручную».')
+        'замер внутри сезона; давление на конец закачки — замер на ближайшую дату после её окончания (1–4 сут), иначе ближайший '
+        'замер в пределах 30 суток. Всё это можно поправить в параметре «Вручную».')
 MANUAL_HELP = ('JSON по сезонам, ключ — название сезона: {"2023": {"start": "2023-04-01", "end": "2023-10-18", '
-               '"max_date": "2023-10-12", "last_from": "2023-09-19"}}. Можно задать любые из четырёх полей; остальное — автоматически.')
+               '"max_date": "2023-10-12", "last_from": "2023-09-19", "fit": false}}. Можно задать любые поля; остальное — '
+               'автоматически. "fit": false — не брать сезон в связь «давление — темп».')
+HOLD_COLUMNS = [Column('period', 'Сезон'), Column('pmax', 'Максимум давления', P_UNIT, 1, 'number'),
+                Column('mean_season', 'Фактический темп сезона', Q_UNIT, 1, 'number'),
+                Column('last_mean', 'Фактический темп последнего месяца', Q_UNIT, 1, 'number'),
+                Column('rate_req', 'Темп, нужный для удержания максимума', Q_UNIT, 1, 'number'),
+                Column('gap_last', 'Нужный темп минус темп последнего месяца', Q_UNIT, 1, 'number'),
+                Column('in_fit', 'В связи «давление — темп»')]
 COLUMNS = [Column('period', 'Сезон'), Column('start', 'Начало', kind='date'), Column('end', 'Конец', kind='date'),
            Column('max_date', 'Дата максимума', kind='date'), Column('pmax', 'Максимум давления', P_UNIT, 1, 'number'),
            Column('p_end', 'Давление на конец закачки', P_UNIT, 1, 'number'),
@@ -78,9 +87,8 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
                 basis.append('максимум у конца сезона: проверьте, не обрезана ли закачка')
     else:
         max_date, pmax = None, None
-    p_end = pressure_near(pressure, end) if pressure is not None else None
-    if pressure is not None and p_end is None:
-        basis.append('давления на конец нет в пределах 30 сут')
+    p_end, end_basis = _pressure_at_end(pressure, end)
+    basis.append(end_basis)
     last_from = _date(entry, 'last_from', row.period, end - pd.Timedelta(days=last_days - 1))
     if entry.get('last_from'):
         basis.append('окно последнего месяца: вручную')
@@ -92,9 +100,40 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
         'fall': (pmax - p_end) if pmax is not None and p_end is not None else np.nan,
         'since_max': (end - max_date).days if max_date is not None else np.nan,
         'volume': float(flow.sum()) / 1e6, 'last_volume': float(last.sum()) / 1e6, 'last_mean': mean_last,
-        'last_share': mean_last / mean_season * 100.0 if mean_season else np.nan,
+        'last_share': mean_last / mean_season * 100.0 if mean_season else np.nan, 'mean_season': mean_season,
         'basis': '; '.join(basis), 'daily': daily, 'press': press, 'last_from': last_from,
+        'in_fit': entry.get('fit', True) is not False,
     }
+
+
+def _pressure_at_end(pressure: pd.DataFrame | None, end: pd.Timestamp) -> tuple[float | None, str]:
+    """Давление на конец закачки: замер на ближайшую дату после её окончания (до AFTER_END_DAYS суток), иначе ближайший в пределах 30 сут."""
+    if pressure is None or pressure.empty:
+        return None, 'давления нет'
+    valid = pressure.dropna(subset=['pressure'])
+    after = valid[valid.date.between(end, end + pd.Timedelta(days=AFTER_END_DAYS))].sort_values('date')
+    if not after.empty:
+        top = after.iloc[0]
+        return float(top.pressure), f'давление на конец: замер {top.date:%d.%m.%Y}, через {(top.date - end).days} сут после конца'
+    value = pressure_near(pressure, end)
+    if value is None:
+        return None, f'давления на конец нет: замеров в {AFTER_END_DAYS} сут после конца нет, в пределах 30 сут тоже'
+    return value, f'давление на конец: замеров в {AFTER_END_DAYS} сут после конца нет, взят ближайший в пределах 30 сут'
+
+
+def _hold_fit(rows: list[dict[str, Any]]) -> dict[str, float] | None:
+    """Линейная связь максимума давления с средним темпом сезона: pmax = intercept + slope × темп. None — данных мало или темп не менялся."""
+    pts = [r for r in rows if r['in_fit'] and not pd.isna(r['pmax']) and not pd.isna(r['mean_season'])]
+    if len(pts) < 2:
+        return None
+    x = np.array([r['mean_season'] for r in pts], float)
+    y = np.array([r['pmax'] for r in pts], float)
+    if np.ptp(x) == 0:
+        return None
+    slope, intercept = np.polyfit(x, y, 1)
+    ss_tot = float(((y - y.mean()) ** 2).sum())
+    r2 = 1.0 - float(((y - (intercept + slope * x)) ** 2).sum()) / ss_tot if ss_tot else np.nan
+    return {'slope': float(slope), 'intercept': float(intercept), 'r2': r2, 'n': len(pts), 'x_min': float(x.min()), 'x_max': float(x.max())}
 
 
 class InjectionDeclineModule(Module):
@@ -150,9 +189,23 @@ class InjectionDeclineModule(Module):
         result.notes.append(Note(NOTE))
         rows = [_season(df, r, pressure, int(params.get('last_days') or 30), params.get('manual'))
                 for r in seasons.itertuples()]
-        result.summary = self.summary(rows)
+        fit = _hold_fit(rows)
+        for r in rows:
+            usable = fit is not None and fit['slope'] > 0 and not pd.isna(r['pmax'])
+            r['rate_req'] = (r['pmax'] - fit['intercept']) / fit['slope'] if usable else np.nan
+            r['gap_last'] = r['rate_req'] - r['last_mean']
+        if fit is None:
+            result.notes.append(Note('Темп, нужный для удержания максимума, не рассчитан: нужно не меньше двух сезонов с давлением '
+                                     'и разным средним темпом закачки.', 'warning'))
+        elif fit['slope'] <= 0:
+            result.notes.append(Note('Темп, нужный для удержания максимума, не рассчитан: по сезонам связь давления с темпом '
+                                     'не положительная — выше темп не дал более высокого максимума.', 'warning'))
+        result.summary = self.summary(rows) + self.fit_summary(fit)
         result.charts += self.charts(rows, int(params.get('tail_days') or 45), pressure is not None)
         result.tables.append(self.table(rows))
+        if fit is not None and fit['slope'] > 0:
+            result.charts.append(self.hold_chart(rows, fit))
+            result.tables.append(self.hold_table(rows))
         for r in rows:
             if 'проверьте' in r['basis']:
                 result.notes.append(Note(f'Сезон {r["period"]}: {r["basis"]}.', 'warning'))
@@ -168,6 +221,36 @@ class InjectionDeclineModule(Module):
         if shares:
             out.append(Stat('Темп последнего месяца', f'{np.mean(shares):.0f} % от среднего', 'среднее по сезонам'))
         return out
+
+    @staticmethod
+    def fit_summary(fit: dict[str, float] | None) -> list[Stat]:
+        if fit is None or fit['slope'] <= 0:
+            return []
+        return [Stat('Связь давления и темпа', f'+{fit["slope"]:.2f} {P_UNIT} на 1 {Q_UNIT}',
+                     f'по {fit["n"]} сезонам, R² = {fit["r2"]:.2f}; оценка по малой выборке')]
+
+    @staticmethod
+    def hold_chart(rows: list[dict[str, Any]], fit: dict[str, float]) -> Chart:
+        """Максимум давления против среднего темпа сезона и прямая связи: по ней читается темп, нужный для удержания максимума."""
+        pts = [r for r in rows if r['in_fit'] and not pd.isna(r['pmax']) and not pd.isna(r['mean_season'])]
+        chart = Chart('decline-hold', 'Максимум давления и темп закачки, нужный для его удержания',
+                      Axis('Средний темп закачки сезона', Q_UNIT, from_zero=True), Axis('Максимум давления', P_UNIT))
+        xs = [fit['x_min'], fit['x_max']]
+        chart.series.append(Series('Связь давления и темпа', xs, [fit['intercept'] + fit['slope'] * x for x in xs], 'line',
+                                   group='fit', dashed=True, labels=['прямая связи', 'прямая связи']))
+        chart.series.append(Series('Сезоны', [r['mean_season'] for r in pts], [r['pmax'] for r in pts], 'points', group='seasons',
+                                   labels=[f'сезон {r["period"]}: темп {r["mean_season"]:.0f}, максимум {r["pmax"]:.1f}' for r in pts]))
+        return chart
+
+    @staticmethod
+    def hold_table(rows: list[dict[str, Any]]) -> Table:
+        frame = pd.DataFrame(rows)[[c.key for c in HOLD_COLUMNS]].assign(
+            in_fit=lambda f: f.in_fit.map({True: 'да', False: 'нет'}))
+        return Table('decline-hold-rate', 'Темп закачки, нужный для удержания максимума давления', frame, HOLD_COLUMNS,
+                     note='Прямая: максимум давления = a + b × средний темп сезона (по сезонам с отметкой «да»). Нужный темп = '
+                          '(максимум − a) / b: сколько нужно закачивать, чтобы давление держалось на уровне своего максимума. '
+                          'Отрицательная разница — темп последнего месяца уже выше нужного. Выборка мала: оценка ориентировочная; '
+                          'исключить сезон можно параметром «Вручную» (fit: false).')
 
     @staticmethod
     def charts(rows: list[dict[str, Any]], tail_days: int, has_pressure: bool) -> list[Chart]:
