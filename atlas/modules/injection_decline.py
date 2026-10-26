@@ -27,8 +27,16 @@ NOTE = ('Сезоны закачки; объём и темп — по сутка
         'замер внутри сезона; давление на конец закачки — замер на ближайшую дату после её окончания (1–4 сут), иначе ближайший '
         'замер в пределах 30 суток. Всё это можно поправить в параметре «Вручную».')
 MANUAL_HELP = ('JSON по сезонам, ключ — название сезона: {"2023": {"start": "2023-04-01", "end": "2023-10-18", '
-               '"max_date": "2023-10-12", "last_from": "2023-09-19", "fit": false}}. Можно задать любые поля; остальное — '
-               'автоматически. "fit": false — не брать сезон в связь «давление — темп».')
+               '"max_date": "2023-10-12", "last_from": "2023-09-19", "w_start": "2023-11-05", "fit": false}}. Можно задать любые '
+               'поля; остальное — автоматически. "w_start" — первый день следующего отбора; "fit": false — не брать сезон в связь.')
+NEUTRAL_COLUMNS = [Column('period', 'Сезон закачки'), Column('end', 'Конец закачки', kind='date'),
+                   Column('w_start', 'Начало следующего отбора', kind='date'),
+                   Column('neutral_days', 'Нейтральный период, сут', kind='number'),
+                   Column('p_w', 'Давление до первого дня отбора', P_UNIT, 1, 'number'),
+                   Column('p_w_date', 'Дата замера до отбора', kind='date'),
+                   Column('fall_neutral', 'Падение за нейтральный период (от конца закачки)', P_UNIT, 1, 'number'),
+                   Column('fall_w_max', 'Падение от максимума до отбора', P_UNIT, 1, 'number'),
+                   Column('basis', 'Основание')]
 HOLD_COLUMNS = [Column('period', 'Сезон'), Column('pmax', 'Максимум давления', P_UNIT, 1, 'number'),
                 Column('mean_season', 'Фактический темп сезона', Q_UNIT, 1, 'number'),
                 Column('last_mean', 'Фактический темп последнего месяца', Q_UNIT, 1, 'number'),
@@ -63,7 +71,8 @@ def _date(entry: dict[str, Any], key: str, period: str, fallback: pd.Timestamp |
         raise ParamError(f'«Вручную»: сезон {period}, поле «{key}»: дата не распознана') from None
 
 
-def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days: int, manual: dict[str, Any] | None) -> dict[str, Any]:
+def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days: int, manual: dict[str, Any] | None,
+            withdrawal_start: pd.Timestamp | None = None) -> dict[str, Any]:
     """Один сезон закачки: суточный ряд, давление, максимум, конец закачки, окно последнего месяца и основания подсказок."""
     entry = _manual_for(manual, row.period)
     start = _date(entry, 'start', row.period, row.start)
@@ -92,6 +101,13 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
         max_date, pmax = None, None
     p_end, end_basis = _pressure_at_end(pressure, end)
     basis.append(end_basis)
+    w_start = _date(entry, 'w_start', row.period, withdrawal_start)
+    basis.append('отбор: вручную' if entry.get('w_start') else ('отбор: проект' if w_start is not None else 'следующий отбор не найден'))
+    p_w, p_w_date, w_note = _before_withdrawal(pressure, end, w_start)
+    if w_note:
+        basis.append(w_note)
+    chain = pressure[(pressure.date >= start) & (pressure.date < w_start)].dropna(subset=['pressure']) \
+        if pressure is not None and w_start is not None else None
     last_from = _date(entry, 'last_from', row.period, end - pd.Timedelta(days=last_days - 1))
     if entry.get('last_from'):
         basis.append('окно последнего месяца: вручную')
@@ -106,7 +122,26 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
         'last_share': mean_last / mean_season * 100.0 if mean_season else np.nan, 'mean_season': mean_season,
         'basis': '; '.join(basis), 'daily': daily, 'press': press, 'shown': shown, 'last_from': last_from,
         'in_fit': entry.get('fit', True) is not False,
+        'w_start': w_start, 'neutral_days': (w_start - end).days if w_start is not None else np.nan,
+        'p_w': p_w, 'p_w_date': p_w_date,
+        'fall_neutral': (p_end - p_w) if p_end is not None and p_w is not None else np.nan,
+        'fall_w_max': (pmax - p_w) if pmax is not None and p_w is not None else np.nan, 'chain': chain,
     }
+
+
+def _before_withdrawal(pressure: pd.DataFrame | None, end: pd.Timestamp, w_start: pd.Timestamp | None) -> tuple[float | None, pd.Timestamp | None, str]:
+    """Последний замер до первого дня отбора — давление, взятое в нейтральном периоде; основание — дата и предупреждение, если замера в нём нет."""
+    if pressure is None or pressure.empty or w_start is None:
+        return None, None, ''
+    before = pressure.dropna(subset=['pressure'])
+    before = before[before.date < w_start].sort_values('date')
+    if before.empty:
+        return None, None, 'замеров до отбора нет'
+    top = before.iloc[-1]
+    note = f'давление до отбора: замер {top.date:%d.%m.%Y}'
+    if top.date < end:
+        note += ' (до конца закачки: в нейтральном периоде замеров нет)'
+    return float(top.pressure), top.date, note
 
 
 def _pressure_at_end(pressure: pd.DataFrame | None, end: pd.Timestamp) -> tuple[float | None, str]:
@@ -193,8 +228,13 @@ class InjectionDeclineModule(Module):
         else:
             result.notes.append(Note(f'Давление: {label}.'))
         result.notes.append(Note(NOTE))
-        rows = [_season(df, r, pressure, int(params.get('last_days') or 30), params.get('manual'))
-                for r in seasons.itertuples()]
+        withdrawals = S.season_table(df, ref, S.SOURCE_AUTO)
+        withdrawals = withdrawals[withdrawals.kind.eq('withdrawal')].sort_values('start')
+        rows = []
+        for r in seasons.itertuples():
+            following = withdrawals[withdrawals.start > r.end]
+            nxt = following.start.iloc[0] if len(following) else None
+            rows.append(_season(df, r, pressure, int(params.get('last_days') or 30), params.get('manual'), nxt))
         fit = _hold_fit(rows)
         for r in rows:
             usable = fit is not None and fit['slope'] > 0 and not pd.isna(r['pmax'])
@@ -209,6 +249,10 @@ class InjectionDeclineModule(Module):
         result.summary = self.summary(rows) + self.fit_summary(fit)
         result.charts += self.charts(rows, int(params.get('tail_days') or 45), pressure is not None, params.get('x_mode') or 'start')
         result.tables.append(self.table(rows))
+        if any(r['w_start'] is not None for r in rows):
+            result.tables.append(self.neutral_table(rows))
+        if pressure is not None and any(r['chain'] is not None and not r['chain'].empty for r in rows):
+            result.charts.insert(0, self.neutral_chart(rows))
         if fit is not None and fit['slope'] > 0:
             result.charts.append(self.hold_chart(rows, fit))
             result.tables.append(self.hold_table(rows))
@@ -320,6 +364,38 @@ class InjectionDeclineModule(Module):
                                          labels=[f'сезон {r["period"]}: темп {r["last_mean"]:.0f}, спад {r["fall"]:.1f}' for r in pts]))
             out.append(scatter)
         return out
+
+    @staticmethod
+    def neutral_chart(rows: list[dict[str, Any]]) -> Chart:
+        """Давление от начала закачки до первого дня следующего отбора: маркер начала закачки, пунктирная вертикаль начала отбора."""
+        chart = Chart('decline-neutral', 'Нейтральный период: давление от начала закачки до первого дня отбора',
+                      Axis('Сутки с начала закачки', 'сут', from_zero=True), Axis('Давление', P_UNIT))
+        rows = [r for r in rows if r['chain'] is not None and not r['chain'].empty]
+        lo = min(float(r['chain'].pressure.min()) for r in rows)
+        hi = max(float(r['chain'].pressure.max()) for r in rows)
+        for r in rows:
+            c, start = r['chain'], r['start']
+            x = (c.date - start).dt.days.to_numpy(float)
+            chart.series.append(Series(f'сезон {r["period"]}', x, c.pressure.to_numpy(float), 'line', group=r['period'], markers=True,
+                                       labels=[d.strftime('%d.%m.%Y') for d in c.date]))
+            chart.series.append(Series(f'начало закачки {r["period"]}', [0.0], [float(c.pressure.iloc[0])], 'points', group=r['period'],
+                                       symbol='square', legend=False, labels=[f'Начало закачки {start:%d.%m.%Y}']))
+            wx = float((r['w_start'] - start).days)
+            chart.series.append(Series(f'начало отбора {r["period"]}', [wx, wx], [lo, hi], 'line', group=r['period'], dashed=True,
+                                       legend=False, labels=[f'Начало отбора {r["w_start"]:%d.%m.%Y}, нейтральный период {r["neutral_days"]} сут'] * 2))
+            if r['p_w'] is not None:
+                chart.series.append(Series(f'до отбора {r["period"]}', [float((r['p_w_date'] - start).days)], [r['p_w']], 'points',
+                                           group=r['period'], symbol='diamond', legend=False,
+                                           labels=[f'Давление до отбора {r["p_w_date"]:%d.%m.%Y}: {r["p_w"]:.1f}']))
+        return chart
+
+    @staticmethod
+    def neutral_table(rows: list[dict[str, Any]]) -> Table:
+        frame = pd.DataFrame([r for r in rows if r['w_start'] is not None])[[c.key for c in NEUTRAL_COLUMNS]]
+        return Table('decline-neutral-table', 'Нейтральный период и падение давления до отбора', frame, NEUTRAL_COLUMNS,
+                     note='Нейтральный период — календарные сутки от конца закачки до первого дня следующего отбора. Давление до отбора — '
+                          'последний замер до первого дня отбора; если он раньше конца закачки, в основании это указано. Падение — '
+                          'разность с давлением на конец закачки и с максимумом.')
 
     @staticmethod
     def table(rows: list[dict[str, Any]]) -> Table:

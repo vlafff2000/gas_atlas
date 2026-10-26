@@ -131,3 +131,20 @@ def test_overlay_marks_end_of_each_season():
     assert 'конец 2022' not in [x.name for x in by_end.series]
     line = [x for x in by_end.series if x.name == 'сезон 2022'][0]
     assert -4.0 in list(line.x) and 2.0 in list(line.x)                  # 25 июня — за 4 сут до конца, 1 июля — через 2 сут после
+
+
+def test_neutral_period_pressure_before_withdrawal():
+    pres = pd.concat([pressure(), pd.DataFrame({'date': [pd.Timestamp('2022-07-01')], 'pressure': [108.0]})], ignore_index=True)
+    result = run(pres=pres)
+    row = [t for t in result.tables if t.id == 'decline-neutral-table'][0].frame.set_index('period').loc['2022']
+    assert row.w_start == pd.Timestamp('2022-08-01') and row.neutral_days == 33   # 29.06 → 01.08 (календарные сутки)
+    assert row.p_w == pytest.approx(108.0) and row.p_w_date == pd.Timestamp('2022-07-01')
+    assert row.fall_w_max == pytest.approx(3.0)
+    assert result.charts[0].id == 'decline-neutral'                              # новый график — первым
+    assert 'начало отбора 2022' in [x.name for x in result.charts[0].series]
+
+
+def test_neutral_flags_pressure_taken_before_end():
+    row = [t for t in run().tables if t.id == 'decline-neutral-table'][0].frame.set_index('period').loc['2022']
+    assert row.p_w == pytest.approx(111.0) and 'нейтральном периоде замеров нет' in row.basis
+    assert list([t for t in run().tables if t.id == 'decline-neutral-table'][0].frame.period) == ['2022']  # после 2023 отбора нет
