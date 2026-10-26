@@ -117,3 +117,17 @@ def test_post_end_pressure_is_shown_but_not_used_for_max():
     line = [x for x in overlay.series if x.name == 'сезон 2022'][0]
     assert 61 in list(line.x) and 108.0 in list(line.y)          # 1 июля = 61-е сутки от 1 мая, замер после конца виден на графике
     assert table(result).loc['2022'].pmax == pytest.approx(111.0)  # максимум по-прежнему только внутри сезона
+
+
+def test_overlay_marks_end_of_each_season():
+    result = run()
+    overlay = [c for c in result.charts if c.id == 'decline-overlay'][0]
+    names = [x.name for x in overlay.series]
+    assert 'конец 2022' in names and 'на конец 2022' in names          # по умолчанию — от начала, конец отмечен
+    end_line = [x for x in overlay.series if x.name == 'конец 2022'][0]
+    assert list(end_line.x) == [59.0, 59.0]                              # 1 мая → 29 июня
+    pres = pd.concat([pressure(), pd.DataFrame({'date': [pd.Timestamp('2022-07-01')], 'pressure': [108.0]})], ignore_index=True)
+    by_end = [c for c in run({'x_mode': 'end'}, pres=pres).charts if c.id == 'decline-overlay'][0]
+    assert 'конец 2022' not in [x.name for x in by_end.series]
+    line = [x for x in by_end.series if x.name == 'сезон 2022'][0]
+    assert -4.0 in list(line.x) and 2.0 in list(line.x)                  # 25 июня — за 4 сут до конца, 1 июля — через 2 сут после

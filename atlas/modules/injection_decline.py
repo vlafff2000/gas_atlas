@@ -19,7 +19,7 @@ from .an_report import object_pressure_of, pressure_near
 
 P_UNIT = 'кгс/см²'
 Q_UNIT = 'тыс. м³/сут'
-SECTION_DATA, SECTION_CALC, SECTION_MANUAL = 'Выбор данных', 'Расчёт', 'Вручную'
+SECTION_DATA, SECTION_CALC, SECTION_VIEW, SECTION_MANUAL = 'Выбор данных', 'Расчёт', 'Вид', 'Вручную'
 END_WINDOW_DAYS = 3        # максимум в последние дни сезона — подсказка «проверьте границу»
 AFTER_END_DAYS = 4         # давление на конец закачки: замер в первые 4 суток после её окончания
 NOTE = ('Сезоны закачки; объём и темп — по суткам с расходом, как в «Сезонных показателях». Давление — абсолютное. '
@@ -160,6 +160,9 @@ class InjectionDeclineModule(Module):
             Param('last_days', 'Окно последнего месяца, сут', 'integer', default=30, minimum=7, maximum=92, section=SECTION_CALC,
                   help='Последние дни сезона: за них считаются закачка и темп. Сдвинуть для отдельного сезона — «Вручную» (last_from)'),
             Param('tail_days', 'Хвост сезона на графике, сут', 'integer', default=45, minimum=14, maximum=120, section=SECTION_CALC),
+            Param('x_mode', 'Ось X на наложении', 'choice', default='start', section=SECTION_VIEW, options=(
+                Option('start', 'От начала закачки'), Option('end', 'До конца закачки (0 = конец)')),
+                help='От начала — конец каждого сезона отмечен пунктиром в цвете кривой. До конца — сезоны совпадают по концу закачки'),
             Param('manual', 'Поправки по сезонам', 'json', default=None, section=SECTION_MANUAL, help=MANUAL_HELP),
         ),
     )
@@ -204,7 +207,7 @@ class InjectionDeclineModule(Module):
             result.notes.append(Note('Темп, нужный для удержания максимума, не рассчитан: по сезонам связь давления с темпом '
                                      'не положительная — выше темп не дал более высокого максимума.', 'warning'))
         result.summary = self.summary(rows) + self.fit_summary(fit)
-        result.charts += self.charts(rows, int(params.get('tail_days') or 45), pressure is not None)
+        result.charts += self.charts(rows, int(params.get('tail_days') or 45), pressure is not None, params.get('x_mode') or 'start')
         result.tables.append(self.table(rows))
         if fit is not None and fit['slope'] > 0:
             result.charts.append(self.hold_chart(rows, fit))
@@ -256,19 +259,31 @@ class InjectionDeclineModule(Module):
                           'исключить сезон можно параметром «Вручную» (fit: false).')
 
     @staticmethod
-    def charts(rows: list[dict[str, Any]], tail_days: int, has_pressure: bool) -> list[Chart]:
+    def charts(rows: list[dict[str, Any]], tail_days: int, has_pressure: bool, x_mode: str = 'start') -> list[Chart]:
         out: list[Chart] = []
         if has_pressure:
-            overlay = Chart('decline-overlay', 'Давление в сезонах закачки: наложение по дням с начала',
-                            Axis('Сутки с начала закачки', 'сут', from_zero=True), Axis('Давление', P_UNIT))
-            for r in rows:
-                if r['shown'] is None or r['shown'].empty:
-                    continue
-                x = (r['shown'].date - r['start']).dt.days.to_numpy(float)
+            by_end = x_mode == 'end'
+            overlay = Chart('decline-overlay', 'Давление в сезонах закачки: наложение ' + ('по дням до конца закачки' if by_end else 'по дням с начала'),
+                            Axis('Дней до конца закачки (0 = конец)' if by_end else 'Сутки с начала закачки', 'сут', from_zero=not by_end),
+                            Axis('Давление', P_UNIT))
+            shown = [r for r in rows if r['shown'] is not None and not r['shown'].empty]
+            lo = min((float(r['shown'].pressure.min()) for r in shown), default=0.0)
+            hi = max((float(r['shown'].pressure.max()) for r in shown), default=0.0)
+            for r in shown:
+                origin = r['end'] if by_end else r['start']
+                x = (r['shown'].date - origin).dt.days.to_numpy(float)
                 overlay.series.append(Series(f'сезон {r["period"]}', x, r['shown'].pressure.to_numpy(float), 'line', group=r['period'],
                                              markers=True, labels=[d.strftime('%d.%m.%Y') for d in r['shown'].date]))
+                if not by_end:   # конец закачки каждого сезона — пунктирная вертикаль в цвете кривой
+                    end_x = float((r['end'] - r['start']).days)
+                    overlay.series.append(Series(f'конец {r["period"]}', [end_x, end_x], [lo, hi], 'line', group=r['period'], dashed=True,
+                                                 legend=False, labels=[f'Конец закачки {r["end"]:%d.%m.%Y}'] * 2))
+                if not pd.isna(r['p_end']):   # давление на конец закачки — квадрат на оси конца
+                    overlay.series.append(Series(f'на конец {r["period"]}', [float((r['end'] - origin).days)], [r['p_end']], 'points',
+                                                 group=r['period'], symbol='square', legend=False,
+                                                 labels=[f'Давление на конец закачки {r["end"]:%d.%m.%Y}: {r["p_end"]:.1f}']))
                 if r['max_date'] is not None:
-                    overlay.series.append(Series(f'максимум {r["period"]}', [(r['max_date'] - r['start']).days], [r['pmax']], 'points',
+                    overlay.series.append(Series(f'максимум {r["period"]}', [float((r['max_date'] - origin).days)], [r['pmax']], 'points',
                                                  group=r['period'], symbol='diamond', legend=False,
                                                  labels=[f'Максимум {r["max_date"]:%d.%m.%Y}: {r["pmax"]:.1f}']))
             out.append(overlay)
