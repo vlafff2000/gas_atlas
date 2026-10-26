@@ -10,18 +10,18 @@ from atlas.engine.modules import production,gdi
 
 _PER_FRAME={}
 
-def per_frame(df,build):
-    """Данные, общие для всех скважин одной таблицы (не меняется после построения): считаются один раз, пока таблица жива."""
-    found=_PER_FRAME.get(id(df))
+def per_frame(df,build,name=''):
+    """Данные, общие для всех скважин одной таблицы (не меняется после построения): считаются один раз, пока таблица жива. name разделяет разные наборы на одной таблице."""
+    key=(id(df),name);found=_PER_FRAME.get(key)
     if found is None or found[0]() is not df:
-        key=id(df);found=(weakref.ref(df,lambda _,key=key:_PER_FRAME.pop(key,None)),build(df));_PER_FRAME[key]=found
+        found=(weakref.ref(df,lambda _,key=key:_PER_FRAME.pop(key,None)),build(df));_PER_FRAME[key]=found
     return found[1]
 
 def season_base(all_data,kind,period):
     """(строки объекта за период, даты с газом, объём объекта, суммы по группам) — одинаковы для всех скважин."""
     def build(df):
         return {'positions':df.groupby(['kind','period'],sort=False).indices,'seen':{}}
-    shared=per_frame(all_data,build);key=(kind,period)
+    shared=per_frame(all_data,build,'season');key=(kind,period)
     entry=shared['seen'].get(key)
     if entry is None:
         positions=shared['positions'].get(key)
@@ -32,7 +32,7 @@ def season_base(all_data,kind,period):
 
 def reference(all_data,kind,periods,group):
     """Дни объекта и группы за выбранные периоды (подстановка дней без записи у скважины): общие для скважин группы с теми же периодами."""
-    shared=per_frame(all_data,lambda df:{'positions':df.groupby(['kind','period'],sort=False).indices,'seen':{}})
+    shared=per_frame(all_data,lambda df:{'positions':df.groupby(['kind','period'],sort=False).indices,'seen':{}},'reference')
     refs=shared.setdefault('refs',{});key=(kind,tuple(sorted(map(str,periods))),group)
     if key in refs:return refs[key]
     parts=[shared['positions'][(kind,p)] for p in periods if (kind,p) in shared['positions']]
@@ -51,7 +51,7 @@ def reference(all_data,kind,periods,group):
 def until(original,cutoff):
     """Таблица по ``cutoff`` включительно: одна и та же для всех скважин (иначе у каждой скважины свой экземпляр и общие расчёты не работают)."""
     if cutoff is None or original.empty:return original
-    cuts=per_frame(original,lambda df:{})
+    cuts=per_frame(original,lambda df:{},'cuts')
     if cutoff not in cuts:
         if len(cuts)>=4:cuts.clear()
         cuts[cutoff]=original[original.date.le(cutoff)]
