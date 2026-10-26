@@ -13,7 +13,8 @@ import pandas as pd
 
 from atlas.engine.modules.charts import well_colors
 
-from ..contract import Axis, Chart, Series
+from ..contract import Axis, Chart, ChartTable, Series
+from . import an_wells
 
 Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
@@ -267,6 +268,29 @@ def fund_chart(kind: str, period: str, fund: pd.DataFrame) -> Chart | None:
     chart.series.append(Series('Фонд', cats, part.fund.to_numpy(float), 'bar'))
     chart.series.append(Series('Работало за сезон', cats, part.working.to_numpy(float), 'bar',
                                labels=[f'доля работавших {v:.1f} %' for v in part.percent]))
+    return chart
+
+
+def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: str = 'box') -> Chart | None:
+    """Классы производительности по группам (табл. 1.5): высота столбика — доля скважин класса в группе, число скважин — внутри сегмента.
+
+    Узкие сегменты: ``callouts='box'`` — выноска в рамке цвета класса, ``'dot'`` — точка, а числа в таблице под графиком."""
+    part = counts[~counts.group.eq(an_wells.TOTAL)]
+    if part.empty:
+        return None
+    part = pd.concat([part, counts[counts.group.eq(an_wells.TOTAL)]])        # «Всего» — последним столбцом
+    cats = [str(g) for g in part.group]
+    size = part[list(an_wells.CLASS_KEYS)].sum(axis=1).to_numpy(float)
+    chart = Chart(f'an-class-share-{kind}-{period}', f'Классы производительности скважин по группам · {period}',
+                  Axis('Группа', scale='category', categories=cats), Axis('Доля скважин группы', '%', from_zero=True, minimum=0, maximum=100))
+    chart.callouts = 'dot' if callouts == 'dot' else 'box'
+    for key, name in zip(an_wells.CLASS_KEYS, an_wells.CLASS_NAMES):
+        n = part[key].to_numpy(int)
+        label = name if name == '0' else f'{name} тыс. м³/сут'
+        chart.series.append(Series(label, cats, np.where(size > 0, n / np.where(size > 0, size, 1) * 100, 0.0), 'bar', stack='classes',
+                                   segments=[str(v) if v else '' for v in n], labels=[f'{v} из {int(t)} скв.' for v, t in zip(n, size)]))
+    if chart.callouts == 'dot':
+        chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in an_wells.CLASS_KEYS])
     return chart
 
 

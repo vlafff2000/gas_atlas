@@ -97,6 +97,31 @@ function colorOf(chart: Chart) {
   return (s: Series) => s.look?.color ? s.look.color : s.color ? seriesColor(s.color) : p[groups.indexOf(key(s)) % p.length]
 }
 
+const NARROW = 5     // сегмент стопки уже 5 % высоты: число не помещается внутрь — выноска или точка
+
+/** Сторона выноски у узкого сегмента: в каждом столбце по очереди вправо и влево, чтобы подписи не слипались. */
+function calloutSides(chart: Chart): Map<string, 'left' | 'right'> {
+  const out = new Map<string, 'left' | 'right'>(), used = new Map<string, number>()
+  chart.series.forEach((s, i) => {
+    if (!s.segments) return
+    s.y.forEach((v, j) => {
+      if (!s.segments?.[j] || typeof v !== 'number' || v >= NARROW) return
+      const at = String(s.x[j]), n = used.get(at) ?? 0
+      used.set(at, n + 1)
+      out.set(`${i}:${j}`, n % 2 === 0 ? 'right' : 'left')
+    })
+  })
+  return out
+}
+
+/** Тёмный или белый текст на цветном сегменте. */
+function onColor(c: string, dark: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(c.trim())
+  if (!m) return dark
+  const n = parseInt(m[1], 16)
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) < 140 ? '#ffffff' : dark
+}
+
 /** Подпись значения оси: время — дата, остальное — число с точностью по размаху оси. */
 function formatter(a: Axis, span: number) {
   const decimals = decimalsFor(span)
@@ -284,7 +309,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     ...(colored.length ? { visualMap: { type: 'continuous', min: shadeLo, max: shadeHi === shadeLo ? shadeLo + 1 : shadeHi, dimension: 4, seriesIndex: colored.map(c => c.i),
       right: 4, top: 'middle', itemHeight: 150, itemWidth: 12, calculable: false, text: [`${shadeTitle}\n${shadeFmt(shadeHi)}`, shadeFmt(shadeLo)],
       inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: 11 } } } : {}),
-    grid: { left: 64, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44 },
+    grid: { left: 64, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44 },
     xAxis: axis(chart.x, 'x'),
     yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
@@ -361,6 +386,23 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         // столбцы под линиями и точками (z), у соседних рядов зазор, у стопки одна колонка
         const own = chart.id.startsWith('builder')
         const wide = chart.id.startsWith('gis-combo')   // редких замеров мало: столбцы широкие, полупрозрачные, кривая поверх
+        const share = !!s.segments                       // стопка с числами внутри сегментов (классы производительности)
+        if (share) {
+          const sides = calloutSides(chart), fontFamily = fontCss('times')
+          const si = chart.series.indexOf(s)
+          const items = rows.map((row, j) => {
+            const text = s.segments?.[j] ?? '', v = Number(s.y[j])
+            if (!text || !Number.isFinite(v)) return { value: row, label: { show: false } }
+            if (v >= NARROW) return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 12, color: onColor(c, tk.ink), formatter: text } }
+            if (chart.callouts === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 9, color: onColor(c, tk.ink), formatter: '●' } }
+            const side = sides.get(`${si}:${j}`) ?? 'right'
+            const label = { show: true, position: side, distance: 1, fontFamily, fontSize: 11,
+              formatter: side === 'right' ? `{ln|──}{bx|${text}}` : `{bx|${text}}{ln|──}`,
+              rich: { ln: { color: tk.faint, fontSize: 11 }, bx: { color: tk.ink, backgroundColor: tk.surface, borderColor: c, borderWidth: 1.5, borderRadius: 4, padding: [1, 4] } } }
+            return { value: row, label }
+          })
+          return { ...common, data: items, type: 'bar', barMaxWidth: 64, barGap: '12%', itemStyle: { color: c, borderColor: tk.ink, borderWidth: 0.4 }, emphasis: { focus: 'none', itemStyle: { color: c } } }
+        }
         return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : { barMaxWidth: 24 }), barGap: '12%',
           itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
           // подписи значений: целые, над столбиком; при тесноте ECharts прячет лишние, чтобы соседние не налезали
@@ -1409,8 +1451,25 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       </div>
       {legendEl && chart.style?.legend === 'right' && legendEl}
       </div>
+      {chart.table && <ChartTableView table={chart.table} colors={chart.series.map(colorOf(chart))} />}
       {legendEl && chart.style?.legend !== 'top' && chart.style?.legend !== 'right' && legendEl}
     </figure>
+  )
+}
+
+/** Таблица под графиком: строка на ряд (цветной маркер), столбец на категорию оси X. */
+function ChartTableView({ table, colors }: { table: NonNullable<Chart['table']>; colors: string[] }) {
+  return (
+    <div className="chart-table-wrap">
+      <table className="chart-table">
+        <thead><tr><th />{table.columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
+        <tbody>
+          {table.rows.map((r, i) => (
+            <tr key={r}><th scope="row"><i style={{ background: table.colors[i] || colors[i] }} />{r}</th>
+              {table.cells[i].map((v, j) => <td key={j}>{v}</td>)}</tr>))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

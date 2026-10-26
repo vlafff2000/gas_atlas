@@ -88,3 +88,35 @@ def test_plan_deviation_extremes_by_hand():
     assert ext['delta_max'] == 2 and ext['delta_max_group'] == 'ГСП 1'
     assert ext['delta_min'] == -3 and ext['delta_min_group'] == 'ГСП 2'
     assert ext['percent_max'] == 120 and ext['percent_min'] == 70 and ext['percent_min_group'] == 'ГСП 2'
+
+
+def test_class_counts_seven_classes_boundary_goes_up():
+    prod = production([('1', '2024-02-01', 100000), ('2', '2024-02-01', 99999), ('3', '2024-02-01', 300000), ('4', '2024-02-01', 0),
+                       ('5', '2024-02-01', 250000), ('6', '2024-02-01', 149000)])
+    mapping = {w: {'group': 'ГСП-1'} for w in '123456'}
+    scopes = an_report.well_scopes(mapping, list('123456'))
+    counts = an_wells.class_counts(an_wells.season_wells(prod, 'withdrawal', '2023-2024'), scopes).set_index('group')
+    assert counts.loc[an_wells.TOTAL, list(an_wells.CLASS_KEYS)].tolist() == [1, 1, 2, 0, 0, 1, 1]   # 0 | <100 | 100–150 (100 и 149) | … | 250–300 | >300 (300)
+    assert counts.loc['ГСП 1', list(an_wells.CLASS_KEYS)].sum() == 6
+    assert counts.loc[an_wells.TOTAL, 'zero_numbers'] == '1 (4)'
+
+
+def test_class_share_chart_percent_height_and_counts_inside():
+    from atlas.modules import an_charts
+    counts = an_wells.class_counts(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES)
+    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'dot')
+    assert chart.x.categories[-1] == an_wells.TOTAL and chart.callouts == 'dot'
+    assert [sum(s.y[j] for s in chart.series) for j in range(len(chart.x.categories))] == pytest.approx([100.0] * 3)
+    assert chart.table.cells[0] == ['0', '2', '2'] and chart.series[0].segments == ['', '2', '2']
+    assert an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'box').table is None
+
+
+def test_class_share_chart_exports_with_callouts_and_table():
+    from atlas import render
+    from atlas.modules import an_charts
+    counts = pd.DataFrame({'group': ['ГСП 1', an_wells.TOTAL], 'zero_numbers': ['0', '0'],
+                           **{k: v for k, v in zip(an_wells.CLASS_KEYS, ([0, 0], [1, 1], [0, 0], [3, 3], [0, 0], [0, 0], [40, 40]))}})
+    box = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'box'))
+    assert [a.text for a in box.layout.annotations if a.bordercolor] == ['1', '1']      # узкий сегмент (1 из 44) — выноска в рамке
+    dot = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'dot'))
+    assert any(t.type == 'table' for t in dot.data) and [a.text for a in dot.layout.annotations] == ['●', '●']
