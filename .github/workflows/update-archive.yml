@@ -2,6 +2,7 @@ name: Архив обновления ПХГ
 # Лёгкий архив (~6 МБ): программы и новые библиотеки, без Python и уже установленных библиотек. Распаковывается поверх PXG_Unified.
 # Запускается сам после push с изменениями программ в ветке gas_atlas и раз в сутки (изменения all_scripts), а также вручную.
 # Если поменялись Python или версии библиотек, сборка падает с сообщением «Нужен полный архив»: тогда запустите «Единый архив ПХГ».
+# Рядом с архивом кладётся .sha256 (контрольная сумма), а размер и sha256 пишутся в сводку запуска: по ним проверяется скачивание.
 on:
   workflow_dispatch:
   push:
@@ -65,6 +66,17 @@ jobs:
               assert need in names, need
           print(len(names), 'записей; новые библиотеки:', sum(n.startswith(site) and n.endswith('.dist-info/METADATA') for n in names))
           PYEOF
+      - name: Целостность архива и контрольная сумма (sha256, в отдельный файл рядом)
+        run: |
+          cd gas_atlas/dist
+          for f in PXG_Unified_code_update_*; do
+            case "$f" in
+              *.tar.gz) gzip -t "$f" && tar -tzf "$f" > /dev/null ;;
+              *.zip) python -m zipfile -t "$f" > /dev/null ;;
+            esac
+            sha256sum "$f" > "$f.sha256"
+            echo "- \`$f\`: $(wc -c < "$f") байт, sha256 \`$(cut -d' ' -f1 "$f.sha256")\`" >> "$GITHUB_STEP_SUMMARY"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: PXG_Unified_code_update_${{ matrix.target }}
