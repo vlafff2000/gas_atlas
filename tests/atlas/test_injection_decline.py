@@ -108,3 +108,12 @@ def test_fit_excluded_by_manual_flag_gives_note():
     result = run(manual=manual)
     assert not any(t.id == 'decline-hold-rate' for t in result.tables)
     assert any('не рассчитан' in n.text for n in result.notes)
+
+
+def test_post_end_pressure_is_shown_but_not_used_for_max():
+    pres = pd.concat([pressure(), pd.DataFrame({'date': [pd.Timestamp('2022-07-01')], 'pressure': [108.0]})], ignore_index=True)
+    result = run(pres=pres)
+    overlay = [c for c in result.charts if c.id == 'decline-overlay'][0]
+    line = [x for x in overlay.series if x.name == 'сезон 2022'][0]
+    assert 61 in list(line.x) and 108.0 in list(line.y)          # 1 июля = 61-е сутки от 1 мая, замер после конца виден на графике
+    assert table(result).loc['2022'].pmax == pytest.approx(111.0)  # максимум по-прежнему только внутри сезона

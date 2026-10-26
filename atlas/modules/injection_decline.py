@@ -71,7 +71,10 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
     daily = S._daily(df[df.kind.eq('injection') & df.period.eq(row.period)])
     daily = daily[(daily.index >= start) & (daily.index <= end)]
     flow = daily[daily > 0]
-    press = pressure[pressure.date.between(start, end)].dropna(subset=['pressure']) if pressure is not None else None
+    # Максимум — только внутри сезона; на графики идут и замеры в первые сутки после окончания закачки.
+    shown = pressure[pressure.date.between(start, end + pd.Timedelta(days=AFTER_END_DAYS))].dropna(subset=['pressure']) \
+        if pressure is not None else None
+    press = shown[shown.date <= end] if shown is not None else None
     basis = []
     basis.append('граница: вручную' if entry.get('start') or entry.get('end') else 'граница: проект')
     if press is not None and not press.empty:
@@ -101,7 +104,7 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
         'since_max': (end - max_date).days if max_date is not None else np.nan,
         'volume': float(flow.sum()) / 1e6, 'last_volume': float(last.sum()) / 1e6, 'last_mean': mean_last,
         'last_share': mean_last / mean_season * 100.0 if mean_season else np.nan, 'mean_season': mean_season,
-        'basis': '; '.join(basis), 'daily': daily, 'press': press, 'last_from': last_from,
+        'basis': '; '.join(basis), 'daily': daily, 'press': press, 'shown': shown, 'last_from': last_from,
         'in_fit': entry.get('fit', True) is not False,
     }
 
@@ -259,11 +262,11 @@ class InjectionDeclineModule(Module):
             overlay = Chart('decline-overlay', 'Давление в сезонах закачки: наложение по дням с начала',
                             Axis('Сутки с начала закачки', 'сут', from_zero=True), Axis('Давление', P_UNIT))
             for r in rows:
-                if r['press'] is None or r['press'].empty:
+                if r['shown'] is None or r['shown'].empty:
                     continue
-                x = (r['press'].date - r['start']).dt.days.to_numpy(float)
-                overlay.series.append(Series(f'сезон {r["period"]}', x, r['press'].pressure.to_numpy(float), 'line', group=r['period'],
-                                             markers=True, labels=[d.strftime('%d.%m.%Y') for d in r['press'].date]))
+                x = (r['shown'].date - r['start']).dt.days.to_numpy(float)
+                overlay.series.append(Series(f'сезон {r["period"]}', x, r['shown'].pressure.to_numpy(float), 'line', group=r['period'],
+                                             markers=True, labels=[d.strftime('%d.%m.%Y') for d in r['shown'].date]))
                 if r['max_date'] is not None:
                     overlay.series.append(Series(f'максимум {r["period"]}', [(r['max_date'] - r['start']).days], [r['pmax']], 'points',
                                                  group=r['period'], symbol='diamond', legend=False,
@@ -281,8 +284,8 @@ class InjectionDeclineModule(Module):
         tail = Chart('decline-tail', f'Последние {tail_days} сут закачки: давление и темп', Axis('Дней до конца закачки', 'сут'),
                      Axis('Давление', P_UNIT), y2=Axis('Закачка', Q_UNIT, from_zero=True))
         for r in rows:
-            if has_pressure and r['press'] is not None and not r['press'].empty:
-                p = r['press'][r['press'].date >= r['end'] - pd.Timedelta(days=tail_days - 1)]
+            if has_pressure and r['shown'] is not None and not r['shown'].empty:
+                p = r['shown'][r['shown'].date >= r['end'] - pd.Timedelta(days=tail_days - 1)]
                 if len(p):
                     tail.series.append(Series(f'сезон {r["period"]}', (p.date - r['end']).dt.days.to_numpy(float),
                                               p.pressure.to_numpy(float), 'line', group=r['period'], markers=True,
