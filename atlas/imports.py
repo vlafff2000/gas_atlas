@@ -734,6 +734,13 @@ class Imports:
         return {'message': message, 'duplicates': duplicates, 'lost_exclusions': lost,
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
+    def discard(self, pending_id: str) -> None:
+        """Забыть проверку, которую не применяем (пробная проверка без записи в проект)."""
+        with self.lock:
+            p = self.pending.get(pending_id)
+        if p:
+            self._forget(p)
+
     def _forget(self, p: dict):
         with self.lock:
             self.pending.pop(p['id'], None)

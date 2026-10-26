@@ -26,7 +26,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from .api import error
-from . import workspace_folders
+from . import folder_check, workspace_folders
+from .engine.core import ggh_import as ggh
 from .engine.core import gis_import, import_rules, tabular, water_monthly_import
 from .imports import Imports, base_book
 from .api_projects import internal_error_text
@@ -49,6 +50,7 @@ ROLES = {
     'gas': 'БД по учету газа',
     'gis': 'База ГИС (пачки, интервалы, замеры)',
     'geo': 'Положение и перфорация скважин (X, Y, альтитуды, перфорация)',
+    'ggh': 'Газогидрохимия (ГГХ)',
     'other': 'Прочее',
 }
 # Результаты Базы ПХГ (all_scripts, pxg_base): имя → роль, нормирована ли база, что это. Порядок важен: длинные раньше.
@@ -110,6 +112,7 @@ SNIFF_LIMIT = 80 * 1024 * 1024          # файлы крупнее не отк�
 _SNIFFED: dict[tuple, dict[str, Any] | None] = {}
 BASE_ROLES = (('база ЭЛПРО', 'elpro'), ('«БД по учету газа»', 'gas'), ('таблица «База ГИС»', 'gis'),
               ('файл положения', 'geo'), ('замеры воды', 'water'))
+GGH_REASON = 'лист с шапкой ГГХ: «№№ скв.» и «Дата отбора»'
 # Признаки по листам и колонкам для файлов с любым именем: (роль, название, листы, колонки хотя бы на одном листе).
 # Роль None — файл узнан, но в Атлас не грузится (отчёт или сырая база): причина всё равно показывается.
 SIGNATURES = (
@@ -156,6 +159,8 @@ def _sniff_tables(name: str, tables: dict[str, Any]) -> dict[str, Any] | None:
                 cols = ('колонки ' + ', '.join(sorted(need_cols))) if need_cols else ''
                 return {'role': role, 'reason': f'Содержимое: {label} ({"; ".join(x for x in (found, cols) if x)})'}
     special = base_book(tables, name)
+    if not special and any(_looks_ggh(raw) for raw in tables.values()):
+        return {'role': 'ggh', 'reason': 'Содержимое: ' + GGH_REASON}
     if special:
         role = next(r for label, r in BASE_ROLES if special.startswith(label))
         if role == 'gis':
@@ -174,6 +179,17 @@ def _sniff_tables(name: str, tables: dict[str, Any]) -> dict[str, Any] | None:
         module, (sheet, fields) = next(iter(found.items()))
         return {'role': MODULE_ROLES[module], 'reason': f'Содержимое: лист «{sheet}» — {import_rules.type_label(module)} ({fields})'}
     return None
+
+
+def _looks_ggh(raw: Any) -> bool:
+    """Лист ГГХ: в строке шапки скважина, дата и ещё минимум два признака пробы (газ, горизонт, состав): одной «Скважина + Дата» мало."""
+    if raw is None or raw.empty:
+        return False
+    row = ggh.find_header(raw)
+    if row is None:
+        return False
+    fields = {ggh._field(v) for v in raw.iloc[row].tolist()}
+    return len(fields - {None, 'well', 'date'}) >= 2
 
 
 def _gis_parts(tables: dict[str, Any]) -> str:
@@ -361,7 +377,7 @@ def save_manifest(raw_folder: Any, files: Any, loaded: dict[str, Any] | None = N
     return scan(str(folder), loaded)
 
 
-def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy: str) -> dict[str, Any]:
+def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy: str, rejected: str = 'skip') -> dict[str, Any]:
     """Загрузить файлы папки в проект через общий импорт (check → apply), по одному файлу.
     Файл с отклонёнными строками не грузится автоматически: он получает статус «нужно внимание» и идёт вручную."""
     folder = _folder(raw_folder)
@@ -369,6 +385,8 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
         raise ParamError('Выберите файлы для загрузки')
     if policy not in POLICIES:
         raise ParamError('Неизвестное правило повторов')
+    if rejected not in REJECTED:
+        raise ParamError('Неизвестное правило для отклонённых строк')
     project_dir = projects.store.path(pid)
     m = projects.manifest(pid)                  # проверка, что проект есть
     loads = read_loads(project_dir)
@@ -378,7 +396,7 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
     roles = {f['name']: f['role'] for f in scan(str(folder))['files']}
     try:
         for name in names:
-            results.append(_load_one(imports, pid, folder, name, names_ok, policy, loads, roles.get(name)))
+            results.append(_load_one(imports, pid, folder, name, names_ok, policy, loads, roles.get(name), rejected))
         # откат всей пачки: снимок до первого применённого файла (по нему отменяются все файлы пачки)
         batch = next((r['undo'] for r in results if r.get('undo')), '')
         for r in results:
@@ -395,6 +413,19 @@ def load_files(imports, projects, pid: str, raw_folder: Any, names: Any, policy:
             'warning': warning, 'undo': batch}
 
 
+REJECTED = ('skip', 'accept', 'keep')      # файл с отклонёнными строками: не грузить / только корректные / все, плохие исключены
+
+
+def _load_ggh(imports, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+    up = imports.upload(name, content)
+    if up['error']:
+        raise ParamError(up['error'])
+    shown = imports.ggh_inspect(pid, {'token': up['token']})
+    if not shown['ready']:
+        raise ParamError(shown['error'] or 'В файле нет данных ГГХ')
+    return imports.ggh_apply(pid, {'pending': shown['ready']['id'], 'mode': 'merge'})
+
+
 def _monthly_water(name: str, path: Path) -> bool:
     """Замеры воды за месяц (старый формат Карт ГСП): такой файл грузится своим разбором, остальные «вода» — как раньше."""
     try:
@@ -404,7 +435,7 @@ def _monthly_water(name: str, path: Path) -> bool:
     return water_monthly_import.looks_like(tables, name)
 
 
-def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy: str, loads: dict, role: str | None = None) -> dict[str, Any]:
+def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy: str, loads: dict, role: str | None = None, rejected: str = 'skip') -> dict[str, Any]:
     """Один файл: upload → check → apply (ЭЛПРО — свой разбор). Ошибка одного файла не обрывает остальные."""
     if name not in names_ok or Path(name).name != name or Path(name).suffix.lower() not in EXTENSIONS:
         return {'name': name, 'status': 'error', 'message': 'Файла нет в папке или он не таблица'}
@@ -418,6 +449,8 @@ def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy:
             applied = imports.gis_load(pid, name, path.read_bytes(), policy)
         elif role == 'geo':
             applied = imports.geo_load(pid, name, path.read_bytes(), policy)
+        elif role == 'ggh':
+            applied = _load_ggh(imports, pid, name, path.read_bytes(), policy)
         elif role == 'water' and _monthly_water(name, path):
             applied = imports.water_monthly_load(pid, name, path.read_bytes(), policy)
         else:
@@ -425,10 +458,13 @@ def _load_one(imports, pid: str, folder: Path, name: str, names_ok: set, policy:
             if up['error']:
                 raise ParamError(up['error'])
             pending = imports.check(pid, {'files': [{'token': up['token']}], 'mode': 'auto', 'view': 'simple'})
-            if pending['rejected']:
+            if pending['rejected'] and rejected == 'skip':
+                imports.discard(pending['id'])
                 return {'name': name, 'status': 'attention',
-                        'message': f"Отклонённых строк: {pending['rejected']}. Загрузите этот файл вручную в «Импорт данных»."}
-            applied = imports.apply(pid, {'pending': pending['id'], 'policy': policy})
+                        'message': f"Отклонённых строк: {pending['rejected']}. Загрузите этот файл вручную в «Импорт данных» "
+                                   'или выберите, что делать с такими строками (загрузить корректные / загрузить все, плохие исключить).'}
+            applied = imports.apply(pid, {'pending': pending['id'], 'policy': policy, 'accept': True,
+                                          'keep_rejected': rejected == 'keep'})
         undo = (applied.get('undo') or {}).get('snapshot', '')
         loads[name] = dict(fingerprint(path), loaded_at=dt.datetime.now().isoformat(timespec='seconds'), message=applied['message'], undo=undo)
         return {'name': name, 'status': 'loaded', 'message': applied['message'], 'undo': undo}
@@ -507,6 +543,9 @@ def routes(projects) -> list[Route]:
         Route('/api/folder/scan', wrap(scan_route), methods=['POST']),
         Route('/api/folder/manifest', wrap(lambda r, b: save_manifest(b.get('folder'), b.get('files'), _loads_of(b.get('project')))), methods=['POST']),
         Route('/api/projects/{pid}/folder/load', wrap(lambda r, b: load_files(
-            imports, projects, r.path_params['pid'], b.get('folder'), b.get('files'), b.get('policy') or 'new')), methods=['POST']),
+            imports, projects, r.path_params['pid'], b.get('folder'), b.get('files'), b.get('policy') or 'new',
+            b.get('rejected') or 'skip')), methods=['POST']),
+        Route('/api/projects/{pid}/folder/check', wrap(lambda r, b: folder_check.check_files(
+            imports, projects, r.path_params['pid'], b.get('folder'), b.get('files'))), methods=['POST']),
         Route('/api/projects/{pid}/folder/undo', wrap(undo_batch), methods=['POST']),
     ]
