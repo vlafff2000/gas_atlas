@@ -186,7 +186,8 @@
 
 /* таблица под графиком (классы производительности, вариант «точка + таблица») */
 .chart-table-wrap { overflow-x: auto; margin-top: 6px; }
-.chart-table { border-collapse: collapse; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 12px; margin: 0 auto; }
+.chart-table { width: max-content; border-collapse: collapse; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 12px; margin: 0 auto; }
+.chart-table td:last-child { min-width: 0; white-space: nowrap; }
 .chart-table th, .chart-table td { border: 1px solid var(--chart-axis, #c9d4d7); padding: 2px 8px; text-align: center; white-space: nowrap; }
 .chart-table tbody th { text-align: left; font-weight: 400; }
 .chart-table tbody th i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; }
@@ -196,6 +197,7 @@
 .heat-table { border-collapse: separate; border-spacing: 2px; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 13px; margin: 0 auto; }
 .heat-table th { font-weight: 600; padding: 3px 8px; white-space: nowrap; }
 .heat-table tbody th { text-align: right; }
+.heat-table td:last-child { white-space: nowrap; }
 .heat-table td { min-width: 72px; height: 30px; text-align: center; border-radius: 3px; }
 .heat-table .heat-missing { color: var(--chart-muted, #5f7178); font-size: 11px; background: repeating-linear-gradient(135deg, #eceff0 0 4px, #dfe4e6 4px 8px); }
 .heat-scale { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 8px; font-size: 12px; color: var(--chart-muted, #5f7178); }

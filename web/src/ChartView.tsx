@@ -397,11 +397,11 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
             if (chart.callouts === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 9, color: onColor(c, tk.ink), formatter: '●' } }
             const side = sides.get(`${si}:${j}`) ?? 'right'
             const label = { show: true, position: side, distance: 1, fontFamily, fontSize: 11,
-              formatter: side === 'right' ? `{ln|──}{bx|${text}}` : `{bx|${text}}{ln|──}`,
+              formatter: side === 'right' ? `{ln|─}{bx|${text}}` : `{bx|${text}}{ln|─}`,
               rich: { ln: { color: tk.faint, fontSize: 11 }, bx: { color: tk.ink, backgroundColor: tk.surface, borderColor: c, borderWidth: 1.5, borderRadius: 4, padding: [1, 4] } } }
             return { value: row, label }
           })
-          return { ...common, data: items, type: 'bar', barMaxWidth: 64, barGap: '12%', itemStyle: { color: c, borderColor: tk.ink, borderWidth: 0.4 }, emphasis: { focus: 'none', itemStyle: { color: c } } }
+          return { ...common, data: items, type: 'bar', barMaxWidth: 64, barGap: '12%', barCategoryGap: '55%', itemStyle: { color: c, borderColor: tk.ink, borderWidth: 0.4 }, emphasis: { focus: 'none', itemStyle: { color: c } } }
         }
         return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : { barMaxWidth: 24 }), barGap: '12%',
           itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
