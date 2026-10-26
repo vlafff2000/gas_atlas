@@ -309,7 +309,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     ...(colored.length ? { visualMap: { type: 'continuous', min: shadeLo, max: shadeHi === shadeLo ? shadeLo + 1 : shadeHi, dimension: 4, seriesIndex: colored.map(c => c.i),
       right: 4, top: 'middle', itemHeight: 150, itemWidth: 12, calculable: false, text: [`${shadeTitle}\n${shadeFmt(shadeHi)}`, shadeFmt(shadeLo)],
       inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: 11 } } } : {}),
-    grid: { left: 64, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44 },
+    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 64, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44 },
     xAxis: axis(chart.x, 'x'),
     yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
@@ -1457,11 +1457,14 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   )
 }
 
+const ALIGN_LABEL = 96, ALIGN_FUND = 56   // выровненная таблица: ширина подписей строк и столбца «Фонд» слева от поля графика
+
 /** Таблица под графиком: строка на ряд (цветной маркер), столбец на категорию оси X. */
 function ChartTableView({ table, colors }: { table: NonNullable<Chart['table']>; colors: string[] }) {
   return (
-    <div className="chart-table-wrap">
-      <table className="chart-table">
+    <div className={'chart-table-wrap' + (table.aligned ? ' aligned' : '')} style={table.aligned ? { paddingRight: 20 } : undefined}>
+      <table className={'chart-table' + (table.aligned ? ' aligned' : '')}>
+        {table.aligned && <colgroup><col style={{ width: ALIGN_LABEL }} /><col style={{ width: ALIGN_FUND }} /><col span={table.columns.length - 1} /></colgroup>}
         <thead><tr><th />{table.columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
         <tbody>
           {table.rows.map((r, i) => (

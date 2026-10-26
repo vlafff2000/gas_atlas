@@ -654,9 +654,9 @@ class AuthorReportModule(Module):
         if class_chart != 'none':
             by_class = an_wells.class_counts(wells, scopes)
             counts.append(by_class.assign(season=period))
-            chart = an_charts.class_share_chart(kind, period, by_class, class_chart)
-            if chart is not None:
-                result.charts.append(chart)
+            for chart in (an_charts.class_share_chart(kind, period, by_class, class_chart), an_charts.class_total_chart(kind, period, by_class)):
+                if chart is not None:
+                    result.charts.append(chart)
         by_well = an_wells.water_by_well(data[WATER] if WATER in data else None, wells, scopes,
                                          summary['start'], summary['stop'])
         if by_well is None:

@@ -13,7 +13,7 @@ import pandas as pd
 
 from atlas.engine.modules.charts import well_colors
 
-from ..contract import Axis, Chart, ChartTable, HeatMap, Series
+from ..contract import Axis, Chart, ChartTable, HeatMap, Series, WellStrips
 from . import an_wells
 
 Q_UNIT = 'тыс. м³/сут'
@@ -275,10 +275,9 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: st
     """Классы производительности по группам (табл. 1.5): высота столбика — доля скважин класса в группе, число скважин — внутри сегмента.
 
     Узкие сегменты: ``callouts='box'`` — выноска в рамке цвета класса, ``'dot'`` — точка, а числа в таблице под графиком."""
-    part = counts[~counts.group.eq(an_wells.TOTAL)]
+    part = counts[~counts.group.eq(an_wells.TOTAL)]       # «Всего» — отдельным графиком (``class_total_chart``)
     if part.empty:
         return None
-    part = pd.concat([part, counts[counts.group.eq(an_wells.TOTAL)]])        # «Всего» — последним столбцом
     cats = [str(g) for g in part.group]
     size = part[list(an_wells.CLASS_KEYS)].sum(axis=1).to_numpy(float)
     chart = Chart(f'an-class-share-{kind}-{period}', f'Классы производительности скважин по группам · {period}',
@@ -291,6 +290,23 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: st
                                    segments=[str(v) if v else '' for v in n], labels=[f'{v} из {int(t)} скв.' for v, t in zip(n, size)]))
     if chart.callouts == 'dot':
         chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in an_wells.CLASS_KEYS])
+    return chart
+
+
+def class_total_chart(kind: str, period: str, counts: pd.DataFrame) -> Chart | None:
+    """Классы производительности по всему объекту (строка «ИТОГО» табл. 1.5): гистограмма, цвета классов те же, что у графика по группам."""
+    total = counts[counts.group.eq(an_wells.TOTAL)]
+    if total.empty:
+        return None
+    names = [n if n == '0' else n.replace('Менее', '<').replace('От ', '').replace(' до ', '–').replace('Более', '>') for n in an_wells.CLASS_NAMES]
+    chart = Chart(f'an-class-total-{kind}-{period}', f'Классы производительности скважин, всего по объекту · {period}',
+                  Axis('Производительность, тыс. м³/сут', scale='category', categories=names), Axis('Скважин', 'скв.', from_zero=True))
+    for i, (key, name) in enumerate(zip(an_wells.CLASS_KEYS, an_wells.CLASS_NAMES)):
+        n = int(total[key].iloc[0])
+        values = [float(n) if j == i else 0.0 for j in range(len(names))]
+        chart.series.append(Series(name if name == '0' else f'{name} тыс. м³/сут', names, values, 'bar', stack='total', legend=False,
+                                   segments=[str(n) if j == i and n else '' for j in range(len(names))],
+                                   labels=[f'{n} скв.' if j == i else '' for j in range(len(names))]))
     return chart
 
 
@@ -310,7 +326,7 @@ def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: li
                                labels=[f'{v} из {fund} скв.' for v in idle]))
     rows = [str(g) for g in months.group]
     cells = [[str(int(f))] + [str(int(r[f'm{i}'])) for i in range(len(labels))] for f, (_, r) in zip(months.fund, months.iterrows())]
-    chart.table = ChartTable(rows, ['Фонд', *labels], cells, swatches=False)
+    chart.table = ChartTable(rows, ['Фонд', *labels], cells, swatches=False, aligned=True)
     return chart
 
 
@@ -319,6 +335,13 @@ def heat_chart(chart_id: str, title: str, rows: list[str], columns: list[str], v
     """Тепловая карта строка × столбец (ГСП × сезоны): оси нужны только подписями, ряды пусты."""
     chart = Chart(chart_id, title, Axis('Сезон', scale='category', categories=columns), Axis('ГСП', scale='category', categories=rows))
     chart.heat = HeatMap(rows, columns, values, texts, unit, maximum, missing_text)
+    return chart
+
+
+def well_strips_chart(chart_id: str, title: str, strips: WellStrips) -> Chart:
+    """Скважины × сезоны: цветная сетка вместо рядов (оси нужны только подписями)."""
+    chart = Chart(chart_id, title, Axis('Сезон', scale='category', categories=strips.columns), Axis('Скважина', scale='category', categories=strips.rows))
+    chart.strips = strips
     return chart
 
 

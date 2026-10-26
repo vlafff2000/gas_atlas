@@ -105,9 +105,12 @@ def test_class_share_chart_percent_height_and_counts_inside():
     from atlas.modules import an_charts
     counts = an_wells.class_counts(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES)
     chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'dot')
-    assert chart.x.categories[-1] == an_wells.TOTAL and chart.callouts == 'dot'
-    assert [sum(s.y[j] for s in chart.series) for j in range(len(chart.x.categories))] == pytest.approx([100.0] * 3)
-    assert chart.table.cells[0] == ['0', '2', '2'] and chart.series[0].segments == ['', '2', '2']
+    assert an_wells.TOTAL not in chart.x.categories and chart.callouts == 'dot'     # «Всего» — отдельным графиком
+    assert [sum(s.y[j] for s in chart.series) for j in range(len(chart.x.categories))] == pytest.approx([100.0] * 2)
+    assert chart.table.cells[0] == ['0', '2'] and chart.series[0].segments == ['', '2']
+    total = an_charts.class_total_chart('withdrawal', '2023-2024', counts)
+    assert [sum(s.y[j] for s in total.series) for j in range(7)] == [2, 1, 0, 0, 1, 0, 0]     # строка «Всего»: 2 нулевых, 1 менее 100, 1 от 200 до 250
+    assert total.series[0].segments[0] == '2' and total.series[1].segments[1] == '1'
     assert an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'box').table is None
 
 
@@ -117,9 +120,9 @@ def test_class_share_chart_exports_with_callouts_and_table():
     counts = pd.DataFrame({'group': ['ГСП 1', an_wells.TOTAL], 'zero_numbers': ['0', '0'],
                            **{k: v for k, v in zip(an_wells.CLASS_KEYS, ([0, 0], [1, 1], [0, 0], [3, 3], [0, 0], [0, 0], [40, 40]))}})
     box = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'box'))
-    assert [a.text for a in box.layout.annotations if a.bordercolor] == ['1', '1']      # узкий сегмент (1 из 44) — выноска в рамке
+    assert [a.text for a in box.layout.annotations if a.bordercolor] == ['1']      # узкий сегмент (1 из 44) — выноска в рамке
     dot = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'dot'))
-    assert any(t.type == 'table' for t in dot.data) and [a.text for a in dot.layout.annotations] == ['●', '●']
+    assert any(t.type == 'table' for t in dot.data) and [a.text for a in dot.layout.annotations] == ['●']
 
 
 def test_month_working_counts_wells_with_flow_in_each_month():
