@@ -15,6 +15,7 @@ export interface Look {
   size?: number           // размер отметки, px
   markerColor?: string    // цвет отметок линии, если отличается от линии
   opacity?: number        // прозрачность линии и отметок: 1 — непрозрачно
+  valueLabels?: boolean   // подписи значений над столбцами (целые, Times New Roman)
 }
 
 export const MARKER_SHAPES: { value: MarkerShape; label: string }[] = [

@@ -171,6 +171,16 @@ def manual_axes(ax,secondary,axes,date_axis,categorical):
     if secondary is not None and 'minor' in axes.get('y2',{}):secondary.tick_params(which='minor',length=2)
 
 
+def value_labels(ax,bars,values,family,size):
+    """Подписи значений над столбцами: целые числа, строго над столбиком. Если текст шире столбца, он ставится вертикально, чтобы соседние подписи не налезали."""
+    pts=ax.get_position().width*ax.figure.get_figwidth()*72/(abs(np.diff(ax.get_xlim())[0]) or 1)
+    for rect,v in zip(bars,values):
+        if v is None or not np.isfinite(v):continue
+        text=f'{v:.0f}';wide=len(text)*size*.5>rect.get_width()*pts
+        up=v>=0;edge=rect.get_y()+rect.get_height() if up else rect.get_y()
+        ax.annotate(text,(rect.get_x()+rect.get_width()/2,edge),xytext=(0,2 if up else -2),textcoords='offset points',
+                    ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=90 if wide else 0)
+
 def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default'):
     """``font`` / ``font_size`` — шрифт (``atlas.engine.core.fonts.FONTS``) и основной размер в пт; заголовок и легенда масштабируются вместе с ним.
     ``look='excel'`` — вид диаграммы Excel (Office: Calibri, палитра, тонкие серые горизонтальные линии сетки, легенда внизу); шрифт по умолчанию — Calibri.
@@ -226,7 +236,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             if (bars or boxes) and not date_axis and not numeric_bars:
                 categories=list(fig.layout.xaxis.categoryarray or [])
                 if not categories:categories=list(dict.fromkeys(str(x) for t in (bars or boxes) for x in (t.x if t.x is not None else [t.name])))
-            combo_bars=Bars([t for t in bars if is_combo(t)]);combo_areas=Areas()
+            combo_bars=Bars([t for t in bars if is_combo(t)]);combo_areas=Areas();bar_values=[]
             layered=any(is_back(t) for t in traces) and not excel;overlays={};bases={}
             for t in traces:
                 target=rights.get(t.yaxis,ax)
@@ -255,7 +265,8 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                         widths=np.asarray(raw_width,dtype=float) if raw_width is not None else np.full(len(pos),.8)
                         w=widths/max(1,len(bars))
                     else:pos=np.array([categories.index(str(v)) for v in x],dtype=float)
-                    target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
+                    drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
+                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y))
                 else:
                     # Plotly JSON serializes dates to strings. Preserve calendar spacing.
                     if x and (date_axis or isinstance(x[0],(pd.Timestamp,np.datetime64,datetime.datetime,datetime.date)) or isinstance(x[0],str) and re.match(r'^\d{4}-\d{2}-\d{2}',x[0])):
@@ -281,6 +292,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                         alpha=t.opacity if 'alpha' in own and isinstance(t.opacity,(int,float)) else None)
                     ln._own=own
                     if target is not base_axes:ghost(base_axes,x,y)
+            for target,drawn,y in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85))
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
             title=re.sub('<[^>]+>','',fig.layout.title.text or '')
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}

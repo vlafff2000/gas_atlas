@@ -69,6 +69,10 @@ export function SeriesLookFields({ s, color, look, onChange }: { s: LookSeries; 
         <ColorField label="Цвет маркеров" value={s.kind === 'points' ? look.color : look.markerColor} shown={markerColor}
           onChange={c => setLook(s.kind === 'points' ? { color: c } : { markerColor: c })} />
       </fieldset>}
+      {s.kind === 'bar' && <fieldset>
+        <legend>Подписи</legend>
+        <label className="cs-check"><input type="checkbox" checked={!!look.valueLabels} onChange={e => setLook({ valueLabels: e.target.checked })} /> Значения над столбцами</label>
+      </fieldset>}
       <fieldset>
         <legend>Прозрачность</legend>
         <label>{s.fill ? 'Непрозрачность заливки' : 'Непрозрачность'} <span className="cs-range"><input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={e => setLook({ opacity: Number(e.target.value) })} /><output>{Math.round(opacity * 100)} %</output></span></label>
