@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 interface Item { name: string; dir: boolean; size: number; mtime: string; ext: string; locked: boolean }
-interface Listing { path: string; parent: string; items: Item[]; total: number; truncated: boolean; error: string; network?: boolean; cached?: boolean; lazy?: boolean }
+interface Listing { path: string; parent: string; items: Item[]; total: number; truncated: boolean; error: string; network?: boolean; cached?: boolean; lazy?: boolean; ms?: number }
 interface Place { name: string; path: string; kind: string }
 interface Fav { path: string; name: string; network?: boolean; n?: number }
 interface Favs { favorites: Fav[]; frequent: Fav[] }
@@ -355,6 +355,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
             <button disabled={!marked.length} onClick={() => setMarked([])}>Снять</button>
           </>}
           <span className="fp-sp" />
+          {!!list?.ms && list.ms > 500 && !list.error && <span className="fp-pick" title="Время чтения папки сервером">чтение {(list.ms / 1000).toFixed(1)} с</span>}
           <span className="fp-pick">{folderMode ? (list?.path || '') : multi ? (marked.length ? 'Выбрано: ' + marked.length : 'Shift, Ctrl, рамка мышью') : cur && !cur.dir ? cur.name : ''}</span>
           <button onClick={() => close(null)}>Отмена</button>
           <button className="primary" disabled={!canPick} onClick={() => (folderMode ? list && choose(list.path) : multi ? chooseMany() : cur && choose(join(list!.path, cur.name)))}>

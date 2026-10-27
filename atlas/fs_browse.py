@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import stat as stat_mod
 import sys
 import threading
 import time
@@ -94,6 +95,43 @@ def net_mounts() -> List[Dict[str, str]]:
     return out
 
 
+LOCAL_FSTYPES = {"ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "f2fs", "jfs", "reiserfs", "vfat", "exfat", "ntfs", "ntfs3",
+                 "fuseblk", "tmpfs", "ramfs", "overlay", "squashfs", "iso9660", "udf", "devtmpfs", "proc", "sysfs"}
+_all_mounts_cache: Dict[str, Any] = {"t": 0.0, "v": None}
+
+
+def _all_mounts() -> List[Any]:
+    """Все монтирования Linux [(путь, тип ФС)], длинные пути первыми (читается раз в 30 с)."""
+    now = time.monotonic()
+    if _all_mounts_cache["v"] is not None and now - _all_mounts_cache["t"] < 30:
+        return _all_mounts_cache["v"]
+    out: List[Any] = []
+    try:
+        with open("/proc/mounts", "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 3:
+                    out.append((_unesc(parts[1]), parts[2]))
+    except OSError:
+        pass
+    out.sort(key=lambda m: -len(m[0]))
+    _all_mounts_cache.update(t=now, v=out)
+    return out
+
+
+def is_known_local(path: str) -> bool:
+    """Точно локальный диск? На Windows — всё, что не сетевое. На Linux — только ФС из списка локальных:
+    всё незнакомое (autofs, fuse, gvfs, неопознанные монтирования) читаем «легко», как сетевое."""
+    if os.name == "nt":
+        return not is_network(path)
+    norm = path.rstrip("/") or "/"
+    for mp, fstype in _all_mounts():
+        m = mp.rstrip("/") or "/"
+        if norm == m or m == "/" or norm.startswith(m + "/"):
+            return fstype in LOCAL_FSTYPES
+    return True  # нет /proc/mounts (не Linux): считаем локальным
+
+
 def _gvfs_dirs() -> List[str]:
     out = []
     uid = os.getuid() if hasattr(os, "getuid") else None
@@ -168,10 +206,10 @@ def get_last() -> Dict[str, Any]:
     with _lock:
         data = _read_settings()
     last = data.get("last_dir") or ""
-    if last and not is_network(last) and not os.path.isdir(last):
+    if last and is_known_local(last) and not is_network(last) and not os.path.isdir(last):
         last = ""
     recent = [p for p in (data.get("recent") or [])
-              if isinstance(p, str) and (is_network(p) or os.path.isfile(p))]  # сетевые не опрашиваем при старте
+              if isinstance(p, str) and (is_network(p) or not is_known_local(p) or os.path.isfile(p))]  # сетевые не опрашиваем при старте
     return {"dir": last, "recent": recent[:MAX_RECENT]}
 
 
@@ -183,7 +221,7 @@ def set_last(directory: str = "", file: str = "") -> Dict[str, Any]:
         directory = os.path.dirname(file)
     with _lock:
         data = _read_settings()
-        if directory and (is_network(directory) or os.path.isdir(directory)):
+        if directory and (is_network(directory) or not is_known_local(directory) or os.path.isdir(directory)):
             data["last_dir"] = directory
         if file:
             rec = [p for p in (data.get("recent") or []) if p != file]
@@ -394,9 +432,18 @@ def _fmt_mtime(ts: Optional[float]) -> str:
         return ""
 
 
+_POOL_WORKERS = 16
+
+
 def _scan(path: str, light: bool, started: float, budget: float):
-    """Прочитать папку одним проходом scandir. light=True (сеть): без stat и проверки прав на каждый элемент."""
-    raw: List[Dict[str, Any]] = []
+    """Прочитать папку: сначала быстрый проход scandir (только имена), затем, где нужно, параллельно тип и stat.
+
+    light=True (сеть и незнакомые ФС): размер и дату не читаем вовсе (подгрузятся позже для видимых строк),
+    права на папки не проверяем. Если сервер не отдаёт тип записи (DT_UNKNOWN), is_dir() — это stat на каждую
+    запись, поэтому такие запросы идут пачкой по 16 потоков, а не по одному.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    entries: List["os.DirEntry[str]"] = []
     truncated = False
     with os.scandir(path) as it:
         while True:
@@ -404,57 +451,75 @@ def _scan(path: str, light: bool, started: float, budget: float):
                 truncated = True
                 break
             try:
-                entry = next(it)
+                entries.append(next(it))
             except StopIteration:
                 break
             except OSError:
                 break
+
+    def kind(e: "os.DirEntry[str]") -> Any:
+        try:
+            is_dir = e.is_dir()
+        except OSError:
+            is_dir = False
+        size = mt = None
+        locked = False
+        if not light:
             try:
-                is_dir = entry.is_dir()  # тип из записи каталога, без отдельного stat
+                st = e.stat()
+                size, mt = st.st_size, st.st_mtime
             except OSError:
-                is_dir = False
-            size = mt = None
-            locked = False
-            if not light:
-                try:
-                    st = entry.stat()
-                    size, mt = st.st_size, st.st_mtime
-                except OSError:
-                    locked = True
-                if is_dir and not locked:
-                    locked = not os.access(entry.path, os.R_OK | os.X_OK)
-            raw.append({"name": entry.name, "dir": is_dir, "size": size, "mt": mt, "locked": locked})
+                locked = True
+            if is_dir and not locked:
+                locked = not os.access(e.path, os.R_OK | os.X_OK)
+        return {"name": e.name, "dir": is_dir, "size": size, "mt": mt, "locked": locked}
+
+    if light and len(entries) > 32:
+        with ThreadPoolExecutor(_POOL_WORKERS) as pool:
+            raw = list(pool.map(kind, entries))
+    else:
+        raw = [kind(e) for e in entries]
     return raw, truncated
 
 
+def _stat_one(path: str, name: str) -> Any:
+    try:
+        st = os.stat(os.path.join(path, name))
+        return st.st_size, st.st_mtime, stat_mod.S_ISDIR(st.st_mode), False
+    except OSError:
+        return 0, None, False, True
+
+
+def _stat_many(path: str, names: List[str]) -> List[Any]:
+    from concurrent.futures import ThreadPoolExecutor
+    if len(names) < 8:
+        return [_stat_one(path, n) for n in names]
+    with ThreadPoolExecutor(_POOL_WORKERS) as pool:
+        return list(pool.map(lambda n: _stat_one(path, n), names))
+
+
 def _fill_stats(path: str, raw: List[Dict[str, Any]], started: float, budget: float) -> bool:
-    """Дочитать размер и дату у записей без них (сеть). True — не уложились во время."""
-    for r in raw:
-        if r["mt"] is not None or r["locked"]:
-            continue
+    """Дочитать размер и дату у записей без них (сеть), параллельно. True — не уложились во время."""
+    todo = [r for r in raw if r["mt"] is None and not r["locked"]]
+    for i in range(0, len(todo), 200):
         if time.monotonic() - started > budget:
             return True
-        try:
-            st = os.stat(os.path.join(path, r["name"]))
-            r["size"], r["mt"] = st.st_size, st.st_mtime
-        except OSError:
-            r["locked"] = True
+        chunk = todo[i:i + 200]
+        for r, (size, mt, _isdir, bad) in zip(chunk, _stat_many(path, [r["name"] for r in chunk])):
+            if bad:
+                r["locked"] = True
+            else:
+                r["size"], r["mt"] = size, mt
     return False
 
 
 def stat_items(path: str, names: List[str]) -> Dict[str, Dict[str, Any]]:
     """Размер и дата для выбранных имён (окно просит для видимых строк, когда папка прочитана без stat)."""
     path = os.path.normpath(path)
+    names = [n for n in names[:300] if os.sep not in n and not (os.altsep and os.altsep in n)]
     out: Dict[str, Dict[str, Any]] = {}
-    started = time.monotonic()
-    for n in names[:300]:
-        if time.monotonic() - started > TIME_BUDGET or os.sep in n or (os.altsep and os.altsep in n):
-            break
-        try:
-            st = os.stat(os.path.join(path, n))
-            out[n] = {"size": 0 if os.path.isdir(os.path.join(path, n)) else st.st_size, "mtime": _fmt_mtime(st.st_mtime)}
-        except OSError:
-            out[n] = {"size": 0, "mtime": "", "locked": True}
+    for n, (size, mt, is_dir, bad) in zip(names, _stat_many(path, names)):
+        out[n] = {"size": 0, "mtime": "", "locked": True} if bad else {"size": 0 if is_dir else size, "mtime": _fmt_mtime(mt)}
     return out
 
 
@@ -468,25 +533,27 @@ def list_dir(path: str, filt: str = "", hidden: bool = False, query: str = "", s
     """
     path = os.path.normpath(path) if path else ""
     res = {"path": path, "parent": "", "items": [], "total": 0, "offset": offset, "truncated": False,
-           "error": "", "network": False, "cached": False, "lazy": False}
+           "error": "", "network": False, "cached": False, "lazy": False, "ms": 0}
     if not path:
         res["error"] = "Папка не найдена: —"
         return res
     parent = os.path.dirname(path)
     res["parent"] = parent if parent and parent != path else ""
     net = is_network(path)
+    light = net or not is_known_local(path)  # сеть и незнакомые ФС читаем без stat на каждую запись
     res["network"] = net
     started = time.monotonic()
     raw = None
     truncated = False
-    if net and not fresh:
+    if light and not fresh:
         hit = _cache.get(path)
         if hit and time.monotonic() - hit[0] < CACHE_MAX_AGE:
             raw, truncated = hit[1], hit[2]
             res["cached"] = True
     if raw is None:
         try:
-            raw, truncated = _scan(path, net, started, budget)
+            raw, truncated = _scan(path, light, started, budget)
+            res["ms"] = int((time.monotonic() - started) * 1000)
         except PermissionError:
             res["error"] = "Нет доступа к папке"
             return res
@@ -496,7 +563,7 @@ def list_dir(path: str, filt: str = "", hidden: bool = False, query: str = "", s
         except OSError as e:
             res["error"] = "Папка недоступна: %s" % (e.strerror or e)
             return res
-        if net:
+        if light:
             with _lock:
                 _cache[path] = (time.monotonic(), raw, truncated)
                 while len(_cache) > CACHE_MAX:
@@ -516,7 +583,7 @@ def list_dir(path: str, filt: str = "", hidden: bool = False, query: str = "", s
             if exts and os.path.splitext(name)[1].lower() not in exts:
                 continue
         rows.append(r)
-    if net and sort in ("size", "mtime"):  # сортировка по полям, которых ещё нет: дочитываем (в пределах времени)
+    if light and sort in ("size", "mtime"):  # сортировка по полям, которых ещё нет: дочитываем (в пределах времени)
         if _fill_stats(path, rows, started, budget):
             truncated = True
     key = {"size": lambda x: x["size"] or 0, "mtime": lambda x: x["mt"] or 0}.get(sort, lambda x: x["name"].lower())
@@ -572,7 +639,7 @@ def _resolve_start(path: str) -> str:
     """Пустой путь — последняя папка или домашняя; путь к файлу — его папка (сетевые пути не опрашиваем)."""
     if not path:
         return get_last()["dir"] or os.path.expanduser("~")
-    if not is_network(path) and os.path.isfile(path):
+    if is_known_local(path) and os.path.isfile(path):  # на сетевых и незнакомых ФС лишний запрос не делаем
         return os.path.dirname(path)
     return path
 
