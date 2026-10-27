@@ -1,4 +1,4 @@
-"""Build ONE portable folder with all PXG apps: Gas Atlas + Работа с исходными данными + Карты + ГДМ, one Python 3.13, one launcher menu.
+"""Build ONE portable folder with all PXG apps: Gas Atlas + Работа с исходными данными + Карты + ГДМ + Поисковик, one Python 3.13, one launcher menu.
 
     python tools/build_unified.py windows --scripts ../all_scripts  ->  dist/PXG_Unified_portable_windows_x64.zip
     python tools/build_unified.py linux   --scripts ../all_scripts  ->  dist/PXG_Unified_portable_linux_x64.tar.gz
@@ -42,7 +42,7 @@ bp = load(HERE / 'build_portable.py', 'atlas_build_portable')
 NAME = 'PXG_Unified'
 BASE_MANIFEST = 'base_manifest.json'
 FULL_NEEDED = 'Нужен полный архив PXG_Unified_portable_*'
-SCRIPTS_INCLUDE = ['pxg_base', 'gsp_maps', 'pxg_core', 'schedule_pxg', 'tnav_results', 'apps']
+SCRIPTS_INCLUDE = ['pxg_base', 'gsp_maps', 'pxg_finder', 'pxg_core', 'schedule_pxg', 'tnav_results', 'apps']
 HUB_WINDOWS = {'PXG_Hub.bat': 'rem Все приложения ПХГ: меню (окно или браузер).\r\n"%~dp0python\\python.exe" -s -X utf8 -m pxg_hub %*'}
 HUB_LINUX = {'pxg_hub.sh': '# Все приложения ПХГ: меню в браузере. На РЕД ОС: bash pxg_hub.sh в этой папке.\nexec "$PY" -s -X utf8 -m pxg_hub --browser "$@"'}
 SHORTCUTS_WINDOWS = ('rem Ярлыки всех приложений на рабочем столе (убрать: --remove).\r\n'
@@ -58,7 +58,7 @@ README = '''ПХГ — все приложения в одной папке ({ta
 Python 3.13 и все библиотеки лежат в папке python. Устанавливать и подключаться к интернету не нужно.
 
 1. Распакуйте архив в любую папку, куда у вас есть права на запись ({example}).
-2. Запустите {hub} — откроется меню: «Газовый атлас», «Работа с исходными данными», «Карты», «ГДМ».
+2. Запустите {hub} — откроется меню: «Газовый атлас», «Работа с исходными данными», «Карты», «ГДМ», «Поисковик».
    Кнопка «Открыть» запускает приложение и открывает его; «Закрыть все» останавливает всё.
 3. Все приложения кладут данные в одну папку «Проект» рядом с программой (другое место: переменная PXG_PROJECT):
    Атлас — Проект/Атлас, Работа с исходными данными — Проект/pxg_runs, Карты — Проект/Карты_ГСП, ГДМ — Проект/Скедул, журналы — Проект/logs.
@@ -294,7 +294,7 @@ def smoke_test(folder):
     code = ('import sys, atlas.api, pxg_hub, pandas, scipy, pyarrow, matplotlib, python_calamine, xlsxwriter, odf, pxg_core.расходы_файлы;'
             + ('import webview, win32api, win32com.shell.shell;' if os.name == 'nt' else '') +
             'atlas.api.create_app();import pxg_base.api as a;a.build_app();import gsp_maps.api as m;m.build_app();'
-            'import schedule_pxg.api as s;s.build_app();assert sys.prefix.startswith({!r}), sys.prefix;print("ok", sys.version.split()[0])').format(str(folder))
+            'import schedule_pxg.api as s;s.build_app();import pxg_finder.api as f;f.build_app();assert sys.prefix.startswith({!r}), sys.prefix;print("ok", sys.version.split()[0])').format(str(folder))
     try:
         subprocess.check_call([str(python), '-s', '-c', code], cwd=str(folder), env=env)
     finally:
