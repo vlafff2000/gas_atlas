@@ -48,7 +48,7 @@ export function StripView({ chart, onDownload, onCopy }: Props) {
         <div className="strip-legend">
           <span>Квадраты слева направо: {s.columns.join(' · ')}; число справа — сколько сезонов</span>
           {groups.map(g => <span key={g}><i style={{ background: color(g) }} />{g}</span>)}
-          <span><i style={{ background: 'repeating-linear-gradient(45deg, transparent 0 3px, #b9c4c7 3px 4px)' }} />{s.missing_text}</span>
+          <span><i style={{ background: 'repeating-linear-gradient(45deg, #fff4d6 0 2px, #8a5a00 2px 4px)' }} />{s.missing_text}</span>
         </div>
       </div>
     </figure>

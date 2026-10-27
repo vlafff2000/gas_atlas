@@ -99,13 +99,23 @@ function colorOf(chart: Chart) {
 
 const NARROW = 5     // сегмент стопки уже 5 % высоты: число не помещается внутрь — выноска или точка
 
+/** Высота самой высокой стопки с подписями сегментов: узкий сегмент — меньше NARROW % от неё. */
+function segmentTop(chart: Chart): number {
+  const sums = new Map<string, number>()
+  chart.series.forEach(s => {
+    if (!s.segments) return
+    s.y.forEach((v, j) => { if (typeof v === 'number') sums.set(String(s.x[j]), (sums.get(String(s.x[j])) ?? 0) + v) })
+  })
+  return Math.max(1e-9, ...sums.values())
+}
+
 /** Сторона выноски у узкого сегмента: в каждом столбце по очереди вправо и влево, чтобы подписи не слипались. */
 function calloutSides(chart: Chart): Map<string, 'left' | 'right'> {
-  const out = new Map<string, 'left' | 'right'>(), used = new Map<string, number>()
+  const out = new Map<string, 'left' | 'right'>(), used = new Map<string, number>(), top = segmentTop(chart)
   chart.series.forEach((s, i) => {
     if (!s.segments) return
     s.y.forEach((v, j) => {
-      if (!s.segments?.[j] || typeof v !== 'number' || v >= NARROW) return
+      if (!s.segments?.[j] || typeof v !== 'number' || v / top >= NARROW / 100) return
       const at = String(s.x[j]), n = used.get(at) ?? 0
       used.set(at, n + 1)
       out.set(`${i}:${j}`, n % 2 === 0 ? 'right' : 'left')
@@ -270,6 +280,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       min: a.scale === 'category' ? undefined : a.minimum ?? (zero ? 0 : undefined),
       max: a.scale === 'category' ? undefined : a.maximum ?? undefined,
       interval: a.step && a.scale === 'value' ? a.step : undefined,
+      minInterval: a.unit === 'скв.' && a.scale === 'value' ? 1 : undefined,      // скважин — целое число, делений по 0,5 не бывает
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
       name: narrow ? narrow.text : axisTitle(a.label, a.unit),
       // подпись шкалы Y — горизонтально над осью, читается без наклона головы
@@ -388,12 +399,12 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         const wide = chart.id.startsWith('gis-combo')   // редких замеров мало: столбцы широкие, полупрозрачные, кривая поверх
         const share = !!s.segments                       // стопка с числами внутри сегментов (классы производительности)
         if (share) {
-          const sides = calloutSides(chart), fontFamily = fontCss('times')
+          const sides = calloutSides(chart), fontFamily = fontCss('times'), stackTop = segmentTop(chart)
           const si = chart.series.indexOf(s)
           const items = rows.map((row, j) => {
             const text = s.segments?.[j] ?? '', v = Number(s.y[j])
             if (!text || !Number.isFinite(v)) return { value: row, label: { show: false } }
-            if (v >= NARROW) return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 12, color: onColor(c, tk.ink), formatter: text } }
+            if (v / stackTop >= NARROW / 100) return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 12, color: onColor(c, tk.ink), formatter: text } }
             if (chart.callouts === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 9, color: onColor(c, tk.ink), formatter: '●' } }
             const side = sides.get(`${si}:${j}`) ?? 'right'
             const label = { show: true, position: side, distance: 1, fontFamily, fontSize: 11,

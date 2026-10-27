@@ -272,7 +272,7 @@ def fund_chart(kind: str, period: str, fund: pd.DataFrame) -> Chart | None:
 
 
 def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: str = 'box') -> Chart | None:
-    """Классы производительности по группам (табл. 1.5): высота столбика — доля скважин класса в группе, число скважин — внутри сегмента.
+    """Классы производительности по группам (табл. 1.5): высота сегмента — число скважин класса в группе (абсолютное), число — внутри сегмента; группы идут по возрастанию номера.
 
     Узкие сегменты: ``callouts='box'`` — выноска в рамке цвета класса, ``'dot'`` — точка, а числа в таблице под графиком."""
     part = counts[~counts.group.eq(an_wells.TOTAL)]       # «Всего» — отдельным графиком (``class_total_chart``)
@@ -281,13 +281,13 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: st
     cats = [str(g) for g in part.group]
     size = part[list(an_wells.CLASS_KEYS)].sum(axis=1).to_numpy(float)
     chart = Chart(f'an-class-share-{kind}-{period}', f'Классы производительности скважин по группам · {period}',
-                  Axis('Группа', scale='category', categories=cats), Axis('Доля скважин группы', '%', from_zero=True, minimum=0, maximum=100))
+                  Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
     chart.callouts = 'dot' if callouts == 'dot' else 'box'
     for key, name in zip(an_wells.CLASS_KEYS, an_wells.CLASS_NAMES):
         n = part[key].to_numpy(int)
         label = name if name == '0' else f'{name} тыс. м³/сут'
-        chart.series.append(Series(label, cats, np.where(size > 0, n / np.where(size > 0, size, 1) * 100, 0.0), 'bar', stack='classes',
-                                   segments=[str(v) if v else '' for v in n], labels=[f'{v} из {int(t)} скв.' for v, t in zip(n, size)]))
+        chart.series.append(Series(label, cats, n.astype(float), 'bar', stack='classes',
+                                   segments=[str(v) if v else '' for v in n], labels=[f'{v} из {int(t)} скв., {v / t * 100:.0f} %' if t else f'{v} скв.' for v, t in zip(n, size)]))
     if chart.callouts == 'dot':
         chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in an_wells.CLASS_KEYS])
     return chart
@@ -310,7 +310,7 @@ def class_total_chart(kind: str, period: str, counts: pd.DataFrame) -> Chart | N
     return chart
 
 
-def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: list[str]) -> Chart | None:
+def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: list[str], peaks: list[tuple[int, Any]] | None = None) -> Chart | None:
     """Табл. 1.4: по месяцам сезона — работавшие и простаивавшие скважины объекта (столбики с числами), под графиком — таблица по группам."""
     total = months[months.group.eq(an_wells.TOTAL)]
     if total.empty or not labels:
@@ -324,6 +324,10 @@ def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: li
                                labels=[f'{v} из {fund} скв., {v / fund * 100:.0f} %' for v in working]))
     chart.series.append(Series('Не работало', labels, idle.astype(float), 'bar', stack='months', segments=[str(v) if v else '' for v in idle],
                                labels=[f'{v} из {fund} скв.' for v in idle]))
+    if peaks and len(peaks) == len(labels):
+        # поверх столбиков — кривая: одна точка на месяц, максимум скважин, работавших одновременно в одни сутки месяца
+        chart.series.append(Series('Максимум одновременно за сутки', labels, [float(n) for n, _ in peaks], 'line', color='#111827', width=2.2, markers=True,
+                                   symbol='diamond', labels=[f'{n} скв. одновременно' + (f', {pd.Timestamp(day):%d.%m.%Y}' if day is not None else '') for n, day in peaks]))
     rows = [str(g) for g in months.group]
     cells = [[str(int(f))] + [str(int(r[f'm{i}'])) for i in range(len(labels))] for f, (_, r) in zip(months.fund, months.iterrows())]
     chart.table = ChartTable(rows, ['Фонд', *labels], cells, swatches=False, aligned=True)

@@ -221,7 +221,7 @@
 .strip-chip .dots { display: inline-flex; gap: 1px; }
 .strip-chip .dots i { width: 9px; height: 12px; border-radius: 1px; background: var(--chart-axis, #e4eaec); opacity: .45; }
 .strip-chip .dots i.on { opacity: 1; }
-.strip-chip .dots i.miss { background: repeating-linear-gradient(45deg, transparent 0 2px, #b9c4c7 2px 3px); opacity: 1; }
+.strip-chip .dots i.miss { background: repeating-linear-gradient(45deg, #fff4d6 0 2px, #8a5a00 2px 4px); outline: 1px solid #8a5a00; outline-offset: -1px; opacity: 1; }
 .strip-sub { font-weight: 600; margin: 0 0 4px; font-family: 'Times New Roman', 'Liberation Serif', serif; }
 .strip-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
 .strip-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 5px; border-radius: 2px; vertical-align: -2px; }

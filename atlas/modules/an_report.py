@@ -646,7 +646,7 @@ class AuthorReportModule(Module):
             by_month, labels = an_wells.month_working(data[PRODUCTION], kind, period, scopes)
             if kind == 'withdrawal':                 # у закачки своя таблица по месяцам — табл. 2.2 (injection_months_table)
                 months.append(by_month.assign(season=period, labels=[labels] * len(by_month)))
-            chart = an_charts.month_working_chart(kind, period, by_month, labels)
+            chart = an_charts.month_working_chart(kind, period, by_month, labels, an_wells.month_peaks(data[PRODUCTION], kind, period))
             if chart is not None:
                 result.charts.append(chart)
         if kind == 'withdrawal':
