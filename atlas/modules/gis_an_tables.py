@@ -23,26 +23,32 @@ from ..contract import Column, Table
 AUTO_SEASONS = 4          # как в отчёте: два цикла «отбор + закачка», считая от нового сезона
 FIRST_NUMBER = 4          # номер первой таблицы: 5.4
 SPRING, AUTUMN = 'весна', 'осень'
+NO_SEASON = 'без сезона'     # замер вне сезонов (месяц не подходит и сезон не задан): не теряется, показывается серым
 
 
-def season_of(season: Any, date: pd.Timestamp) -> str | None:
+def season_of(season: Any, date: pd.Timestamp, keep: bool = False) -> str | None:
     """«весна 2025» / «осень 2025»: сезон из колонки, иначе по месяцу (март–май — весна, сентябрь–декабрь — осень)."""
     if pd.isna(date):
         return None
     name = str(season).strip().lower() if season is not None and not pd.isna(season) else ''
     if name not in (SPRING, AUTUMN):
         name = SPRING if date.month in (3, 4, 5) else AUTUMN if date.month in (9, 10, 11, 12) else ''
+    if not name and keep:
+        name = NO_SEASON
     return f'{name} {date.year}' if name else None
 
 
 def split(label: str) -> tuple[str, int]:
-    kind, year = label.split()
+    kind, year = label.rsplit(' ', 1)       # вид может быть из двух слов: «без сезона 2019»
     return kind, int(year)
+
+
+RANK = {SPRING: 0, AUTUMN: 1}
 
 
 def order(labels) -> list[str]:
     """По времени: год, внутри года весна раньше осени."""
-    return sorted(set(labels), key=lambda label: (split(label)[1], split(label)[0] != SPRING))
+    return sorted(set(labels), key=lambda label: (split(label)[1], RANK.get(split(label)[0], 2)))
 
 
 CASES = {'nom': ('отбор', 'закачка'), 'gen': ('отбора', 'закачки'), 'ins': ('отбором', 'закачкой')}
@@ -52,6 +58,8 @@ def name_of(label: str, case: str = 'nom') -> str:
     """Название сезона для заголовка: весна 2025 → «отбор 2024/25 гг.», осень 2025 → «закачка 2025 г.».
     Падеж: nom — «отбор», gen — «отбора» (конец отбора), ins — «отбором» (Δ с отбором)."""
     kind, year = split(label)
+    if kind not in (SPRING, AUTUMN):
+        return f'{kind} {year} г.'
     spring, autumn = CASES[case]
     return f'{spring} {year - 1}/{year % 100:02d} гг.' if kind == SPRING else f'{autumn} {year} г.'
 
@@ -81,20 +89,21 @@ def _last(frame: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     return frame.sort_values('date', kind='stable').groupby(keys, sort=False).tail(1)
 
 
-def seasoned(frame: pd.DataFrame) -> pd.DataFrame:
+def seasoned(frame: pd.DataFrame, keep: bool = False) -> pd.DataFrame:
+    """Колонка «season» вида «осень 2025». ``keep`` — замеры вне сезонов остаются с подписью «без сезона ГГГГ», а не отбрасываются."""
     out = frame.copy()
     seasons = out['season'] if 'season' in out else pd.Series(None, index=out.index)
-    out['season'] = [season_of(s, d) for s, d in zip(seasons, out['date'])]
+    out['season'] = [season_of(s, d, keep) for s, d in zip(seasons, out['date'])]
     out['well'] = out['well'].astype(str)
     out['pack'] = out['pack'].astype(object).where(out['pack'].notna(), 'без пачки').astype(str)
     return out[out['season'].notna()]
 
 
-def available(*frames: pd.DataFrame | None) -> list[str]:
+def available(*frames: pd.DataFrame | None, keep: bool = False) -> list[str]:
     labels: set[str] = set()
     for frame in frames:
         if frame is not None and len(frame):
-            labels |= set(seasoned(frame)['season'])
+            labels |= set(seasoned(frame, keep)['season'])
     return order(labels)
 
 
