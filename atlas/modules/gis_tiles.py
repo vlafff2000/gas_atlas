@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..contract import Axis, Chart, Column, Note, Series, Table
+from ..contract import Axis, Band, Chart, Column, Note, Series, Table
 from . import gis_an_tables as seasons_of
 
 IN_COLOR, OUT_COLOR = '#9FC7E6', '#E57373'
@@ -47,6 +47,18 @@ def caption(label: str) -> str:
     return f'Отбор {year - 1}/{year % 100:02d}' if kind == seasons_of.SPRING else f'Закачка {year}'
 
 
+def bands(labels: list[str]) -> list[Band]:
+    """Годы над столбцами: подряд идущие сезоны одного года («весна 2025» и «осень 2025» — 2025); нечётные годы на сером."""
+    out: list[Band] = []
+    for i, label in enumerate(labels):
+        year = seasons_of.split(label)[1]
+        if out and out[-1].label == str(year):
+            out[-1].last = i
+        else:
+            out.append(Band(i, i, str(year), year % 2 == 1))
+    return out
+
+
 def season_values(packs: pd.DataFrame, wells: list[str], pack_names: list[str], labels: list[str]) -> pd.DataFrame:
     """Строка на (скважина, пачка, сезон): ГНТ, Кг в % и точка замера — по последнему замеру сезона."""
     part = seasons_of.seasoned(packs)
@@ -70,7 +82,7 @@ def chart(well: str, pack: str, frame: pd.DataFrame, labels: list[str], params: 
     result = Chart(f'gis-tile-{well}-{pack}', f'Скважина №{well}, пачка «{pack}»: ГНТ и Кг по сезонам',
                    Axis('Сезон', scale='category', categories=cats),
                    Axis('ГНТ', 'м', from_zero=True, minimum=g_low, maximum=g_high), crosshair=True,
-                   y2=Axis('Кг', '%', minimum=k_low, maximum=k_high))
+                   y2=Axis('Кг', '%', minimum=k_low, maximum=k_high), bands=bands(labels))
     gnt = [float(by.at[s, 'gnt']) if s in by.index and pd.notna(by.at[s, 'gnt']) else None for s in labels]
     for phase, name, color in PHASES:
         values = [v if seasons_of.split(s)[0] == phase else None for s, v in zip(labels, gnt)]

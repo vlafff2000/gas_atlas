@@ -313,6 +313,15 @@ class Event:
 
 
 @dataclass
+class Band:
+    """Полоса на категорной оси X (годы под столбцами): от категории ``first`` до ``last`` включительно, подпись над графиком."""
+    first: int
+    last: int
+    label: str
+    shaded: bool = False             # серая подложка (чередуется с белой)
+
+
+@dataclass
 class Stat:
     """Показатель строки итогов над графиками: «Скважин · 8»."""
     label: str
@@ -371,6 +380,7 @@ class Chart:
     events: list[Event] = field(default_factory=list)   # отметки: дата на оси времени, число на числовой оси (накопленный объём)
     callouts: Literal['box', 'dot'] = 'box'   # узкие сегменты столбцов с ``Series.segments``: 'box' — выноска в рамке цвета ряда, 'dot' — точка (числа в ``table``)
     table: ChartTable | None = None  # таблица под графиком (экран и экспорт)
+    bands: list[Band] = field(default_factory=list)   # полосы по категориям оси X с подписью (годы)
     heat: HeatMap | None = None      # тепловая карта вместо рядов (series пуст)
     strips: WellStrips | None = None  # скважины × сезоны вместо рядов (series пуст)
 
@@ -608,5 +618,6 @@ def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
             'series': [_series_json(s, kept.get(i)) for i, s in enumerate(c.series)],
             'events': [{'x': _event_x(e.x), 'label': e.label, 'kind': e.kind,
                         'well': e.well} for e in c.events],
+            'bands': [asdict(b) for b in c.bands],
             'callouts': c.callouts, 'table': asdict(c.table) if c.table else None, 'heat': asdict(c.heat) if c.heat else None,
             'strips': asdict(c.strips) if c.strips else None}

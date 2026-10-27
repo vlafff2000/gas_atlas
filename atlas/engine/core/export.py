@@ -318,6 +318,10 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 lo,hi=ax.get_ylim();step=fig.layout.yaxis.dtick
                 if (hi-lo)/step<=150:ax.yaxis.set_major_locator(MultipleLocator(step))
             if fig.layout.yaxis.rangemode=='tozero':ax.set_ylim(bottom=0)
+            for band in (fig.layout.meta or {}).get('bands',()) if isinstance(fig.layout.meta,dict) else ():      # годы под столбцами: серая/белая подложка и подпись над графиком
+                lo_x,hi_x=band['first']-.5,band['last']+.5
+                if band.get('shaded'):ax.axvspan(lo_x,hi_x,color='#ededed',zorder=0,lw=0)
+                ax.text((lo_x+hi_x)/2,.985,band['label'],transform=ax.get_xaxis_transform(),ha='center',va='top',fontsize=10,fontweight='bold')
             if fig.layout.xaxis.rangemode=='tozero' and not date_axis:ax.set_xlim(left=0)
             for axis,layout in [(ax.xaxis,fig.layout.xaxis),(ax.yaxis,fig.layout.yaxis)]:
                 axis.grid(layout.showgrid is not False,color='#e4e9ef',linewidth=.7)

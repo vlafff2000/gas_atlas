@@ -321,6 +321,8 @@ def to_plotly(chart: Chart):
         meta['style'] = style_meta(chart)
         if chart.style.get('legend'):
             meta['format'] = {'legend': chart.style['legend']}
+    if chart.bands:
+        meta['bands'] = [{'first': b.first, 'last': b.last, 'label': b.label, 'shaded': b.shaded} for b in chart.bands]
     fig.update_layout(title={'text': chart.title}, meta=meta, barmode='stack' if stacked_bars else 'group')
     if scale_title is not None:
         fig.update_layout(coloraxis={'colorscale': 'Viridis', 'colorbar': {'title': {'text': scale_title}}})

@@ -195,3 +195,9 @@ def test_tile_bad_axis_is_a_parameter_error():
     from atlas.contract import ParamError
     with pytest.raises(ParamError):
         GisModule().run({GIS: _frame()}, _params(view='tile', seasons=[], gnt_min='5', gnt_max='1', kg_min='', kg_max=''))
+
+
+def test_tile_years_become_alternating_bands():
+    chart = GisModule().run({GIS: _frame()}, _params(wells=['115'], packs=['верхняя'], view='tile', seasons=[],
+                                                     gnt_min='', gnt_max='', kg_min='', kg_max='')).charts[0]
+    assert [(b.label, b.first, b.last, b.shaded) for b in chart.bands] == [('2024', 0, 0, False), ('2025', 1, 2, True)]
