@@ -78,9 +78,10 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
   const filter = opts.filter ?? DEFAULT_FILTER
 
   const reqId = useRef(0)
-  const load = useCallback(async (path: string, over?: { q?: string; sort?: string; desc?: boolean; hidden?: boolean; all?: boolean }, fresh = false) => {
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const load = useCallback(async (path: string, over?: { q?: string; sort?: string; desc?: boolean; hidden?: boolean; all?: boolean }, fresh = false, revalidate = false) => {
     const o = { q: query, sort, desc, hidden, all, ...over }
-    const p = new URLSearchParams({ path, sort: o.sort, q: o.q, limit: '2000' })
+    const p = new URLSearchParams({ path, sort: o.sort, q: o.q, limit: '1000' })
     if (o.desc) p.set('desc', '1')
     if (o.hidden) p.set('hidden', '1')
     if (!o.all && !folderMode && filter) p.set('filter', filter)
@@ -88,28 +89,44 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
     if (fresh) p.set('fresh', '1')
     const id = ++reqId.current
     if (!fresh) setBusy(true)
-    const r = await getJson<Listing>('/api/fs/list?' + p).catch(() => null)
+    const t0 = performance.now()
+    let t1 = t0, t2 = t0
+    const r = await fetch('/api/fs/list?' + p).then(async resp => { t1 = performance.now(); const j = (await resp.json()) as Listing; t2 = performance.now(); return j }).catch(() => null)
     if (id !== reqId.current) return // пришёл более новый запрос
     setBusy(false)
     if (!r) return
     setList(r)
+    // тайминги окна в журнал: запрос, разбор ответа, отрисовка (только для медленных и сетевых папок)
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const total = performance.now() - t0
+      if (total > 300 || r.network || r.error) {
+        void fetch('/api/fs/perf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          path: r.path, fetch: Math.round(t1 - t0), parse: Math.round(t2 - t1), render: Math.round(performance.now() - t2), rows: r.items.length, cached: !!r.cached }) }).catch(() => undefined)
+      }
+    }))
     if (!fresh) setSel(-1)
     if (r.path && !r.error) { dirRef.current = r.path; setPathText(r.path) }
-    // сеть: листинг пришёл из кэша — сразу обновляем его в фоне; без stat — дочитываем размер и дату видимых строк
-    if (r.cached && !r.error) { void load(r.path, over, true); return }
+    // сеть: листинг пришёл из кэша — при переходе в папку обновляем его в фоне (при поиске, сортировке и фильтрах — нет:
+    // иначе каждая буква в поиске перечитывала бы сетевую папку заново)
+    if (r.cached && !r.error && revalidate) { void load(r.path, over, true); return }
+    // без stat: размер и дату берём для видимых строк (первые 60), остальные — порциями, пока пользователь не ушёл в другую папку
     if (r.lazy && !r.error) {
-      const names = r.items.slice(0, 300).map(i => i.name)
-      const st = await getJson<{ stats: Record<string, { size: number; mtime: string; locked?: boolean }> }>('/api/fs/stat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: r.path, names }) }).catch(() => null)
-      if (st && id === reqId.current) {
-        setList(l => l && l.path === r.path ? { ...l, lazy: false, items: l.items.map(i => st.stats[i.name] ? { ...i, ...st.stats[i.name] } : i) } : l)
+      const names = r.items.map(i => i.name)
+      for (let i = 0; i < names.length; i += i === 0 ? 60 : 100) {
+        if (i > 0) await new Promise(res => setTimeout(res, 300))
+        if (id !== reqId.current) return
+        const chunk = names.slice(i, i + (i === 0 ? 60 : 100))
+        const st = await getJson<{ stats: Record<string, { size: number; mtime: string; locked?: boolean }> }>('/api/fs/stat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: r.path, names: chunk }) }).catch(() => null)
+        if (!st || id !== reqId.current) return
+        setList(l => l && l.path === r.path ? { ...l, lazy: false, items: l.items.map(it => st.stats[it.name] ? { ...it, ...st.stats[it.name] } : it) } : l)
       }
     }
   }, [query, sort, desc, hidden, all, filter, folderMode])
 
   const more = async () => {
     if (!list) return
-    const p = new URLSearchParams({ path: list.path, sort, q: query, limit: '2000', offset: String(list.items.length) })
+    const p = new URLSearchParams({ path: list.path, sort, q: query, limit: '1000', offset: String(list.items.length) })
     if (desc) p.set('desc', '1')
     if (hidden) p.set('hidden', '1')
     if (!all && !folderMode && filter) p.set('filter', filter)
@@ -120,18 +137,14 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
 
   useEffect(() => {
     let live = true
-    ;(async () => {
-      const [pl, last] = await Promise.all([
-        getJson<{ places: Place[] }>('/api/fs/places').catch(() => ({ places: [] as Place[] })),
-        getJson<Last>('/api/fs/last').catch(() => ({ dir: '', recent: [] as string[] })),
-      ])
-      if (!live) return
-      setPlaces(pl.places); setRecent(last.recent)
-      getJson<Favs>('/api/fs/favorites').then(f => { if (live && f.favorites) setFavs(f) }).catch(() => undefined)
-      const win = await getJson<{ w?: number; h?: number }>('/api/fs/win').catch(() => ({} as { w?: number; h?: number }))
+    // папка открывается сразу, не дожидаясь мест, избранного и размера окна (сбор мест может быть медленным)
+    void load(opts.start || '', undefined, false, true)
+    getJson<{ places: Place[] }>('/api/fs/places').then(pl => { if (live) setPlaces(pl.places) }).catch(() => undefined)
+    getJson<Last>('/api/fs/last').then(last => { if (live) setRecent(last.recent) }).catch(() => undefined)
+    getJson<Favs>('/api/fs/favorites').then(f => { if (live && f.favorites) setFavs(f) }).catch(() => undefined)
+    getJson<{ w?: number; h?: number }>('/api/fs/win').then(win => {
       if (live && win.w && win.h) { const v = { w: win.w, h: win.h }; sizeRef.current = v; setSize(v) }
-      await load(opts.start || '')
-    })()
+    }).catch(() => undefined)
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -146,7 +159,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
     done(p)
   }
   const choose = (full: string) => { void remember({ dir: folderMode ? full : dirRef.current, file: folderMode ? '' : full }); done(full) }
-  const open = (path: string) => { setQuery(''); void postFav('/api/fs/visit', { path }); void load(path, { q: '' }) }
+  const open = (path: string) => { setQuery(''); void postFav('/api/fs/visit', { path }); void load(path, { q: '' }, false, true) }
   const items = useMemo(() => list?.items ?? [], [list])
 
   const activate = (it: Item) => {
@@ -268,11 +281,15 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
         <div className="fp-bar">
           <button disabled={!list?.parent} onClick={() => list && open(list.parent)} title="Вверх (Backspace)">↑</button>
           <button onClick={() => void load(dirRef.current, undefined, true)} title="Обновить">↻</button>
-          <form onSubmit={e => { e.preventDefault(); void postFav('/api/fs/visit', { path: pathText.trim() }); void load(pathText.trim()) }} className="fp-path">
+          <form onSubmit={e => { e.preventDefault(); void postFav('/api/fs/visit', { path: pathText.trim() }); void load(pathText.trim(), undefined, false, true) }} className="fp-path">
             <input value={pathText} onChange={e => setPathText(e.target.value)} placeholder="Вставьте путь и нажмите Enter" aria-label="Путь" />
           </form>
           <input className="fp-search" value={query} placeholder="Поиск по имени" aria-label="Поиск"
-            onChange={e => { setQuery(e.target.value); void load(dirRef.current, { q: e.target.value }) }} />
+            onChange={e => {
+              const v = e.target.value; setQuery(v)
+              if (searchTimer.current) clearTimeout(searchTimer.current)
+              searchTimer.current = setTimeout(() => void load(dirRef.current, { q: v }), 200)
+            }} />
         </div>
         <div className="fp-crumbs">
           {crumbs(list?.path || pathText).map((c, i) => (
