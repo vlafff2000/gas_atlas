@@ -22,7 +22,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import VERSION, api_exclusions, chart_view, registry, render, season_format, thinning
-from . import api_builder, api_corrected, api_export, api_projects
+from . import api_builder, api_corrected, api_export, api_projects, export_charts
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
 from .projects import Conflict, Projects
@@ -284,7 +284,18 @@ def create_app(projects: Projects | None = None) -> Starlette:
         target = body.get('target')
         if target == 'tables':
             (result, _), _, _ = compute(module, body.get('project'), body.get('params'))
-        if target == 'chart':
+        if target == 'charts':      # все графики результата: ZIP из PNG или лист-плитка
+            (result, _), _, _ = compute(module, body.get('project'), body.get('params'), True)
+            if not result.charts:
+                raise Failure(404, 'Графиков нет. Обновите расчет.')
+            try:
+                if body.get('layout') == 'sheet':
+                    content, name, mime = export_charts.sheet(result.charts, module.spec.title, body.get('cols', 2))
+                else:
+                    content, name, mime = export_charts.archive(result.charts, module.spec.title)
+            except ValueError as e:
+                raise Failure(400, str(e)) from None
+        elif target == 'chart':
             chart, _ = full_chart(module, body)
             if body.get('format') != 'csv':
                 chart = chart_view.apply_view(chart, body.get('view'))     # вид с экрана: оформление рядов, границы осей, масштаб, легенда

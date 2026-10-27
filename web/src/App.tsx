@@ -457,6 +457,15 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             <>
               {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее из расчета. Расчетные кривые и серые исключенные точки не выбираются.</div>}
               {result.charts.length > 1 && (
+                <div className="chart-bulk">
+                  <button type="button" className="quiet" onClick={() => api.exportCharts(spec.id, project.id, params!, 'zip').catch(e => setToast({ text: (e as Error).message, undo: false }))}
+                    title="Все графики результата: по PNG-файлу на график, одним ZIP">Все PNG (ZIP)</button>
+                  <button type="button" className="quiet" onClick={() => api.exportCharts(spec.id, project.id, params!, 'sheet', columns || 2).catch(e => setToast({ text: (e as Error).message, undo: false }))}
+                    title="Все графики одним листом PNG; в ряд — как выбрано справа (по ширине — 2)">Плитка PNG</button>
+                  <button type="button" className="quiet" onClick={() => window.print()} title="Печать страницы с графиками">Печать</button>
+                </div>
+              )}
+              {result.charts.length > 1 && (
                 <label className="inline-field chart-columns">В ряд
                   <select value={columns} onChange={e => chartColumns.set(Number(e.target.value))}>
                     <option value={0}>по ширине</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
