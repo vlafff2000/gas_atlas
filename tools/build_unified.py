@@ -50,8 +50,7 @@ SHORTCUTS_WINDOWS = ('rem Ярлыки всех приложений на раб
                      '"%~dp0python\\python.exe" -s -X utf8 -m pxg_core.desktop_shortcuts %*\r\n'
                      'echo.\r\necho Нажмите любую клавишу, чтобы закрыть окно.\r\npause >nul\r\nexit /b 0')
 SHORTCUTS_LINUX = ('# Ярлыки всех приложений на рабочем столе: bash sozdat_yarlyki.sh (убрать: bash sozdat_yarlyki.sh --remove).\n'
-                   '"$PY" -s -X utf8 tools/desktop_shortcuts.py "$@"\n"$PY" -s -X utf8 -m pxg_core.desktop_shortcuts "$@"\n'
-                   'echo; read -r -p "Нажмите Enter, чтобы закрыть окно..." _ || true')
+                   'pxg_report "Ярлыки ПХГ" bash -c \'"$0" -s -X utf8 tools/desktop_shortcuts.py "$@"; "$0" -s -X utf8 -m pxg_core.desktop_shortcuts "$@"\' "$PY" "$@"')
 README = '''ПХГ — все приложения в одной папке ({target})
 =============================================
 
@@ -106,8 +105,10 @@ def write_launchers(target, folder, sp):
             (folder / name).write_bytes((bp.WINDOWS_PREFIX + body + bp.WINDOWS_SUFFIX).encode('utf-8'))
         else:
             path = folder / name
-            path.write_text(bp.LINUX_PREFIX + body + '\n', encoding='utf-8')
+            path.write_text(bp.LINUX_PREFIX + getattr(sp, 'REPORT_SH', '') + body + '\n', encoding='utf-8')
             path.chmod(0o755)
+    if not windows and hasattr(sp, 'write_twins'):
+        sp.write_twins(folder)  # .desktop для двойного щелчка без терминала
     text = README.format(
         target='Windows' if windows else 'Linux x86_64, glibc 2.17+ (РЕД ОС 7.3 и новее)', example='C:\\PXG' if windows else '~/PXG',
         hub='PXG_Hub.bat' if windows else 'pxg_hub.sh', shortcuts='Sozdat_yarlyki.bat' if windows else 'sozdat_yarlyki.sh',
