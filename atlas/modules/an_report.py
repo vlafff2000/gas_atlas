@@ -357,10 +357,10 @@ class AuthorReportModule(Module):
             Param('view', 'График', 'choice', default='canvas', section='Вид', chart_kind=True, options=VIEWS),
             Param('side', 'Правый график', 'choice', default='fund', section='Вид', chart_kind=True, options=SIDES),
             Param('class_chart', 'Классы производительности (табл. 1.5)', 'choice', default='none', section='Вид', chart_kind=True,
-                  options=CLASS_CHARTS, help='Только для отбора. Добавляет таблицу «Количество скважин по классам производительности» и график к ней: '
+                  options=CLASS_CHARTS, help='Для отбора и закачки. Добавляет таблицу «Количество скважин по классам производительности» и график к ней: '
                   'столбики — доли классов по группам, числа скважин внутри сегментов, узкие сегменты — выноской или точкой с таблицей под графиком.'),
             Param('month_chart', 'Работавшие по месяцам (табл. 1.4)', 'choice', default='table', section='Вид', chart_kind=True,
-                  options=MONTH_CHARTS, help='Только для отбора. Добавляет таблицу «Работавшие скважины по месяцам» и график к ней: '
+                  options=MONTH_CHARTS, help='Для отбора и закачки. Добавляет таблицу «Работавшие скважины по месяцам» и график к ней: '
                   'работавшие и простаивавшие скважины объекта по месяцам сезона, под графиком — таблица по группам.'),
             Param('pressure_source', 'Давление объекта', 'choice', default='auto', section='Выбор данных',
                   options=PRESSURE_SOURCES, help='Откуда берётся Рпл объекта и динамика по группам. «Авто» — столбец БД, иначе опорная сетка.'),
@@ -642,21 +642,23 @@ class AuthorReportModule(Module):
         scopes = well_scopes(data.mapping, ordered(wells.well))
         fund_frame = an_wells.fund_table(wells, scopes).assign(season=period)
         fund.append(fund_frame)
-        if kind == 'withdrawal' and month_chart != 'none' and months is not None:
+        if month_chart != 'none' and months is not None:
             by_month, labels = an_wells.month_working(data[PRODUCTION], kind, period, scopes)
-            months.append(by_month.assign(season=period, labels=[labels] * len(by_month)))
+            if kind == 'withdrawal':                 # у закачки своя таблица по месяцам — табл. 2.2 (injection_months_table)
+                months.append(by_month.assign(season=period, labels=[labels] * len(by_month)))
             chart = an_charts.month_working_chart(kind, period, by_month, labels)
             if chart is not None:
                 result.charts.append(chart)
-        if kind != 'withdrawal':
-            return                                   # закачка: классы — табл. 2.3 (injection_class_table)
-        classes.append(an_wells.class_table(wells, scopes).assign(season=period))
+        if kind == 'withdrawal':
+            classes.append(an_wells.class_table(wells, scopes).assign(season=period))      # закачка: классы — табл. 2.3 (injection_class_table)
         if class_chart != 'none':
             by_class = an_wells.class_counts(wells, scopes)
             counts.append(by_class.assign(season=period))
             for chart in (an_charts.class_share_chart(kind, period, by_class, class_chart), an_charts.class_total_chart(kind, period, by_class)):
                 if chart is not None:
                     result.charts.append(chart)
+        if kind != 'withdrawal':
+            return
         by_well = an_wells.water_by_well(data[WATER] if WATER in data else None, wells, scopes,
                                          summary['start'], summary['stop'])
         if by_well is None:
