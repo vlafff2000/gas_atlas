@@ -297,3 +297,20 @@ def test_plan_and_fact_groups_match_across_spellings():
     table = next(t for t in result.tables if t.id == 'an-inj-plan-fact').frame.set_index('group')
     assert table.loc['ГСП 9', 'fact'] == pytest.approx(0.65)
     assert table.loc['ГСП 9', 'plan'] == 2.0
+
+
+def test_injection_gets_month_and_class_charts_like_withdrawal():
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE})
+    data.mapping = INJ_MAPPING
+    module = an_report.AuthorReportModule()
+    plain = module.run(data, {'kind': 'injection', 'periods': ['2024']})
+    assert not any(c.id.startswith(('an-month-working', 'an-class-')) for c in plain.charts)
+    result = module.run(data, {'kind': 'injection', 'periods': ['2024'], 'month_chart': 'table', 'class_chart': 'box'})
+    ids = [c.id for c in result.charts]
+    assert 'an-month-working-injection-2024' in ids and 'an-class-share-injection-2024' in ids and 'an-class-total-injection-2024' in ids
+    months = next(c for c in result.charts if c.id.startswith('an-month-working'))
+    assert [s.y[0] for s in months.series] == [2.0, 1.0] and months.table.aligned          # май: работало 2 из 3 скважин
+    total = next(c for c in result.charts if c.id.startswith('an-class-total'))
+    assert sum(sum(s.y) for s in total.series) == 3                                          # три скважины сезона разложены по классам
+    tables = {t.id for t in result.tables}
+    assert 'an-fund-class-counts' in tables and 'an-fund-months' not in tables and 'an-inj-classes' in tables
