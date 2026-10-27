@@ -363,6 +363,7 @@ class WellStrips:
     counts: list[int]                  # в скольких сезонах скважина встретилась
     layout: Literal['matrix', 'panels'] = 'matrix'   # matrix — один список; panels — отдельная колонка на каждую ГСП
     missing_text: str = 'нет ревизии'
+    colors: dict[str, str] = field(default_factory=dict)   # цвет каждой ГСП (сквозная палитра групп)
 
 
 @dataclass

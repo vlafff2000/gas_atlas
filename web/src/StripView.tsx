@@ -14,7 +14,7 @@ export function StripView({ chart, onDownload, onCopy }: Props) {
   const s = chart.strips
   if (!s) return null
   const groups = [...new Set(s.groups)]
-  const color = (g: string) => PALETTE[groups.indexOf(g) % PALETTE.length]
+  const color = (g: string) => s.colors?.[g] ?? PALETTE[groups.indexOf(g) % PALETTE.length]
   // Плитка скважины: номер, ряд мелких квадратов по сезонам и число сезонов; плитки идут потоком, сколько влезет в строку.
   const block = (idx: number[], key: string, title?: string) => (
     <div key={key} className="strip-group">

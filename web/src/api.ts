@@ -112,7 +112,7 @@ export interface HeatMap {
 }
 export interface WellStrips {
   rows: string[]; groups: string[]; columns: string[]; cells: (number | null)[][]; counts: number[]
-  layout: 'matrix' | 'panels'; missing_text: string
+  layout: 'matrix' | 'panels'; missing_text: string; colors?: Record<string, string>
 }
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean
