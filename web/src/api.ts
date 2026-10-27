@@ -232,6 +232,8 @@ export const api = {
     download(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format, dpi, view }),
   chartPng: (module: string, project: string, params: Params, chart: string, view?: ChartExportView) =>
     chartPng(`/api/modules/${module}/export`, { project, params, target: 'chart', id: chart, format: 'png', dpi: 300, view }),
+  exportCharts: (module: string, project: string, params: Params, layout: 'zip' | 'sheet', cols = 2) =>
+    download(`/api/modules/${module}/export`, { project, params, target: 'charts', layout, cols }),
   exportTables: (module: string, project: string, params: Params, table?: string, format: 'xlsx' | 'csv' = 'xlsx') =>
     download(`/api/modules/${module}/export`, { project, params, target: 'tables', id: table, format }),
 }
