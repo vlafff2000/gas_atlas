@@ -206,6 +206,12 @@ button.quiet:hover { color: var(--ink); border-color: var(--line-strong); }
 
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 16px; }
 .chart-columns { margin: 0 0 8px; }
+.chart-bulk { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+@media print {
+  .sidebar, .param-bar, .pager, .chart-columns, .chart-bulk, .toast, .command-bar, .table-dock { display: none !important; }
+  .workspace { margin: 0; width: 100%; }
+  .chart-grid { break-inside: avoid; }
+}
 .chart-grid.fixed-cols { grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); }
 .chart { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 12px 6px; }
 .chart figcaption { font-weight: 700; font-size: 16px; padding: 0 4px; }

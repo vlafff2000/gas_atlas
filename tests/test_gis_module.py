@@ -238,3 +238,27 @@ def test_gis_comments_endpoint_saves_to_project_settings(tmp_path):
     r = client.post(f'/api/projects/{pid}/gis-comments', json={'changes': {'31|верхняя|весна 2025': {'comment': 'Не исследован'}}})
     assert r.status_code == 200, r.text
     assert projects.manifest(pid)['settings'][gis_tiles.COMMENTS_KEY] == {'31|верхняя|весна 2025': 'Не исследован'}
+
+
+def test_export_all_charts_as_zip_and_sheet(tmp_path):
+    import io
+    import sys
+    import zipfile
+    sys.path.insert(0, 'tests/atlas')
+    from starlette.testclient import TestClient
+
+    from _wells_data import make_project
+    from atlas.api import create_app
+    from atlas.projects import Projects
+    from atlas.modules.wells import SECTION_FUND
+
+    projects = Projects(tmp_path)
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    body = {'project': pid, 'params': {'section': SECTION_FUND, 'seasons_n': 2, 'wells': ['31']}, 'target': 'charts'}
+    r = client.post('/api/modules/wells/export', json={**body, 'layout': 'zip'})
+    assert r.status_code == 200, r.text
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert names and all(n.endswith('.png') for n in names)
+    r = client.post('/api/modules/wells/export', json={**body, 'layout': 'sheet', 'cols': 3})
+    assert r.status_code == 200 and r.content[:4] == b'\x89PNG'
