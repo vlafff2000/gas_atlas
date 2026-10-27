@@ -144,7 +144,7 @@ def _strip_figure(plt: Any, chart: Chart):
     st = chart.strips
     groups = list(dict.fromkeys(st.groups))
     palette = ['#2a6f97', '#d1495b', '#3a9d5d', '#e0a100', '#7b4fa3', '#e07a1f', '#2b9aa0', '#8c5a3c', '#5b6c8f', '#a3a33a']
-    color = {g: palette[i % len(palette)] for i, g in enumerate(groups)}
+    color = {g: st.colors.get(g) or palette[i % len(palette)] for i, g in enumerate(groups)}
     blocks = [(g, [i for i, x in enumerate(st.groups) if x == g]) for g in groups] if st.layout == 'panels' else [('', list(range(len(st.rows))))]
     n, sq, gap = len(st.columns), 0.2, 0.03
     chip_w = 0.7 + n * (sq + gap) + 0.45                 # номер + квадраты + число

@@ -20,6 +20,7 @@ Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
 WHAT = {'withdrawal': ('отбор', 'отбора', 'Суточный отбор'), 'injection': ('закачка', 'закачки', 'Суточная закачка')}
 WHOLE = 'Весь сезон'
+OBJECT_COLOR = '#6b7c84'        # объект целиком — нейтральный серый, не цвет группы
 MONTHS = ('январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь')
 
 
@@ -186,9 +187,11 @@ def cum_groups_season(kind: str, period: str, rates: pd.DataFrame, object_name: 
     noun = WHAT[kind][0]
     chart = Chart(f'an-cum-groups-{kind}-{period}', f'Накопленный {noun} за сезон по группам · {period}',
                   Axis('Дата', scale='time'), Axis(f'Накопленный {noun}', 'млн м³', from_zero=True))
-    for scope, daily in _cum_frames(rates).items():
+    frames = _cum_frames(rates)
+    colors = group_palette([s for s in frames if s != object_name])
+    for scope, daily in frames.items():
         chart.series.append(Series(scope, daily.index.to_numpy(), (daily.cumsum() / 1e6).to_numpy(), 'line',
-                                   group=scope, width=2.2 if scope == object_name else 1.2, dashed=scope == object_name))
+                                   group=scope, color=OBJECT_COLOR if scope == object_name else colors[scope], width=2.2 if scope == object_name else 1.2, dashed=scope == object_name))
     return chart
 
 
@@ -204,8 +207,10 @@ def cum_groups_months(kind: str, period: str, rates: pd.DataFrame, object_name: 
     cats = [month_name(m) for m in months]
     chart = Chart(f'an-cum-months-{kind}-{period}', f'Накопленный {noun} за месяц по группам · {period}',
                   Axis('Месяц', scale='category', categories=cats), Axis(f'Накопленный {noun} за месяц', 'млн м³', from_zero=True))
+    colors = group_palette(rates.scope.astype(str))
     for scope in dict.fromkeys(rates.scope.astype(str)):
-        chart.series.append(Series(scope, cats, np.array([by.get((scope, m), np.nan) for m in months], float), 'bar', group=scope))
+        chart.series.append(Series(scope, cats, np.array([by.get((scope, m), np.nan) for m in months], float), 'bar', group=scope,
+                                   color=colors[scope]))
     return chart
 
 
@@ -250,10 +255,11 @@ def monthly_groups_chart(kind: str, period: str, means: pd.DataFrame) -> Chart |
     months = list(dict.fromkeys(part.period))
     chart = Chart(f'an-monthly-groups-{kind}-{period}', f'Средний суточный расход по месяцам и группам · {period}',
                   Axis('Месяц', scale='category', categories=months), Axis('Средний суточный расход', Q_UNIT, from_zero=True))
+    colors = group_palette(part.scope.astype(str))
     for group, rows in part.groupby('scope', sort=False):
         by = rows.set_index('period')['mean']
         chart.series.append(Series(str(group), months, np.array([by.get(m, np.nan) for m in months], float), 'bar',
-                                   group=str(group), stack='groups'))
+                                   group=str(group), stack='groups', color=colors[str(group)]))
     return chart
 
 

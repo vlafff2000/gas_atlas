@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.modules import revision_report as rr
+from atlas.engine.modules.charts import group_palette
 
 from atlas.engine.core.config import ordered
 from atlas.engine.core.loader import canonical_gsp
@@ -78,7 +79,8 @@ def strips_chart(data: rr.Dataset, presence: pd.DataFrame, chart_id: str, title:
     part = part.sort_values(['order', 'k'], ascending=[True, False], kind='stable') if layout == 'panels' \
         else part.sort_values(['k', 'order'], ascending=[False, True], kind='stable')
     seasons = [s.replace('-', '/') for s in data.seasons]
-    strips = WellStrips([f'№ {w}' for w in part.well], list(part.group), seasons, [list(c) for c in part.cells], [int(k) for k in part.k], layout)
+    strips = WellStrips([f'№ {w}' for w in part.well], list(part.group), seasons, [list(c) for c in part.cells], [int(k) for k in part.k], layout,
+                        colors=group_palette(presence.group))
     return an_charts.well_strips_chart(chart_id, title, strips)
 
 
