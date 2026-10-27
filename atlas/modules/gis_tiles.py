@@ -13,9 +13,12 @@ from typing import Any
 
 import pandas as pd
 
-from ..contract import Axis, Band, Chart, Column, Note, Series, Table
+from ..contract import Axis, Band, Chart, Column, ParamError, Series, Table, TableAction
 from . import gis_an_tables as seasons_of
 
+COMMENTS_KEY = 'gis_comments'      # ручные комментарии к столбцам плитки в настройках проекта: «скважина|пачка|сезон» -> текст
+COMMENTS_JOURNAL = 'Комментарии к плитке ГИС'
+HINT = 'Не исследован, ГНТ не выявлены, Технические причины'
 IN_COLOR, OUT_COLOR = '#9FC7E6', '#E57373'
 PHASES = (('осень', 'ГНТ — закачка', IN_COLOR), ('весна', 'ГНТ — отбор', OUT_COLOR))
 
@@ -74,7 +77,12 @@ def season_values(packs: pd.DataFrame, wells: list[str], pack_names: list[str], 
     return out.reset_index(drop=True)
 
 
-def chart(well: str, pack: str, frame: pd.DataFrame, labels: list[str], params: dict[str, Any]) -> Chart:
+def comment_key(well: str, pack: str, label: str) -> str:
+    return f'{well}|{pack}|{label}'
+
+
+def chart(well: str, pack: str, frame: pd.DataFrame, labels: list[str], params: dict[str, Any],
+          comments: dict[str, str] | None = None) -> Chart:
     g_low, g_high = axis_range(params, 'gnt', 'ГНТ')
     k_low, k_high = axis_range(params, 'kg', 'Кг')
     by = frame.set_index('season')
@@ -93,6 +101,11 @@ def chart(well: str, pack: str, frame: pd.DataFrame, labels: list[str], params: 
     if any(v is not None for v in kg):
         result.series.append(Series('Кг', cats, kg, 'line', axis='y2', markers=True, color='#e11d48',
                                     labels=[f'{v:g}' if v is not None else '' for v in kg]))
+    notes = [(i, (comments or {}).get(comment_key(well, pack, s), '')) for i, s in enumerate(labels)]
+    notes = [(i, text) for i, text in notes if text]
+    if notes:      # подпись инженера на месте столбца (нет значения, ноль или своя пометка)
+        result.series.append(Series('Комментарии', [cats[i] for i, _ in notes], [0.0] * len(notes), 'points', legend=False,
+                                    color='#555555', symbol='diamond', labels=[t for _, t in notes], captions=[t for _, t in notes]))
     return result
 
 
@@ -119,3 +132,43 @@ def table(frame: pd.DataFrame, labels: list[str]) -> Table:
                   Column('gnt', 'ГНТ, м', decimals=2), Column('d_gnt', 'ΔГНТ, м', decimals=2),
                   Column('kg', 'Кг, %', decimals=1), Column('d_kg', 'ΔКг, % п.п.', decimals=1)],
                  note='Δ — к предыдущему выбранному сезону; пусто, если в одном из сезонов нет значения.')
+
+
+def comment_rows(frame: pd.DataFrame, labels: list[str], comments: dict[str, str]) -> pd.DataFrame:
+    """Сезоны без значения или с нулём по ГНТ или Кг — место для ручного комментария; уже введённые остаются в списке."""
+    rows = []
+    for (well, pack), part in frame.groupby(['well', 'pack'], sort=True):
+        by = part.set_index('season')
+        for label in labels:
+            gnt, kg = (by.at[label, 'gnt'], by.at[label, 'kg']) if label in by.index else (math.nan, math.nan)
+            key = comment_key(str(well), str(pack), label)
+            if pd.isna(gnt) or gnt == 0 or pd.isna(kg) or kg == 0 or comments.get(key):
+                rows.append({'key': key, 'well': well, 'pack': pack, 'season': caption(label), 'gnt': gnt, 'kg': kg,
+                             'comment': comments.get(key, '')})
+    return pd.DataFrame(rows, columns=['key', 'well', 'pack', 'season', 'gnt', 'kg', 'comment'])
+
+
+def comments_table(frame: pd.DataFrame) -> Table:
+    action = TableAction('assign', None, 'key', 'Сохранить комментарии', target='gis-comments', fields=('comment',),
+                         editable=('comment',), journal=COMMENTS_JOURNAL, submit='changed')
+    return Table('gis-tile-comments', 'Комментарии к столбцам без значения', frame,
+                 [Column('well', 'Скважина'), Column('pack', 'Пачка'), Column('season', 'Сезон'),
+                  Column('gnt', 'ГНТ, м', decimals=2), Column('kg', 'Кг, %', decimals=1), Column('comment', 'Комментарий')],
+                 note=f'Сезоны, где нет ГНТ или Кг либо значение нулевое. Подпись ставите вы: например «{HINT}» или свой текст; '
+                      'она появится на графике. Пустое значение снимает комментарий.', action=action)
+
+
+def with_comments(settings: Any, changes: Any) -> dict[str, Any]:
+    """Настройки проекта с комментариями плитки. Пустой текст снимает комментарий."""
+    if not isinstance(changes, dict) or not changes:
+        raise ParamError('Нет изменений для сохранения')
+    out = dict(settings)
+    saved = dict(out.get(COMMENTS_KEY) or {})
+    for key, value in changes.items():
+        text = str((value.get('comment') if isinstance(value, dict) else value) or '').strip()[:200]
+        if text:
+            saved[str(key)] = text
+        else:
+            saved.pop(str(key), None)
+    out[COMMENTS_KEY] = saved
+    return out

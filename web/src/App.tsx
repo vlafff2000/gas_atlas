@@ -350,6 +350,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     onProject(await api.assignWellCategories(project.id, changes))
     setToast({ text: `Сохранено категорий скважин: ${Object.keys(changes).length}. Снятая правка возвращает подсказку.`, undo: false })
   }
+  const assignGisComments = async (changes: Assignments) => {
+    onProject(await api.assignGisComments(project.id, changes))
+    setToast({ text: `Сохранено комментариев: ${Object.keys(changes).length}. Пустой текст снимает комментарий.`, undo: false })
+  }
   const undo = async () => {
     try {
       const r = await api.undo(project.id)
@@ -498,7 +502,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               onLoad={t.deferred ? () => api.table(spec.id, project.id, params, t.id) : undefined}
               onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
               onAssign={t.action?.kind !== 'assign' ? undefined : t.action.target === 'object-categories' ? assignCategories
-                : t.action.target === 'well-categories' ? assignWellCategories : assignGroups} />
+                : t.action.target === 'well-categories' ? assignWellCategories
+                : t.action.target === 'gis-comments' ? assignGisComments : assignGroups} />
           )} />
         </div>
       )}

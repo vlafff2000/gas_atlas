@@ -197,6 +197,9 @@ def create_app(projects: Projects | None = None) -> Starlette:
     def well_categories(request, body):
         return projects.assign_well_categories(request.path_params['pid'], body.get('changes') or {}, body.get('revision'))
 
+    def gis_comments(request, body):
+        return projects.assign_gis_comments(request.path_params['pid'], body.get('changes') or {}, body.get('revision'))
+
     def undo(request, body):
         return projects.undo_exclusion(request.path_params['pid'])
 
@@ -342,6 +345,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/groups', E(groups), methods=['POST']),
         Route('/api/projects/{pid}/object-categories', E(object_categories), methods=['POST']),
         Route('/api/projects/{pid}/well-categories', E(well_categories), methods=['POST']),
+        Route('/api/projects/{pid}/gis-comments', E(gis_comments), methods=['POST']),
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
         *__import__('atlas.fs_browse', fromlist=['routes']).routes(),   # проводник: список папок, последняя папка
         *api_builder.routes(projects, E),   # библиотека макетов конструктора, Word одного графика

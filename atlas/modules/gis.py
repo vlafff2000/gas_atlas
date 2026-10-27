@@ -180,9 +180,13 @@ class GisModule(Module):
         if values.empty:
             result.notes.append(Note('За выбранные скважины, пачки и сезоны замеров нет.'))
             return result
+        comments = dict(data.settings.get(gis_tiles.COMMENTS_KEY) or {}) if hasattr(data, 'settings') else {}
         for (well, pack), frame in values.groupby(['well', 'pack'], sort=True):
-            result.charts.append(gis_tiles.chart(str(well), str(pack), frame, labels, params))
+            result.charts.append(gis_tiles.chart(str(well), str(pack), frame, labels, params, comments))
         result.tables.append(gis_tiles.table(values, labels))
+        gaps = gis_tiles.comment_rows(values, labels, comments)
+        if len(gaps):
+            result.tables.append(gis_tiles.comments_table(gaps))
         result.summary = [Stat('Скважин', str(values['well'].nunique())), Stat('Сезонов', str(len(labels)))]
         result.notes.append(Note('Столбцы: голубой — закачка (замер после закачки), красный — отбор (после отбора). В сезоне берётся '
                                  'последний замер пачки. Границы осей: пусто — автоматически, число — вручную.'))

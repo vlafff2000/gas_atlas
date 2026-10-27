@@ -201,3 +201,40 @@ def test_tile_years_become_alternating_bands():
     chart = GisModule().run({GIS: _frame()}, _params(wells=['115'], packs=['верхняя'], view='tile', seasons=[],
                                                      gnt_min='', gnt_max='', kg_min='', kg_max='')).charts[0]
     assert [(b.label, b.first, b.last, b.shaded) for b in chart.bands] == [('2024', 0, 0, False), ('2025', 1, 2, True)]
+
+
+def test_tile_comments_show_on_chart_and_in_table():
+    from atlas.modules import gis_tiles
+    data = Data({GIS: _frame()})
+    data.settings = {gis_tiles.COMMENTS_KEY: {'113|верхняя|весна 2025': 'Не исследован'}}
+    res = GisModule().run(data, _params(wells=['113'], packs=['верхняя'], view='tile', seasons=['осень 2024', 'весна 2025'],
+                                        gnt_min='', gnt_max='', kg_min='', kg_max=''))
+    note = next(s for s in res.charts[0].series if s.name == 'Комментарии')
+    assert note.captions == ['Не исследован'] and note.x == ['Отбор 2024/25']
+    gaps = next(t for t in res.tables if t.id == 'gis-tile-comments')
+    assert gaps.frame['key'].tolist() == ['113|верхняя|весна 2025'] and gaps.action.target == 'gis-comments'
+
+
+def test_tile_comments_save_and_clear():
+    from atlas.modules import gis_tiles
+    saved = gis_tiles.with_comments({}, {'a|b|весна 2025': {'comment': ' Технические причины '}})
+    assert saved[gis_tiles.COMMENTS_KEY] == {'a|b|весна 2025': 'Технические причины'}
+    assert gis_tiles.with_comments(saved, {'a|b|весна 2025': {'comment': ''}})[gis_tiles.COMMENTS_KEY] == {}
+
+
+def test_gis_comments_endpoint_saves_to_project_settings(tmp_path):
+    import sys
+    sys.path.insert(0, 'tests/atlas')
+    from starlette.testclient import TestClient
+
+    from _wells_data import make_project
+    from atlas.api import create_app
+    from atlas.modules import gis_tiles
+    from atlas.projects import Projects
+
+    projects = Projects(tmp_path)
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    r = client.post(f'/api/projects/{pid}/gis-comments', json={'changes': {'31|верхняя|весна 2025': {'comment': 'Не исследован'}}})
+    assert r.status_code == 200, r.text
+    assert projects.manifest(pid)['settings'][gis_tiles.COMMENTS_KEY] == {'31|верхняя|весна 2025': 'Не исследован'}
