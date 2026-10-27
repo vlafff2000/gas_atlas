@@ -118,3 +118,60 @@ def test_empty_pack_name_goes_to_separate_pack():
     frame.loc[0, 'pack'] = None
     res = GisModule().run({GIS: frame}, _params(wells=['115']))
     assert 'без пачки' in [s.name for c in res.charts for s in c.series]
+
+
+# ---- таблицы главы 5 АН (5.4–5.8) ----
+INTERVALS = DatasetKind.GIS_INTERVALS
+
+
+def _an_packs():
+    rows = []
+    for well, abs_ in (('1', [-660.7, -661.7, -660.2, -660.5]), ('4', [-667.5, -667.5, None, -667.5])):
+        for (date, season), value in zip((('2024-03-30', 'весна'), ('2024-10-20', 'осень'), ('2025-03-31', 'весна'), ('2025-10-20', 'осень')), abs_):
+            if value is not None:
+                rows.append({'well': well, 'date': pd.Timestamp(date), 'season': season, 'pack': 'верхняя', 'gvk_abs_m': value,
+                             'gvk_depth_m': 128.0 - value, 'h_eff_m': 2.5, 'kg_avg': 0.5})
+    return pd.DataFrame(rows)
+
+
+def _an_intervals():
+    return pd.DataFrame({
+        'well': ['1', '1', '1'], 'pack': ['верхняя'] * 3, 'season': ['весна', 'весна', 'осень'],
+        'date': pd.to_datetime(['2024-03-30', '2024-03-30', '2024-10-20']),
+        'from_m': [777.2, 778.6, 777.2], 'to_m': [778.6, 779.8, 778.6], 'kg': [0.35, 0.62, 0.35]})
+
+
+def _an(**kw):
+    return GisModule().run({GIS: _an_packs(), INTERVALS: _an_intervals()}, _params(view='an', **kw))
+
+
+def test_an_tables_follow_report_layout_and_names():
+    res = _an()
+    assert [t.id for t in res.tables] == ['gis-an-5-4', 'gis-an-5-5', 'gis-an-5-6']
+    comp = res.tables[1]
+    assert [s for s, _ in comp.header[0]] == ['', 'отбор 2023/24 гг.', 'закачка 2024 г.', 'отбор 2024/25 гг.', 'закачка 2025 г.', '']
+    assert 'выполненных в 2024/25 гг.' in comp.title
+    row = comp.frame.set_index('well').loc['4']
+    assert row['s2_abs'] != row['s2_abs'] and 'нет замера' in row['note']      # весна 2025: замера нет
+
+
+def test_an_delta_is_depth_change_to_previous_and_same_kind():
+    chg = _an().tables[2].frame.set_index('well')
+    # скважина 1, как в табл. 5.6 отчёта: отбор 24/25 против отбора 23/24 — −0,5; закачка 2025 против закачки 2024 — −1,2 (ГВК поднялся)
+    assert chg.loc['1', 'd_весна 2025_весна 2024'] == -0.5
+    assert chg.loc['1', 'd_осень 2025_осень 2024'] == -1.2
+
+
+def test_an_manual_seasons_and_base_rename_columns():
+    res = _an(an_seasons=['весна 2024', 'осень 2025', 'осень 2024', 'весна 2025'][:3], an_last_two=False)
+    comp = res.tables[1]
+    assert [s for s, _ in comp.header[0]][1:-1] == ['отбор 2023/24 гг.', 'закачка 2024 г.', 'закачка 2025 г.']
+    res = _an(an_base='осень 2024')                       # новый сезон — осень 2024: сезонов до него только три
+    assert [s for s, _ in res.tables[1].header[0]][1:-1] == ['отбор 2023/24 гг.', 'закачка 2024 г.']
+    assert '2023/24' not in res.tables[1].title and 'выполненных в 2024 г.' in res.tables[1].title
+
+
+def test_an_without_intervals_skips_table_54_with_note():
+    res = GisModule().run({GIS: _an_packs()}, _params(view='an'))
+    assert [t.id for t in res.tables] == ['gis-an-5-5', 'gis-an-5-6']
+    assert any('5.4' in n.text for n in res.notes)
