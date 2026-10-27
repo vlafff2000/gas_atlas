@@ -19,8 +19,9 @@ from . import gis_an_tables as seasons_of
 COMMENTS_KEY = 'gis_comments'      # ручные комментарии к столбцам плитки в настройках проекта: «скважина|пачка|сезон» -> текст
 COMMENTS_JOURNAL = 'Комментарии к плитке ГИС'
 HINT = 'Не исследован, ГНТ не выявлены, Технические причины'
-IN_COLOR, OUT_COLOR = '#9FC7E6', '#E57373'
-PHASES = (('осень', 'ГНТ — закачка', IN_COLOR), ('весна', 'ГНТ — отбор', OUT_COLOR))
+IN_COLOR, OUT_COLOR, NONE_COLOR = '#9FC7E6', '#E57373', '#BDBDBD'
+PHASES = (('осень', 'ГНТ — закачка', IN_COLOR), ('весна', 'ГНТ — отбор', OUT_COLOR),
+          (seasons_of.NO_SEASON, 'ГНТ — без сезона', NONE_COLOR))
 
 
 def bound(text: Any, label: str) -> float | None:
@@ -47,7 +48,9 @@ def axis_range(params: dict[str, Any], prefix: str, label: str) -> tuple[float |
 def caption(label: str) -> str:
     """«весна 2025» → «Отбор 2024/25», «осень 2025» → «Закачка 2025»."""
     kind, year = seasons_of.split(label)
-    return f'Отбор {year - 1}/{year % 100:02d}' if kind == seasons_of.SPRING else f'Закачка {year}'
+    if kind == seasons_of.SPRING:
+        return f'Отбор {year - 1}/{year % 100:02d}'
+    return f'Закачка {year}' if kind == seasons_of.AUTUMN else f'{kind.capitalize()} {year}'
 
 
 def bands(labels: list[str]) -> list[Band]:
@@ -64,7 +67,7 @@ def bands(labels: list[str]) -> list[Band]:
 
 def season_values(packs: pd.DataFrame, wells: list[str], pack_names: list[str], labels: list[str]) -> pd.DataFrame:
     """Строка на (скважина, пачка, сезон): ГНТ, Кг в % и точка замера — по последнему замеру сезона."""
-    part = seasons_of.seasoned(packs)
+    part = seasons_of.seasoned(packs, keep=True)
     part = part[part['well'].isin(wells) & part['season'].isin(labels)]
     if pack_names:
         part = part[part['pack'].isin(pack_names)]

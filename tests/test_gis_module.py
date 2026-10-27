@@ -262,3 +262,24 @@ def test_export_all_charts_as_zip_and_sheet(tmp_path):
     assert names and all(n.endswith('.png') for n in names)
     r = client.post('/api/modules/wells/export', json={**body, 'layout': 'sheet', 'cols': 3})
     assert r.status_code == 200 and r.content[:4] == b'\x89PNG'
+
+
+def test_tile_keeps_measurements_outside_seasons_gray_and_does_not_crash():
+    frame = pd.DataFrame({
+        'well': ['115', '115'], 'date': pd.to_datetime(['2019-07-01', '2024-10-01']), 'season': ['без сезона', 'осень'],
+        'pack': ['верхняя', 'верхняя'], 'gvk_abs_m': [-1000.0, -1001.0], 'h_eff_m': [2.0, 1.5], 'kg_avg': [0.3, 0.4]})
+    params = _params(wells=['115'], view='tile', seasons=[], gnt_min='', gnt_max='', kg_min='', kg_max='')
+    res = GisModule().run({GIS: frame}, params)
+    chart = res.charts[0]
+    assert chart.x.categories == ['Без сезона 2019', 'Закачка 2024']
+    gray = next(s for s in chart.series if s.name == 'ГНТ — без сезона')
+    assert gray.y == [2.0, None] and gray.color == '#BDBDBD'
+    # сезон «без сезона 2019» выбран вручную (в том числе из вида Σ hi×Кг) — раньше это роняло расчёт
+    again = GisModule().run({GIS: frame}, {**params, 'seasons': ['осень 2024', 'без сезона 2019']})
+    assert again.charts[0].x.categories == ['Без сезона 2019', 'Закачка 2024']
+    assert 'без сезона 2019' in GisModule().options('seasons', Data({GIS: frame}), {'view': 'tile'})
+
+
+def test_an_tables_order_does_not_crash_on_unseasoned_label():
+    from atlas.modules import gis_an_tables
+    assert gis_an_tables.order(['осень 2024', 'без сезона 2019', 'весна 2024']) == ['без сезона 2019', 'весна 2024', 'осень 2024']

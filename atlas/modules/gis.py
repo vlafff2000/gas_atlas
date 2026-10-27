@@ -87,7 +87,7 @@ class GisModule(Module):
             return ordered(df_w for df_w in data[GIS]['well'].astype(str).unique()) if GIS in data else []
         if name == 'seasons':
             if params.get('view') == 'tile':
-                return gis_an_tables.available(data.get(GIS))
+                return gis_an_tables.available(data.get(GIS), keep=True)
             if INTERVALS not in data or data[INTERVALS].empty:
                 return []
             return gis_hikg.season_order(gis_hikg.prepare(data[INTERVALS])['season'].dropna().astype(str).unique())
@@ -167,7 +167,7 @@ class GisModule(Module):
         if not wells:
             result.notes.append(Note('Выберите скважины.'))
             return result
-        labels = gis_an_tables.order(params['seasons']) if params['seasons'] else gis_an_tables.available(data[GIS])
+        labels = gis_an_tables.order(params['seasons']) if params['seasons'] else gis_an_tables.available(data[GIS], keep=True)
         if not labels:
             result.notes.append(Note('В базе ГИС нет замеров с сезоном (осень — после закачки, весна — после отбора).'))
             return result
