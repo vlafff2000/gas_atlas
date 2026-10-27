@@ -90,6 +90,19 @@ def month_working(prod: pd.DataFrame, kind: str, period: str, scopes: Mapping[st
     return pd.DataFrame(rows), [f'{MONTH_NAMES[m.month - 1]}.{str(m.year)[2:]}' for m in months]
 
 
+def month_peaks(prod: pd.DataFrame, kind: str, period: str) -> list[tuple[int, Any]]:
+    """Максимум скважин, работавших одновременно в одни сутки, по месяцам сезона (те же месяцы, что в ``month_working``): (число, дата первых суток с максимумом)."""
+    d = prod[prod.kind.eq(kind) & prod.period.eq(period)][['well', 'date', 'q']]
+    if d.empty:
+        return []
+    days = d[d.q.gt(0)].assign(date=lambda x: x.date.dt.normalize()).groupby('date').well.nunique()
+    out = []
+    for month in sorted(d.date.dt.to_period('M').unique()):
+        part = days[days.index.to_period('M') == month]
+        out.append((int(part.max()), part.idxmax()) if not part.empty else (0, None))
+    return out
+
+
 def class_counts(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
     """Табл. 1.5 отчёта: по группам число скважин в каждом из семи классов производительности; строка «Всего» — первая.
 

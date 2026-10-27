@@ -61,6 +61,8 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     fig = plt.figure(figsize=(max(7.5, 0.9 * len(cats) + 4), 6.2 + (0.26 * (len(table.rows) + 1) if table else 0)))
     ax = fig.add_axes([0.08, 0.08 + (0.04 * len(table.rows) if table else 0.0), 0.72, 0.8])
     below = np.zeros(len(cats))
+    top = max(1e-9, sum(np.array([0.0 if v is None else float(v) for v in s.y]) for s in bars if s.segments is not None).max()) \
+        if any(s.segments is not None for s in bars) else 1.0
     used = [0] * len(cats)
     marks: list[tuple[int, float, str, str]] = []
     colors: list[str] = []
@@ -71,13 +73,17 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
         ax.bar(range(len(cats)), values, bottom=below, width=0.62, color=color, label=s.name, edgecolor='#222', linewidth=0.4)
         for j, (v, text) in enumerate(zip(values, s.segments or [])):
             middle = below[j] + v / 2
-            if text and v >= NARROW:
+            if text and v / top >= NARROW / 100:
                 ax.text(j, middle, text, ha='center', va='center', fontsize=11, color='white' if _luma(color) < 140 else '#111')
             elif text and chart.callouts == 'dot':
                 ax.text(j, middle, '●', ha='center', va='center', fontsize=7, color='white' if _luma(color) < 140 else '#111')
             elif text:
                 marks.append((j, middle, text, color))
         below += values
+    for s in chart.series:
+        if s.kind == 'line':        # кривая поверх столбиков (максимум одновременно работавших скважин за сутки)
+            ax.plot(range(len(cats)), [np.nan if v is None else float(v) for v in s.y], color=s.color or '#111827', lw=2.2, marker='D', ms=6,
+                    mfc='white', mec=s.color or '#111827', mew=1.8, label=s.name, zorder=5)
     for j, middle, text, color in marks:
         side = 1 if used[j] % 2 == 0 else -1
         used[j] += 1
@@ -87,6 +93,9 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     ax.set_xticks(range(len(cats)))
     ax.set_xticklabels([] if table else cats)
     ax.set_xlim(-0.6, len(cats) - 0.4 + 0.2)
+    if chart.y.unit == 'скв.':
+        from matplotlib.ticker import MaxNLocator
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_ylabel(f'{chart.y.label}, {chart.y.unit}' if chart.y.unit else chart.y.label)
     if chart.y.maximum is not None:
         ax.set_ylim(chart.y.minimum or 0, chart.y.maximum)
@@ -154,7 +163,7 @@ def _strip_figure(plt: Any, chart: Chart):
             for j, v in enumerate(st.cells[i]):
                 xs = x0 + 0.7 + j * (sq + gap)
                 if v is None:
-                    ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fill=False, hatch='////', ec='#aaa', lw=0))
+                    ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fc='#fff4d6', hatch='////', ec='#8a5a00', lw=0.8))
                 else:
                     ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fc=color[st.groups[i]] if v else '#e4eaec', lw=0))
             ax.text(x0 + chip_w - 0.1, y0 + 0.31, str(st.counts[i]), ha='right', va='center', fontsize=9, color='#555')

@@ -101,12 +101,13 @@ def test_class_counts_seven_classes_boundary_goes_up():
     assert counts.loc[an_wells.TOTAL, 'zero_numbers'] == '1 (4)'
 
 
-def test_class_share_chart_percent_height_and_counts_inside():
+def test_class_share_chart_absolute_height_and_counts_inside():
     from atlas.modules import an_charts
     counts = an_wells.class_counts(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES)
     chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'dot')
     assert an_wells.TOTAL not in chart.x.categories and chart.callouts == 'dot'     # «Всего» — отдельным графиком
-    assert [sum(s.y[j] for s in chart.series) for j in range(len(chart.x.categories))] == pytest.approx([100.0] * 2)
+    assert [sum(s.y[j] for s in chart.series) for j in range(len(chart.x.categories))] == pytest.approx([2.0, 2.0])     # высота — число скважин группы, не проценты
+    assert chart.y.unit == 'скв.' and chart.y.maximum is None
     assert chart.table.cells[0] == ['0', '2'] and chart.series[0].segments == ['', '2']
     total = an_charts.class_total_chart('withdrawal', '2023-2024', counts)
     assert [sum(s.y[j] for s in total.series) for j in range(7)] == [2, 1, 0, 0, 1, 0, 0]     # строка «Всего»: 2 нулевых, 1 менее 100, 1 от 200 до 250
@@ -162,3 +163,25 @@ def test_special_charts_export_to_png_pdf_svg_not_as_grouped_bars():
                                 [['6', 'нет ревизии'], ['2', '13']], 'Скважин')
     assert render.chart_file(heat, 'png', 150)[0][:4] == b'\x89PNG'
     assert 'ГСП 9' in render.chart_file(heat, 'csv', 150)[0].decode('utf-8-sig')
+
+
+def test_month_peaks_and_curve_on_month_chart():
+    from atlas.modules import an_charts
+    peaks = an_wells.month_peaks(PROD, 'withdrawal', '2023-2024')
+    frame, labels = an_wells.month_working(PROD, 'withdrawal', '2023-2024', SCOPES)
+    assert len(peaks) == len(labels) and all(0 <= n <= int(frame.fund.iloc[0]) for n, _ in peaks)
+    day = PROD[PROD.kind.eq('withdrawal') & PROD.period.eq('2023-2024') & PROD.q.gt(0)].groupby('date').well.nunique()
+    assert peaks[0][0] == int(day.max())                                   # единственный месяц данных: максимум по суткам
+    chart = an_charts.month_working_chart('withdrawal', '2023-2024', frame, labels, peaks)
+    line = chart.series[-1]
+    assert line.kind == 'line' and line.markers and list(line.y) == [float(n) for n, _ in peaks]
+    assert an_charts.month_working_chart('withdrawal', '2023-2024', frame, labels).series[-1].kind == 'bar'     # без кривой — как раньше
+
+
+def test_class_share_groups_in_natural_order():
+    from atlas.modules import an_charts
+    names = ['ГСП 10', 'ГСП 2', 'ГСП 1']
+    scopes = {str(i): g for i, g in enumerate(names)}
+    wells = pd.DataFrame({'well': list(scopes), 'rate': [120_000.0] * 3, 'days': [5] * 3, 'gas': [1.0] * 3})
+    chart = an_charts.class_share_chart('withdrawal', '2023-2024', an_wells.class_counts(wells, scopes))
+    assert list(chart.x.categories) == ['ГСП 1', 'ГСП 2', 'ГСП 10']

@@ -175,6 +175,14 @@ def style_meta(chart: Chart) -> dict:
 NARROW = 5      # сегмент стопки уже 5 % высоты: число не помещается внутрь (как на экране, ChartView.tsx)
 
 
+def stack_top(chart: Chart) -> float:
+    """Высота самой высокой стопки с подписями сегментов: узкий сегмент — меньше NARROW % от неё."""
+    bars = [s for s in chart.series if s.kind == 'bar' and s.segments is not None]
+    if not bars:
+        return 1.0
+    return max(1e-9, max(sum(0.0 if s.y[j] is None else float(s.y[j]) for s in bars) for j in range(len(bars[0].x))))
+
+
 def segment_marks(fig, chart: Chart, palette: dict) -> None:
     """Узкие сегменты стопки с подписями: выноска в рамке цвета ряда (по очереди вправо и влево) или точка; таблица под графиком."""
     import plotly.graph_objects as go
@@ -183,13 +191,14 @@ def segment_marks(fig, chart: Chart, palette: dict) -> None:
         return
     below = np.zeros(len(bars[0].x))
     used = [0] * len(bars[0].x)
+    top = stack_top(chart)
     for s in bars:
         color = (s.look or {}).get('color') or (series_color(s.color) if s.color else palette[s.group or s.name])
         for j, (x, y, text) in enumerate(zip(s.x, s.y, s.segments)):
             y = 0.0 if y is None else float(y)
             middle = below[j] + y / 2
             below[j] += y
-            if not text or y >= NARROW:
+            if not text or y / top >= NARROW / 100:
                 continue
             if chart.callouts == 'dot':
                 fig.add_annotation(x=x, y=middle, text='●', showarrow=False, font={'size': 9, 'color': '#111'})
@@ -263,7 +272,8 @@ def to_plotly(chart: Chart):
                 extra = dict(yaxis=s.axis, offsetgroup=s.stack or f'bar{n}', opacity=look.get('opacity'),
                              meta={'combo': True, 'stack': s.stack, **extra.get('meta', {})})
             if s.segments is not None:       # стопка с числами внутри сегментов: узкие — выноской или точкой (``segment_marks``)
-                wide = [t if (y is not None and y >= NARROW) else '' for t, y in zip(s.segments, s.y)]
+                top = stack_top(chart)
+                wide = [t if (y is not None and y / top >= NARROW / 100) else '' for t, y in zip(s.segments, s.y)]
                 extra.update(text=wide, textposition='inside', insidetextanchor='middle', textfont={'size': 13},
                              marker={'color': color, 'line': {'color': '#222', 'width': 0.4}})
                 extra.pop('marker_color', None)
