@@ -62,7 +62,7 @@ export interface TableAction {
   column?: string
   // assign: значения полей по строкам, какие из них правятся, что отправлять, запись журнала
   fields: string[]; editable: string[]; submit: 'changed' | 'all'; journal: string; values: Record<string, Cell[]>
-  target: 'groups' | 'object-categories' | 'well-categories'   // куда уходят назначения: группы скважин, категории объектов кроссплота или ручные категории скважин фонда
+  target: 'groups' | 'object-categories' | 'well-categories' | 'gis-comments'   // куда уходят назначения: группы скважин, категории объектов кроссплота или ручные категории скважин фонда
 }
 export type Assignments = Record<string, Record<string, string>>
 export interface Table {
@@ -103,6 +103,7 @@ export interface Series {
 /** Точки серии в видимом окне оси X (ответ /window): `window` — сколько их в окне до прореживания. */
 export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'values' | 'total'> & { window: number }
 export interface WindowReply { chart: string; revision: number; series: Record<string, WindowSeries> }
+export interface ChartBand { first: number; last: number; label: string; shaded: boolean }
 export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'peak' | 'other'; well: string }
 export interface ChartTable { rows: string[]; columns: string[]; cells: string[][]; colors: string[]; swatches: boolean; aligned?: boolean }
 export interface HeatMap {
@@ -116,6 +117,7 @@ export interface WellStrips {
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean
   events?: ChartEvent[]
+  bands?: ChartBand[]                       // годы над категориями оси X: подпись и серая/белая подложка
   callouts?: 'box' | 'dot'                  // узкие сегменты с подписью: выноска в рамке или точка (числа — в table)
   table?: ChartTable | null                 // таблица под графиком
   strips?: WellStrips | null                // скважины × сезоны (матрица или панели по ГСП)
@@ -211,6 +213,8 @@ export const api = {
     request<Project>(`/api/projects/${id}/object-categories`, json('POST', { changes })),
   assignWellCategories: (id: string, changes: Assignments) =>
     request<Project>(`/api/projects/${id}/well-categories`, json('POST', { changes })),
+  assignGisComments: (id: string, changes: Assignments) =>
+    request<Project>(`/api/projects/${id}/gis-comments`, json('POST', { changes })),
   undo: (id: string) => request<ExclusionChange>(`/api/projects/${id}/exclusions/undo`, json('POST', {})),
   savedState: (id: string, module: string, panel = 0) =>
     request<SavedState>(`/api/projects/${id}/state/${module}?panel=${panel}`),

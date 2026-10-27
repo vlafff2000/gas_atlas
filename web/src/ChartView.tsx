@@ -361,7 +361,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         restore: { title: 'Сбросить масштаб' },
       },
     },
-    series: chart.series.map(s => {
+    series: withBands(chart.series.map(s => {
       const L: Look = s.look ?? {}
       const c = L.color ?? color(s)
       const blur = total <= BLUR_LIMIT
@@ -440,8 +440,20 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
             ? { color: 'rgba(255,255,255,0)', borderColor: c, borderWidth: 1.8 }
             : big ? { color: alpha(c, 0.55) } : { color: c, borderColor: tk.surface, borderWidth: 1.5 }),
           ...(s.opacity < 1 ? { opacity: s.opacity } : {}) } }
-    }),
+    }), chart, tk),
   }
+}
+
+/** Годы над столбцами: подложка и подпись полосой (markArea) на первом ряду. */
+function withBands(series: Record<string, unknown>[], chart: Chart, tk: { ink: string }): Record<string, unknown>[] {
+  const bands = chart.bands ?? []
+  if (!bands.length || !series.length) return series
+  const data = bands.map(b => [
+    { xAxis: b.first - 0.5, name: b.label, itemStyle: { color: b.shaded ? 'rgba(128,128,128,0.16)' : 'rgba(0,0,0,0)' },
+      label: { show: true, position: 'top', color: tk.ink, fontWeight: 'bold', fontSize: 12 } },
+    { xAxis: b.last + 0.5 }])
+  const [head, ...rest] = series
+  return [{ ...head, markArea: { silent: true, z: 0, data } }, ...rest]
 }
 
 interface TipRow { name: string; color: string; dash: boolean; value: string; strong?: boolean; symbol?: string }

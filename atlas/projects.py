@@ -394,6 +394,12 @@ class Projects:
         settings = with_well_categories(self.manifest(pid).get('settings', {}), changes)
         return self.summary(self._commit(pid, settings, expected, WELL_CATEGORIES_JOURNAL, {'wells': len(changes)}))
 
+    def assign_gis_comments(self, pid: str, changes: Mapping[str, Any], expected: int | None = None) -> dict[str, Any]:
+        """Ручные комментарии к столбцам плитки ГИС (``settings``): подпись ставит инженер."""
+        from .modules import gis_tiles
+        settings = gis_tiles.with_comments(self.manifest(pid).get('settings', {}), changes)
+        return self.summary(self._commit(pid, settings, expected, gis_tiles.COMMENTS_JOURNAL, {'comments': len(changes)}))
+
     def well_funds(self, pid: str) -> dict[str, Any]:
         """Таблица фондов скважин: итог, подсказка с причиной, признак ручного выбора."""
         from . import well_funds as well_fund
