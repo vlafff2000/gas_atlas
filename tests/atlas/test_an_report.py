@@ -309,7 +309,7 @@ def test_injection_gets_month_and_class_charts_like_withdrawal():
     ids = [c.id for c in result.charts]
     assert 'an-month-working-injection-2024' in ids and 'an-class-share-injection-2024' in ids and 'an-class-total-injection-2024' in ids
     months = next(c for c in result.charts if c.id.startswith('an-month-working'))
-    assert [s.y[0] for s in months.series] == [2.0, 1.0] and months.table.aligned          # май: работало 2 из 3 скважин
+    assert [s.y[0] for s in months.series] == [2.0, 1.0, 2.0] and months.table.aligned       # третий ряд — кривая максимума за сутки          # май: работало 2 из 3 скважин
     total = next(c for c in result.charts if c.id.startswith('an-class-total'))
     assert sum(sum(s.y) for s in total.series) == 3                                          # три скважины сезона разложены по классам
     tables = {t.id for t in result.tables}
