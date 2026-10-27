@@ -251,7 +251,7 @@ def figure(d,name,cfg=None,title=None):
          'Модельное давление, '+unit if name=='cross' else 'Давление, '+unit if name=='time' else 'Отклонение, '+unit)
     fig.update_layout(meta={'module':'pressure_match','wells':ordered(d.well),'chart':name},height=580)
     if d.empty:return fig
-    mode=cfg.get('color','scenario');column={'well':'well','group':'group','scenario':'scenario','object':'object','object_group':'object_group'}.get(mode,'scenario');palette=charts.well_colors(d[column])
+    mode=cfg.get('color','scenario');column={'well':'well','group':'group','scenario':'scenario','object':'object','object_group':'object_group'}.get(mode,'scenario');palette=(charts.group_palette if mode=='group' else charts.well_colors)(d[column])
     if name=='cross':
         limit=cfg.get('screen_limit');shown=d.sample(limit,random_state=0).sort_index() if limit and len(d)>limit else d
         trace=go.Scattergl if limit and len(d)>5000 else go.Scatter
@@ -292,7 +292,7 @@ def figure(d,name,cfg=None,title=None):
     elif name in ('box','fond_box','object_box'):
         col={'box':'well','fond_box':'fond','object_box':'object'}[name]
         medians=d.groupby(col).error.median();categories=sorted(medians.index,key=lambda c:medians[c]);palette=charts.well_colors(categories)
-        colors=charts.well_colors(d[column]) if mode in ('group','object_group') else None
+        colors=(charts.group_palette if mode=='group' else charts.well_colors)(d[column]) if mode in ('group','object_group') else None
         parts={}
         for (category,scenario),g in d.groupby([col,'scenario'],sort=True):parts.setdefault(category,[]).append((scenario,g))
         for category in categories:

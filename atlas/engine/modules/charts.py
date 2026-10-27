@@ -20,6 +20,11 @@ def well_colors(wells):
         colors[well]=color
     return colors
 
+def group_palette(groups):
+    """Цвета групп: сквозные для всех программ (atlas/group_colors.py), одна группа — один цвет на любом графике."""
+    from atlas.group_colors import colors_for
+    return colors_for(ordered(groups))
+
 def base(title,x,y):
     fig=go.Figure()
     fig.update_layout(template='plotly_white',title={'text':title,'font':{'size':19}},

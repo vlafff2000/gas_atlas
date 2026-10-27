@@ -27,7 +27,7 @@ from atlas.engine.core.config import parse_wells
 
 from .contract import Data, MissingData, ParamError
 from .domain import DatasetKind
-from . import model_source
+from . import group_colors, model_source
 
 _CACHE_PROJECTS = 3
 WARM_ROWS = 100_000     # меньшие проекты и так открываются мгновенно
@@ -191,6 +191,7 @@ class Projects:
         for well, value in m.get('groups', {}).items():
             mapping.setdefault(well, {}).update(value)
         data.mapping = mapping
+        group_colors.set_known_groups(v.get('group') for v in mapping.values() if v.get('group'))
         data.project = ProjectInfo(pid, m, self.store, cache)
         data.wells = ordered(cache.catalog()['wells'])
         if self.warm and len(shown.get('production', ())) >= WARM_ROWS:
