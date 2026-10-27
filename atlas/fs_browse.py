@@ -458,7 +458,6 @@ def _scan(path: str, light: bool, started: float, budget: float):
     права на папки не проверяем. Если сервер не отдаёт тип записи (DT_UNKNOWN), is_dir() — это stat на каждую
     запись, поэтому такие запросы идут пачкой по 16 потоков, а не по одному.
     """
-    from concurrent.futures import ThreadPoolExecutor
     entries: List["os.DirEntry[str]"] = []
     truncated = False
     t0 = time.perf_counter()
@@ -481,11 +480,22 @@ def _scan(path: str, light: bool, started: float, budget: float):
     tm["entries"] = len(entries)
     t1 = time.perf_counter()
 
+    slow = [False]  # ФС не отдаёт тип записи: is_dir() = сетевой stat (gvfs/fuse ~90 мс на запись)
+
+    def guess(e: "os.DirEntry[str]") -> Any:
+        """Имена без расширения считаем папками; точный тип догрузит окно (/api/fs/stat), как делает Double Commander."""
+        return {"name": e.name, "dir": "." not in e.name.lstrip("."), "size": None, "mt": None, "locked": False, "guess": True}
+
     def kind(e: "os.DirEntry[str]") -> Any:
+        if slow[0]:
+            return guess(e)
+        t_e = time.perf_counter()
         try:
             is_dir = e.is_dir()
         except OSError:
             is_dir = False
+        if light and time.perf_counter() - t_e > 0.02:
+            slow[0] = True
         size = mt = None
         locked = False
         if not light:
@@ -498,11 +508,8 @@ def _scan(path: str, light: bool, started: float, budget: float):
                 locked = not os.access(e.path, os.R_OK | os.X_OK)
         return {"name": e.name, "dir": is_dir, "size": size, "mt": mt, "locked": locked}
 
-    if light and len(entries) > 32:
-        with ThreadPoolExecutor(_POOL_WORKERS) as pool:
-            raw = list(pool.map(kind, entries))
-    else:
-        raw = [kind(e) for e in entries]
+    raw = [kind(e) for e in entries]  # по одному: первая медленная запись переводит остальные в режим догадки
+    tm["guessed"] = sum(1 for r in raw if r.get("guess"))
     tm["types_ms"] = int((time.perf_counter() - t1) * 1000)
     _scan_timing.t = tm
     return raw, truncated
@@ -548,13 +555,26 @@ def stat_items(path: str, names: List[str], gen: Optional[int] = None) -> Dict[s
     path = os.path.normpath(path)
     names = [n for n in names[:300] if os.sep not in n and not (os.altsep and os.altsep in n)]
     out: Dict[str, Dict[str, Any]] = {}
+    raw_mt: Dict[str, Any] = {}
     t0 = time.perf_counter()
     for i in range(0, len(names), 20):
         if gen is not None and gen != _nav_gen:
             break
         chunk = names[i:i + 20]
         for n, (size, mt, is_dir, bad) in zip(chunk, _stat_many(path, chunk)):
-            out[n] = {"size": 0, "mtime": "", "locked": True} if bad else {"size": 0 if is_dir else size, "mtime": _fmt_mtime(mt)}
+            raw_mt[n] = mt
+            out[n] = {"size": 0, "mtime": "", "locked": True} if bad else {"size": 0 if is_dir else size, "mtime": _fmt_mtime(mt),
+                                                                            "dir": is_dir}
+    with _lock:  # точный тип и размеры — в кэш листинга, чтобы повторное открытие не гадало
+        hit = _cache.get(path)
+        if hit:
+            byname = {r["name"]: r for r in hit[1]}
+            for n, v in out.items():
+                r = byname.get(n)
+                if r is not None and not v.get("locked"):
+                    r["dir"], r["guess"] = v["dir"], False
+                    r["size"] = None if v["dir"] else v["size"]
+                    r["mt"] = raw_mt[n]
     if out and (time.perf_counter() - t0) > 0.5:
         log.info("проводник: размер и дата для %d из %d имён в %s за %d мс%s", len(out), len(names), path,
                  (time.perf_counter() - t0) * 1000, " (прервано переходом в другую папку)" if len(out) < len(names) else "")
