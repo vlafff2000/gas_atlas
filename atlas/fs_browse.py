@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
 import stat as stat_mod
 import sys
@@ -17,8 +18,10 @@ import time
 from typing import Any, Dict, List, Optional
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
+
+log = logging.getLogger("pxg.fs")  # дочерний логгер «pxg»: попадает в единый лог программы (pxg_core/runlog)
 
 MAX_RECENT = 12
 DEFAULT_LIMIT = 500
@@ -117,6 +120,18 @@ def _all_mounts() -> List[Any]:
     out.sort(key=lambda m: -len(m[0]))
     _all_mounts_cache.update(t=now, v=out)
     return out
+
+
+def fs_info(path: str) -> Dict[str, str]:
+    """Монтирование, в котором лежит путь: {mount, fstype}. Для диагностики (тип ФС по /proc/mounts)."""
+    if os.name == "nt":
+        return {"mount": path[:3], "fstype": "network" if is_network(path) else "local"}
+    norm = path.rstrip("/") or "/"
+    for mp, fstype in _all_mounts():
+        m = mp.rstrip("/") or "/"
+        if norm == m or m == "/" or norm.startswith(m + "/"):
+            return {"mount": mp, "fstype": fstype}
+    return {"mount": "", "fstype": ""}
 
 
 def is_known_local(path: str) -> bool:
@@ -433,6 +448,7 @@ def _fmt_mtime(ts: Optional[float]) -> str:
 
 
 _POOL_WORKERS = 16
+_scan_timing = threading.local()  # тайминги последнего _scan в этом потоке (для лога и ответа)
 
 
 def _scan(path: str, light: bool, started: float, budget: float):
@@ -445,7 +461,10 @@ def _scan(path: str, light: bool, started: float, budget: float):
     from concurrent.futures import ThreadPoolExecutor
     entries: List["os.DirEntry[str]"] = []
     truncated = False
+    t0 = time.perf_counter()
+    tm: Dict[str, int] = {}
     with os.scandir(path) as it:
+        tm["open_ms"] = int((time.perf_counter() - t0) * 1000)
         while True:
             if time.monotonic() - started > budget:
                 truncated = True
@@ -456,6 +475,11 @@ def _scan(path: str, light: bool, started: float, budget: float):
                 break
             except OSError:
                 break
+            if len(entries) == 1:
+                tm["first_ms"] = int((time.perf_counter() - t0) * 1000)
+    tm["scandir_ms"] = int((time.perf_counter() - t0) * 1000)
+    tm["entries"] = len(entries)
+    t1 = time.perf_counter()
 
     def kind(e: "os.DirEntry[str]") -> Any:
         try:
@@ -479,6 +503,8 @@ def _scan(path: str, light: bool, started: float, budget: float):
             raw = list(pool.map(kind, entries))
     else:
         raw = [kind(e) for e in entries]
+    tm["types_ms"] = int((time.perf_counter() - t1) * 1000)
+    _scan_timing.t = tm
     return raw, truncated
 
 
@@ -513,13 +539,25 @@ def _fill_stats(path: str, raw: List[Dict[str, Any]], started: float, budget: fl
     return False
 
 
-def stat_items(path: str, names: List[str]) -> Dict[str, Dict[str, Any]]:
-    """Размер и дата для выбранных имён (окно просит для видимых строк, когда папка прочитана без stat)."""
+def stat_items(path: str, names: List[str], gen: Optional[int] = None) -> Dict[str, Dict[str, Any]]:
+    """Размер и дата для выбранных имён (окно просит для видимых строк, когда папка прочитана без stat).
+
+    Порциями по 20: если пользователь уже открыл другую папку (gen устарел), догрузка прекращается и не
+    занимает сетевое соединение, которое нужно следующему листингу.
+    """
     path = os.path.normpath(path)
     names = [n for n in names[:300] if os.sep not in n and not (os.altsep and os.altsep in n)]
     out: Dict[str, Dict[str, Any]] = {}
-    for n, (size, mt, is_dir, bad) in zip(names, _stat_many(path, names)):
-        out[n] = {"size": 0, "mtime": "", "locked": True} if bad else {"size": 0 if is_dir else size, "mtime": _fmt_mtime(mt)}
+    t0 = time.perf_counter()
+    for i in range(0, len(names), 20):
+        if gen is not None and gen != _nav_gen:
+            break
+        chunk = names[i:i + 20]
+        for n, (size, mt, is_dir, bad) in zip(chunk, _stat_many(path, chunk)):
+            out[n] = {"size": 0, "mtime": "", "locked": True} if bad else {"size": 0 if is_dir else size, "mtime": _fmt_mtime(mt)}
+    if out and (time.perf_counter() - t0) > 0.5:
+        log.info("проводник: размер и дата для %d из %d имён в %s за %d мс%s", len(out), len(names), path,
+                 (time.perf_counter() - t0) * 1000, " (прервано переходом в другую папку)" if len(out) < len(names) else "")
     return out
 
 
@@ -554,6 +592,7 @@ def list_dir(path: str, filt: str = "", hidden: bool = False, query: str = "", s
         try:
             raw, truncated = _scan(path, light, started, budget)
             res["ms"] = int((time.monotonic() - started) * 1000)
+            res["t"] = dict(getattr(_scan_timing, "t", {}))
         except PermissionError:
             res["error"] = "Нет доступа к папке"
             return res
@@ -583,13 +622,17 @@ def list_dir(path: str, filt: str = "", hidden: bool = False, query: str = "", s
             if exts and os.path.splitext(name)[1].lower() not in exts:
                 continue
         rows.append(r)
+    t_sort = time.perf_counter()
     if light and sort in ("size", "mtime"):  # сортировка по полям, которых ещё нет: дочитываем (в пределах времени)
         if _fill_stats(path, rows, started, budget):
             truncated = True
+    t_stat = int((time.perf_counter() - t_sort) * 1000)
     key = {"size": lambda x: x["size"] or 0, "mtime": lambda x: x["mt"] or 0}.get(sort, lambda x: x["name"].lower())
     folders = sorted([x for x in rows if x["dir"]], key=key, reverse=desc)
     files = sorted([x for x in rows if not x["dir"]], key=key, reverse=desc)
     rows = folders + files
+    tt = res.setdefault("t", {})
+    tt.update(stat_ms=t_stat, sort_ms=int((time.perf_counter() - t_sort) * 1000) - t_stat, light=light)
     res["total"] = len(rows)
     res["truncated"] = truncated
     items = []
@@ -609,21 +652,43 @@ def list_dir(path: str, filt: str = "", hidden: bool = False, query: str = "", s
     return res
 
 
+_nav_gen = 0  # номер последнего запроса листинга: догрузка деталей для прежней папки прекращается, когда он вырос
+
+
+def current_gen() -> int:
+    return _nav_gen
+
+
+def _log_listing(path: str, res: Dict[str, Any], wall_ms: int) -> None:
+    t = res.get("t") or {}
+    fi = fs_info(path)
+    log.info("проводник: папка %s [%s, ФС=%s%s] %s записей=%s открытие=%s мс первая запись=%s мс scandir=%s мс типы=%s мс stat=%s мс "
+             "сортировка=%s мс итого=%d мс%s", path, fi["mount"] or "—", fi["fstype"] or "?", ", лёгкий" if t.get("light") else "",
+             "из кэша" if res.get("cached") else "", t.get("entries", "—"), t.get("open_ms", "—"), t.get("first_ms", "—"),
+             t.get("scandir_ms", "—"), t.get("types_ms", "—"), t.get("stat_ms", "—"), t.get("sort_ms", "—"), wall_ms,
+             "; ОШИБКА: " + res["error"] if res.get("error") else "")
+
+
 def browse(path: str, *args: Any, timeout: float = LIST_TIMEOUT, **kw: Any) -> Dict[str, Any]:
-    """list_dir с ограничением по времени: недоступный диск возвращает ошибку, а не вешает окно."""
+    """list_dir с ограничением по времени: недоступный диск возвращает ошибку, а не вешает окно. Тайминги — в лог."""
+    global _nav_gen
+    _nav_gen += 1
     path = os.path.normpath(path) if path else ""
     now = time.monotonic()
+    empty = {"path": path, "parent": os.path.dirname(path) if os.path.dirname(path) != path else "", "items": [],
+             "total": 0, "offset": 0, "truncated": False, "network": True, "cached": False, "lazy": False}
     if _dead.get(path, 0) > now:
-        return {"path": path, "parent": os.path.dirname(path) if os.path.dirname(path) != path else "", "items": [],
-                "total": 0, "offset": 0, "truncated": False, "network": True, "cached": False, "lazy": False,
-                "error": "Диск не отвечает. Проверьте подключение и повторите через несколько секунд."}
+        return {**empty, "error": "Диск не отвечает. Проверьте подключение и повторите через несколько секунд."}
+    t0 = time.perf_counter()
     try:
-        return _with_timeout(list_dir, timeout, path, *args, **kw)
+        res = _with_timeout(list_dir, timeout, path, *args, **kw)
     except PathTimeout:
         _dead[path] = time.monotonic() + DEAD_BACKOFF
-        return {"path": path, "parent": os.path.dirname(path) if os.path.dirname(path) != path else "", "items": [],
-                "total": 0, "offset": 0, "truncated": False, "network": True, "cached": False, "lazy": False,
-                "error": "Диск не отвечает за %d с. Проверьте подключение и повторите." % int(timeout)}
+        res = {**empty, "error": "Диск не отвечает за %d с. Проверьте подключение и повторите." % int(timeout)}
+    wall = int((time.perf_counter() - t0) * 1000)
+    if wall >= 150 or res.get("error") or (res.get("t") or {}).get("light"):
+        _log_listing(path, res, wall)
+    return res
 
 
 # ---------- маршруты ----------
@@ -647,13 +712,20 @@ def _resolve_start(path: str) -> str:
 async def _list(request: Request) -> JSONResponse:
     from starlette.concurrency import run_in_threadpool
     q = request.query_params
+    t_req = time.perf_counter()
     path = await run_in_threadpool(_resolve_start, q.get("path") or "")
     res = await run_in_threadpool(
         browse, path, q.get("filter") or "", q.get("hidden") in ("1", "true"), q.get("q") or "",
         q.get("sort") or "name", q.get("desc") in ("1", "true"), _int(q.get("offset"), 0),
         min(_int(q.get("limit"), DEFAULT_LIMIT), 5000), TIME_BUDGET, q.get("kind") == "folder",
         q.get("fresh") in ("1", "true"))
-    return JSONResponse(res)
+    t_ser = time.perf_counter()
+    body = json.dumps(res, ensure_ascii=False).encode("utf-8")
+    ser_ms = int((time.perf_counter() - t_ser) * 1000)
+    total_ms = int((time.perf_counter() - t_req) * 1000)
+    if total_ms >= 300 or len(body) > 500_000:
+        log.info("проводник: ответ API для %s: сериализация %d мс, %d КБ, весь запрос на сервере %d мс", path, ser_ms, len(body) // 1024, total_ms)
+    return Response(body, media_type="application/json")
 
 
 async def _stat(request: Request) -> JSONResponse:
@@ -667,15 +739,32 @@ async def _stat(request: Request) -> JSONResponse:
     names = [str(n) for n in (body.get("names") or []) if isinstance(n, str)]
     path = str(body.get("path") or "")
     try:
-        out = await run_in_threadpool(_with_timeout, stat_items, LIST_TIMEOUT, path, names)
+        out = await run_in_threadpool(_with_timeout, stat_items, LIST_TIMEOUT, path, names, _nav_gen)
     except PathTimeout:
         out = {}
     return JSONResponse({"stats": out})
 
 
+async def _perf(request: Request) -> JSONResponse:
+    """Тайминги со стороны окна (запрос, разбор ответа, отрисовка): только в журнал, чтобы видеть полную картину."""
+    try:
+        b = await request.json()
+    except ValueError:
+        b = {}
+    if isinstance(b, dict):
+        log.info("проводник (окно): %s — запрос %s мс, разбор ответа %s мс, отрисовка %s мс, строк %s%s", str(b.get("path") or "")[:200],
+                 b.get("fetch"), b.get("parse"), b.get("render"), b.get("rows"), ", из кэша" if b.get("cached") else "")
+    return JSONResponse({})
+
+
 async def _places(request: Request) -> JSONResponse:
     from starlette.concurrency import run_in_threadpool
-    return JSONResponse({"places": await run_in_threadpool(places)})
+    t0 = time.perf_counter()
+    res = await run_in_threadpool(places)
+    ms = int((time.perf_counter() - t0) * 1000)
+    if ms >= 300:
+        log.info("проводник: список мест собран за %d мс (проверка домашней папки, рабочего стола, дисков)", ms)
+    return JSONResponse({"places": res})
 
 
 async def _last(request: Request) -> JSONResponse:
@@ -741,6 +830,7 @@ def routes() -> List[Route]:
         Route("/api/fs/file", _file),
         Route("/api/fs/list", _list),
         Route("/api/fs/places", _places),
+        Route("/api/fs/perf", _perf, methods=["POST"]),
         Route("/api/fs/stat", _stat, methods=["POST"]),
         Route("/api/fs/last", _last, methods=["GET", "POST"]),
         Route("/api/fs/win", _win, methods=["GET", "POST"]),
