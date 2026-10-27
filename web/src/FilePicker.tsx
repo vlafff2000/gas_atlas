@@ -116,10 +116,10 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
         if (i > 0) await new Promise(res => setTimeout(res, 300))
         if (id !== reqId.current) return
         const chunk = names.slice(i, i + (i === 0 ? 60 : 100))
-        const st = await getJson<{ stats: Record<string, { size: number; mtime: string; locked?: boolean }> }>('/api/fs/stat', {
+        const st = await getJson<{ stats: Record<string, { size: number; mtime: string; locked?: boolean; dir?: boolean }> }>('/api/fs/stat', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: r.path, names: chunk }) }).catch(() => null)
         if (!st || id !== reqId.current) return
-        setList(l => l && l.path === r.path ? { ...l, lazy: false, items: l.items.map(it => st.stats[it.name] ? { ...it, ...st.stats[it.name] } : it) } : l)
+        setList(l => l && l.path === r.path ? { ...l, lazy: false, items: l.items.map(it => st.stats[it.name] ? { ...it, ...st.stats[it.name], ext: (st.stats[it.name].dir ?? it.dir) ? '' : it.name.includes('.') ? it.name.split('.').pop()!.toLowerCase() : '' } : it).sort((a, b) => Number(b.dir) - Number(a.dir)) } : l)
       }
     }
   }, [query, sort, desc, hidden, all, filter, folderMode])
