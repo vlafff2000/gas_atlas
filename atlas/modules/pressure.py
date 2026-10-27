@@ -13,7 +13,7 @@ import pandas as pd
 
 from atlas.engine.core.config import ordered
 from atlas.engine.modules import pressure_match as legacy
-from atlas.engine.modules.charts import well_colors
+from atlas.engine.modules.charts import group_palette, well_colors
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series,
                         Source, Table, TableAction)
@@ -535,7 +535,7 @@ def _build(name: str, d: pd.DataFrame, cfg: Mapping[str, Any]) -> Chart:
 
 def cross_chart(d: pd.DataFrame, cfg: Mapping[str, Any], title: str, unit: str) -> Chart:
     column = color_column(cfg)
-    palette = well_colors(d[column])
+    palette = (group_palette if column == 'group' else well_colors)(d[column])
     relative = cfg.get('threshold_mode') == 'relative'
     chart = Chart('pressure-cross', title, Axis('Фактическое давление', unit), Axis('Модельное давление', unit))
     shown = d.sample(SCREEN_POINTS, random_state=0).sort_index() if len(d) > SCREEN_POINTS else d
@@ -568,7 +568,7 @@ def cross_chart(d: pd.DataFrame, cfg: Mapping[str, Any], title: str, unit: str) 
     chart.series.append(Series('Идеальное совпадение', x, x, 'line', color=IDEAL_COLOR, dash='solid'))
     if cfg.get('bands', True):
         by_group = bool(cfg.get('group_thresholds'))
-        group_palette = well_colors(d.group) if by_group else {}
+        group_colors_ = group_palette(d.group) if by_group else {}
         pairs = d[['group', 'threshold']].drop_duplicates().sort_values(['threshold', 'group']) if by_group \
             else pd.DataFrame({'group': '', 'threshold': sorted(set(d.threshold))})
         for gr, threshold in zip(pairs.group, pairs.threshold):
@@ -576,7 +576,7 @@ def cross_chart(d: pd.DataFrame, cfg: Mapping[str, Any], title: str, unit: str) 
             for sign in (-1, 1):
                 y = x * (1 + sign * threshold / 100) if relative else x + sign * threshold
                 chart.series.append(Series(label, x, y, 'line', group=label, dash='dash', legend=sign == 1,
-                                           color=group_palette[gr] if by_group else BAND_COLOR))
+                                           color=group_colors_[gr] if by_group else BAND_COLOR))
     if cfg.get('percentile_lines', False):
         for p in cfg.get('percentiles', [80, 85, 90]):
             delta = float(np.percentile(d.error, p))
@@ -776,7 +776,7 @@ def box_chart(d: pd.DataFrame, name: str, cfg: Mapping[str, Any], title: str, un
 
 def hist_chart(d: pd.DataFrame, cfg: Mapping[str, Any], title: str, unit: str) -> Chart:
     column = color_column(cfg)
-    palette = well_colors(d[column])
+    palette = (group_palette if column == 'group' else well_colors)(d[column])
     edges = np.histogram_bin_edges(d.error.to_numpy(), bins=int(cfg.get('bins', 20)))
     centers = (edges[:-1] + edges[1:]) / 2
     categories = ['{:.3g}'.format(c) for c in centers]
@@ -790,7 +790,7 @@ def hist_chart(d: pd.DataFrame, cfg: Mapping[str, Any], title: str, unit: str) -
 
 def cdf_chart(d: pd.DataFrame, cfg: Mapping[str, Any], title: str, unit: str) -> Chart:
     column = color_column(cfg)
-    palette = well_colors(d[column])
+    palette = (group_palette if column == 'group' else well_colors)(d[column])
     y = Axis('Доля точек с отклонением ≤ X', '%', from_zero=True)
     y.maximum = 100.0
     chart = Chart('pressure-cdf', title, Axis('Отклонение', unit, from_zero=True), y)
