@@ -16,6 +16,7 @@ from atlas.engine.modules import gis_hikg
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
+from . import gis_an_tables
 
 GIS = DatasetKind.GIS_PACKS
 INTERVALS = DatasetKind.GIS_INTERVALS
@@ -58,13 +59,27 @@ class GisModule(Module):
             Param('view', 'График', 'choice', default='all', section='Вид', chart_kind=True, options=(
                 Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()),
                 Option('combo', 'Кривая hэф и столбцы Кг'), Option('svod', 'Свод по пачкам, все скважины'),
-                Option('hikg', 'Σ hi × Кг по исследованиям'))),
+                Option('hikg', 'Σ hi × Кг по исследованиям'), Option('an', 'Таблицы главы 5 АН (5.4–5.8)'))),
+            Param('an_base', 'Новый сезон', 'choice', default='', dynamic=True, auto='last:1', section='Таблицы АН', show_if={'view': 'an'},
+                  help='Сезон, от которого смотрим данные: по нему подбираются сезоны таблиц и считаются подписи. '
+                       'По умолчанию самый поздний сезон с замерами.'),
+            Param('an_seasons', 'Сезоны в таблицах', 'multi', default=[], dynamic=True, empty='ничего', section='Таблицы АН',
+                  show_if={'view': 'an'}, help='Любое число сезонов. Пусто — автоматически до четырёх сезонов, считая от нового; '
+                  'отмеченные вручную берутся все, как отмечены.'),
+            Param('an_wells', 'Скважины таблиц', 'multi', default=[], dynamic=True, empty='все', section='Таблицы АН',
+                  show_if={'view': 'an'}),
+            Param('an_last_two', 'Δ только для двух последних сезонов', 'boolean', default=True, section='Таблицы АН',
+                  show_if={'view': 'an'}, help='Как в отчёте (табл. 5.6, 5.8). Выключите, чтобы Δ были у каждого сезона.'),
             Param('start', 'С даты', 'date', default='', section=SECTION),
             Param('end', 'По дату', 'date', default='', section=SECTION),
         ),
     )
 
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
+        if name in ('an_base', 'an_seasons'):
+            return gis_an_tables.available(data.get(GIS), data.get(INTERVALS))
+        if name == 'an_wells':
+            return ordered(df_w for df_w in data[GIS]['well'].astype(str).unique()) if GIS in data else []
         if name == 'seasons':
             if INTERVALS not in data or data[INTERVALS].empty:
                 return []
@@ -78,6 +93,8 @@ class GisModule(Module):
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         result = Result()
+        if params['view'] == 'an':
+            return self.run_an(data, params)
         if params['view'] == 'hikg':
             return self.run_hikg(data, params)
         if GIS not in data or data[GIS].empty:
@@ -112,6 +129,22 @@ class GisModule(Module):
         result.summary = [Stat('Скважин', str(len(wells))), Stat('Замеров', str(len(part)))]
         result.notes.append(Note('Треугольник — весенний замер (после отбора), круг — осенний (после закачки). Замеры без сезона '
                                  'показаны кругом. Точку можно исключить щелчком, как в других разделах.'))
+        return result
+
+    @staticmethod
+    def run_an(data: Data, params: dict[str, Any]) -> Result:
+        """Таблицы 5.4–5.8 главы 5 «Авторского надзора» (``gis_an_tables``): сезоны подписываются от нового сезона."""
+        result = Result()
+        if GIS not in data or data[GIS].empty:
+            result.notes.append(Note('В данных нет «Базы ГИС». Загрузите таблицу пачек через «Источники» или «Импорт данных».'))
+            return result
+        tables, labels, base, notes = gis_an_tables.build({'packs': data[GIS], 'intervals': data.get(INTERVALS)}, params)
+        result.tables.extend(tables)
+        result.notes.extend(Note(n, level='warning') for n in notes)
+        if labels:
+            result.summary = [Stat('Новый сезон', gis_an_tables.name_of(base)), Stat('Сезонов', str(len(labels)))]
+            result.notes.append(Note('Сезоны таблиц: ' + '; '.join(gis_an_tables.name_of(x) for x in labels)
+                                     + '. Список — подсказка: отметьте нужные сезоны вручную, и в таблицах будут именно они.'))
         return result
 
     @staticmethod
