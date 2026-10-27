@@ -17,7 +17,7 @@ import { ImportPage } from './ImportPage'
 import { EmptyProjectSteps, hasData, NewProjectSteps } from './FirstSteps'
 import { HelpPage } from './HelpPage'
 import { SectionSearch, type Section } from './SectionSearch'
-import { sidebarCollapsed, theme, thinCharts, usePref, type Theme } from './chartPrefs'
+import { chartColumns, sidebarCollapsed, theme, thinCharts, usePref, type Theme } from './chartPrefs'
 
 const remembered = {
   get: <T,>(key: string, fallback: T): T => {
@@ -280,6 +280,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
   }, [spec, project.id, storeKey])
 
   const thin = usePref(thinCharts)
+  const columns = usePref(chartColumns)
   const run = useCallback((values: Params) => {
     controller.current?.abort()
     const ctrl = new AbortController(); controller.current = ctrl
@@ -451,7 +452,14 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
           {result.charts.length > 0 && (
             <>
               {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее из расчета. Расчетные кривые и серые исключенные точки не выбираются.</div>}
-              <div className="chart-grid">
+              {result.charts.length > 1 && (
+                <label className="inline-field chart-columns">В ряд
+                  <select value={columns} onChange={e => chartColumns.set(Number(e.target.value))}>
+                    <option value={0}>по ширине</option><option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
+                  </select>
+                </label>
+              )}
+              <div className={'chart-grid' + (columns ? ' fixed-cols' : '')} style={columns ? ({ '--cols': columns } as React.CSSProperties) : undefined}>
                 {shown.map(c => c.strips ? (
                   <StripView key={c.id} chart={c}
                     onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}

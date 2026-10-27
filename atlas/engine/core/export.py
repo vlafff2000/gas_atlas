@@ -236,7 +236,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             if (bars or boxes) and not date_axis and not numeric_bars:
                 categories=list(fig.layout.xaxis.categoryarray or [])
                 if not categories:categories=list(dict.fromkeys(str(x) for t in (bars or boxes) for x in (t.x if t.x is not None else [t.name])))
-            combo_bars=Bars([t for t in bars if is_combo(t)]);combo_areas=Areas();bar_values=[]
+            cat_stack={};combo_bars=Bars([t for t in bars if is_combo(t)]);combo_areas=Areas();bar_values=[]
             layered=any(is_back(t) for t in traces) and not excel;overlays={};bases={}
             for t in traces:
                 target=rights.get(t.yaxis,ax)
@@ -265,7 +265,11 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                         widths=np.asarray(raw_width,dtype=float) if raw_width is not None else np.full(len(pos),.8)
                         w=widths/max(1,len(bars))
                     else:pos=np.array([categories.index(str(v)) for v in x],dtype=float)
-                    drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
+                    if isinstance(t.meta,dict) and t.meta.get('cat_stack') and not date_axis and not numeric_bars:
+                        base=cat_stack.setdefault(t.meta['cat_stack'],{});below=np.array([base.get(p,0.0) for p in pos]);top=np.nan_to_num(np.asarray(y,dtype=float))
+                        drawn=target.bar(pos,top,width=.8,bottom=below,label=label,color=decode_arrays(t.marker.color))
+                        for p,v in zip(pos,top):base[p]=base.get(p,0.0)+v
+                    else:drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
                     if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y))
                 else:
                     # Plotly JSON serializes dates to strings. Preserve calendar spacing.

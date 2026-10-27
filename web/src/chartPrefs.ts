@@ -35,6 +35,9 @@ export const thinCharts = pref<boolean>('atlas.chart.thin', true, raw => raw !==
 /** Сплошная кривая: плотные ряды замеров (давление, уровень) рисуются сглаженной линией — среднее по подряд идущим замерам. */
 export const smoothLines = pref<boolean>('atlas.chart.smooth', false, raw => raw === 'true')
 
+/** Графиков в ряду: 0 — подбирается по ширине, 1–3 — задано вручную (плитка по скважинам). */
+export const chartColumns = pref<number>('atlas.chart.columns', 0, raw => { const n = Number(raw); return n >= 1 && n <= 3 ? n : 0 })
+
 /** Виды событий, скрытые на всех графиках (щелчок по пункту «События» в легенде). */
 export const hiddenEvents = pref<string[]>('atlas.chart.hiddenEvents', [])
 
