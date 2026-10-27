@@ -151,3 +151,12 @@ def test_missing_dataset_is_409(tmp_path):
     pid = projects.store.create('Пустой')
     r = TestClient(create_app(projects)).post('/api/modules/gdi/run', json={'project': pid, 'params': {}})
     assert r.status_code == 409 and 'ГДИ' in r.json()['error']
+
+
+def test_group_list_and_manual_group_colors(env, monkeypatch, tmp_path):
+    monkeypatch.setenv('PXG_HOME', str(tmp_path / 'home'))
+    client, pid, _ = env
+    r = client.get(f'/api/projects/{pid}/group-list')
+    assert r.status_code == 200 and isinstance(r.json()['groups'], list)
+    assert client.post('/api/group-colors', json={'group': 'ГСП 1', 'color': '#aabbcc'}).json() == {'overrides': {'гсп 1': '#aabbcc'}}
+    assert client.get('/api/group-colors').json()['overrides'] == {'гсп 1': '#aabbcc'}

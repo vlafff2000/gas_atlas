@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { GroupColorsButton } from './GroupColorsButton'
 import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
 import { HeatView } from './HeatView'
@@ -279,6 +280,8 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec, project.id, storeKey])
 
+  const [groupNames, setGroupNames] = useState<string[]>([])
+  useEffect(() => { api.projectGroups(project.id).then(setGroupNames).catch(() => setGroupNames([])) }, [project.id, project.revision])
   const thin = usePref(thinCharts)
   const columns = usePref(chartColumns)
   const run = useCallback((values: Params) => {
@@ -382,6 +385,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
       <div className="panel-head">
         {labelled && <strong>Панель {panel + 1}</strong>}
         <span className="spacer" />
+        {groupNames.length > 1 && <GroupColorsButton groups={groupNames} onChange={() => params && run(params)} />}
         {status.kind === 'running' && <span className="pulse">Считаю…</span>}
         {status.kind === 'done' && result && <span className="muted">Расчет {Math.round(result.elapsed_ms)} мс</span>}
         {changed && <button type="button" className="quiet" onClick={reset}>Сбросить параметры</button>}

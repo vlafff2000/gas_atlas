@@ -105,6 +105,13 @@ def set_override(group, color: str | None, path: str | None = None) -> None:
         json.dump(data, f, ensure_ascii=False, indent=1)
 
 
+def clear_overrides(path: str | None = None) -> None:
+    """Вернуть все группы на цвета палитры."""
+    p = path or overrides_path()
+    if os.path.exists(p):
+        os.remove(p)
+
+
 def group_colors(all_groups: Iterable, overrides: Mapping[str, str] | None = None) -> dict[str, str]:
     """Цвета всех групп объекта: {название: '#rrggbb'}, порядок — по номеру группы.
 
@@ -139,3 +146,27 @@ def colors_for(names: Iterable) -> dict[str, str]:
     names = [str(n) for n in names]
     full = group_colors([*_known, *names])
     return {n: color_of(n, full) if group_key(n) != group_key(NO_GROUP) else NO_GROUP_COLOR for n in dict.fromkeys(names)}
+
+
+def routes():
+    """Маршруты для приложений: GET /api/group-colors → ручные цвета; POST {group, color} — запомнить (color=null — сбросить, group='*' — все)."""
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    async def _colors(request: Request):
+        if request.method == 'POST':
+            try:
+                body = await request.json()
+                group, color = body.get('group'), body.get('color')
+                if group == '*' and color is None:
+                    clear_overrides()
+                elif isinstance(group, str) and group.strip():
+                    set_override(group, color)
+                else:
+                    return JSONResponse({'error': 'Не указана группа'}, status_code=400)
+            except ValueError as e:
+                return JSONResponse({'error': str(e)}, status_code=400)
+        return JSONResponse({'overrides': load_overrides()})
+
+    return [Route('/api/group-colors', _colors, methods=['GET', 'POST'])]
