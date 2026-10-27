@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from atlas.engine.modules.charts import well_colors
+from atlas.engine.modules.charts import group_palette, well_colors
 
 from ..contract import Axis, Chart, ChartTable, HeatMap, Series, WellStrips
 from . import an_wells
@@ -47,7 +47,7 @@ def group_pressure_chart(kind: str, period: str, reference: pd.DataFrame | None,
     if part.empty:
         return None
     by_group = part.groupby(['scope', 'date'], as_index=False).pressure.mean().sort_values('date', kind='stable')
-    colors = well_colors(by_group.scope.astype(str))
+    colors = group_palette(by_group.scope.astype(str))
     chart = Chart(f'an-group-pressure-{kind}-{period}', f'Пластовое давление по группам · {period}',
                   Axis('Дата', scale='time'), Axis('Рпл, абс.', P_UNIT))
     for group, rows in by_group.groupby('scope', sort=False):
