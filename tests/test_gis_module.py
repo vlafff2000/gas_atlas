@@ -175,3 +175,23 @@ def test_an_without_intervals_skips_table_54_with_note():
     res = GisModule().run({GIS: _an_packs()}, _params(view='an'))
     assert [t.id for t in res.tables] == ['gis-an-5-5', 'gis-an-5-6']
     assert any('5.4' in n.text for n in res.notes)
+
+
+def test_tile_view_phase_bars_kg_line_and_deltas():
+    frame = _frame()
+    res = GisModule().run({GIS: frame}, _params(wells=['115'], packs=['верхняя'], view='tile', seasons=[],
+                                                gnt_min='0', gnt_max='3,5', kg_min='', kg_max=''))
+    assert [c.id for c in res.charts] == ['gis-tile-115-верхняя']
+    chart = res.charts[0]
+    assert chart.y.minimum == 0 and chart.y.maximum == 3.5 and chart.y2.minimum is None
+    bars = {s.name: s.y for s in chart.series if s.kind == 'bar'}
+    assert bars['ГНТ — закачка'] == [1.5, None, 1.4] and bars['ГНТ — отбор'] == [None, 1.2, None]
+    assert next(s for s in chart.series if s.name == 'Кг').y == pytest.approx([30.0, 25.0, 28.0])
+    table = res.tables[0].frame
+    assert table['d_gnt'].tolist()[1:] == pytest.approx([-0.3, 0.2]) and pd.isna(table['d_gnt'].iloc[0])
+
+
+def test_tile_bad_axis_is_a_parameter_error():
+    from atlas.contract import ParamError
+    with pytest.raises(ParamError):
+        GisModule().run({GIS: _frame()}, _params(view='tile', seasons=[], gnt_min='5', gnt_max='1', kg_min='', kg_max=''))

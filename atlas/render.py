@@ -257,6 +257,8 @@ def to_plotly(chart: Chart):
                 first = False
         elif s.kind == 'bar':
             extra = {'meta': {'value_labels': True}} if look.get('valueLabels') else {}     # подписи значений: рисует atlas/engine/core/export.py
+            if s.stack and not s.segments and chart.id.startswith('gis-tile'):      # столбцы стопкой по категориям: в файле друг на друге, а не рядом
+                extra.setdefault('meta', {})['cat_stack'] = s.stack
             if combo:       # конструктор: столбцы на своей оси, рядом или стопкой по имени, дата остаётся датой
                 extra = dict(yaxis=s.axis, offsetgroup=s.stack or f'bar{n}', opacity=look.get('opacity'),
                              meta={'combo': True, 'stack': s.stack, **extra.get('meta', {})})

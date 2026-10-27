@@ -14,9 +14,9 @@ import pandas as pd
 from atlas.engine.core.config import ordered
 from atlas.engine.modules import gis_hikg
 
-from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
+from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series, Stat, Table
 from ..domain import DatasetKind
-from . import gis_an_tables
+from . import gis_an_tables, gis_tiles
 
 GIS = DatasetKind.GIS_PACKS
 INTERVALS = DatasetKind.GIS_INTERVALS
@@ -59,7 +59,7 @@ class GisModule(Module):
             Param('view', 'График', 'choice', default='all', section='Вид', chart_kind=True, options=(
                 Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()),
                 Option('combo', 'Кривая hэф и столбцы Кг'), Option('svod', 'Свод по пачкам, все скважины'),
-                Option('hikg', 'Σ hi × Кг по исследованиям'), Option('an', 'Таблицы главы 5 АН (5.4–5.8)'))),
+                Option('tile', 'Плитка ГНТ и Кг по скважинам'), Option('hikg', 'Σ hi × Кг по исследованиям'), Option('an', 'Таблицы главы 5 АН (5.4–5.8)'))),
             Param('an_base', 'Новый сезон', 'choice', default='', dynamic=True, auto='last:1', section='Таблицы АН', show_if={'view': 'an'},
                   help='Сезон, от которого смотрим данные: по нему подбираются сезоны таблиц и считаются подписи. '
                        'По умолчанию самый поздний сезон с замерами.'),
@@ -70,6 +70,11 @@ class GisModule(Module):
                   show_if={'view': 'an'}),
             Param('an_last_two', 'Δ только для двух последних сезонов', 'boolean', default=True, section='Таблицы АН',
                   show_if={'view': 'an'}, help='Как в отчёте (табл. 5.6, 5.8). Выключите, чтобы Δ были у каждого сезона.'),
+            Param('gnt_min', 'Ось ГНТ, м: от', 'text', default='', section='Оси плитки', show_if={'view': 'tile'},
+                  help='Пусто — границы подбираются автоматически (подсказка), число — задаёте вы.'),
+            Param('gnt_max', 'Ось ГНТ, м: до', 'text', default='', section='Оси плитки', show_if={'view': 'tile'}),
+            Param('kg_min', 'Ось Кг, %: от', 'text', default='', section='Оси плитки', show_if={'view': 'tile'}),
+            Param('kg_max', 'Ось Кг, %: до', 'text', default='', section='Оси плитки', show_if={'view': 'tile'}),
             Param('start', 'С даты', 'date', default='', section=SECTION),
             Param('end', 'По дату', 'date', default='', section=SECTION),
         ),
@@ -81,6 +86,8 @@ class GisModule(Module):
         if name == 'an_wells':
             return ordered(df_w for df_w in data[GIS]['well'].astype(str).unique()) if GIS in data else []
         if name == 'seasons':
+            if params.get('view') == 'tile':
+                return gis_an_tables.available(data.get(GIS))
             if INTERVALS not in data or data[INTERVALS].empty:
                 return []
             return gis_hikg.season_order(gis_hikg.prepare(data[INTERVALS])['season'].dropna().astype(str).unique())
@@ -95,6 +102,8 @@ class GisModule(Module):
         result = Result()
         if params['view'] == 'an':
             return self.run_an(data, params)
+        if params['view'] == 'tile':
+            return self.run_tile(data, params)
         if params['view'] == 'hikg':
             return self.run_hikg(data, params)
         if GIS not in data or data[GIS].empty:
@@ -145,6 +154,38 @@ class GisModule(Module):
             result.summary = [Stat('Новый сезон', gis_an_tables.name_of(base)), Stat('Сезонов', str(len(labels)))]
             result.notes.append(Note('Сезоны таблиц: ' + '; '.join(gis_an_tables.name_of(x) for x in labels)
                                      + '. Список — подсказка: отметьте нужные сезоны вручную, и в таблицах будут именно они.'))
+        return result
+
+    @staticmethod
+    def run_tile(data: Data, params: dict[str, Any]) -> Result:
+        """Плитка «ГНТ и Кг»: график на скважину и пачку и таблица с Δ. Расчёт — ``gis_tiles``."""
+        result = Result()
+        if GIS not in data or data[GIS].empty:
+            result.notes.append(Note('В данных нет «Базы ГИС». Загрузите таблицу пачек через «Источники» или «Импорт данных».'))
+            return result
+        wells = [w for w in params['wells'] if w in set(data[GIS]['well'].astype(str))]
+        if not wells:
+            result.notes.append(Note('Выберите скважины.'))
+            return result
+        labels = gis_an_tables.order(params['seasons']) if params['seasons'] else gis_an_tables.available(data[GIS])
+        if not labels:
+            result.notes.append(Note('В базе ГИС нет замеров с сезоном (осень — после закачки, весна — после отбора).'))
+            return result
+        try:
+            for prefix, label in (('gnt', 'ГНТ'), ('kg', 'Кг')):
+                gis_tiles.axis_range(params, prefix, label)
+        except ValueError as exc:
+            raise ParamError(str(exc)) from None
+        values = gis_tiles.season_values(data[GIS], wells, params['packs'], labels)
+        if values.empty:
+            result.notes.append(Note('За выбранные скважины, пачки и сезоны замеров нет.'))
+            return result
+        for (well, pack), frame in values.groupby(['well', 'pack'], sort=True):
+            result.charts.append(gis_tiles.chart(str(well), str(pack), frame, labels, params))
+        result.tables.append(gis_tiles.table(values, labels))
+        result.summary = [Stat('Скважин', str(values['well'].nunique())), Stat('Сезонов', str(len(labels)))]
+        result.notes.append(Note('Столбцы: голубой — закачка (замер после закачки), красный — отбор (после отбора). В сезоне берётся '
+                                 'последний замер пачки. Границы осей: пусто — автоматически, число — вручную.'))
         return result
 
     @staticmethod
