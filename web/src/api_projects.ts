@@ -110,6 +110,23 @@ export interface WordPreview {
   page_mm: [number, number]; image_mm: [number, number]; png: string
 }
 
+export interface AnyModule { id: string; title: string; group: string; order: number; ready: boolean; missing: string[] }
+export interface AnyChartInfo { id: string; title: string; kind: 'chart' | 'heat' | 'strips' | 'stack'; table: boolean; series: number; axes: string[]; special: boolean }
+export type AnySettings = Record<string, unknown>
+
+/** «Любой график»: реестр графиков всех разделов и выгрузка одного графика с ручными настройками (atlas/export_any.py). */
+export const anyApi = {
+  modules: (pid: string) => request<{ modules: AnyModule[] }>(`${P(pid)}/export/any/modules`),
+  charts: (pid: string, module: string, params: unknown) =>
+    request<{ charts: AnyChartInfo[]; note: string }>(`${P(pid)}/export/any/charts`, json('POST', { module, params })),
+  file: async (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) => {
+    const response = await send(`${P(pid)}/export/any/file`, json('POST', { module, params, chart, settings }))
+    const name = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') ?? '')
+    const notes = JSON.parse(decodeURIComponent(response.headers.get('X-Atlas-Notes') ?? '[]')) as string[]
+    return { blob: await response.blob(), name: name ? decodeURIComponent(name[1]) : 'график', notes }
+  },
+}
+
 export const exportApi = {
   choices: (pid: string, exclusions: boolean) => request<ExportChoices>(`${P(pid)}/export/form?exclusions=${exclusions ? 1 : 0}`),
   plan: (pid: string, form: Form) => request<ExportPlan>(`${P(pid)}/export/plan`, json('POST', { form })),
