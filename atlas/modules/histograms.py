@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ..contract import Data, ModuleSpec, Option, Param, Result
-from ._production import DIRECTIONS, KINDS, PRODUCTION, ProductionBase, Selection, histogram_charts
+from ._production import DIRECTIONS, KINDS, PRODUCTION, ProductionBase, Selection, histogram_charts, volume_histograms
 
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
 SIZES = ('Авто', '10', '20', '50', 'Все')
@@ -39,6 +39,9 @@ class HistogramModule(ProductionBase):
                   empty='ничего', prefix='№ ', section=SECTION_DATA),
             Param('periods', 'Периоды', 'multi', default=[], dynamic=True, depends=('kind',), auto='last:3',
                   empty='ничего', section=SECTION_DATA),
+            Param('metric', 'Что показывать', 'choice', default='mean', section=SECTION_VIEW,
+                  options=(Option('mean', 'Средний расход'), Option('season', 'Накопленный объем по сезонам'),
+                           Option('month', 'Накопленный объем по месяцам сезонов'))),
             Param('axis', 'Ось гистограммы', 'choice', default='well', section=SECTION_VIEW, chart_kind=True,
                   options=(Option('well', 'Скважины'), Option('period', 'Периоды'))),
             Param('hist_size', 'Скважин на одной гистограмме', 'choice', default='Авто', section=SECTION_VIEW,
@@ -54,7 +57,11 @@ class HistogramModule(ProductionBase):
         if not ws or not sel.periods:
             return self.nothing_selected(result)
         size = histogram_size(params['hist_size'], len(ws))
-        result.charts.extend(histogram_charts(sel, ws, params['axis'], size, 'hist'))
+        metric = params.get('metric', 'mean')
+        if metric == 'mean':
+            result.charts.extend(histogram_charts(sel, ws, params['axis'], size, 'hist'))
+        else:
+            result.charts.extend(volume_histograms(sel, ws, params['axis'], size, 'hist', metric == 'month'))
         self.common_tables(result, sel, ws)
         return result
 
@@ -68,10 +75,12 @@ class HistogramModule(ProductionBase):
     def save_state(self, params: dict[str, Any], data: Data) -> dict[str, Any]:
         return {'kind': params['kind'], 'periods': params['periods'], 'wells': params['wells'], 'groups': params['groups'],
                 'view': 'hist', 'direction': params['direction'], 'histaxis': params['axis'],
-                'hist_size': params['hist_size'], 'two': False}
+                'hist_size': params['hist_size'], 'two': False, 'hist_metric': params.get('metric', 'mean')}
 
     def load_state(self, state: Mapping[str, Any]) -> dict[str, Any]:
         out = {k: state[k] for k in ('kind', 'periods', 'wells', 'groups', 'direction', 'hist_size') if state.get(k) is not None}
         if state.get('histaxis') is not None:
             out['axis'] = state['histaxis']
+        if state.get('hist_metric') is not None:
+            out['metric'] = state['hist_metric']
         return out
