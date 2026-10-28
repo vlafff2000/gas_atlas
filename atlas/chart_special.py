@@ -115,10 +115,12 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     ax.set_ylabel(f'{chart.y.label}, {chart.y.unit}' if chart.y.unit else chart.y.label, fontsize=base)
     if chart.y.maximum is not None:
         ax.set_ylim(chart.y.minimum or 0, chart.y.maximum)
+    from atlas.engine.core.export import sort_legend
+    handles, labels = sort_legend(*ax.get_legend_handles_labels())
     if legend == 'right':
-        ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', frameon=False, fontsize=base - 1)
+        ax.legend(handles, labels, bbox_to_anchor=(1.01, 1), loc='upper left', frameon=False, fontsize=base - 1)
     elif legend == 'top':
-        ax.legend(bbox_to_anchor=(0, 1.02), loc='lower left', frameon=False, fontsize=base - 1, ncol=max(1, len(bars)))
+        ax.legend(handles, labels, bbox_to_anchor=(0, 1.02), loc='lower left', frameon=False, fontsize=base - 1, ncol=max(1, len(bars)))
     ax.tick_params(labelsize=base - 1)
     ax.set_title(chart.title, fontsize=base + 1, y=1.0 if legend != 'top' else 1.08)
     if table and table.aligned:
