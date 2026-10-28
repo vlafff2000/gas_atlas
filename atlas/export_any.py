@@ -74,8 +74,14 @@ def settings_of(raw: Any) -> dict[str, Any]:
     view = src.get('view') if isinstance(src.get('view'), Mapping) else {}
     chart = dict(src.get('chart')) if isinstance(src.get('chart'), Mapping) else {}
     title = str(chart.pop('title', '') or '').strip()[:300]
+    tsrc = src.get('table') if isinstance(src.get('table'), Mapping) else {}
+    table = {'show': tsrc.get('show') is not False,
+             'font_size': _number(tsrc.get('font_size'), 'Таблица, размер шрифта, пт', 5, 24),
+             'row': _number(tsrc.get('row'), 'Таблица, высота строки (1 — как есть)', 0.5, 3)}
+    segment = _number(src.get('segment_size'), 'Подписи в столбцах, пт', 5, 30)
     labels = src.get('labels') if isinstance(src.get('labels'), Mapping) else {}
     return {'format': fmt, 'dpi': dpi, 'look': look, 'width': width, 'height': height, 'font': font, 'font_size': size,
+            'sized': bool(_number(src.get('width'), 'Ширина, мм', 80, 300) or preset[0]), 'table': table, 'segment_size': segment,
             'view': dict(view), 'chart': clean_chart(chart), 'title': title, 'axes': clean_axes(src.get('axes')),
             'labels': {k: str(v).strip()[:200] for k, v in labels.items() if k in chart_view.AXES + ('x',) and str(v).strip()}}
 
@@ -106,11 +112,19 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
     from atlas.engine.core.export import figure_bytes
     s = settings_of(raw_settings)
     out, notes = prepared(chart, s)
-    if s['format'] in ('xlsx', 'csv') or chart_special.is_special(out):
-        content, name, mime = render.chart_file(out, s['format'], s['dpi'], s['font'], s['font_size'])
-        if s['format'] not in ('xlsx', 'csv'):
-            notes.append(Note('Размер, шрифт и вид этого типа графика пока задаются самим графиком.'))
+    if s['format'] in ('xlsx', 'csv'):
+        content, name, mime = render.chart_file(out, s['format'], s['dpi'])
         return content, name, mime, [n.text for n in notes]
+    if chart_special.is_special(out):
+        legend = out.style.get('legend')
+        opts = {'width_mm': s['width'] if s['sized'] else None, 'height_mm': s['height'] if s['sized'] else None,
+                'font': s['font'], 'font_size': s['font_size'], 'legend': legend if legend in ('top', 'hide') else 'right' if legend else None,
+                'table_show': s['table']['show'], 'table_font_size': s['table']['font_size'], 'table_row': s['table']['row'],
+                'segment_size': s['segment_size']}
+        content = chart_special.figure_file(out, s['format'], s['dpi'], opts)
+        if out.heat is not None or out.strips is not None:
+            notes.append(Note('Для тепловой карты и матрицы действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.'))
+        return content, f'{render.safe_name(out.title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
     content = figure_bytes(render.to_plotly(out), s['format'], s['dpi'], s['width'], s['height'], font=s['font'],
                            font_size=s['font_size'], look=s['look'])
     return content, f'{render.safe_name(out.title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
