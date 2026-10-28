@@ -5,6 +5,7 @@ import { ChartView } from './ChartView'
 import { api, type Chart } from './api'
 import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type WordPreview } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
+import { ExportAnyChart } from './ExportAnyChart'
 import { ResizableFrame, HEIGHT_MM, WIDTH_MM } from './ResizableFrame'
 
 type Opt = [unknown, string]
@@ -221,7 +222,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const packAvailable = choices.modules.some(m => m.id === 'production')
   const gghAvailable = !!choices.ggh
   const gisAvailable = !!choices.gis
-  const extraTabs: [string, string][] = [...(packAvailable ? [['pack', 'Пакет по фонду'] as [string, string]] : []), ...(gghAvailable ? [['ggh', 'ГГХ (Word)'] as [string, string]] : []), ...(gisAvailable ? [['gis', 'ГИС и ГВК (Word)'] as [string, string]] : [])]
+  const extraTabs: [string, string][] = [...(packAvailable ? [['pack', 'Пакет по фонду'] as [string, string]] : []), ...(gghAvailable ? [['ggh', 'ГГХ (Word)'] as [string, string]] : []), ...(gisAvailable ? [['gis', 'ГИС и ГВК (Word)'] as [string, string]] : []), ['any', 'Любой график']]
   const gisPanel = !gisAvailable ? null : (
     <>
       <p className="lede">Word: страница на скважину — рисунок (ГВК, hг эф и Кг ср.взв по пачкам), таблица изменения ГВК и подпись. А4 альбомная. Скважины без замеров ГВК пропускаются.</p>
@@ -352,6 +353,20 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const current = tab && (choices.modules.some(m => m.id === tab) || extraTabs.some(([id]) => id === tab) || (tab === 'custom' && readyPlan)) ? tab : first
   const formats = (form.formats as string[] | undefined) ?? ['svg', 'pdf']
   const style = choices.style
+  const tabsRow = (
+      <div className="tabs" role="tablist">
+        {choices.modules.map(m => (
+          <button key={m.id} type="button" role="tab" aria-selected={m.id === current} onClick={() => setTab(m.id)}
+            className={modules.includes(m.id) ? 'on' : undefined}>{m.label}</button>
+        ))}
+        {extraTabs.map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => setTab(id)}
+            className={modules.includes(id) ? 'on' : undefined}>{label}</button>
+        ))}
+        {readyPlan && <button type="button" role="tab" aria-selected={current === 'custom'} onClick={() => setTab('custom')}>Отдельные графики</button>}
+      </div>
+  )
+  if (current === 'any') return <><Title />{tabsRow}<ExportAnyChart project={project} /></>
 
   return (
     <>
@@ -412,17 +427,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         </Section>
       </div>
 
-      <div className="tabs" role="tablist">
-        {choices.modules.map(m => (
-          <button key={m.id} type="button" role="tab" aria-selected={m.id === current} onClick={() => setTab(m.id)}
-            className={modules.includes(m.id) ? 'on' : undefined}>{m.label}</button>
-        ))}
-        {extraTabs.map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={id === current} onClick={() => setTab(id)}
-            className={modules.includes(id) ? 'on' : undefined}>{label}</button>
-        ))}
-        {readyPlan && <button type="button" role="tab" aria-selected={current === 'custom'} onClick={() => setTab('custom')}>Отдельные графики</button>}
-      </div>
+      {tabsRow}
       {current === 'custom' ? (
         <CustomCharts {...F} projectId={project.id} loadPlan={prepare} planned={planned} />
       ) : current === 'pack' || current === 'ggh' || current === 'gis' ? (
