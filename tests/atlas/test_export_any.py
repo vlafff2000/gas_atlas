@@ -88,3 +88,21 @@ def test_an_chart_with_table_settings(env):
     assert shot({'width': 100, 'height': 80}).width < base.width      # поля обрезаются по содержимому, поэтому не равенство
     assert shot({'table': {'show': False}}).height < base.height
     assert shot({'table': {'row': 2, 'font_size': 12}, 'font': 'times'}).height > base.height
+
+
+def test_series_look_and_hidden(env):
+    """Вид ряда и скрытие ряда из настроек действуют на файл; реестр отдаёт ряды с их текущим цветом."""
+    import io
+    from PIL import Image
+    client, pid = env
+    chart = first_chart(client, pid)
+    item = chart['items'][0]
+    assert item['color'].startswith('#') and item['key'].endswith(item['kind'])
+    def shot(view):
+        r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': MODULE, 'params': PARAMS, 'chart': chart['id'],
+                                                                      'settings': {'dpi': 150, 'view': view}})
+        assert r.status_code == 200, r.text
+        return Image.open(io.BytesIO(r.content)).convert('RGB').tobytes()
+    base = shot({})
+    assert shot({'looks': {item['key']: {'color': '#ff00ff', 'width': 5}}}) != base
+    assert shot({'hidden': [item['group']]}) != base
