@@ -386,3 +386,20 @@ def test_object_seasons_need_periods(env):
     body = run(client, pid, mode='object', kind='withdrawal', groups=[], periods=[])
     assert body['charts'] == []
     assert any('Выберите' in n['text'] for n in body['notes'])
+
+
+def test_histogram_volumes_by_season_and_month(env):
+    client, pid, projects = env
+    p = pick(client, pid, projects)
+    p['wells'] = ['31', '45']
+    p['periods'] = p['periods'][:1]
+    base = dict(p, hist_size='Все', direction='number')
+    season = run(client, pid, 'histograms', **base, metric='season', axis='well')['charts'][0]
+    month = run(client, pid, 'histograms', **base, metric='month', axis='well')['charts'][0]
+    legacy_vol = legacy.averages(frame(projects, pid), p['kind'], p['periods'], ['31', '45']).set_index('well').volume
+    got = {c: v for c, v in zip(season['x']['categories'], season['series'][0]['y'])}
+    assert got['31'] == pytest.approx(legacy_vol['31'])
+    total = [sum(s['y'][i] for s in month['series'] if s['y'][i] is not None) for i in range(2)]
+    assert total == pytest.approx([legacy_vol['31'], legacy_vol['45']])
+    names = [s['name'] for s in month['series']]
+    assert len(names) == len(set(names)) and len(names) > 1

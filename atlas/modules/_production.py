@@ -226,6 +226,56 @@ def object_season_chart(sel: Selection, xmode: str) -> Chart:
     return chart
 
 
+def month_volumes(sel: Selection, ws: list[str]) -> pd.DataFrame:
+    """Объём по скважинам и месяцам выбранных сезонов: well, period, month, volume (млн м³).
+
+    Дни без записи дают 0, исключённые точки не учитываются."""
+    d = select_wells(sel.df, ws)
+    d = d[d.kind.eq(sel.kind) & d.period.isin(sel.periods)]
+    v = d.q.where(~d.get('_excluded', pd.Series(False, index=d.index)).fillna(False).astype(bool))
+    d = d.assign(v=v, month=d.date.dt.to_period('M')).dropna(subset=['v'])
+    return d.groupby(['well', 'period', 'month']).v.sum().div(1e6).rename('volume').reset_index()
+
+
+def volume_histograms(sel: Selection, ws: list[str], axis: str, size: int, prefix: str, by_month: bool) -> list[Chart]:
+    """Накопленный объём каждой скважины: по сезонам или по месяцам сезонов (млн м³), столбцы в порядке времени."""
+    from .an_charts import month_name
+    charts = []
+    parts = [ws[i:i + size] for i in range(0, len(ws), size)]
+    colors = legacy.period_colors(sel.df, sel.kind)
+    months = month_volumes(sel, ws) if by_month else None
+    for number, part in enumerate(parts):
+        title = well_title(part)
+        if by_month:
+            m = months[months.well.isin(part)]
+            keys = sorted(m.month.unique())
+            chart = Chart(f'{prefix}-volume-{number + 1}', f'{title} · объём по месяцам',
+                          Axis('Скважина', scale='category', categories=list(part)),
+                          Axis('Накопленный объем за месяц', 'млн м³', from_zero=True))
+            for i, key in enumerate(keys):
+                got = m[m.month.eq(key)].groupby('well').volume.sum()
+                values = np.array([got.get(w, np.nan) for w in part], float)
+                chart.series.append(Series(month_name(key), list(part), values, 'bar', color=COLORS[i % len(COLORS)],
+                                           labels=[f'{month_name(key)} · {v:.3f} млн м³' if pd.notna(v) else 'Нет данных'
+                                                   for v in values]))
+        else:
+            a = legacy.averages(sel.df, sel.kind, sel.periods, part)
+            order = part if axis == 'well' else sel.periods
+            chart = Chart(f'{prefix}-volume-{number + 1}', f'{title} · объём по сезонам',
+                          Axis('Скважина' if axis == 'well' else 'Период', scale='category', categories=list(order)),
+                          Axis('Накопленный объем за период', 'млн м³', from_zero=True))
+            for i, key in enumerate(sel.periods if axis == 'well' else part):
+                d = a[a.period.eq(key)] if axis == 'well' else a[a.well.eq(key)]
+                d = d.set_index('well' if axis == 'well' else 'period').reindex(order).reset_index()
+                values = d.volume.where(~d.missing.fillna(True).astype(bool)).to_numpy(float)
+                chart.series.append(Series(str(key), d.iloc[:, 0].astype(str).tolist(), values, 'bar',
+                                           color=colors.get(key, COLORS[i % len(COLORS)]),
+                                           labels=[f'Объем {v:.3f} млн м³' if pd.notna(v) else 'Нет данных за период'
+                                                   for v in values]))
+        charts.append(chart)
+    return charts
+
+
 def histogram_charts(sel: Selection, ws: list[str], axis: str, size: int, prefix: str) -> list[Chart]:
     """Столбцы средних расходов; по ``size`` скважин на гистограмму, как ``charts.histogram``."""
     charts = []
