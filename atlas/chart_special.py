@@ -43,23 +43,39 @@ def _bytes(fig: Any, fmt: str, dpi: int) -> bytes:
     return buffer.getvalue()
 
 
-def figure_file(chart: Chart, fmt: str, dpi: int) -> bytes:
+def figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = None) -> bytes:
+    """``opts`` — ручные настройки выгрузки (``atlas/export_any.py``): width_mm, height_mm, font, font_size, legend, table_font_size,
+    table_row, table_show, segment_size; без них — прежний вид."""
     from .render import group_colors, series_color
     plt = _setup()
+    o = opts or {}
     try:
+        if o.get('font') and o['font'] != 'default':
+            from atlas.engine.core.fonts import family_for
+            plt.rcParams['font.family'] = family_for(o['font'])
         fig = _heat_figure(plt, chart) if chart.heat is not None else _strip_figure(plt, chart) if chart.strips is not None \
-            else _stack_figure(plt, chart, group_colors(chart), series_color)
+            else _stack_figure(plt, chart, group_colors(chart), series_color, o)
+        if o.get('width_mm') and o.get('height_mm'):
+            fig.set_size_inches(o['width_mm'] / 25.4, o['height_mm'] / 25.4)
+        elif o.get('width_mm'):
+            w, h = fig.get_size_inches()
+            fig.set_size_inches(o['width_mm'] / 25.4, h * o['width_mm'] / 25.4 / w)
         return _bytes(fig, fmt, dpi)
     finally:
         plt.close('all')
 
 
-def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color: Any):
+def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color: Any, o: dict[str, Any] | None = None):
+    o = o or {}
+    base = float(o.get('font_size') or 12)
+    tfs = float(o.get('table_font_size') or round(base * 0.75, 1))
+    row_k = float(o.get('table_row') or 1.0)
     bars = [s for s in chart.series if s.kind == 'bar']
     cats = list(chart.x.categories or dict.fromkeys(str(x) for s in bars for x in s.x))
-    table = chart.table
-    fig = plt.figure(figsize=(max(7.5, 0.9 * len(cats) + 4), 6.2 + (0.26 * (len(table.rows) + 1) if table else 0)))
-    ax = fig.add_axes([0.08, 0.08 + (0.04 * len(table.rows) if table else 0.0), 0.72, 0.8])
+    table = None if o.get('table_show') is False else chart.table
+    legend = o.get('legend') or 'right'
+    fig = plt.figure(figsize=(max(7.5, 0.9 * len(cats) + 4), 6.2 + (0.26 * row_k * (len(table.rows) + 1) if table else 0)))
+    ax = fig.add_axes([0.08, 0.08 + (0.04 * row_k * len(table.rows) if table else 0.0), 0.72 if legend == 'right' else 0.9, 0.8 if legend != 'top' else 0.74])
     below = np.zeros(len(cats))
     top = max(1e-9, sum(np.array([0.0 if v is None else float(v) for v in s.y]) for s in bars if s.segments is not None).max()) \
         if any(s.segments is not None for s in bars) else 1.0
@@ -74,7 +90,7 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
         for j, (v, text) in enumerate(zip(values, s.segments or [])):
             middle = below[j] + v / 2
             if text and v / top >= NARROW / 100:
-                ax.text(j, middle, text, ha='center', va='center', fontsize=11, color='white' if _luma(color) < 140 else '#111')
+                ax.text(j, middle, text, ha='center', va='center', fontsize=float(o.get('segment_size') or base - 1), color='white' if _luma(color) < 140 else '#111')
             elif text and chart.callouts == 'dot':
                 ax.text(j, middle, '●', ha='center', va='center', fontsize=7, color='white' if _luma(color) < 140 else '#111')
             elif text:
@@ -87,7 +103,7 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     for j, middle, text, color in marks:
         side = 1 if used[j] % 2 == 0 else -1
         used[j] += 1
-        ax.annotate(text, (j + side * 0.31, middle), (j + side * 0.5, middle), fontsize=10, ha='center', va='center',
+        ax.annotate(text, (j + side * 0.31, middle), (j + side * 0.5, middle), fontsize=base - 2, ha='center', va='center',
                     bbox={'boxstyle': 'round,pad=0.25', 'fc': 'white', 'ec': color, 'lw': 1.5},
                     arrowprops={'arrowstyle': '-', 'lw': 0.7, 'color': '#888'})
     ax.set_xticks(range(len(cats)))
@@ -96,18 +112,22 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     if chart.y.unit == 'скв.':
         from matplotlib.ticker import MaxNLocator
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.set_ylabel(f'{chart.y.label}, {chart.y.unit}' if chart.y.unit else chart.y.label)
+    ax.set_ylabel(f'{chart.y.label}, {chart.y.unit}' if chart.y.unit else chart.y.label, fontsize=base)
     if chart.y.maximum is not None:
         ax.set_ylim(chart.y.minimum or 0, chart.y.maximum)
-    ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', frameon=False, fontsize=11)
-    ax.set_title(chart.title, fontsize=13)
+    if legend == 'right':
+        ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', frameon=False, fontsize=base - 1)
+    elif legend == 'top':
+        ax.legend(bbox_to_anchor=(0, 1.02), loc='lower left', frameon=False, fontsize=base - 1, ncol=max(1, len(bars)))
+    ax.tick_params(labelsize=base - 1)
+    ax.set_title(chart.title, fontsize=base + 1, y=1.0 if legend != 'top' else 1.08)
     if table and table.aligned:
-        _aligned_table(plt, fig, ax, table, len(cats))
+        _aligned_table(plt, fig, ax, table, len(cats), tfs, row_k)
     elif table:
         tb = ax.table(cellText=table.cells, rowLabels=table.rows, colLabels=table.columns, loc='bottom', cellLoc='center',
-                      bbox=[0, -0.06 * (len(table.rows) + 1) - 0.04, 1, 0.06 * (len(table.rows) + 1)])
+                      bbox=[0, -0.06 * row_k * (len(table.rows) + 1) - 0.04, 1, 0.06 * row_k * (len(table.rows) + 1)])
         tb.auto_set_font_size(False)
-        tb.set_fontsize(9)
+        tb.set_fontsize(tfs)
         if table.swatches:
             for i, color in enumerate(table.colors or colors):
                 tb[i + 1, -1].set_facecolor(color)
@@ -115,11 +135,11 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     return fig
 
 
-def _aligned_table(plt: Any, fig: Any, ax: Any, table: Any, n: int) -> None:
+def _aligned_table(plt: Any, fig: Any, ax: Any, table: Any, n: int, fs: float = 9, row_k: float = 1.0) -> None:
     """Таблица под графиком: столбцы месяцев точно под столбиками, подписи строк и «Фонд» — левее поля графика."""
     rows = len(table.rows) + 1
     pos = ax.get_position()
-    height = 0.04 * rows
+    height = 0.04 * row_k * rows
     tab = fig.add_axes([pos.x0, pos.y0 - height - 0.02, pos.width, height], sharex=ax)
     tab.axis('off')
     tab.set_ylim(rows, 0)
@@ -129,13 +149,13 @@ def _aligned_table(plt: Any, fig: Any, ax: Any, table: Any, n: int) -> None:
         edge(y)
     heads = table.columns
     for k, head in enumerate(heads[1:]):
-        tab.text(k, 0.5, head, ha='center', va='center', fontsize=9, fontweight='bold')
-    tab.text(left - 0.05, 0.5, heads[0], ha='right', va='center', fontsize=9, fontweight='bold', clip_on=False)
+        tab.text(k, 0.5, head, ha='center', va='center', fontsize=fs, fontweight='bold')
+    tab.text(left - 0.05, 0.5, heads[0], ha='right', va='center', fontsize=fs, fontweight='bold', clip_on=False)
     for i, (label, cells) in enumerate(zip(table.rows, table.cells), start=1):
-        tab.text(left - 0.55, i + 0.5, label, ha='right', va='center', fontsize=9, clip_on=False)
-        tab.text(left - 0.05, i + 0.5, cells[0], ha='right', va='center', fontsize=9, fontweight='bold', clip_on=False)
+        tab.text(left - 0.55, i + 0.5, label, ha='right', va='center', fontsize=fs, clip_on=False)
+        tab.text(left - 0.05, i + 0.5, cells[0], ha='right', va='center', fontsize=fs, fontweight='bold', clip_on=False)
         for k, v in enumerate(cells[1:]):
-            tab.text(k, i + 0.5, v, ha='center', va='center', fontsize=9)
+            tab.text(k, i + 0.5, v, ha='center', va='center', fontsize=fs)
 
 
 def _strip_figure(plt: Any, chart: Chart):

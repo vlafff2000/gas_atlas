@@ -18,9 +18,9 @@ const AXIS_NAME: Record<string, string> = { x: 'Ось X', y: 'Ось Y', y2: '�
 const DPIS = [150, 200, 250, 300, 600, 1200]
 const HEX = /^#[0-9a-f]{6}$/i
 const KIND_NOTE: Record<string, string> = {
-  heat: 'Тепловая карта: размер, шрифт и оформление задаются самим графиком.',
-  strips: 'Матрица скважин × сезонов: размер, шрифт и оформление задаются самим графиком.',
-  stack: 'Столбцы с подписями в сегментах: размер, шрифт и оформление задаются самим графиком.',
+  heat: 'Тепловая карта: действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.',
+  strips: 'Матрица скважин × сезонов: действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.',
+  stack: 'Столбцы с подписями в сегментах: действуют размер, шрифт, легенда (справа, сверху или скрыть), заголовок, подписи в столбцах и таблица под графиком.',
 }
 
 type Dict = Record<string, unknown>
@@ -148,7 +148,7 @@ export function ExportAnyChart({ project }: { project: Project }) {
   }, [moduleId, chartId, settingsKey, paramsKey, project.id])
 
   const set = (key: string, value: unknown) => setSettings(s => put(s, key, value))
-  const sub = (group: 'chart' | 'axes' | 'labels', key: string, value: unknown) => setSettings(s => {
+  const sub = (group: 'chart' | 'axes' | 'labels' | 'table', key: string, value: unknown) => setSettings(s => {
     const next = put((s[group] as Dict | undefined) ?? {}, key, value)
     return put(s, group, Object.keys(next).length ? next : '')
   })
@@ -239,6 +239,22 @@ export function ExportAnyChart({ project }: { project: Project }) {
               <Color label="Цвет текста" value={chartStyle.text_color} onChange={v => sub('chart', 'text_color', v)} />
             </Box>
           </div>
+          {(chart.table || chart.kind === 'stack') && (
+            <div className="param-bar flat">
+              {chart.table && (
+                <Box title="Таблица под графиком">
+                  <Tick label="Показывать таблицу" value={(settings.table as Dict | undefined)?.show !== false} onChange={v => sub('table', 'show', v ? '' : false)} />
+                  <Field label="Размер шрифта, пт (5–24)" type="number" value={(settings.table as Dict | undefined)?.font_size} onChange={v => sub('table', 'font_size', v === '' ? '' : Number(v))} />
+                  <Field label="Высота строк (0,5–3)" type="number" value={(settings.table as Dict | undefined)?.row} placeholder="1" onChange={v => sub('table', 'row', v === '' ? '' : Number(v))} />
+                </Box>
+              )}
+              {chart.kind === 'stack' && (
+                <Box title="Подписи в столбцах">
+                  <Field label="Размер, пт (5–30)" type="number" value={settings.segment_size} onChange={v => set('segment_size', v === '' ? '' : Number(v))} />
+                </Box>
+              )}
+            </div>
+          )}
           {!special && (
             <details className="table-block">
               <summary className="block-head"><h3>Оси</h3></summary>

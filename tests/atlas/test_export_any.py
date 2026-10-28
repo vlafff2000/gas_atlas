@@ -69,3 +69,22 @@ def test_settings_validated(bad):
 def test_size_preset_and_manual_override():
     assert settings_of({'size': 'a4-half'})['width'] == 170 and settings_of({'size': 'a4-half'})['height'] == 100
     assert settings_of({'size': 'a4-half', 'width': 120})['width'] == 120
+
+
+def test_an_chart_with_table_settings(env):
+    """Графики АН со столбцами и таблицей под графиком: размер, шрифт, высота строк и показ таблицы меняют рисунок."""
+    import io
+    from PIL import Image
+    client, pid = env
+    params = {'kind': 'withdrawal', 'periods': ['2023-2024']}
+    found = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'an_report', 'params': params}).json()
+    withtable = [c for c in found['charts'] if c['table'] and c['special']]
+    assert withtable, [c['id'] for c in found['charts']]
+    def shot(settings):
+        r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'an_report', 'params': params, 'chart': withtable[0]['id'], 'settings': {'dpi': 150, **settings}})
+        assert r.status_code == 200, r.text
+        return Image.open(io.BytesIO(r.content))
+    base = shot({})
+    assert shot({'width': 100, 'height': 80}).width < base.width      # поля обрезаются по содержимому, поэтому не равенство
+    assert shot({'table': {'show': False}}).height < base.height
+    assert shot({'table': {'row': 2, 'font_size': 12}, 'font': 'times'}).height > base.height
