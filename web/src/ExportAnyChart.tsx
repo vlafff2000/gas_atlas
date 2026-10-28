@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, defaults, type ModuleSpec, type Params, type Project } from './api'
 import { ParamBar } from './ParamBar'
+import { SeriesLookFields } from './ChartSettings'
+import type { Look } from './chartStyle'
 import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings } from './api_projects'
 
 const FORMATS: [string, string][] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
@@ -15,6 +17,7 @@ const LEGENDS: [string, string][] = [['', 'Авто'], ['bottom', 'Снизу'],
 const GRIDS: [string, string][] = [['', 'Авто'], ['both', 'Обе'], ['h', 'Горизонтальная'], ['v', 'Вертикальная'], ['none', 'Нет']]
 const ALIGNS: [string, string][] = [['', 'Авто'], ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]
 const AXIS_NAME: Record<string, string> = { x: 'Ось X', y: 'Ось Y', y2: 'Ось Y2 (справа)', y3: 'Ось Y3', y4: 'Ось Y4', y5: 'Ось Y5' }
+const SERIES_LIMIT = 40
 const DPIS = [150, 200, 250, 300, 600, 1200]
 const HEX = /^#[0-9a-f]{6}$/i
 const KIND_NOTE: Record<string, string> = {
@@ -158,6 +161,21 @@ export function ExportAnyChart({ project }: { project: Project }) {
     const next = put(all, name, Object.keys(one).length ? one : '')
     return put(s, 'axes', Object.keys(next).length ? next : '')
   })
+  const setView = (fn: (v: Dict) => Dict) => setSettings(s => {
+    const next = fn((s.view as Dict | undefined) ?? {})
+    return put(s, 'view', Object.keys(next).length ? next : '')
+  })
+  const setLook = (key: string, patch: Partial<Look>) => setView(v => {
+    const looks = { ...((v.looks as Record<string, Look> | undefined) ?? {}) }
+    const one = { ...looks[key], ...patch } as Dict
+    for (const k of Object.keys(one)) if (one[k] === undefined) delete one[k]
+    if (Object.keys(one).length) looks[key] = one as Look; else delete looks[key]
+    return put(v, 'looks', Object.keys(looks).length ? looks : '')
+  })
+  const setHidden = (group: string, hide: boolean) => setView(v => {
+    const list = ((v.hidden as string[] | undefined) ?? []).filter(g => g !== group)
+    return put(v, 'hidden', hide ? [...list, group] : list.length ? list : '')
+  })
   const chartStyle = (settings.chart as Dict | undefined) ?? {}
   const axes = (settings.axes as Dict | undefined) ?? {}
   const labels = (settings.labels as Dict | undefined) ?? {}
@@ -277,6 +295,30 @@ export function ExportAnyChart({ project }: { project: Project }) {
                 })}
               </div>
               <p className="muted pad">Границы чисел — через запятую или точку; для оси времени — дата дд.мм.гггг.</p>
+            </details>
+          )}
+          {!special && chart.items.length > 0 && (
+            <details className="table-block">
+              <summary className="block-head"><h3>Ряды ({chart.items.length})</h3></summary>
+              <p className="muted pad">Цвет, линия, маркеры и прозрачность каждого ряда; снятая галочка скрывает ряд в файле. Цвет «авто» — из сквозной палитры групп.</p>
+              {chart.items.slice(0, SERIES_LIMIT).map(it => {
+                const look = (((settings.view as Dict | undefined)?.looks as Dict | undefined)?.[it.key] as Look | undefined) ?? {}
+                const hidden = (((settings.view as Dict | undefined)?.hidden as string[] | undefined) ?? []).includes(it.group)
+                return (
+                  <details key={it.key} className="table-block">
+                    <summary className="block-head">
+                      <span style={{ display: 'inline-block', width: 12, height: 12, background: look.color ?? it.color, marginRight: 8, borderRadius: 2 }} />
+                      {it.name || it.group}{hidden ? ' (скрыт)' : ''}
+                    </summary>
+                    <div className="pad">
+                      <Tick label="Показывать ряд" value={!hidden} onChange={v => setHidden(it.group, !v)} />
+                      <SeriesLookFields s={{ kind: it.kind, dash: 'solid', dashed: false, width: 0, markers: false, symbol: 'circle', opacity: 1 }}
+                        color={it.color} look={look} onChange={patch => setLook(it.key, patch)} />
+                    </div>
+                  </details>
+                )
+              })}
+              {chart.items.length > SERIES_LIMIT && <p className="muted pad">Показаны первые {SERIES_LIMIT} рядов из {chart.items.length}.</p>}
             </details>
           )}
           <div className="toolbar">

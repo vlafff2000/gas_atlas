@@ -32,8 +32,20 @@ def kind_of(chart: Chart) -> str:
     return 'chart'
 
 
+def series_items(chart: Chart) -> list[dict[str, Any]]:
+    """Ряды графика для настройки вида: ключ (тот же, что у экрана), имя, группа, вид и цвет, с которым ряд рисуется сейчас."""
+    palette = render.group_colors(chart)
+    out: dict[str, dict[str, Any]] = {}
+    for s in chart.series:
+        key = chart_view.series_key(s)
+        if key not in out:
+            color = (s.look or {}).get('color') or (render.series_color(s.color) if s.color else palette[s.group or s.name])
+            out[key] = {'key': key, 'name': s.name, 'group': s.group or s.name, 'kind': s.kind, 'color': color}
+    return list(out.values())
+
+
 def describe(chart: Chart) -> dict[str, Any]:
-    return {'id': chart.id, 'title': chart.title, 'kind': kind_of(chart), 'table': chart.table is not None,
+    return {'items': series_items(chart), 'id': chart.id, 'title': chart.title, 'kind': kind_of(chart), 'table': chart.table is not None,
             'series': len(chart.series), 'axes': chart.axis_names(), 'special': chart_special.is_special(chart)}
 
 
