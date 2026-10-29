@@ -46,7 +46,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: gas_atlas/web/package-lock.json
-      - name: Собрать интерфейс (atlas/web/dist в git не хранится: сборка кладёт его в архив)
+      - name: Собрать интерфейс (atlas/web/dist в git не хранится, сборка кладёт его в архив)
         run: cd gas_atlas/web && npm ci && npm run build
       - name: Манифест последнего полного архива (что уже лежит в архиве у пользователя)
         env:

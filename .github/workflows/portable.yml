@@ -38,7 +38,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: gas_atlas/web/package-lock.json
-      - name: Собрать интерфейс (atlas/web/dist в git не хранится: сборка кладёт его в архив)
+      - name: Собрать интерфейс (atlas/web/dist в git не хранится, сборка кладёт его в архив)
         run: cd gas_atlas/web && npm ci && npm run build
       - name: Build unified portable folder
         run: cd gas_atlas && python tools/build_unified.py ${{ matrix.target }} --scripts ../all_scripts
