@@ -1,7 +1,8 @@
-"""Пресеты скважин: `GET /api/projects/{pid}/well-presets` (группы, фонды, опорная сетка и пользовательские),
-`POST /api/well-presets` {name, wells} и `DELETE /api/well-presets/{id}`.
+"""Пресеты скважин проекта: `GET /api/projects/{pid}/well-presets` (группы, фонды, опорная сетка и пользовательские),
+`POST /api/projects/{pid}/well-presets` {name, wells}, `DELETE /api/projects/{pid}/well-presets/{id}` и
+`POST /api/projects/{pid}/well-presets/import-legacy` (перенос пресетов из прежней общей папки ~/.pxg).
 
-Логика — ``atlas/well_sets.py``; пресеты проекта считаются из данных проекта, пользовательские лежат в ~/.pxg.
+Логика — ``atlas/well_sets.py``; пресеты проекта считаются из данных проекта, пользовательские лежат в папке проекта.
 """
 from __future__ import annotations
 
@@ -42,25 +43,35 @@ def project_presets(projects: Projects, pid: str) -> list[dict]:
 
 
 def routes(projects: Projects) -> list[Route]:
+    def folder(pid: str):
+        projects.manifest(pid)                      # несуществующий проект — 404, а не новая папка
+        return projects.store.path(pid)
+
     def get(request, body):
         pid = request.path_params['pid']
-        return {'presets': project_presets(projects, pid) + well_sets.user_presets()}
+        return {'presets': project_presets(projects, pid) + well_sets.user_presets(folder(pid)),
+                'legacy': well_sets.legacy_count()}
 
     def create(request, body):
+        pid = request.path_params['pid']
         try:
-            well_sets.add_user_preset(body.get('name', ''), body.get('wells') or [])
+            well_sets.add_user_preset(folder(pid), body.get('name', ''), body.get('wells') or [])
         except ValueError as e:
             raise ParamError(str(e))
-        return {'presets': project_presets_all(projects, body.get('project'))}
+        return {'presets': project_presets(projects, pid) + well_sets.user_presets(folder(pid))}
 
     def remove(request, body):
-        well_sets.remove_user_preset(request.path_params['preset'])
-        return {'presets': well_sets.user_presets()}
+        pid = request.path_params['pid']
+        well_sets.remove_user_preset(folder(pid), request.path_params['preset'])
+        return {'presets': project_presets(projects, pid) + well_sets.user_presets(folder(pid))}
 
-    return [Route('/api/projects/{pid}/well-presets', _endpoint(get)),
-            Route('/api/well-presets', _endpoint(create), methods=['POST']),
-            Route('/api/well-presets/{preset}', _endpoint(remove), methods=['DELETE'])]
+    def import_legacy(request, body):
+        pid = request.path_params['pid']
+        well_sets.import_legacy(folder(pid))
+        return {'presets': project_presets(projects, pid) + well_sets.user_presets(folder(pid)),
+                'legacy': well_sets.legacy_count()}
 
-
-def project_presets_all(projects: Projects, pid: str | None) -> list[dict]:
-    return (project_presets(projects, pid) if pid else []) + well_sets.user_presets()
+    return [Route('/api/projects/{pid}/well-presets', _endpoint(get), methods=['GET']),
+            Route('/api/projects/{pid}/well-presets', _endpoint(create), methods=['POST']),
+            Route('/api/projects/{pid}/well-presets/{preset}', _endpoint(remove), methods=['DELETE']),
+            Route('/api/projects/{pid}/well-presets/import-legacy', _endpoint(import_legacy), methods=['POST'])]

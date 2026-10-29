@@ -22,6 +22,8 @@ const json = (method: string, body: unknown): RequestInit => ({
 
 export const wellPresetApi = {
   list: (project: string) => send(`/api/projects/${project}/well-presets`),
-  save: (project: string, name: string, wells: string[]) => send('/api/well-presets', json('POST', { project, name, wells })),
-  remove: (id: string) => send(`/api/well-presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  save: (project: string, name: string, wells: string[]) =>
+    send(`/api/projects/${project}/well-presets`, json('POST', { name, wells })),
+  remove: (project: string, id: string) =>
+    send(`/api/projects/${project}/well-presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }

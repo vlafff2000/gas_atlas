@@ -1,7 +1,8 @@
 """Выбор скважин, общий для всех программ: список из буфера обмена, пересечение групп и скважин, пользовательские пресеты.
 
-Пресеты проекта (группы, фонды, опорная сетка) считаются из данных проекта; пользовательские пресеты лежат в
-``~/.pxg/well_presets.json`` (каталог меняется PXG_HOME) и видны во всех программах, как список папок tNav.
+Пресеты проекта (группы, фонды, опорная сетка) считаются из данных проекта; пользовательские пресеты лежат в папке
+проекта (``well_presets.json``), поэтому в другом проекте их нет. Прежняя общая папка ``~/.pxg/well_presets.json``
+(каталог меняется PXG_HOME) не удаляется: её пресеты переносятся в проект по запросу.
 
 Пересечение: если выбраны группы и скважины, в расчёт идут скважины из групп, которые есть и в списке скважин (фильтре).
 Решение за инженером: программа только показывает, сколько скважин скрыто фильтром; вручную выбор всегда меняется.
@@ -67,40 +68,57 @@ def scoped(wells: list[str], groups: list[str], mapping: Mapping[str, Mapping[st
     return [w for w in pool if w in keep], 0
 
 
-# --- пользовательские пресеты ---
+# --- пользовательские пресеты: в папке проекта, чужие проекты их не видят ---
 
-def _read() -> list[dict[str, Any]]:
+def _read(folder: Path) -> list[dict[str, Any]]:
     try:
-        data = json.loads((home() / FILE).read_text(encoding='utf-8'))
+        data = json.loads((folder / FILE).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return []
     return [p for p in data.get('presets', []) if isinstance(p, dict) and p.get('id') and isinstance(p.get('wells'), list)]
 
 
-def user_presets() -> list[dict[str, Any]]:
+def user_presets(folder: Path) -> list[dict[str, Any]]:
     return [{'id': p['id'], 'kind': 'user', 'label': p.get('name', 'Без названия'), 'wells': list(p['wells'])}
-            for p in _read()]
+            for p in _read(folder)]
 
 
-def add_user_preset(name: str, wells: Iterable[str]) -> list[dict[str, Any]]:
+def add_user_preset(folder: Path, name: str, wells: Iterable[str]) -> list[dict[str, Any]]:
     name = (name or '').strip()
     if not name:
         raise ValueError('Укажите название пресета.')
     listed = [norm(w) for w in wells if str(w).strip()]
     if not listed:
         raise ValueError('В пресете нет скважин. Выберите скважины или вставьте список из буфера обмена.')
-    presets = _read()
+    presets = _read(folder)
     presets.append({'id': uuid.uuid4().hex, 'name': name, 'wells': list(dict.fromkeys(listed))})
-    _write(presets)
-    return user_presets()
+    _write(folder, presets)
+    return user_presets(folder)
 
 
-def remove_user_preset(preset_id: str) -> list[dict[str, Any]]:
-    _write([p for p in _read() if p['id'] != preset_id])
-    return user_presets()
+def remove_user_preset(folder: Path, preset_id: str) -> list[dict[str, Any]]:
+    _write(folder, [p for p in _read(folder) if p['id'] != preset_id])
+    return user_presets(folder)
 
 
-def _write(presets: list[dict[str, Any]]) -> None:
-    folder = home()
+def import_legacy(folder: Path) -> list[dict[str, Any]]:
+    """Переносит пресеты из прежней общей папки ``~/.pxg`` в проект. Старый файл не меняется; повторы пропускаются."""
+    presets = _read(folder)
+    have = {(p.get('name'), tuple(p['wells'])) for p in presets}
+    for old in _read(home()):
+        key = (old.get('name', 'Без названия'), tuple(old['wells']))
+        if key not in have:
+            presets.append({'id': uuid.uuid4().hex, 'name': key[0], 'wells': list(old['wells'])})
+            have.add(key)
+    _write(folder, presets)
+    return user_presets(folder)
+
+
+def legacy_count() -> int:
+    """Сколько пресетов осталось в прежней общей папке (для подсказки о переносе)."""
+    return len(_read(home()))
+
+
+def _write(folder: Path, presets: list[dict[str, Any]]) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     (folder / FILE).write_text(json.dumps({'presets': presets}, ensure_ascii=False, indent=1), encoding='utf-8')
