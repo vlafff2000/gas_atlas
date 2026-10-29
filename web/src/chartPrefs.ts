@@ -79,8 +79,16 @@ export const zoomSync = pref<boolean>('atlas.chart.zoomSync', true)
 export const savedRanges = pref<Record<string, Partial<Record<'y' | 'y2' | 'y3' | 'y4' | 'y5', [number, number] | null>>>>('atlas.chart.ranges', {})
 /** Основной интервал делений осей по графикам (ключ как у savedRanges): ось → шаг. */
 export const savedSteps = pref<Record<string, Partial<Record<'x' | 'y' | 'y2' | 'y3' | 'y4' | 'y5', { n: number; unit: 'num' | 'year' | 'month' | 'week' | 'day' }>>>>('atlas.chart.steps', {})
-/** Личный вид рядов по графикам («Настройка»): ключ графика → ключ ряда → вид. Помнится между запусками. */
-export const chartLooks = pref<Record<string, Record<string, Look>>>('atlas.chart.looks', {})
+/** Личный вид рядов («Настройка») — общий для всех графиков: ключ ряда (группа или имя и вид) → вид. Помнится между запусками.
+ *  Раньше вид хранился по графикам (ключ — заголовок), поэтому смена набора скважин его теряла: при первом запуске переносится. */
+export const seriesLooks = pref<Record<string, Look>>('atlas.series.looks', legacyLooks())
+function legacyLooks(): Record<string, Look> {
+  try {
+    if (localStorage.getItem('atlas.series.looks') !== null) return {}
+    const old = JSON.parse(localStorage.getItem('atlas.chart.looks') ?? '{}') as Record<string, Record<string, Look>>
+    return Object.assign({}, ...Object.values(old))
+  } catch { return {} }
+}
 /** Границы Y, разосланные всем графикам раздела с той же подписью и единицей оси (не хранится). */
 export const sharedRange = pref<{ key: string; range: [number, number]; n: number } | null>('', null)
 

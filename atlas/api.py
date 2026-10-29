@@ -372,6 +372,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         *export_any.routes(projects, E, compute),   # «Экспорт» → «Любой график»
         *__import__('atlas.api_passport', fromlist=['routes']).routes(projects),   # «Паспорт скважины»
         *__import__('atlas.api_fund', fromlist=['routes']).routes(projects),   # «Фонды скважин»
+        *__import__('atlas.api_well_sets', fromlist=['routes']).routes(projects),   # пресеты скважин, список из буфера
         *__import__('atlas.api_import', fromlist=['routes']).routes(projects),   # раздел «Импорт данных»
         *__import__('atlas.project_folder', fromlist=['routes']).routes(projects),   # «Папка проекта»: файлы, роли, загрузка
         *__import__('atlas.runlog', fromlist=['routes']).routes(),   # лог: сведения, пакет для отправки
