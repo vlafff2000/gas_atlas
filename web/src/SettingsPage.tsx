@@ -9,6 +9,10 @@ import { RestoreBox, Toast, useDetails, type PageProps } from './ProjectPage'
 
 const STYLE = [['points', 'Показывать точки'], ['legend', 'Легенда'], ['grid', 'Сетка']] as const
 
+// Цвета таблицы 5.4 (ГИС) в XLSX: ключи — как в gis_an_tables (виды пачек и «низкий Кг»), значения по умолчанию — там же.
+const AN_COLORS = [['покрышка', 'Покрышка'], ['перемычка', 'Перемычка'], ['нижняя пачка', 'Нижняя пачка'], ['низкий Кг', 'Интервал с Кг ≤ 25 %']] as const
+const AN_DEFAULTS: Record<string, string> = { 'покрышка': 'FCD5B4', 'перемычка': 'F2E6C3', 'нижняя пачка': 'DDF0D5', 'низкий Кг': 'D3EBF7' }
+
 const SCHEDULE_CODE: Record<string, string> = { injection: 'inj', withdrawal: 'prod', none: 'none' }
 const dmy = (d: string) => `${d.slice(8)}.${d.slice(5, 7)}.${d.slice(0, 4)}`
 const scheduleText = (value: unknown, peaks: unknown) =>
@@ -29,6 +33,7 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const [schedule, setSchedule] = useState(scheduleText(s.season_schedule, s.peak_windows))
   const [threshold, setThreshold] = useState(String(s.r2_threshold ?? 0.95))
   const [manometers, setManometers] = useState(((s.manometer_wells as string[] | null) ?? []).join(', '))
+  const [anColors, setAnColors] = useState<Record<string, string>>({ ...AN_DEFAULTS, ...((s.an_colors as Record<string, string> | null) ?? {}) })
   const [pages, setPages] = useState<string[] | null>(null)
   const [mapsUrl, setMapsUrl] = useState<string | null>(null)
   const [style, setStyle] = useState<Record<string, boolean>>({})
@@ -131,6 +136,25 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
             onClick={() => save({ season_start: Number(start), season_end: Number(end), r2_threshold: r2, manometer_wells: manometers,
               auto_seasons: auto, show_neutral_periods: neutral, auto_peaks: peaks, ...(peaks ? { peak_factor: peakFactor } : {}), ...(auto ? { season_gap_days: gapDays, season_rate_share: rate } : {}) },
               'Правила сохранены. Расчеты обновятся с учетом новых правил.')}>Сохранить правила</button>
+        </div>
+      </section>
+
+      <section className="form-block">
+        <h2>Таблица 5.4 (ГИС) в XLSX</h2>
+        <p className="muted small-text">Заливка строк по видам пачек и голубой фон интервалов с Кг ≤ 25 % (синий шрифт строки). Виды пачек берутся из данных:
+          покрышка, перемычка, нижняя пачка; прочие пачки без цвета.</p>
+        <div className="form-row">
+          {AN_COLORS.map(([key, label]) => (
+            <label key={key} className="field">
+              <span className="field-label">{label}</span>
+              <input type="color" value={'#' + anColors[key].toLowerCase()} aria-label={label}
+                onChange={e => setAnColors({ ...anColors, [key]: e.target.value.slice(1).toUpperCase() })} />
+            </label>
+          ))}
+        </div>
+        <div className="form-row">
+          <button type="button" className="primary" onClick={() => save({ an_colors: anColors }, 'Цвета таблицы 5.4 сохранены.')}>Сохранить цвета</button>
+          <button type="button" onClick={() => { setAnColors({ ...AN_DEFAULTS }); save({ an_colors: {} }, 'Цвета таблицы 5.4 сброшены на значения по умолчанию.') }}>Сбросить</button>
         </div>
       </section>
 

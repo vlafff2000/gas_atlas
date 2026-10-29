@@ -283,3 +283,88 @@ def test_tile_keeps_measurements_outside_seasons_gray_and_does_not_crash():
 def test_an_tables_order_does_not_crash_on_unseasoned_label():
     from atlas.modules import gis_an_tables
     assert gis_an_tables.order(['осень 2024', 'без сезона 2019', 'весна 2024']) == ['без сезона 2019', 'весна 2024', 'осень 2024']
+
+
+# ---- таблица 5.4 в XLSX: виды пачек, низкий Кг, объединения ----
+def _an_five_four(**kw):
+    """Две пачки у скважины 1: верхняя (покрышка) по сезонам 2024–2025 — в 2025 три интервала, в 2024 один;
+    нижняя (нижняя пачка) — только 2024 весна. Скважина 4 без интервалов и без замера в 2025 году."""
+    packs = pd.DataFrame({
+        'well': ['1', '1', '1', '4'], 'date': pd.to_datetime(['2024-03-30', '2025-03-31', '2025-10-20', '2024-03-30']),
+        'season': ['весна', 'весна', 'осень', 'весна'], 'pack': ['покрышка', 'покрышка', 'покрышка', 'нижняя пачка'],
+        'gvk_abs_m': [-660.0, -661.0, -662.0, -667.0], 'gvk_depth_m': [120.0, 121.0, 122.0, 127.0],
+        'h_eff_m': [2.5, 2.5, 2.5, 1.0], 'kg_avg': [0.5, 0.5, 0.5, 0.5]})
+    intervals = pd.DataFrame({
+        'well': ['1', '1', '1', '1', '1', '4'], 'pack': ['покрышка'] * 5 + ['нижняя пачка'],
+        'season': ['весна', 'весна', 'весна', 'весна', 'осень', 'весна'],
+        'date': pd.to_datetime(['2024-03-30', '2025-03-31', '2025-03-31', '2025-03-31', '2025-10-20', '2024-03-30']),
+        'from_m': [700.0, 701.0, 703.0, 705.0, 701.0, 800.0], 'to_m': [701.0, 702.0, 704.0, 706.0, 702.0, 801.0],
+        'kg': [0.10, 0.40, 0.60, 0.20, 0.30, 0.50]})
+    return GisModule().run({GIS: packs, INTERVALS: intervals}, _params(view='an', **kw)).tables[0]
+
+
+def test_54_intervals_sit_at_the_bottom_of_the_pack_block():
+    table = _an_five_four()
+    frame = table.frame
+    upper = frame[frame['pack'] == 'покрышка']
+    # в 2025 три интервала — по последним трём строкам блока из трёх; в 2024 один интервал — в самой нижней строке
+    assert upper['s1_from'].tolist() == [701.0, 703.0, 705.0] and upper['s0_from'].iloc[-1] == 700.0
+    assert pd.isna(upper['s0_from'].iloc[0])
+
+
+def test_54_low_kg_cells_are_blue_and_pack_kind_colours_rows():
+    table = _an_five_four()
+    fills = {(st.rows[0], tuple(st.columns)): st.fill for st in table.styles if st.fill and st.columns}
+    # Кг 10 % и 20 % — голубой фон у интервалов, а не у остальных
+    low_rows = [r for r, st in enumerate(table.frame['s0_kg']) if st is not None and st <= 25]
+    assert low_rows and all(fill == 'D3EBF7' for (row, cols), fill in fills.items() if row in low_rows)
+    assert {st.font for st in table.styles if st.font} == {'1F3FBF'}
+    row_fills = [st for st in table.styles if st.fill and not st.columns]
+    assert {st.fill for st in row_fills} == {'FCD5B4', 'DDF0D5'}          # покрышка — светло-оранжевый, нижняя — бледно-зелёный
+
+
+def test_54_not_studied_merges_season_for_well_or_pack():
+    table = _an_five_four()
+    marked = table.frame[table.frame.eq('не исследовалась').any(axis=1)]
+    # скважина 4: весна и осень 2025 не исследовалась ни одной пачкой — объединение по её строке
+    assert marked.index.tolist() == [3] and marked['well'].tolist() == ['4']
+    assert {(m.first, m.last, m.columns[0]) for m in table.merges if m.first == 3} == {(3, 3, 's1_from'), (3, 3, 's2_from')}
+
+
+def test_54_pack_not_studied_in_season_merges_only_its_block():
+    """Скважина 1: покрышка не исследована осенью 2025, а нижняя пачка исследована — объединение только по блоку покрышки."""
+    packs = pd.DataFrame({
+        'well': ['1', '1', '1', '1'], 'date': pd.to_datetime(['2024-03-30', '2025-03-31', '2024-03-30', '2025-10-20']),
+        'season': ['весна', 'весна', 'весна', 'осень'], 'pack': ['покрышка', 'покрышка', 'нижняя пачка', 'нижняя пачка'],
+        'gvk_abs_m': [-660.0, -661.0, -667.0, -668.0], 'gvk_depth_m': [120.0, 121.0, 127.0, 128.0],
+        'h_eff_m': [2.5, 2.5, 1.0, 1.0], 'kg_avg': [0.5] * 4})
+    intervals = pd.DataFrame({'well': ['1'] * 4, 'pack': ['покрышка', 'покрышка', 'нижняя пачка', 'нижняя пачка'],
+                              'season': ['весна', 'весна', 'весна', 'осень'],
+                              'date': pd.to_datetime(['2024-03-30', '2025-03-31', '2024-03-30', '2025-10-20']),
+                              'from_m': [700.0, 701.0, 800.0, 801.0], 'to_m': [701.0, 702.0, 801.0, 802.0], 'kg': [0.3] * 4})
+    table = GisModule().run({GIS: packs, INTERVALS: intervals}, _params(view='an', wells=['1'])).tables[0]
+    assert table.frame['pack'].tolist() == ['нижняя пачка', 'покрышка']          # блоки по алфавиту
+    # нижняя не исследована весной 2025, покрышка — осенью 2025: каждая — только по своему блоку; скважина целиком — нет
+    assert [(m.first, m.last, m.columns[0]) for m in table.merges] == [(0, 0, 's1_from'), (1, 1, 's2_from')]
+    assert table.frame.loc[0, 's1_from'] == 'не исследовалась' and table.frame.loc[1, 's2_from'] == 'не исследовалась'
+
+
+def test_54_colour_override_from_project_settings_and_bad_hex_ignored():
+    from atlas.modules.gis_an_tables import palette
+    assert palette({'покрышка': '#00ff00', 'нижняя пачка': 'zz'})['покрышка'] == '00FF00'
+    assert palette({'нижняя пачка': 'zz'})['нижняя пачка'] == 'DDF0D5'
+
+
+def test_54_xlsx_file_keeps_fills_merges_and_blue_font():
+    import io
+    from openpyxl import load_workbook
+    from atlas import render
+    content, _, _ = render.tables_file([_an_five_four()], 'Таблица 5.4')
+    ws = load_workbook(io.BytesIO(content)).worksheets[0]
+    cells = {c.value: c for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value in ('покрышка', 'нижняя пачка')}
+    assert cells['покрышка'].fill.fgColor.rgb.endswith('FCD5B4') and cells['нижняя пачка'].fill.fgColor.rgb.endswith('DDF0D5')
+    low = [c for row in ws.iter_rows(min_row=3) for c in row if c.fill.fgColor.rgb.endswith('D3EBF7')]
+    assert low and all(c.font.color.rgb.endswith('1F3FBF') for c in low)     # голубой фон у интервалов и синий шрифт строки
+    assert any(c.value == 'не исследовалась' for row in ws.iter_rows() for c in row)
+    missing = next(c for row in ws.iter_rows() for c in row if c.value == 'не исследовалась')
+    assert any((r.min_row, r.min_col) == (missing.row, missing.column) for r in ws.merged_cells.ranges)   # объединена

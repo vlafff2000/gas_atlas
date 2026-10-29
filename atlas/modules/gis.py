@@ -147,11 +147,16 @@ class GisModule(Module):
         if GIS not in data or data[GIS].empty:
             result.notes.append(Note('В данных нет «Базы ГИС». Загрузите таблицу пачек через «Источники» или «Импорт данных».'))
             return result
-        tables, labels, base, notes = gis_an_tables.build({'packs': data[GIS], 'intervals': data.get(INTERVALS)}, params)
+        colors = (getattr(data, 'settings', None) or {}).get('an_colors') or {}
+        tables, labels, base, notes = gis_an_tables.build({'packs': data[GIS], 'intervals': data.get(INTERVALS)},
+                                                          {**params, 'colors': colors})
         result.tables.extend(tables)
         result.notes.extend(Note(n, level='warning') for n in notes)
         if labels:
-            result.summary = [Stat('Новый сезон', gis_an_tables.name_of(base)), Stat('Сезонов', str(len(labels)))]
+            kinds = gis_an_tables.palette(colors)
+            pack_kinds = '; '.join(f'{k}: #{kinds[k]}' if k in kinds else k for k in gis_an_tables.pack_kinds(data[GIS]['pack'].dropna()))
+            result.summary = [Stat('Новый сезон', gis_an_tables.name_of(base)), Stat('Сезонов', str(len(labels))),
+                              Stat('Виды пачек (цвет в XLSX)', pack_kinds)]
             result.notes.append(Note('Сезоны таблиц: ' + '; '.join(gis_an_tables.name_of(x) for x in labels)
                                      + '. Список — подсказка: отметьте нужные сезоны вручную, и в таблицах будут именно они.'))
         return result
