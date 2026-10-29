@@ -531,6 +531,16 @@ def test_chart_format_single_chart_override(env):
     assert names['chart'] and 'уровень' in ' '.join(names['chart']).lower()
 
 
+def test_well_charts_always_in_natural_number_order(env):
+    """По умолчанию графики скважин в выгрузке идут по возрастанию номера («2» раньше «10»), каким бы ни был порядок выбора в форме."""
+    client, pid, _, _ = env
+    form = {**FORM, 'modules': ['production'], 'production_wells': ['132', '45', '31', '70']}
+    names = [c['name'] for c in client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()['charts']]
+    wells = [n.split(' · ', 1)[1] for n in names if n.startswith('Отбор · ')]
+    assert len(wells) >= 2
+    assert wells == ordered(wells)
+
+
 def test_export_wells_in_number_order(env):
     """Выгрузки идут по возрастанию номера скважины, даже если в форме их выбрали в другом порядке."""
     client, pid, _, _ = env

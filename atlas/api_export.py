@@ -356,7 +356,7 @@ def with_elpro(plan, data: Data, options: Mapping[str, Any]):
         fig.update_layout(meta={'module': 'production', 'wells': [well], 'periods': periods})
         return fig
     for kind, values in cfg['periods'].items():
-        for well in cfg['wells'] if values else []:
+        for well in ordered(cfg['wells']) if values else []:
             params = module.spec.coerce({'mode': 'individual', 'kind': kind, 'groups': cfg['groups'], 'wells': [well],
                                          'periods': values, 'elpro': cfg['elpro'], 'view': 'curve',
                                          'direction': cfg.get('direction', 'number')})
