@@ -607,8 +607,28 @@ def header_sheet(ws, table: Table) -> None:
             cell.border = Border(left=side, right=side, top=side, bottom=side)
             if c.kind == 'number' and c.decimals is not None:
                 cell.number_format = '0.' + '0' * c.decimals if c.decimals else '0'
+    _apply_styles(ws, table, rows + 1)
     ws.freeze_panes = ws.cell(rows + 1, 1)
     ws.column_dimensions['B'].width = 38
+
+
+def _apply_styles(ws, table: Table, first_row: int) -> None:
+    """Заливка, цвет шрифта и объединения из ``table.styles`` / ``table.merges``; ``first_row`` — первая строка данных на листе."""
+    from openpyxl.styles import Font, PatternFill
+    column = {c.key: k for k, c in enumerate(table.columns, 1)}
+    for style in table.styles:
+        keys = style.columns or list(column)
+        for r in style.rows:
+            for key in keys:
+                cell = ws.cell(first_row + r, column[key])
+                if style.fill:
+                    cell.fill = PatternFill('solid', fgColor=style.fill)
+                if style.font:
+                    cell.font = Font(color=style.font)
+    for merge in table.merges:
+        cols = [column[key] for key in merge.columns]
+        ws.merge_cells(start_row=first_row + merge.first, end_row=first_row + merge.last,
+                       start_column=min(cols), end_column=max(cols))
 
 
 def plain_sheet(ws, table: Table) -> None:

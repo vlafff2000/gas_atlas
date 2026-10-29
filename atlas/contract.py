@@ -234,6 +234,25 @@ class TableAction:
 
 
 @dataclass
+class CellStyle:
+    """Оформление ячеек для XLSX (на экране не показывается): заливка и цвет шрифта. ``rows`` — номера строк данных с нуля,
+    ``columns`` — ключи колонок; пусто — вся строка. Поздние записи перекрывают ранние."""
+    rows: list[int]
+    fill: str = ''                    # HEX без «#», например 'FCD5B4'
+    font: str = ''
+    columns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CellMerge:
+    """Объединение ячеек для XLSX: строки ``first``..``last`` (с нуля, включительно) по колонкам ``columns`` (подряд).
+    Текст — в первой ячейке фрейма, как и остальные значения."""
+    first: int
+    last: int
+    columns: list[str]
+
+
+@dataclass
 class Table:
     id: str
     title: str
@@ -248,6 +267,9 @@ class Table:
     # Формулы колонок для Excel (на экране — значения): {ключ колонки: шаблон}. В шаблоне «{ключ}» — ячейка этой колонки
     # в той же строке, «{ключ@prev}» — в предыдущей строке, «{ключ@col}» — весь столбец данных; первая строка данных предыдущей не имеет (формула пуста).
     formulas: dict[str, str] = field(default_factory=dict)
+    # Оформление и объединения только для XLSX (заливка по видам пачек, синий шрифт, «не исследовалась»).
+    styles: list[CellStyle] = field(default_factory=list)
+    merges: list[CellMerge] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.columns:
