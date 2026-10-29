@@ -229,6 +229,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <Num {...F} field="gis_start" label="Первый номер рисунка" def={1} min={1} max={100000} />
           <Select {...F} field="gis_dpi" label="Качество графиков" def={200}
             options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
+          <label className="toggle"><input type="checkbox" checked={!!form.gis_data} onChange={e => set('gis_data', e.target.checked)} /><span>Данные графиков отдельной книгой (XLSX)</span></label>
         </Section>
       </div>
       <div className="toolbar">
@@ -273,7 +274,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
                   </label>
                 )
               })}
-              {([['docx', 'Word'], ['pdf', 'PDF']] as const).map(([k, l]) => {
+              {([['docx', 'Word'], ['pdf', 'PDF'], ['xlsx', 'Данные графиков (XLSX)']] as const).map(([k, l]) => {
                 const chosen = (form.pack_formats as string[] | undefined) ?? ['docx', 'pdf']
                 return (
                   <label key={k} className="toggle">
@@ -329,6 +330,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
               <Num {...F} field="ggh_start" label="Первый номер рисунка" def={1} min={1} max={100000} />
               <Select {...F} field="ggh_dpi" label="Качество графиков" def={200}
                 options={[[150, '150 DPI, самый легкий'], [200, '200 DPI, рекомендуется'], [250, '250 DPI'], [300, '300 DPI']]} />
+              <label className="toggle"><input type="checkbox" checked={!!form.ggh_data} onChange={e => set('ggh_data', e.target.checked)} /><span>Данные графиков отдельной книгой (XLSX)</span></label>
             </Section>
           </div>
           </>}
@@ -391,9 +393,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <div className="field inline-checks" role="group" aria-label="Форматы графиков">
             <span className="field-label">Форматы графиков</span>
             <span>
-              {['svg', 'pdf', 'png'].map(f => (
-                <label key={f}><input type="checkbox" checked={formats.includes(f)}
-                  onChange={e => set('formats', ['svg', 'pdf', 'png'].filter(x => x === f ? e.target.checked : formats.includes(x)))} />{f.toUpperCase()}</label>
+              {['svg', 'pdf', 'png', 'xlsx', 'csv'].map(f => (
+                <label key={f}><input type="checkbox" checked={formats.includes(f)} title={f === 'xlsx' || f === 'csv' ? 'Данные графика: ряды, X, Y' : undefined}
+                  onChange={e => set('formats', ['svg', 'pdf', 'png', 'xlsx', 'csv'].filter(x => x === f ? e.target.checked : formats.includes(x)))} />{f === 'xlsx' || f === 'csv' ? `${f.toUpperCase()} (данные)` : f.toUpperCase()}</label>
               ))}
             </span>
           </div>

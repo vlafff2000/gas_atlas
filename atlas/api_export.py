@@ -491,8 +491,8 @@ def font_from(form: Mapping[str, Any]) -> tuple[str, Any]:
 
 def files_from(form: Mapping[str, Any]) -> tuple[list[str], int, int]:
     formats = list(form.get('formats', ['svg', 'pdf']))
-    if any(f not in ('svg', 'pdf', 'png') for f in formats):
-        raise Failure(400, 'Форматы графиков: svg, pdf, png')
+    if any(f not in ('svg', 'pdf', 'png', 'xlsx', 'csv') for f in formats):
+        raise Failure(400, 'Форматы графиков: svg, pdf, png, xlsx, csv')
     try:
         dpi, width = int(form.get('dpi', 300)), int(form.get('width', 220))
     except (TypeError, ValueError):
@@ -918,6 +918,13 @@ def routes(projects: Projects) -> list[Route]:
                 'exact': bool(layout.per_page), 'page_mm': [pw, ph], 'image_mm': [round(items[shown[0]].w), round(items[shown[0]].h)] if shown else [0, 0],
                 'png': 'data:image/png;base64,' + base64.b64encode(image).decode('ascii')}
 
+    def save_frames(pid, tmp, stem, frames, info):
+        """Данные графиков Word-отчёта (строки, по которым они построены) одной таблицей в exports."""
+        name_, content = data_file(stem, frames=frames)
+        target = Path(tmp) / name_
+        target.write_bytes(content)
+        return projects.store.save_export_file(pid, name_, target, info)
+
     def pack(request, body):
         """Один щелчок: Word и PDF «6 графиков на листе A4» отдельно для отбора и закачки по всем скважинам фонда."""
         from atlas.engine.core.export import figure_bytes
@@ -926,7 +933,7 @@ def routes(projects: Projects) -> list[Route]:
         data = projects.data(pid)
         template = str(form.get('pack_template') or PACK_TEMPLATE)[:500]
         _check_caption(template, PACK_FIELDS)
-        formats = [f for f in form.get('pack_formats', ['docx', 'pdf']) if f in ('docx', 'pdf')]
+        formats = [f for f in form.get('pack_formats', ['docx', 'pdf']) if f in ('docx', 'pdf', 'xlsx')]
         try:
             per_page = int(form.get('pack_per_page', PACK_PER_PAGE))
             dpi = int(form.get('pack_dpi', PACK_DPI))
@@ -938,7 +945,7 @@ def routes(projects: Projects) -> list[Route]:
             raise Failure(400, 'Разрешение графиков пакета: 150, 200, 250 или 300 DPI')
         columns, (image_w, image_h) = PACK_LAYOUTS[per_page]
         if not formats:
-            raise Failure(400, 'Выберите Word или PDF')
+            raise Failure(400, 'Выберите Word, PDF или данные графиков')
         options, source, raw = options_from(pack_options(form, data), data)
         if not options['wells']:
             raise Failure(400, 'В проекте нет скважин с эксплуатацией для пакета графиков.')
@@ -990,6 +997,11 @@ def routes(projects: Projects) -> list[Route]:
                     target = grid_pdf(entries, Path(tmp) / (stem + '.pdf'), columns, per_page // columns,
                                       {'Title': stem.replace('_', ' '), 'Author': 'Газовый атлас'})
                     paths.append(projects.store.save_export_file(pid, stem + '.pdf', target, info))
+                if 'xlsx' in formats:
+                    name_, content = data_file(stem + '_данные', figures=[(j.name, j.render()) for j in jobs])
+                    target = Path(tmp) / name_
+                    target.write_bytes(content)
+                    paths.append(projects.store.save_export_file(pid, name_, target, info))
         if not paths:
             raise Failure(400, 'Нет графиков для пакета: в выбранном режиме нет данных.')
         projects.store.event(pid, 'Экспорт', {**meta, 'module': 'pack'})
@@ -1040,8 +1052,11 @@ def routes(projects: Projects) -> list[Route]:
             target = Path(tmp) / GGH_NAME
             target.write_bytes(content)
             saved = projects.store.save_export_file(pid, GGH_NAME, target, info)
+            saved_all = [saved]
+            if form.get('ggh_data'):
+                saved_all.append(save_frames(pid, tmp, Path(GGH_NAME).stem + '_данные', [i['frame'] for i in items], info))
         projects.store.event(pid, 'Экспорт', info)
-        return {'files': [_path(saved).name], 'planned': len(wells), 'completed': len(items), 'chart_files': 1, 'errors': errors}
+        return {'files': [_path(p).name for p in saved_all], 'planned': len(wells), 'completed': len(items), 'chart_files': len(saved_all), 'errors': errors}
 
     def gis(request, body):
         """Word «ГИС и ГВК»: страница на скважину — рисунок и таблица изменения ГВК (``atlas/gis_report.py``)."""
@@ -1074,9 +1089,11 @@ def routes(projects: Projects) -> list[Route]:
         with tempfile.TemporaryDirectory(prefix='pending_gis_', dir=str(exports)) as tmp:
             target = Path(tmp) / GIS_NAME
             target.write_bytes(content)
-            saved = projects.store.save_export_file(pid, GIS_NAME, target, info)
+            saved_all = [projects.store.save_export_file(pid, GIS_NAME, target, info)]
+            if form.get('gis_data'):
+                saved_all.append(save_frames(pid, tmp, Path(GIS_NAME).stem + '_данные', [i['frame'] for i in items], info))
         projects.store.event(pid, 'Экспорт', info)
-        return {'files': [_path(saved).name], 'planned': len(items), 'completed': len(items), 'chart_files': 1, 'errors': []}
+        return {'files': [_path(p).name for p in saved_all], 'planned': len(items), 'completed': len(items), 'chart_files': len(saved_all), 'errors': []}
 
     def gis_sums(request, body):
         """Excel «Σ hi × Кг»: интервалы выбранных сезонов и скважин, все числа — формулы (``atlas/gis_xlsx.py``)."""
@@ -1207,6 +1224,19 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/presets', E(save_preset), methods=['POST']),
         Route(base + '/sync', E(sync)),
     ]
+
+
+XLSX_ROWS = 1_048_575
+
+
+def data_file(stem: str, figures=None, frames=None) -> tuple[str, bytes]:
+    """(имя, содержимое) книги XLSX с данными графиков; если строк больше лимита Excel — CSV."""
+    from .engine.core.export import csv_bytes, xlsx_bytes
+    from .engine.core.figure_data import figure_table
+    table = pd.concat([figure_table(f, name) for name, f in figures], ignore_index=True) if figures is not None else pd.concat(frames, ignore_index=True)
+    if len(table) > XLSX_ROWS:
+        return stem + '.csv', csv_bytes(table)
+    return stem + '.xlsx', xlsx_bytes({'Данные': table})
 
 
 def _path(p) -> Path:
