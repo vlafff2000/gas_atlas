@@ -1,5 +1,6 @@
 """Авторский надзор: устойчивость к плохим данным, названия без номеров, графики отбора, XLSX графика и таблиц."""
 import io
+import zipfile
 
 import numpy as np
 import openpyxl
@@ -86,9 +87,24 @@ def test_category_chart_xlsx_is_stacked():
     chart = Chart('c', 'Группы', Axis('Группа', scale='category', categories=['ГСП 1', 'ГСП 2']), Axis('Q', 'тыс. м³/сут'))
     chart.series.append(Series('Ноябрь', ['ГСП 1', 'ГСП 2'], [1.0, 2.0], 'bar', stack='g'))
     chart.series.append(Series('Декабрь', ['ГСП 1', 'ГСП 2'], [3.0, np.nan], 'bar', stack='g'))
-    wb = openpyxl.load_workbook(io.BytesIO(render.chart_file(chart, 'xlsx', 300)[0]))
-    assert [list(r) for r in wb['Данные'].values] == [['Группа', 'Ноябрь, тыс. м³/сут', 'Декабрь, тыс. м³/сут'],
+    content = render.chart_file(chart, 'xlsx', 300)[0]
+    wb = openpyxl.load_workbook(io.BytesIO(content))
+    assert [list(r) for r in wb['Данные'].values] == [['Группа', 'Ноябрь', 'Декабрь'],
                                                       ['ГСП 1', 1.0, 3.0], ['ГСП 2', 2.0, None]]
+    with zipfile.ZipFile(io.BytesIO(content)) as z:                   # подписи оси X — категории из первого столбца, легенда — без единиц
+        xml = z.read('xl/charts/chart1.xml').decode('utf-8')
+    assert "Данные'!$A$2:$A$3" in xml and '<cat>' in xml
+
+
+def test_histogram_xlsx_has_wells_on_axis_and_season_legend():
+    chart = Chart('h', 'Накопленный объём', Axis('Скважина', scale='category', categories=['201', '105']), Axis('Объём', 'млн.м3'))
+    chart.series.append(Series('2022', ['201', '105'], [1.5, 2.0], 'bar'))
+    content = render.chart_file(chart, 'xlsx', 300)[0]
+    wb = openpyxl.load_workbook(io.BytesIO(content))
+    assert wb['Данные']['B1'].value == '2022' and wb['Данные']['A2'].value == '201'
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        xml = z.read('xl/charts/chart1.xml').decode('utf-8')
+    assert "Данные'!$A$2:$A$3" in xml and "Данные'!B1" in xml
 
 
 def test_tables_xlsx_is_formatted_like_the_screen():
