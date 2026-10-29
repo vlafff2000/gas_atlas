@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyLooks, looksOf, markerSymbol, seriesLookKey } from '../src/chartStyle.ts'
+import { applyLooks, looksOf, markerSymbol, seriesLookKey, yearOfKey } from '../src/chartStyle.ts'
 
 const series = (name: string, kind: 'line' | 'points' = 'line', group = '') => ({ name, kind, group }) as never
 const chart = { title: 'Расход', y: { label: 'Q' }, y2: null, x: {}, series: [series('ГСП-1'), series('ГСП-2', 'points')] } as never
@@ -34,4 +34,12 @@ test('форма без выбора — из модуля, с выбором �
   assert.ok(markerSymbol('star', 'circle').startsWith('path://'))
   assert.ok(markerSymbol('plus', 'circle').startsWith('path://'))
   assert.ok(markerSymbol('x', 'circle').startsWith('path://'))
+})
+
+test('год узнаётся в ключе ряда: год, сезон, без года', () => {
+  assert.equal(yearOfKey('2024|bar'), 2024)
+  assert.equal(yearOfKey('2023/2024|line'), 2023)
+  assert.equal(yearOfKey('Сезон 2022|bar'), 2022)
+  assert.equal(yearOfKey('ГСП 12|line'), null)
+  assert.equal(yearOfKey('№ 1204|points'), null)
 })

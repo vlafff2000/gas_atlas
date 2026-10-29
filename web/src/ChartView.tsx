@@ -11,7 +11,7 @@ import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDa
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
-import { applyLooks, looksOf, markerSymbol, seriesLookKey, type Look } from './chartStyle'
+import { applyLooks, looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { ChartSettings } from './ChartSettings'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
@@ -94,7 +94,8 @@ const dashOf = (s: Series) => DASH[s.dash || (s.dashed ? 'dash' : 'solid')]
 function colorOf(chart: Chart) {
   const groups = [...new Set(chart.series.map(key))]
   const p = palette()
-  return (s: Series) => s.look?.color ? s.look.color : s.color ? seriesColor(s.color) : p[groups.indexOf(key(s)) % p.length]
+  // год и сезон берут цвет по своему году: тот же год — тот же цвет на любом графике, даже когда набор рядов меняется
+  return (s: Series) => s.look?.color ? s.look.color : s.color ? seriesColor(s.color) : p[(yearOfKey(key(s)) ?? groups.indexOf(key(s))) % p.length]
 }
 
 const NARROW = 5     // сегмент стопки уже 5 % высоты: число не помещается внутрь — выноска или точка
