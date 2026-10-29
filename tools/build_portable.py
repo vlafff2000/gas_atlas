@@ -185,10 +185,19 @@ def install_packages(target, site, workdir):
     shutil.rmtree(str(site / 'bin'), ignore_errors=True)  # host-style console scripts; the app runs with -m
 
 
+def tracked_files(root, include):
+    """Файлы git и собранный интерфейс web/dist: он в .gitignore, его кладёт в папку `npm run build`."""
+    def ls(*args):
+        out = subprocess.check_output(['git', 'ls-files', '-z'] + list(args) + ['--'] + list(include), cwd=str(root))
+        return [n for n in out.decode('utf-8').split('\0') if n]
+    built = [n for n in ls('--others', '--ignored', '--exclude-standard') if '/web/dist/' in n]
+    return ls() + built
+
+
 def copy_application(folder):
-    tracked = subprocess.check_output(['git', 'ls-files', '-z', '--'] + INCLUDE, cwd=str(ROOT)).decode('utf-8')
+    tracked = tracked_files(ROOT, INCLUDE)
     count = 0
-    for name in filter(None, tracked.split('\0')):
+    for name in tracked:
         if name in SKIP_TOOLS:
             continue
         dest = folder / name

@@ -38,8 +38,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: gas_atlas/web/package-lock.json
-      - name: Собрать интерфейс (atlas/web/dist в git не хранится: сборка кладёт его в архив)
+      - name: Собрать интерфейс (atlas/web/dist в git не хранится, сборка кладёт его в архив)
         run: cd gas_atlas/web && npm ci && npm run build
+      - name: Собрать интерфейсы приложений all_scripts (web/dist там тоже не в git)
+        run: |
+          for app in gsp_maps pxg_base pxg_finder schedule_pxg; do
+            (cd all_scripts/$app/web && npm ci && npm run build)
+          done
       - name: Build unified portable folder
         run: cd gas_atlas && python tools/build_unified.py ${{ matrix.target }} --scripts ../all_scripts
       - name: Unpack and check the bundled Python (stdlib, pywin32) before starting anything

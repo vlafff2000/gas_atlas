@@ -78,9 +78,9 @@ def scripts_requirements(scripts, lock_names):
 
 
 def copy_scripts(scripts, folder):
-    tracked = subprocess.check_output(['git', 'ls-files', '-z', '--'] + SCRIPTS_INCLUDE, cwd=str(scripts)).decode('utf-8')
+    names = bp.tracked_files(scripts, SCRIPTS_INCLUDE)
     count = 0
-    for name in filter(None, tracked.split('\0')):
+    for name in names:
         dest = folder / name
         if dest.exists():
             raise SystemExit('Файл есть в обоих репозиториях: ' + name)
