@@ -327,3 +327,37 @@ def test_auto_classes_are_hint_with_visible_note_and_manual_edges_win():
     assert labels == ['0', 'Менее 50 тыс. м³/сут', 'От 50 до 300 тыс. м³/сут', 'Более 300 тыс. м³/сут']
     bad = module.run(data, {'kind': 'injection', 'periods': ['2024'], 'class_chart': 'box', 'class_mode': 'manual', 'class_edges': '12.5'})
     assert any(n.level == 'warning' and 'стандартные' in n.text for n in bad.notes)
+
+
+def test_class_seasons_chart_compares_groups_across_seasons():
+    # Два сезона: в первом две скважины ГСП 1 и одна ГСП 2 (скв. 3), во втором — по одной скважине в каждой группе.
+    first = production([('1', '2024-02-01', 150000), ('2', '2024-02-01', 50000), ('3', '2024-02-01', 80000)], '2023-2024')
+    second = production([('1', '2025-02-01', 60000), ('3', '2025-02-01', 0)], '2024-2025')
+    prod = pd.concat([first, second], ignore_index=True)
+    counts = pd.concat([an_wells.class_counts(an_wells.season_wells(prod, 'withdrawal', s), an_report.well_scopes(MAPPING, ['1', '2', '3']))
+                        .assign(season=s) for s in ('2023-2024', '2024-2025')], ignore_index=True)
+    chart = an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024', '2024-2025'], 'box')
+    cats = chart.x.categories
+    assert [c.split(' · ')[1] for c in cats] == ['2023-2024', '2024-2025'] * 2           # внутри группы сезоны по порядку
+    assert cats[0].split(' · ')[0] == cats[1].split(' · ')[0] and cats[0] != cats[2]       # пара группа · сезон
+    assert [sum(s.y[j] for s in chart.series) for j in range(len(cats))] == [2, 1, 1, 1]   # скважин в группе сезона, «Всего» не попадает
+    assert an_wells.TOTAL not in ' '.join(cats)
+    assert an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024'], 'box') is None     # меньше двух сезонов — графика нет
+    dot = an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024', '2024-2025'], 'dot')
+    assert dot.callouts == 'dot' and dot.table is not None
+
+
+def test_class_seasons_option_lists_project_seasons_and_builds_chart_alone():
+    prod = pd.concat([production([('1', '2024-02-01', 150000)], '2023-2024'), production([('1', '2025-02-01', 60000)], '2024-2025')],
+                     ignore_index=True)
+    data = Data({an_report.PRODUCTION: prod})
+    data.mapping = MAPPING
+    module = an_report.AuthorReportModule()
+    assert module.options('class_seasons', data, {'kind': 'withdrawal'}) == ['2023-2024', '2024-2025']
+    result = module.run(data, {'kind': 'withdrawal', 'periods': ['2023-2024'], 'class_seasons': ['2024-2025', '2023-2024']})
+    ids = [c.id for c in result.charts]
+    assert 'an-class-seasons-withdrawal' in ids and not any(c.startswith('an-class-share') for c in ids)     # без «Классы производительности» график всё равно есть
+    chart = next(c for c in result.charts if c.id == 'an-class-seasons-withdrawal')
+    assert chart.x.categories[0].endswith('2023-2024') and chart.x.categories[1].endswith('2024-2025')
+    single = module.run(data, {'kind': 'withdrawal', 'periods': ['2023-2024'], 'class_seasons': ['2023-2024']})
+    assert not any(c.id.startswith('an-class-seasons') for c in single.charts)
