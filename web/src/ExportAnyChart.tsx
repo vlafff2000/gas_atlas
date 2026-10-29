@@ -1,6 +1,7 @@
 // Экспорт → «Любой график»: выбрать график любого раздела и выгрузить его с полной ручной настройкой (atlas/export_any.py).
 // Пустое поле — «авто» (как задал модуль): всё, что поменял инженер, главнее.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { saveFileWithPicker } from './desktopDownload'
 import { api, defaults, type ModuleSpec, type Params, type Project } from './api'
 import { ParamBar } from './ParamBar'
 import { SeriesLookFields } from './ChartSettings'
@@ -14,10 +15,12 @@ const LEGENDS: Opt[] = [['auto', 'Авто'], ['bottom', 'Снизу'], ['top', 
 const ALIGNS: Opt[] = [['', 'Авто'], ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]
 const AXIS_NAME: Record<string, string> = { x: 'Ось X', y: 'Ось Y', y2: 'Ось Y2 (справа)', y3: 'Ось Y3', y4: 'Ось Y4', y5: 'Ось Y5' }
 const SERIES_LIMIT = 40
+const EXTRA_FORMATS: Opt[] = [['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel'], ['csv', 'CSV']]
+const FACET_SEP = '\u0001'      // как на экране: 'Признак\u0001значение'
 const DPIS = [150, 200, 250, 300, 600, 1200]
 const KIND_NOTE: Record<string, string> = {
-  heat: 'Тепловая карта: действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.',
-  strips: 'Матрица скважин × сезонов: действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.',
+  heat: 'Тепловая карта: действуют размер рисунка, шрифты, текст в ячейках, заголовок и фон.',
+  strips: 'Матрица скважин × сезонов: действуют размер рисунка, шрифты, текст в ячейках, заголовок и фон.',
   stack: 'Столбцы с подписями в сегментах: действуют размер, шрифт, легенда (справа, сверху или скрыть), заголовок, подписи в столбцах и таблица под графиком.',
 }
 
@@ -67,6 +70,7 @@ export function ExportAnyChart({ project }: { project: Project }) {
   const [notes, setNotes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [extraFormats, setExtraFormats] = useState<string[]>([])
   const seq = useRef(0)
 
   useEffect(() => {
@@ -78,12 +82,15 @@ export function ExportAnyChart({ project }: { project: Project }) {
   const groups = useMemo(() => {
     const by = new Map<string, ModuleSpec[]>()
     for (const s of [...specs].sort((a, b) => a.order - b.order)) by.set(s.group, [...(by.get(s.group) ?? []), s])
+    const known = new Set(specs.map(s => s.id))
+    for (const m of Object.values(ready)) if (!known.has(m.id)) by.set(m.group, [...(by.get(m.group) ?? []), { id: m.id, title: m.title, group: m.group, order: m.order } as ModuleSpec])
     return [...by.entries()]
-  }, [specs])
+  }, [specs, ready])
   const chart = charts.find(c => c.id === chartId)
 
   const pickModule = (id: string) => {
     const s = specs.find(x => x.id === id)
+    setExtraFormats([])
     setModuleId(id); setChartId(''); setCharts([]); setNote(''); setImage(null)
     setParams(s ? defaults(s) : {})
   }
@@ -175,12 +182,12 @@ export function ExportAnyChart({ project }: { project: Project }) {
     if (!chart) return
     setBusy('download'); setError(null)
     try {
-      const r = await anyApi.file(project.id, moduleId, params, chartId, settings)
-      const url = URL.createObjectURL(r.blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = r.name; document.body.appendChild(a); a.click(); a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
-      setNotes(r.notes)
+      // основной формат и отмеченные дополнительные: каждый файл — через наш проводник «Сохранить как»
+      for (const f of [format, ...extraFormats.filter(x => x !== format)]) {
+        const r = await anyApi.file(project.id, moduleId, params, chartId, { ...settings, format: f })
+        await saveFileWithPicker(r.blob, r.name)
+        setNotes(r.notes)
+      }
     } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
   }
 
@@ -213,7 +220,7 @@ export function ExportAnyChart({ project }: { project: Project }) {
       </div>
       {spec && <ParamBar key={spec.id} spec={spec} project={project.id} panel={0} values={params} onChange={setParams} />}
       {error && <div className="note warning" role="alert">{error}</div>}
-      {spec && !busy && charts.length === 0 && !error && <div className="note info">{note || 'Графиков нет.'}</div>}
+      {moduleId && !busy && charts.length === 0 && !error && <div className="note info">{note || 'Графиков нет.'}</div>}
 
       {chart && (
         <>
@@ -229,6 +236,14 @@ export function ExportAnyChart({ project }: { project: Project }) {
                 options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as Opt)]} />
               <Select {...F} field="legend" label="Легенда" def="auto" options={LEGENDS} />
               <Text {...F} field="title" label="Заголовок графика" def="" wide />
+              <Field label="Имя файла (без расширения)" wide value={settings.filename} placeholder="по заголовку графика" onChange={v => set('filename', v)} />
+              {(chart.kind === 'heat' || chart.kind === 'strips') && (
+                <Field label="Текст в ячейках, пт (4–30)" type="number" value={settings.cell_size} onChange={v => set('cell_size', v === '' ? '' : Number(v))} />
+              )}
+              {EXTRA_FORMATS.filter(f => f[0] !== format).map(f => (
+                <Tick key={String(f[0])} label={'Сохранить также: ' + f[1]} value={extraFormats.includes(f[0] as string)}
+                  onChange={on => setExtraFormats(l => on ? [...l, f[0] as string] : l.filter(x => x !== f[0]))} />
+              ))}
             </Section>
             <Section title="Оформление графика">
               <Field label="Размер заголовка, пт" type="number" value={chartStyle.title_size} onChange={v => sub('chart', 'title_size', v === '' ? '' : Number(v))} />
@@ -287,6 +302,24 @@ export function ExportAnyChart({ project }: { project: Project }) {
                 })}
               </div>
               <p className="muted pad">Границы чисел — через запятую или точку; для оси времени — дата дд.мм.гггг.</p>
+            </details>
+          )}
+          {chart.facets.length > 0 && (
+            <details className="table-block">
+              <summary className="block-head"><h3>Признаки рядов</h3></summary>
+              <p className="muted pad">Как значки в легенде на экране: снятая галочка убирает ряды с этим значением из файла.</p>
+              {chart.facets.map(f => (
+                <Box key={f.name} title={f.name}>
+                  {f.values.map(v => {
+                    const key = f.name + FACET_SEP + v
+                    const off = (((settings.view as Dict | undefined)?.facets as string[] | undefined) ?? []).includes(key)
+                    return <Tick key={v} label={v} value={!off} onChange={on => setView(view => {
+                      const list = ((view.facets as string[] | undefined) ?? []).filter(x => x !== key)
+                      return put(view, 'facets', on ? (list.length ? list : '') : [...list, key])
+                    })} />
+                  })}
+                </Box>
+              ))}
             </details>
           )}
           {!special && chart.items.length > 0 && (

@@ -637,7 +637,7 @@ function TabWellFilter({ tab, choices, form, projectId, onChange }: { tab: strin
   const wells = fields ? wellsOf(tab, choices, form) : []
   if (!fields || !wells.length) {
     const note = tab === 'custom' ? 'Отдельные графики берутся из уже выбранных вкладок: фильтр задается на них.'
-      : tab === 'any' ? 'Любой график строится по параметрам своего раздела: скважины выбираются в его панели.'
+      : tab === 'any' ? 'Любой график строится по параметрам своего раздела: скважины и фильтр скважин задаются в его панели.'
       : fields ? 'Скважин для фильтра на этой вкладке нет: выбор скважин задан в ее панели.'
       : 'На этой вкладке фильтр скважин не применяется.'
     return <p className="muted pad filter-note">{note}</p>
