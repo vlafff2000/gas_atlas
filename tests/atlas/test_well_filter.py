@@ -76,3 +76,13 @@ def test_filter_is_a_project_setting_and_shows_status(tmp_path, monkeypatch):
     assert client.get(f'/api/projects/{pid}/well-filter').json()['shown'] == total
     bad = client.patch(f'/api/projects/{pid}/settings', json={'values': {'well_filter': {'groups': 'ГСП 1'}}})
     assert bad.status_code == 400
+
+
+def test_export_filters_per_tab_are_kept_and_cleaned():
+    """Фильтры вкладок экспорта: поле без списка — «все» (не хранится), пустой список — «ничего»; пустые вкладки убираются."""
+    from atlas import well_filter as wf
+    assert wf.valid_tabs(None) and wf.valid_tabs({'production': {'wells': ['31']}})
+    assert not wf.valid_tabs({'production': ['31']})
+    assert wf.clean_tabs({'production': {'wells': ['31', '31'], 'groups': None}, 'pack': {}, 'gis': {'wells': []}}) == {
+        'production': {'wells': ['31']}, 'gis': {'wells': []}}
+    assert wf.clean_tabs({'pack': {}}) is None
