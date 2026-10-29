@@ -493,7 +493,9 @@ class GdiModule(Module):
             points = points[points.q > 0]
             original = original[original.q > 0]
 
-        for i, (key, g) in enumerate(points.groupby(legacy.KEYS, sort=False, dropna=False)):
+        # серии идут по дате по возрастанию: так же порядок в легенде (экран и экспорт)
+        for i, (key, g) in enumerate(points.sort_values(['date', 'method', 'study'], kind='stable')
+                                     .groupby(legacy.KEYS, sort=False, dropna=False)):
             _, date, method, study = key
             row = coefficients[(date, method, study)]
             label = study_label(date)
