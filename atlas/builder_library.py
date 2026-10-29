@@ -260,11 +260,16 @@ def add_layout_charts(result: Result, data: Data, names: list[str], wells: list[
 
 # ---------- Word: один график с заголовком и подписью ----------
 
-def word_file(chart, title: str, caption: str, orientation: str = 'landscape', font: str = 'default', font_size=None) -> tuple[bytes, str]:
-    """Документ Word с одним графиком: заголовок, рисунок и подпись «Рисунок N – …» (номер — поле SEQ, как в выгрузке графиков)."""
+def word_file(chart, title: str, caption: str, orientation: str = 'landscape', font: str = 'default', font_size=None,
+              caption_mode: str = 'field') -> tuple[bytes, str]:
+    """Документ Word с одним графиком: заголовок, рисунок и подпись «Рисунок N – …».
+
+    Номер — поле SEQ (``field``, как в выгрузке графиков) или обычный текст (``text``): поле Word подсвечивается как ссылка.
+    """
     from . import render, word_export
     from .word_export import Item, Layout
-    layout = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', title=bool(title), title_text=title, dpi=200)
+    layout = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', title=bool(title), title_text=title, dpi=200,
+                    caption_mode=caption_mode if caption_mode in ('field', 'text') else 'field')
     text = ' '.join(str(caption or chart.title or 'График').split())
     item = Item(chart.title or 'График', 'Рисунок ', 1, ' – ' + text, module='builder')
     cap_h = word_export.caption_height(layout, item.text, layout.cell())
@@ -304,7 +309,7 @@ def wells_info(data: Data, layout: Any) -> dict[str, Any]:
 
 
 def series_file(data: Data, layout: Any, wells: list[str], fmt: str, title: str = '', orientation: str = 'landscape',
-                dpi: int = 200) -> tuple[bytes, str, str, list[str]]:
+                dpi: int = 200, caption_mode: str = 'field') -> tuple[bytes, str, str, list[str]]:
     """Файл с графиком макета по каждой выбранной скважине: (содержимое, имя файла, тип, заметки). Скважины без данных пропускаются."""
     import io
     import zipfile
@@ -312,6 +317,8 @@ def series_file(data: Data, layout: Any, wells: list[str], fmt: str, title: str 
     from .engine.core.export import safe_name
     if fmt not in SERIES_FORMATS:
         raise ParamError('Формат серии: PNG (архив zip), PDF или Word')
+    if caption_mode not in ('field', 'text'):
+        raise ParamError('Вид номера рисунка: поле Word или обычный текст')
     if not builder.uses_current(layout):
         raise ParamError('В макете нет рядов в режиме «Текущая скважина»: включите его в карточке ряда, и серию можно будет выгрузить.')
     picked = list(dict.fromkeys(str(w).strip() for w in wells if str(w).strip()))
@@ -347,7 +354,8 @@ def series_file(data: Data, layout: Any, wells: list[str], fmt: str, title: str 
         return buf.getvalue(), base + '.pdf', PDF, notes
     from . import word_export
     from .word_export import Item, Layout
-    lay = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', per_page=1, title=bool(title), title_text=title, dpi=dpi)
+    lay = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', per_page=1, title=bool(title), title_text=title, dpi=dpi,
+                 caption_mode=caption_mode)
     items = []
     for n, (_, chart, text) in enumerate(labelled, start=1):
         item = Item(chart.title or 'График', 'Рисунок ', n, ' – ' + text, module='builder')

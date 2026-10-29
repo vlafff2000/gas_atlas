@@ -409,7 +409,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         for r, c in enumerate(cats, 2):
             data.cell(r, 1, c)
         for k, s in enumerate(chart.series, 2):
-            data.cell(1, k, f'{s.name}, {unit_of.get(s.axis, chart.y.unit)}'.rstrip(', '))
+            data.cell(1, k, s.name)                       # легенда Excel берёт эту ячейку: год или сезон без единиц
             by = {str(x): y for x, y in zip(s.x, s.y)}
             for r, c in enumerate(cats, 2):
                 data.cell(r, k, _cell(by.get(c)))
@@ -473,6 +473,8 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
                 else:
                     one.graphicalProperties.line.solidFill = color
             part.series.append(one)
+        if category:                                       # подписи оси X — названия категорий из первого столбца, не номера строк
+            part.set_categories(Reference(data, min_col=1, min_row=2, max_row=items[0][4]))
         return part
 
     drawable = [item for item in plotted if item[0].kind != 'box']

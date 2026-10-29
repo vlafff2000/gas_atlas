@@ -129,7 +129,8 @@ export function hover(tracks: Track[], view: View, px: number, py: number, scale
         if (!Number.isFinite(ys[i])) continue
         const [qx, qy] = view.toPixel(xs[i], ys[i], t.axis)
         const d = Math.hypot(qx - px, qy - py)
-        if (d <= POINT_RADIUS && (!point || d < point.distance)) point = { track: t, k: i, x: xs[i], y: ys[i], px: qx, py: qy, distance: d }
+        // при равном расстоянии сомнительная точка (оверлей поверх основного ряда) побеждает, иначе двойной щелчок не сработает
+        if (d <= POINT_RADIUS && (!point || d < point.distance || (d === point.distance && t.series.suspect))) point = { track: t, k: i, x: xs[i], y: ys[i], px: qx, py: qy, distance: d }
       }
     }
     // значение кривой под курсором

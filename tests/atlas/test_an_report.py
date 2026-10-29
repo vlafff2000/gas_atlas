@@ -314,3 +314,16 @@ def test_injection_gets_month_and_class_charts_like_withdrawal():
     assert sum(sum(s.y) for s in total.series) == 3                                          # три скважины сезона разложены по классам
     tables = {t.id for t in result.tables}
     assert 'an-fund-class-counts' in tables and 'an-fund-months' not in tables and 'an-inj-classes' in tables
+
+
+def test_auto_classes_are_hint_with_visible_note_and_manual_edges_win():
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE})
+    data.mapping = INJ_MAPPING
+    module = an_report.AuthorReportModule()
+    auto = module.run(data, {'kind': 'injection', 'periods': ['2024'], 'class_chart': 'box', 'class_mode': 'auto', 'class_count': 3})
+    assert any('Автоматические границы классов' in n.text for n in auto.notes)
+    manual = module.run(data, {'kind': 'injection', 'periods': ['2024'], 'class_chart': 'box', 'class_mode': 'manual', 'class_edges': '50, 300'})
+    labels = [c.name for c in next(c for c in manual.charts if c.id.startswith('an-class-total')).series]
+    assert labels == ['0', 'Менее 50 тыс. м³/сут', 'От 50 до 300 тыс. м³/сут', 'Более 300 тыс. м³/сут']
+    bad = module.run(data, {'kind': 'injection', 'periods': ['2024'], 'class_chart': 'box', 'class_mode': 'manual', 'class_edges': '12.5'})
+    assert any(n.level == 'warning' and 'стандартные' in n.text for n in bad.notes)

@@ -207,7 +207,8 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
 
     def pick(field, values, default=None):
         value = form.get(field)
-        return list(values if default is None else default) if value is None else [v for v in map(str, value) if v in values]
+        chosen = list(values if default is None else default) if value is None else [v for v in map(str, value) if v in values]
+        return ordered(chosen) if field.endswith('_wells') else chosen      # скважины — по возрастанию номера, в порядке выбора в форме не важно
 
     for module in [m for m in mods_available if m in wanted]:
         mods.append(module)
@@ -355,7 +356,7 @@ def with_elpro(plan, data: Data, options: Mapping[str, Any]):
         fig.update_layout(meta={'module': 'production', 'wells': [well], 'periods': periods})
         return fig
     for kind, values in cfg['periods'].items():
-        for well in cfg['wells'] if values else []:
+        for well in ordered(cfg['wells']) if values else []:
             params = module.spec.coerce({'mode': 'individual', 'kind': kind, 'groups': cfg['groups'], 'wells': [well],
                                          'periods': values, 'elpro': cfg['elpro'], 'view': 'curve',
                                          'direction': cfg.get('direction', 'number')})

@@ -11,7 +11,7 @@ import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDa
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
-import { applyLooks, looksOf, markerSymbol, seriesLookKey, type Look } from './chartStyle'
+import { applyLooks, looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { ChartSettings } from './ChartSettings'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
@@ -43,6 +43,8 @@ interface Props {
   chart: Chart
   excludeMode: boolean
   onExclude: (dataset: string, id: string) => void
+  /** Двойной щелчок по сомнительной точке (режим поиска выбросов): точка перестаёт быть сомнительной и остаётся в расчётах. */
+  onConfirm?: (dataset: string, id: string) => void
   /** Кроссплот давлений: щелчок по кнопке в закреплённой подсказке открывает динамику скважины. */
   onOpenWell?: (well: string, date: string) => void
   /** Адрес на Карты ГСП для скважины из подсказки; null — скважины нет в проекте, кнопки нет. */
@@ -94,7 +96,8 @@ const dashOf = (s: Series) => DASH[s.dash || (s.dashed ? 'dash' : 'solid')]
 function colorOf(chart: Chart) {
   const groups = [...new Set(chart.series.map(key))]
   const p = palette()
-  return (s: Series) => s.look?.color ? s.look.color : s.color ? seriesColor(s.color) : p[groups.indexOf(key(s)) % p.length]
+  // год и сезон берут цвет по своему году: тот же год — тот же цвет на любом графике, даже когда набор рядов меняется
+  return (s: Series) => s.look?.color ? s.look.color : s.color ? seriesColor(s.color) : p[(yearOfKey(key(s)) ?? groups.indexOf(key(s))) % p.length]
 }
 
 const NARROW = 5     // сегмент стопки уже 5 % высоты: число не помещается внутрь — выноска или точка
@@ -499,7 +502,20 @@ interface Plotted { x: number; label: string; kind: ChartEvent['kind'] }
 const syncKey = (chart: Chart) =>
   chart.x.scale === 'category' ? null : chart.x.scale === 'time' ? 'time' : `${chart.x.scale}|${chart.x.label}|${chart.x.unit}`
 
-export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
+/** Сомнительная точка: второй щелчок по ней за паузу подтверждает, одиночный исключает (после паузы, чтобы успеть на второй). */
+const SUSPECT_CLICK_MS = 350
+function suspectClick(st: { pending: null | { id: string; dataset: string; timer: number }; onExclude: (d: string, i: string) => void; onConfirm?: (d: string, i: string) => void },
+                      dataset: string, id: string) {
+  const pend = st.pending
+  st.pending = null
+  if (pend) window.clearTimeout(pend.timer)
+  if (pend && pend.id === id && st.onConfirm) { st.onConfirm(dataset, id); return }
+  if (pend) st.onExclude(pend.dataset, pend.id)          // другая сомнительная точка: предыдущая исключается сразу
+  const timer = window.setTimeout(() => { st.pending = null; st.onExclude(dataset, id) }, SUSPECT_CLICK_MS)
+  st.pending = { id, dataset, timer }
+}
+
+export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -520,7 +536,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
     applyZoom: (() => {}) as () => void,
-    excludeMode, onExclude, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
+    excludeMode, onExclude, onConfirm, pending: null as null | { id: string; dataset: string; timer: number }, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: Y_NAMES.map(() => (v: number) => v) as ((v: number) => number)[] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1, y3: 1, y4: 1, y5: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
@@ -634,6 +650,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   state.current.excludeMode = excludeMode
   state.current.mode = mode
   state.current.onExclude = onExclude
+  state.current.onConfirm = onConfirm
   state.current.onOpenWell = onOpenWell
   state.current.mapLink = mapLink
   state.current.base = given
@@ -1058,7 +1075,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
       const h = st.current, p = h?.point
       if (!moved && p && st.excludeMode && p.track.series.dataset && p.track.series.ids) {
         const id = p.track.series.ids[p.track.src[p.k]]
-        if (id) st.onExclude(p.track.series.dataset, id)
+        if (id && p.track.series.suspect) suspectClick(st, p.track.series.dataset, id)
+        else if (id) st.onExclude(p.track.series.dataset, id)
       } else if (!moved && h && !boxRef.current) {
         // щелчок закрепляет подсказку там, где она сейчас: у точки, у выделенной кривой или у курсора
         if (p) addPin(p.x, p.y, p.track.axis)

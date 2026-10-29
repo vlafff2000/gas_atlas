@@ -46,13 +46,16 @@ export interface BuilderRow {
   x_transform?: RowTransform               // преобразование X (накопленное и т. п.); нет — без преобразования
   model?: string                           // модель tNav (набор «Модель ГДМ»); пусто — первая из выбранных
   color_by?: string                        // поле набора, по которому красятся точки (вид «точки»); пусто — один цвет
+  x_cats?: string[]                        // гистограмма: скважины или группы по оси X; пусто — по фильтру или все
+  x_filter?: string                        // гистограмма: часть названия скважины или группы
+  hist_agg?: Agg                           // гистограмма: сводка значений Y по категории
 }
 export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; season?: boolean; overlay?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
-type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
+type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'season' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
 type Agg = 'mean' | 'sum' | 'max' | 'min'
 const TRANSFORMS: [TransformOp, string][] = [
   ['none', 'без преобразования'], ['cumsum', 'накопленное (с начала периода)'], ['rolling', 'скользящее среднее'],
-  ['day', 'по суткам'], ['month', 'по месяцам'], ['group', 'по скважинам выборки (одна кривая)'], ['norm', 'нормировка'],
+  ['day', 'по суткам'], ['month', 'по месяцам'], ['season', 'по сезонам'], ['group', 'по скважинам выборки (одна кривая)'], ['norm', 'нормировка'],
   ['mul', 'умножить на число'], ['div', 'разделить на число'], ['add', 'прибавить число'], ['diff', 'разность соседних значений'],
 ]
 const X_SCOPES: [NonNullable<BuilderRow['x_scope']>, string][] = [
@@ -464,7 +467,25 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
                 onChange={e => { const n = Math.round(Number(e.target.value)); if (Number.isFinite(n) && n >= 0 && n <= 366) onChange({ days: n }) }} />
             </label>
           )}
-          {ds?.entity === 'well' && (
+          {row.view === 'hist' && !!ds?.entity && (
+            <>
+              <MultiSelect label={`по оси X: ${entity}`} options={ds.entities} value={row.x_cats ?? []} onChange={w => onChange({ x_cats: w })}
+                prefix={ds.entity === 'well' ? '№ ' : ''} />
+              <label className="field">
+                <span className="field-label">Фильтр по названию</span>
+                <input type="text" value={row.x_filter ?? ''} placeholder="нет" maxLength={120}
+                  title="Скважины или группы, в названии которых есть эта часть (без учёта регистра); добавляются к выбранным"
+                  onChange={e => onChange({ x_filter: e.target.value })} />
+              </label>
+              <label className="field">
+                <span className="field-label">Сводка по категории</span>
+                <select value={row.hist_agg ?? 'mean'} onChange={e => onChange({ hist_agg: e.target.value as Agg })}>
+                  {AGGS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                </select>
+              </label>
+            </>
+          )}
+          {ds?.entity === 'well' && row.view !== 'hist' && (
             <label className="field">
               <span className="field-label">Скважины ряда</span>
               <select value={row.wells_mode === 'current' ? 'current' : 'fixed'} onChange={e => onChange({ wells_mode: e.target.value as 'fixed' | 'current' })}>
@@ -473,7 +494,7 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
               </select>
             </label>
           )}
-          {ds?.entity && !(ds.entity === 'well' && row.wells_mode === 'current') && (
+          {ds?.entity && row.view !== 'hist' && !(ds.entity === 'well' && row.wells_mode === 'current') && (
             <MultiSelect label={entity} options={ds.entities} value={row.wells} onChange={w => onChange({ wells: w })}
               prefix={ds.entity === 'well' ? '№ ' : ''} />
           )}
@@ -634,7 +655,7 @@ function TransformFields({ t, setT, dateX }: { t: RowTransform; setT: (p: Partia
       <label className="field">
         <span className="field-label">Преобразование</span>
         <select value={t.op} onChange={e => setT({ op: e.target.value as TransformOp })}>
-          {TRANSFORMS.map(([v, label]) => <option key={v} value={v} disabled={!dateX && (v === 'day' || v === 'month')}>{label}</option>)}
+          {TRANSFORMS.map(([v, label]) => <option key={v} value={v} disabled={!dateX && (v === 'day' || v === 'month' || v === 'season')}>{label}</option>)}
         </select>
       </label>
       {t.op === 'rolling' && (
@@ -653,7 +674,7 @@ function TransformFields({ t, setT, dateX }: { t: RowTransform; setT: (p: Partia
           </label>
         </>
       )}
-      {(t.op === 'day' || t.op === 'month' || t.op === 'group') && (
+      {(t.op === 'day' || t.op === 'month' || t.op === 'season' || t.op === 'group') && (
         <label className="field">
           <span className="field-label">Сводка</span>
           <select value={t.agg ?? 'mean'} onChange={e => setT({ agg: e.target.value as Agg })}>
@@ -673,7 +694,7 @@ function TransformFields({ t, setT, dateX }: { t: RowTransform; setT: (p: Partia
           <span>сравнение сезонов (X — сутки от начала сезона)</span>
         </label>
       )}
-      {(t.op === 'day' || t.op === 'month' || t.op === 'group') && t.agg === 'sum' && (
+      {(t.op === 'day' || t.op === 'month' || t.op === 'season' || t.op === 'group') && t.agg === 'sum' && (
         <label className="field check">
           <input type="checkbox" checked={!!t.cum} onChange={e => setT({ cum: e.target.checked || undefined })} />
           <span>и накопленное (нарастающий итог суммы)</span>

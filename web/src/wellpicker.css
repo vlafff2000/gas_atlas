@@ -1,0 +1,13 @@
+/* Пресеты скважин и вставка списка из буфера обмена: см. MultiSelect.tsx (picker). */
+.well-presets { display: grid; gap: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line, #d9dee5); }
+.preset-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.preset-chip { display: inline-flex; align-items: center; border: 1px solid var(--line, #c8d0da); border-radius: 12px; overflow: hidden; }
+.preset-chip button { border: 0; background: transparent; padding: 2px 8px; cursor: pointer; font-size: 12px; }
+.preset-chip button:hover { background: rgba(0, 0, 0, 0.06); }
+.preset-count { opacity: 0.6; margin-left: 2px; }
+.preset-del { color: #8a1c1c; }
+.preset-add { font-size: 12px; }
+.preset-form { display: grid; gap: 6px; }
+.preset-form input, .preset-form textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; }
+.well-note { margin: 0; font-size: 12px; opacity: 0.8; }
+.popover-hint { display: block; opacity: 0.7; }

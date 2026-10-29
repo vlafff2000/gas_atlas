@@ -123,7 +123,9 @@ KINDS = {'withdrawal': 'Отбор', 'injection': 'Закачка'}
 KEYS = {'well_date': 'скважина + дата', 'date': 'дата', 'well': 'скважина', 'nearest': 'ближайшая дата'}
 SOURCES = {'field': 'поле данных', 'formula': 'формула'}
 AXES = ('y', 'y2', 'y3', 'y4', 'y5')
-VIEWS = {'line': 'линия', 'points': 'точки', 'line_points': 'линия с точками', 'bar': 'столбцы', 'area': 'область', 'step': 'ступенчатая'}
+VIEWS = {'line': 'линия', 'points': 'точки', 'line_points': 'линия с точками', 'bar': 'столбцы', 'area': 'область', 'step': 'ступенчатая',
+         'hist': 'гистограмма'}
+HIST_NONE = 'Выберите категории по оси X: скважины, группы или фильтр по названию.'
 STACKABLE = ('bar', 'area')       # стопка («Стопка» в ряду) — у столбцов и областей; у остальных видов поле не действует
 MAX_DAYS = 366
 MANY_SERIES = 200
@@ -238,6 +240,9 @@ class Row:
     x_scope: str = 'curve'      # откуда X: 'curve' — как в наборе, 'group' — сумма по группе скважины, 'object' — по всем скважинам
     model: str = ''             # модель tNav для набора «Модель ГДМ»; пусто — первая из выбранных
     color_by: str = ''          # поле набора, по которому красятся точки ряда (вид «точки»); пусто — один цвет
+    x_cats: list[str] = field(default_factory=list)   # гистограмма: скважины или группы по оси X; пусто — по фильтру или все
+    x_filter: str = ''          # гистограмма: часть названия скважины или группы (без учёта регистра)
+    hist_agg: str = 'mean'      # гистограмма: сводка значений Y по каждой категории за период ряда
 
 
 X_SCOPES = {'curve': 'как в наборе (по каждой скважине)', 'group': 'сумма по группе скважины', 'object': 'сумма по объекту'}
@@ -272,6 +277,21 @@ def _x_scope(value: Any, index: int) -> str:
     if scope not in X_SCOPES:
         raise ParamError(f'Ряд {index}: сводка X — {", ".join(X_SCOPES.values())}')
     return scope
+
+
+def _x_cats(raw: Any, index: int) -> list[str]:
+    if raw in (None, ''):
+        return []
+    if not isinstance(raw, list):
+        raise ParamError(f'Ряд {index}: категории X — список скважин или групп')
+    return [str(c).strip()[:120] for c in raw if str(c).strip()]
+
+
+def _hist_agg(value: Any, index: int) -> str:
+    agg = str(value or 'mean')
+    if agg not in calc.AGGS:
+        raise ParamError(f'Ряд {index}: сводка гистограммы — {", ".join(calc.AGGS.values())}')
+    return agg
 
 
 def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
@@ -315,7 +335,8 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
                        days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i),
                        source, None, calc.clean_transform(r.get('transform'), i), str(r.get('unit') or '').strip()[:40],
                        'current' if str(r.get('wells_mode') or '') == 'current' else 'fixed',
-                       _x_transform(r.get('x_transform'), i), _x_scope(r.get('x_scope'), i), str(r.get('model') or '').strip()[:200], str(r.get('color_by') or '').strip()[:60]))
+                       _x_transform(r.get('x_transform'), i), _x_scope(r.get('x_scope'), i), str(r.get('model') or '').strip()[:200], str(r.get('color_by') or '').strip()[:60],
+                       _x_cats(r.get('x_cats'), i), str(r.get('x_filter') or '').strip()[:120], _hist_agg(r.get('hist_agg'), i)))
     for row, r in zip(out, rows):
         text = str(r.get('formula') or '').strip()
         if row.source == 'formula' and text:
@@ -656,6 +677,47 @@ def _no_well(row: Row) -> bool:
     return row.well_mode == 'current' and not row.wells
 
 
+def _histogram(data: Data, row: Row, label: str) -> tuple[Calc | None, list[Note]]:
+    """Гистограмма: один столбец на скважину или группу. Категории задаются в ряду по оси X — список и/или фильтр по названию;
+    пусто — все. Столбец — сводка (``hist_agg``) значений Y за период ряда; пустая категория — пропуск, а не ноль."""
+    notes: list[Note] = []
+    frame = data[row.dataset] if row.dataset in data else None
+    if frame is None or frame.empty:
+        return None, notes
+    entity = _entity(frame)
+    if entity not in ('well', 'group'):
+        notes.append(Note(f'{label}: гистограмме нужны скважины или группы; в наборе «{row.dataset.label}» их нет.', 'warning'))
+        return None, notes
+    if not pd.api.types.is_numeric_dtype(frame[row.y]):
+        return None, notes
+    ys = _select(frame, replace(row, wells=[]))            # выбор скважин ряда не нужен: категории задаёт ось X
+    raw = ys[entity].fillna('').astype(str)
+    names = raw.map(group_key) if entity == 'group' else raw          # группы сравниваются по ключу, подписи — как в данных
+    shown = {**{group_key(c): c for c in row.x_cats}, **raw.groupby(names).first().to_dict()} if entity == 'group' else {}
+    values = _values(ys, row.dataset, row.y)
+    chosen = [group_key(c) if entity == 'group' else c for c in row.x_cats]
+    if row.x_cats or row.x_filter:
+        keep = names.isin(chosen) if chosen else pd.Series(False, index=ys.index)
+        if row.x_filter:
+            keep |= names.str.contains(row.x_filter, case=False, regex=False)
+        pool = list(dict.fromkeys([*chosen, *sorted(names[keep].unique(), key=natural_key)]))
+    else:
+        keep = pd.Series(True, index=ys.index)
+        pool = sorted(names.unique(), key=natural_key)
+    cats = list(dict.fromkeys(pool))
+    if not cats:
+        notes.append(Note(f'{label}: по оси X не нашлось ни одной {"группы" if entity == "group" else "скважины"} — проверьте список и фильтр.', 'warning'))
+        return None, notes
+    grouped = values[keep].groupby(names[keep])
+    by = (grouped.sum(min_count=1) if row.hist_agg == 'sum' else getattr(grouped, row.hist_agg)()).reindex(cats)
+    missing = [c for c in cats if pd.isna(by[c])]
+    if missing:
+        notes.append(Note(f'{label}: без данных за период — {", ".join(missing[:5])}{" и др." if len(missing) > 5 else ""}.'))
+    out = pd.DataFrame({'entity': '', 'x': [shown.get(c, c) for c in cats], 'y': by.to_numpy(float), 'id': None})
+    m = meta(row.dataset, row.y)
+    return Calc(out, '', f'{m.label}, {calc.AGGS[row.hist_agg]}', m.unit, 'Группа' if entity == 'group' else 'Скважина'), notes
+
+
 def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc | None], notes: list[Note]) -> Calc | None:
     """Ряд по полю или формуле с преобразованием; ряды формулы (в том числе скрытые) считаются один раз."""
     if row.index in cache:
@@ -677,6 +739,9 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         base = refs[row.formula.refs[0]]
         if part is not None and base is not None:
             out = Calc(part.frame, part.entity_kind, row.formula.text, '', base.x_label)
+    elif row.y and row.view == 'hist':
+        out, more = _histogram(data, row, f'Ряд {row.index}')
+        notes += more
     elif row.y:
         p = pairs(data, row)
         notes.extend(p.notes)
@@ -691,10 +756,10 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         out.label, out.unit = calc.describe(row.transform, out.label, out.unit, word)
         x_date = pd.api.types.is_datetime64_any_dtype(out.frame['x'])
         before = '' if row.source == 'formula' else meta(row.dataset, row.y).unit     # у формулы единица — только ручная
-        seasons = _seasons(data, row) if row.transform.season else None
+        seasons = _seasons(data, row) if row.transform.season or row.transform.op == 'season' else None
         out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date, seasons)
         notes += more
-        if x_date and (row.transform.op == 'cumsum' or (row.transform.cum and row.transform.op != 'month')) and not out.frame.empty:
+        if x_date and (row.transform.op == 'cumsum' or (row.transform.cum and row.transform.op not in ('month', 'season'))) and not out.frame.empty:
             out.frame = calc.extend_flat(out.frame, _span_end(data, row), seasons)
             if row.transform.overlay and seasons is not None:
                 out.frame = calc.overlay_seasons(out.frame, seasons)
@@ -749,7 +814,7 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
             elif c is not None:
                 result.notes.append(Note(f'Ряд {r.index}: у формулы «{r.formula.text}» нет точек.'))
             continue
-        kind = 'date' if pd.api.types.is_datetime64_any_dtype(c.frame['x']) else 'number'
+        kind = 'category' if r.view == 'hist' else 'date' if pd.api.types.is_datetime64_any_dtype(c.frame['x']) else 'number'
         if x_kind is None:
             x_kind = kind
         elif kind != x_kind:
@@ -779,7 +844,9 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
         axes[place[a]] = Axis(manual or _join_labels([c.label for c in on_axis]) or 'Значение',
                               '' if manual or len(units) != 1 else units.pop(), scale='time' if is_time else 'value')
 
-    x_axis = Axis(labels['x_label'] or _join_labels(x_labels) or 'X', scale='time' if x_kind == 'date' else 'value')
+    cats = list(dict.fromkeys(str(v) for r, c in built if r.view == 'hist' for v in c.frame['x']))
+    x_axis = Axis(labels['x_label'] or _join_labels(x_labels) or 'X', scale='time' if x_kind == 'date' else 'category' if x_kind == 'category' else 'value',
+                  categories=cats if x_kind == 'category' else None)
     if labels['x_label'] or x_kind == 'date':
         x_axis.unit = ''
     values = {'x': [p.frame['x'] for _, p in built], **{a: [p.frame['y'] for r, p in built if r.axis == a] for a in used}}
@@ -797,7 +864,8 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
         groups = [(e, g) for e, g in p.frame.groupby('entity', sort=False)] if entity_kind else [('', p.frame)]
         groups.sort(key=lambda eg: natural_key(eg[0]))
         for entity, g in groups:
-            g = g.sort_values('x', kind='stable')
+            if r.view != 'hist':                # гистограмма: порядок категорий, как выбрали по оси X
+                g = g.sort_values('x', kind='stable')
             if r.view in BROKEN and x_kind == 'date':
                 g = _break_gaps(g)
             items.append((r, entity_kind, str(entity), g))
@@ -819,7 +887,7 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
         if entity_kind and entity:
             facets['Скважина' if entity_kind == 'well' else 'Дата рестарта' if entity_kind == 'restart' else 'Сезон' if entity_kind == 'season' else 'Группа'] = f'№ {entity}' if entity_kind == 'well' else entity
         ids = g['id'].tolist() if g['id'].notna().all() and len(g) else None
-        kind = 'points' if r.view == 'points' else 'bar' if r.view == 'bar' else 'line'
+        kind = 'points' if r.view == 'points' else 'bar' if r.view in ('bar', 'hist') else 'line'
         chart.series.append(Series(
             name, g['x'].to_numpy(), g['y'].to_numpy(), kind,
             group=f'{r.index}:{entity}', axis=place[r.axis], markers=kind == 'line' and r.view in ('line', 'step') and points <= SPARSE,

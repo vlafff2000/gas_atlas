@@ -10,10 +10,11 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
-from atlas.engine.core.config import COLORS, natural_key
+from atlas.engine.core.config import COLORS, natural_key, ordered
 from atlas.engine.modules import gdi as legacy
 from atlas.engine.modules import well_analysis
 
+from .. import well_sets
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
@@ -21,6 +22,8 @@ from ..domain import UNITS, DatasetKind
 GDI = DatasetKind.GDI
 CURVE_POINTS = 80
 SYMBOLS = ('circle', 'square', 'diamond', 'triangle')
+SUSPECT_COLOR = '#ff1744'           # сомнительные точки в режиме поиска выбросов: яркий красный
+CONFIRMED_KEY = 'gdi_confirmed_points'   # настройка проекта: точки, которые инженер подтвердил двойным щелчком
 EXCLUDED_COLOR = '#969da5'
 
 QUALITY_NOTE = ('Qmax наблюд. — максимальный измеренный расход. Qсв — формальная экстраполяция при Рзаб = 0 '
@@ -216,8 +219,10 @@ class GdiModule(Module):
         order=30,
         save_label='Сохранить расчет в историю',
         params=(
+            Param('groups', 'Группы', 'multi', default=[], dynamic=True, section='Выбор данных', empty='все',
+                  help='Группы и скважины пересекаются: в расчёт идут скважины выбранных групп, которые есть и в списке скважин.'),
             Param('wells', 'Скважины', 'multi', default=[], source=Source(GDI, 'well'), section='Выбор данных',
-                  empty='первые 5', help='Не выбрано ничего — показаны первые пять скважин по номеру: график на каждую '
+                  empty='первые 5', wells_picker=True, help='Не выбрано ничего — показаны первые пять скважин по номеру: график на каждую '
                   'скважину тяжёлый, сотни графиков браузер не показывает быстро. Выберите нужные скважины в списке.'),
             Param('last_n', 'Последние даты исследований', 'choice', default=3, section='Выбор данных',
                   options=(Option(1, '1'), Option(2, '2'), Option(3, '3'), Option(0, 'Все'))),
@@ -267,15 +272,26 @@ class GdiModule(Module):
     )
 
     # --- расчёт ---
+    def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
+        if name == 'groups':
+            wells = data[GDI].well.astype(str).unique()
+            return ordered(data.mapping.get(w, {}).get('group', 'Без группы') for w in sorted(wells, key=well_key))
+        return super().options(name, data, params)
+
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         wells, seasons, n = params['wells'], params['seasons'], int(params['last_n'])
         result = Result()
         source = in_period(data[GDI], params)
+        known = sorted(source.well.astype(str).unique(), key=well_key)
+        scope, hidden = well_sets.scoped(wells, params.get('groups') or [], data.mapping, known)
+        if hidden:
+            result.notes.append(Note(f'Скрыто фильтром: {hidden} скв. из выбранных групп, в списке скважин их нет.'))
+        if scope is not None:
+            wells = scope
         if seasons and params['season_wells']:
             wells = self.season_wells(source, wells, seasons, n, result)
             seasons = []
-        elif not wells:
-            known = sorted(source.well.astype(str).unique(), key=well_key)
+        elif scope is None and not wells:
             wells = known[:DEFAULT_WELLS]
             if len(known) > DEFAULT_WELLS:
                 result.notes.append(Note(f'Скважины не выбраны: показаны первые {DEFAULT_WELLS} из {len(known)} по номеру. '
@@ -288,9 +304,11 @@ class GdiModule(Module):
                                      'warning'))
         else:
             table = natural_order(legacy.analyze(chosen, params['threshold']))
+            suspicious = self.suspicious(chosen, params, data)
+            suspect_ids = frozenset(suspicious['id'].astype(str)) if not suspicious.empty else frozenset()
             for well in sorted(chosen.well.unique(), key=well_key):
                 result.charts.append(self.chart(chosen[chosen.well.eq(well)], table[table.well.eq(well)],
-                                                original[original.well.eq(well)], well, params))
+                                                original[original.well.eq(well)], well, params, suspect_ids))
             result.tables.append(Table('studies', 'Коэффициенты и качество', table, coefficient_columns(),
                                        note=QUALITY_NOTE))
             weak = int((table.r2.isna() | (table.r2 < params['threshold'])).sum())
@@ -307,7 +325,7 @@ class GdiModule(Module):
             self.productivity(result, chosen, table, params)
             self.comparisons(result, chosen, int(params['last_n']), bool(params['seasons']))
             if params['outliers']:
-                self.outliers(result, chosen, params['outlier_threshold'])
+                self.outliers(result, suspicious)
         if not original.empty:
             result.tables.append(self.point_table(original, data.excluded))
         return result
@@ -404,10 +422,20 @@ class GdiModule(Module):
         result.notes += comparison_hints(chosen, compare.empty, three.empty, last_n, by_seasons)
 
     @staticmethod
-    def outliers(result: Result, chosen: pd.DataFrame, threshold: float) -> None:
-        found = legacy.outlier_suggestions(chosen, threshold)
+    def suspicious(chosen: pd.DataFrame, params, data: Data) -> pd.DataFrame:
+        """Подсказки выбросов без точек, которые инженер подтвердил (двойной щелчок): они остаются в расчётах."""
+        if not params['outliers']:
+            return pd.DataFrame()
+        found = legacy.outlier_suggestions(chosen, params['outlier_threshold'])
         if found.empty:
-            result.notes.append(Note('Точек, соответствующих критериям подсказки выбросов, не найдено.'))
+            return found
+        confirmed = {str(i) for i in (data.settings.get(CONFIRMED_KEY) or [])}
+        return found[~found['id'].astype(str).isin(confirmed)]
+
+    @staticmethod
+    def outliers(result: Result, found: pd.DataFrame) -> None:
+        if found.empty:
+            result.notes.append(Note('Точек, соответствующих критериям подсказки выбросов, не найдено или все подтверждены.'))
             return
         found = natural_order(found, by=('date', 'q'))
         result.tables.append(Table('outliers', 'Подсказки выбросов', found, [
@@ -443,7 +471,8 @@ class GdiModule(Module):
                                         checked_column='_excluded'))
 
     @staticmethod
-    def chart(points: pd.DataFrame, studies: pd.DataFrame, original: pd.DataFrame, well: str, params) -> Chart:
+    def chart(points: pd.DataFrame, studies: pd.DataFrame, original: pd.DataFrame, well: str, params,
+              suspect_ids: frozenset = frozenset()) -> Chart:
         """Как ``atlas.engine.modules.charts.gdi_chart``: цвет по дате (последняя — красная), маркер по исследованию."""
         swapped = params['orientation'] == 'swapped'
         linear = params['orientation'] == 'linear'
@@ -485,6 +514,14 @@ class GdiModule(Module):
                 tip = f'a = {a:.6g}, b = {b:.6g}' + (f', R² = {r2:.4f}' if r2 is not None and np.isfinite(r2) else '')
                 chart.series.append(Series(f'{label}, {suffix}', *xy(grid, a + b * grid if linear else a * grid + b * grid * grid), 'line',
                                            group=label, color=color, dashed=dashed, legend=False, tooltip=tip))
+        flagged = points[points['_point_id'].astype(str).isin(suspect_ids)] if suspect_ids and '_point_id' in points else points.iloc[:0]
+        if not flagged.empty:
+            # поверх основных точек: красная подсветка сомнительных, двойной щелчок их подтверждает
+            chart.series.append(Series('Сомнительные точки', *xy(flagged.q.to_numpy(float),
+                                                 (flagged.dp2 / flagged.q if linear else flagged.dp2).to_numpy(float)),
+                                       'points', group='Сомнительные точки', color=SUSPECT_COLOR, symbol='circle',
+                                       ids=flagged['_point_id'].tolist(), dataset=GDI, suspect=True,
+                                       tooltip='Сомнительная точка: двойной щелчок — подтвердить, одинарный — исключить'))
         if params['show_excluded'] and '_point_id' in original and '_point_id' in points:
             gone = original[~original['_point_id'].isin(points['_point_id'])]
             if not gone.empty:

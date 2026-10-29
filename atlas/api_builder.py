@@ -91,7 +91,10 @@ def routes(projects, E) -> list[Route]:
         orientation = body.get('orientation') or 'landscape'
         if orientation not in ('landscape', 'portrait'):
             raise ParamError('Ориентация листа: альбомная или книжная')
-        content, name = lib.word_file(chart, title, caption, orientation)
+        caption_mode = body.get('caption_mode') or 'field'
+        if caption_mode not in ('field', 'text'):
+            raise ParamError('Вид номера рисунка: поле Word или обычный текст')
+        content, name = lib.word_file(chart, title, caption, orientation, caption_mode=caption_mode)
         return _download(content, safe_name(title or name.removesuffix('.docx')) + '.docx', DOCX)
 
     def series_wells(request, body):
@@ -107,7 +110,8 @@ def routes(projects, E) -> list[Route]:
         if orientation not in ('landscape', 'portrait'):
             raise ParamError('Ориентация листа: альбомная или книжная')
         content, name, mime, notes = lib.series_file(data, body.get('layout'), [str(w) for w in wells], str(body.get('format') or 'png'),
-                                                     str(body.get('title') or '').strip()[:300], orientation)
+                                                     str(body.get('title') or '').strip()[:300], orientation,
+                                                     caption_mode=body.get('caption_mode') or 'field')
         response = _download(content, name, mime)
         if notes:
             response.headers['X-Atlas-Notes'] = quote(' '.join(notes))

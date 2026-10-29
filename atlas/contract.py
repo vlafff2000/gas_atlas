@@ -67,6 +67,7 @@ class Param:
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
     chart_kind: bool = False          # переключатель вида графиков: выводится в верхнем тулбаре раздела
     extensions: str = ''              # для file: расширения в проводнике, через пробел: 'xlsx docx'
+    wells_picker: bool = False        # список скважин: пресеты (группы, фонды, сетка), вставка из буфера обмена
 
     def coerce(self, value: Any) -> Any:
         if value is None or (self.kind == 'date' and value == ''):
@@ -310,6 +311,7 @@ class Series:
     labels: Sequence[str] | None = None  # строка подсказки на каждую точку (поверх X и Y)
     ids: Sequence[str] | None = None  # идентификаторы точек: по ним щелчок исключает точку
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
+    suspect: bool = False            # точки-подсказки выбросов: подсвечены красным; двойной щелчок снимает сомнение
     markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
     axis: Literal['y', 'y2', 'y3', 'y4', 'y5'] = 'y'   # правые оси по порядку: y2 — у графика, дальше y3, y4, y5 (смещение и цвет по ряду)
     stack: str = ''                  # одинаковое значение: столбцы или линии с заливкой складываются стопкой

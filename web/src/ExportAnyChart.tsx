@@ -4,18 +4,15 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, defaults, type ModuleSpec, type Params, type Project } from './api'
 import { ParamBar } from './ParamBar'
 import { SeriesLookFields } from './ChartSettings'
+import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import type { Look } from './chartStyle'
-import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings } from './api_projects'
+import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type Form } from './api_projects'
 
-const FORMATS: [string, string][] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
-const SIZES: [string, string][] = [
-  ['', 'Авто (по ширине и легенде)'], ['a4-width', 'A4: ширина поля 170'], ['a4-half', 'A4: пол-листа 170 × 100'], ['a4-page', 'A4: 190 × 120'],
-  ['a4-land', 'A4 альбомный 270 × 180'], ['16x9', 'Слайд 16:9, 254 × 143'], ['4x3', 'Слайд 4:3, 240 × 180'], ['column', 'Колонка 85 × 65'], ['square', 'Квадрат 150 × 150'],
-]
-const FONTS: [string, string][] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]
-const LEGENDS: [string, string][] = [['', 'Авто'], ['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]
-const GRIDS: [string, string][] = [['', 'Авто'], ['both', 'Обе'], ['h', 'Горизонтальная'], ['v', 'Вертикальная'], ['none', 'Нет']]
-const ALIGNS: [string, string][] = [['', 'Авто'], ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]
+const FORMATS: Opt[] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
+const FONTS: Opt[] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]
+const LEGENDS: Opt[] = [['auto', 'Авто'], ['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]
+const GRIDS: Opt[] = [['', 'Авто'], ['both', 'Обе'], ['h', 'Горизонтальная'], ['v', 'Вертикальная'], ['none', 'Нет']]
+const ALIGNS: Opt[] = [['', 'Авто'], ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]
 const AXIS_NAME: Record<string, string> = { x: 'Ось X', y: 'Ось Y', y2: 'Ось Y2 (справа)', y3: 'Ось Y3', y4: 'Ось Y4', y5: 'Ось Y5' }
 const SERIES_LIMIT = 40
 const DPIS = [150, 200, 250, 300, 600, 1200]
@@ -40,15 +37,6 @@ function Box({ title, children }: { title: string; children: ReactNode }) {
       <span className="param-title" aria-hidden="true">{title}</span>
       <div className="param-fields">{children}</div>
     </fieldset>
-  )
-}
-
-function Pick({ label, value, options, onChange }: { label: string; value: string; options: [string, string][]; onChange: (v: string) => void }) {
-  return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <select value={value} onChange={e => onChange(e.target.value)}>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-    </label>
   )
 }
 
@@ -181,6 +169,20 @@ export function ExportAnyChart({ project }: { project: Project }) {
   const labels = (settings.labels as Dict | undefined) ?? {}
   const special = chart?.special ?? false
   const format = (settings.format as string | undefined) ?? 'png'
+  // Общие поля — те же компоненты и подписи, что у «Производительность скважин»; значения берутся из настроек выгрузки.
+  const form: Form = { format, dpi: settings.dpi, look: settings.look, width: settings.width, height: settings.height, font: settings.font,
+    font_size: settings.font_size, legend: chartStyle.legend, title: chartStyle.title, title_align: chartStyle.title_align, grid: chartStyle.grid,
+    table_show: (settings.table as Dict | undefined)?.show !== false }
+  const setField = (field: string, value: unknown) => {
+    if (field === 'format') set('format', value === 'png' ? '' : value)
+    else if (field === 'dpi') set('dpi', Number(value) === 300 ? '' : value)
+    else if (field === 'look' || field === 'font') set(field, value === 'default' ? '' : value)
+    else if (field === 'legend') sub('chart', 'legend', value === 'auto' ? '' : value)
+    else if (field === 'title' || field === 'title_align' || field === 'grid') sub('chart', field, value)
+    else if (field === 'table_show') sub('table', 'show', value ? '' : false)
+    else set(field, value)
+  }
+  const F = { form, set: setField }
 
   const download = async () => {
     if (!chart) return
@@ -229,47 +231,42 @@ export function ExportAnyChart({ project }: { project: Project }) {
       {chart && (
         <>
           {special && <div className="note info">{KIND_NOTE[chart.kind] ?? 'Размер, шрифт и оформление этого графика пока задаются самим графиком.'}</div>}
-          <div className="param-bar flat">
-            <Box title="Файл">
-              <Pick label="Формат" value={format} options={FORMATS} onChange={v => set('format', v === 'png' ? '' : v)} />
-              <Pick label="Разрешение, DPI" value={String(settings.dpi ?? 300)} options={DPIS.map(d => [String(d), String(d)] as [string, string])} onChange={v => set('dpi', Number(v) === 300 ? '' : Number(v))} />
-              <Pick label="Вид" value={(settings.look as string | undefined) ?? 'default'} options={[['default', 'Обычный'], ['excel', 'Как диаграмма Excel']]} onChange={v => set('look', v === 'default' ? '' : v)} />
-            </Box>
-            <Box title="Размер, мм">
-              <Pick label="Шаблон" value={(settings.size as string | undefined) ?? ''} options={SIZES} onChange={v => set('size', v)} />
-              <Field label="Ширина (80–300)" type="number" value={settings.width} onChange={v => set('width', v === '' ? '' : Number(v))} />
-              <Field label="Высота (40–400)" type="number" value={settings.height} onChange={v => set('height', v === '' ? '' : Number(v))} />
-            </Box>
-            <Box title="Шрифт">
-              <Pick label="Шрифт" value={(settings.font as string | undefined) ?? 'default'} options={FONTS} onChange={v => set('font', v === 'default' ? '' : v)} />
-              <Field label="Размер, пт (5–30)" type="number" value={settings.font_size} onChange={v => set('font_size', v === '' ? '' : Number(v))} />
-            </Box>
-            <Box title="Оформление графика">
-              <Field label="Заголовок" wide value={chartStyle.title} placeholder="как в программе" onChange={v => sub('chart', 'title', v)} />
+          <div className="param-bar">
+            <Section title="Общие параметры файлов">
+              <Select {...F} field="format" label="Формат" def="png" options={FORMATS} />
+              <Select {...F} field="dpi" label="Разрешение, DPI" def={300} options={DPIS.map(d => [d, String(d)] as Opt)} />
+              <SizePick {...F} />
+              <Select {...F} field="font" label="Шрифт" def="default" options={FONTS} />
+              <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
+              <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
+                options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as Opt)]} />
+              <Select {...F} field="legend" label="Легенда" def="auto" options={LEGENDS} />
+              <Text {...F} field="title" label="Заголовок графика" def="" wide />
+            </Section>
+            <Section title="Оформление графика">
               <Field label="Размер заголовка, пт" type="number" value={chartStyle.title_size} onChange={v => sub('chart', 'title_size', v === '' ? '' : Number(v))} />
-              <Pick label="Выравнивание заголовка" value={(chartStyle.title_align as string | undefined) ?? ''} options={ALIGNS} onChange={v => sub('chart', 'title_align', v)} />
+              <Select {...F} field="title_align" label="Выравнивание заголовка" def="" options={ALIGNS} />
               <Color label="Цвет заголовка" value={chartStyle.title_color} onChange={v => sub('chart', 'title_color', v)} />
-              <Pick label="Легенда" value={(chartStyle.legend as string | undefined) ?? ''} options={LEGENDS} onChange={v => sub('chart', 'legend', v)} />
-              <Pick label="Сетка" value={(chartStyle.grid as string | undefined) ?? ''} options={GRIDS} onChange={v => sub('chart', 'grid', v)} />
+              <Select {...F} field="grid" label="Сетка" def="" options={GRIDS} />
               <Color label="Цвет сетки" value={chartStyle.grid_color} onChange={v => sub('chart', 'grid_color', v)} />
               <Color label="Фон рисунка" value={chartStyle.background} onChange={v => sub('chart', 'background', v)} />
               <Color label="Фон области построения" value={chartStyle.plot_background} onChange={v => sub('chart', 'plot_background', v)} />
               <Color label="Цвет текста" value={chartStyle.text_color} onChange={v => sub('chart', 'text_color', v)} />
-            </Box>
+            </Section>
           </div>
           {(chart.table || chart.kind === 'stack') && (
-            <div className="param-bar flat">
+            <div className="param-bar">
               {chart.table && (
-                <Box title="Таблица под графиком">
-                  <Tick label="Показывать таблицу" value={(settings.table as Dict | undefined)?.show !== false} onChange={v => sub('table', 'show', v ? '' : false)} />
+                <Section title="Таблица под графиком">
+                  <Check {...F} field="table_show" label="Показывать таблицу" def={true} />
                   <Field label="Размер шрифта, пт (5–24)" type="number" value={(settings.table as Dict | undefined)?.font_size} onChange={v => sub('table', 'font_size', v === '' ? '' : Number(v))} />
                   <Field label="Высота строк (0,5–3)" type="number" value={(settings.table as Dict | undefined)?.row} placeholder="1" onChange={v => sub('table', 'row', v === '' ? '' : Number(v))} />
-                </Box>
+                </Section>
               )}
               {chart.kind === 'stack' && (
-                <Box title="Подписи в столбцах">
+                <Section title="Подписи в столбцах">
                   <Field label="Размер, пт (5–30)" type="number" value={settings.segment_size} onChange={v => set('segment_size', v === '' ? '' : Number(v))} />
-                </Box>
+                </Section>
               )}
             </div>
           )}
