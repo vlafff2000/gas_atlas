@@ -181,11 +181,17 @@ def value_labels(ax,bars,values,family,size):
         ax.annotate(text,(rect.get_x()+rect.get_width()/2,edge),xytext=(0,2 if up else -2),textcoords='offset points',
                     ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=90 if wide else 0)
 
+def _legend_key(label):
+    # подпись «дд.мм.гггг…» (даты исследований ГДИ) сортируется по году, месяцу, дню
+    m=re.match(r'(\d{2})\.(\d{2})\.(\d{4})',str(label))
+    if m:return [int(m[3]),int(m[2]),int(m[1])]
+    return [int(t) for t in re.findall(r'\d+',str(label))]
+
 def sort_legend(handles,labels):
-    # годы, сезоны («2023/24») и номера групп — по возрастанию; остальные подписи не трогаем
+    # годы, сезоны («2023/24»), даты и номера групп — по возрастанию; остальные подписи не трогаем
     skeleton={re.sub(r'\d+','#',str(l)) for l in labels}
     if len(labels)<2 or len(skeleton)!=1 or '#' not in skeleton.copy().pop():return handles,labels
-    order=sorted(range(len(labels)),key=lambda i:[int(t) for t in re.findall(r'\d+',str(labels[i]))])
+    order=sorted(range(len(labels)),key=lambda i:_legend_key(labels[i]))
     return [handles[i] for i in order],[labels[i] for i in order]
 
 def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default'):
