@@ -42,6 +42,14 @@ def histories(gdi: pd.DataFrame, threshold: float, methods: list[str]) -> pd.Dat
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
 
+def quality_filter(history: pd.DataFrame, mode: str, threshold: float) -> pd.DataFrame:
+    """Фильтр по R²: «low» — только исследования ниже порога (и без R²), «good» — только не ниже порога."""
+    if mode == 'all' or history.empty:
+        return history
+    good = history.r2.ge(threshold)         # NaN R² не проходит в «хорошие» и попадает в «низкие»
+    return history[good] if mode == 'good' else history[~good]
+
+
 def rating(history: pd.DataFrame, threshold: float) -> pd.DataFrame:
     """Рейтинг: по скважине и методу — изменение расхода при общем ΔP² между первым и последним надёжным исследованием."""
     rows = []
@@ -95,8 +103,11 @@ class GdiTrendModule(Module):
                   options=(Option(3, '3'), Option(6, '6'), Option(10, '10'), Option(0, 'Все')),
                   help='Сколько последних дат исследований брать по каждой скважине. «Все» на большом объекте считается долго '
                        '(подбор коэффициентов по каждому исследованию).'),
-            Param('methods', 'Метод ГДИ', 'multi', default=[], source=Source(GDI, 'method'), section='Выбор данных',
-                  help='Пусто — все методы. Исследования разных методов не сравниваются между собой.'),
+            Param('quality', 'Качество исследований', 'choice', default='all', section='Выбор данных',
+                  options=(Option('all', 'Все'), Option('low', 'Только с низким R²'),
+                           Option('good', 'Без плохих (R² не ниже порога)')),
+                  help='«Только с низким R²» — исследования с R² ниже порога, чтобы разобрать плохие. «Без плохих» — '
+                       'убрать их из рейтинга и графиков. Порог R² задаётся ниже.'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01,
                   setting='r2_threshold', section='Выбор данных',
                   help='Общая настройка проекта. Исследования с R² ниже порога в рейтинг не попадают.'),
@@ -118,7 +129,8 @@ class GdiTrendModule(Module):
         notes = [Note(f'Скрыто фильтром: {hidden} скв. из выбранных групп, в списке скважин их нет.')] if hidden else []
         # Пустой список скважин в select означает «все», поэтому пересечение без скважин даёт пустую выборку отдельно.
         gdi = data[GDI].iloc[:0] if scope == [] else select(data[GDI], scope or [], [], int(params['last_n']))
-        history = histories(gdi, params['threshold'], params['methods']) if not gdi.empty else pd.DataFrame()
+        history = histories(gdi, params['threshold'], []) if not gdi.empty else pd.DataFrame()
+        history = quality_filter(history, params['quality'], params['threshold'])
         if history.empty:
             return Result(notes=notes + [Note('Под выбранные условия не попало ни одного исследования. Выберите скважины с данными ГДИ.',
                                               'warning')])

@@ -337,6 +337,20 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
       if (r.added) await exclusionDone(`Точка исключена. Всего исключено: ${r.excluded}.`)
     } catch (e) { setToast({ text: (e as Error).message, undo: false }) }
   }
+  // последний список подтверждённых точек, сохранённый в этой сессии: два подтверждения подряд не затирают друг друга
+  const confirmed = useRef<{ pid: string; ids: string[] } | null>(null)
+  const confirmPoint = async (dataset: string, id: string) => {
+    if (dataset !== 'gdi') return
+    const done = confirmed.current?.pid === project.id ? confirmed.current.ids
+      : (project.settings.gdi_confirmed_points as string[] | undefined) ?? []
+    if (done.includes(id)) return
+    const ids = [...done, id]
+    confirmed.current = { pid: project.id, ids }
+    try {
+      onProject(await api.saveSettings(project.id, { gdi_confirmed_points: ids }))
+      setToast({ text: 'Точка подтверждена: остаётся в расчетах и на графике без красной подсветки.', undo: false })
+    } catch (e) { confirmed.current = null; setToast({ text: (e as Error).message, undo: false }) }
+  }
   const applyTable = (dataset: string) => async (add: string[], remove: string[], reason: string) => {
     const r = await api.exclude(project.id, dataset, add, remove, reason)
     await exclusionDone(`Фильтр сохранен: исключено ${r.added}, возвращено ${r.removed}. Кривые и таблицы пересчитаны.`)
@@ -486,7 +500,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
                     onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
                 ) : (
-                  <ChartView key={c.id} chart={c} excludeMode={excludeMode} onExclude={excludePoint}
+                  <ChartView key={c.id} chart={c} excludeMode={excludeMode} onExclude={excludePoint} onConfirm={confirmPoint}
                     mapLink={mapLink}
                     onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({
                       ...params, view: 'dynamics', wells: [well], groups: [], scope_groups: [], scope_wells: [], focus: `${well}|${date}` }) : undefined}

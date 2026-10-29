@@ -409,7 +409,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         for r, c in enumerate(cats, 2):
             data.cell(r, 1, c)
         for k, s in enumerate(chart.series, 2):
-            data.cell(1, k, f'{s.name}, {unit_of.get(s.axis, chart.y.unit)}'.rstrip(', '))
+            data.cell(1, k, s.name)                       # легенда Excel берёт эту ячейку: год или сезон без единиц
             by = {str(x): y for x, y in zip(s.x, s.y)}
             for r, c in enumerate(cats, 2):
                 data.cell(r, k, _cell(by.get(c)))
@@ -473,6 +473,8 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
                 else:
                     one.graphicalProperties.line.solidFill = color
             part.series.append(one)
+        if category:                                       # подписи оси X — названия категорий из первого столбца, не номера строк
+            part.set_categories(Reference(data, min_col=1, min_row=2, max_row=items[0][4]))
         return part
 
     drawable = [item for item in plotted if item[0].kind != 'box']
@@ -605,8 +607,28 @@ def header_sheet(ws, table: Table) -> None:
             cell.border = Border(left=side, right=side, top=side, bottom=side)
             if c.kind == 'number' and c.decimals is not None:
                 cell.number_format = '0.' + '0' * c.decimals if c.decimals else '0'
+    _apply_styles(ws, table, rows + 1)
     ws.freeze_panes = ws.cell(rows + 1, 1)
     ws.column_dimensions['B'].width = 38
+
+
+def _apply_styles(ws, table: Table, first_row: int) -> None:
+    """Заливка, цвет шрифта и объединения из ``table.styles`` / ``table.merges``; ``first_row`` — первая строка данных на листе."""
+    from openpyxl.styles import Font, PatternFill
+    column = {c.key: k for k, c in enumerate(table.columns, 1)}
+    for style in table.styles:
+        keys = style.columns or list(column)
+        for r in style.rows:
+            for key in keys:
+                cell = ws.cell(first_row + r, column[key])
+                if style.fill:
+                    cell.fill = PatternFill('solid', fgColor=style.fill)
+                if style.font:
+                    cell.font = Font(color=style.font)
+    for merge in table.merges:
+        cols = [column[key] for key in merge.columns]
+        ws.merge_cells(start_row=first_row + merge.first, end_row=first_row + merge.last,
+                       start_column=min(cols), end_column=max(cols))
 
 
 def plain_sheet(ws, table: Table) -> None:

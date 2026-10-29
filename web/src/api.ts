@@ -93,6 +93,7 @@ export interface Series {
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null
   markers: boolean; axis: 'y' | 'y2' | 'y3' | 'y4' | 'y5'; stack?: string
   fill?: boolean; step?: boolean            // линия с заливкой (область) и ступенчатая линия (конструктор графиков)
+  suspect?: boolean                         // сомнительные точки выбросов: двойной щелчок снимает сомнение
   total: number      // точек в серии на самом деле; если больше x.length — линия прорежена (М4: пики и провалы сохранены)
   facets: Record<string, string> | null     // признаки для легенды рядами: {'Скважина': '№ 101', 'Период': '2024'}
   captions?: string[] | null                // текст над каждой точкой (подписи причин отсутствия замеров)

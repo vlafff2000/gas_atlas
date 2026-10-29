@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyLooks, chartLookKey, markerSymbol, seriesLookKey } from '../src/chartStyle.ts'
+import { applyLooks, looksOf, markerSymbol, seriesLookKey } from '../src/chartStyle.ts'
 
 const series = (name: string, kind: 'line' | 'points' = 'line', group = '') => ({ name, kind, group }) as never
 const chart = { title: 'Расход', y: { label: 'Q' }, y2: null, x: {}, series: [series('ГСП-1'), series('ГСП-2', 'points')] } as never
@@ -10,8 +10,11 @@ test('ключ ряда — группа или имя и вид', () => {
   assert.equal(seriesLookKey(series('Давление', 'points', 'ГСП-8')), 'ГСП-8|points')
 })
 
-test('ключ графика — заголовок и подписи осей', () => {
-  assert.equal(chartLookKey(chart as never), 'Расход|Q|')
+test('вид берётся по ключам рядов графика, а не по его заголовку', () => {
+  const all = { 'ГСП-2|points': { color: '#000000' }, 'ГСП-9|line': { color: '#111111' } }
+  assert.deepEqual(looksOf(chart as never, all), { 'ГСП-2|points': { color: '#000000' } })
+  const renamed = { ...(chart as object), title: 'Другой заголовок', series: [series('ГСП-2', 'points')] } as never
+  assert.deepEqual(looksOf(renamed, all), { 'ГСП-2|points': { color: '#000000' } })
 })
 
 test('без личного вида график не меняется', () => {
