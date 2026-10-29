@@ -10,8 +10,8 @@ import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
-import { chartLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
-import { applyLooks, chartLookKey, markerSymbol, type Look } from './chartStyle'
+import { seriesLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { applyLooks, looksOf, markerSymbol, seriesLookKey, type Look } from './chartStyle'
 import { ChartSettings } from './ChartSettings'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
@@ -510,8 +510,8 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
     if (!patch || patch.base !== given) return given
     return { ...given, series: given.series.map((s, i) => { const w = patch.series[i]; return w ? { ...s, x: w.x, y: w.y, ids: w.ids, labels: w.labels, values: w.values, total: w.total } : s }) }
   }, [given, patch])
-  const looksAll = usePref(chartLooks)
-  const looks = looksAll[chartLookKey(given)]
+  const looksAll = usePref(seriesLooks)
+  const looks = useMemo(() => looksOf(given, looksAll), [given, looksAll])
   const chart = useMemo(() => applyLooks(windowed, looks), [windowed, looks])
   const [settings, setSettings] = useState(false)
   const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
@@ -546,13 +546,11 @@ export function ChartView({ chart: given, excludeMode, onExclude, onOpenWell, ma
   const rangeKey = `${given.title}|${given.y.label}|${rightAxes(given).map(a => a.label).join('|')}`
   const yKey = `${given.y.label}|${given.y.unit}`
   const [ranges, setRangesState] = useState<Manual>(() => ({ ...NO_RANGES, ...savedRanges.get()[rangeKey] }))      // ручные границы Y: переживают обновление данных и перезапуск
+  /** Вид рядов этого графика пишется по их ключам в общее хранилище: тот же ряд на другом графике получит тот же вид. */
   const setLooks = (next: Record<string, Look>) => {
-    const all = { ...chartLooks.get() }, key = chartLookKey(given)
-    delete all[key]
-    if (Object.keys(next).length) all[key] = next
-    const keys = Object.keys(all)
-    for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete all[k]
-    chartLooks.set(all)
+    const own = new Set(given.series.map(seriesLookKey))
+    const rest = Object.fromEntries(Object.entries(seriesLooks.get()).filter(([k]) => !own.has(k)))
+    seriesLooks.set({ ...rest, ...next })
   }
   /** Что видит инженер: личный вид рядов, ручные границы Y, текущее окно по X, скрытые пункты легенды. */
   const screenView = (): ChartExportView => {
