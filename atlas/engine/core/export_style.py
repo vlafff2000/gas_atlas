@@ -11,6 +11,8 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from ...rich_text import mpl_text
+
 DATE_FORMATS = {'dd.MM.yyyy': '%d.%m.%Y', 'MM.yyyy': '%m.%Y', 'yyyy': '%Y', 'dd.MM': '%d.%m'}
 
 
@@ -59,7 +61,7 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
     if any(key in chart for key in ('title_font', 'title_size', 'title_bold', 'title_color', 'title_align', 'font', 'text_color')):
         align = chart.get('title_align', 'left')
         ax.set_title('', loc='left')
-        ax.set_title(title, loc=align, pad=14, fontsize=chart.get('title_size', 12 * k),
+        ax.set_title(mpl_text(title), loc=align, pad=14, fontsize=chart.get('title_size', 12 * k),
                      fontweight='bold' if chart.get('title_bold') else 'normal',
                      fontfamily=_family(chart.get('title_font')) or general or ax.title.get_fontfamily(),
                      color=chart.get('title_color') or text_color or ax.title.get_color())
