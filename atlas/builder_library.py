@@ -309,7 +309,7 @@ def wells_info(data: Data, layout: Any) -> dict[str, Any]:
 
 
 def series_file(data: Data, layout: Any, wells: list[str], fmt: str, title: str = '', orientation: str = 'landscape',
-                dpi: int = 200) -> tuple[bytes, str, str, list[str]]:
+                dpi: int = 200, caption_mode: str = 'field') -> tuple[bytes, str, str, list[str]]:
     """Файл с графиком макета по каждой выбранной скважине: (содержимое, имя файла, тип, заметки). Скважины без данных пропускаются."""
     import io
     import zipfile
@@ -317,6 +317,8 @@ def series_file(data: Data, layout: Any, wells: list[str], fmt: str, title: str 
     from .engine.core.export import safe_name
     if fmt not in SERIES_FORMATS:
         raise ParamError('Формат серии: PNG (архив zip), PDF или Word')
+    if caption_mode not in ('field', 'text'):
+        raise ParamError('Вид номера рисунка: поле Word или обычный текст')
     if not builder.uses_current(layout):
         raise ParamError('В макете нет рядов в режиме «Текущая скважина»: включите его в карточке ряда, и серию можно будет выгрузить.')
     picked = list(dict.fromkeys(str(w).strip() for w in wells if str(w).strip()))
@@ -352,7 +354,8 @@ def series_file(data: Data, layout: Any, wells: list[str], fmt: str, title: str 
         return buf.getvalue(), base + '.pdf', PDF, notes
     from . import word_export
     from .word_export import Item, Layout
-    lay = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', per_page=1, title=bool(title), title_text=title, dpi=dpi)
+    lay = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', per_page=1, title=bool(title), title_text=title, dpi=dpi,
+                 caption_mode=caption_mode)
     items = []
     for n, (_, chart, text) in enumerate(labelled, start=1):
         item = Item(chart.title or 'График', 'Рисунок ', n, ' – ' + text, module='builder')

@@ -84,6 +84,10 @@ def test_series_zip_pdf_docx(data):
     xml = z.read('word/document.xml').decode()
     assert len([n for n in z.namelist() if n.startswith('word/media/')]) == 2
     assert 'Рисунок' in xml and 'Скважина 1' in xml and 'Скважина 2' in xml and xml.count('w:type="page"') + xml.count('w:pageBreakBefore') >= 1
+    assert 'SEQ' in xml
+    content, _, _, _ = lib.series_file(data, LAYOUT, wells, 'docx', caption_mode='text')
+    xml = zipfile.ZipFile(io.BytesIO(content)).read('word/document.xml').decode()
+    assert 'SEQ' not in xml and 'Рисунок' in xml
 
 
 def test_series_errors(data):

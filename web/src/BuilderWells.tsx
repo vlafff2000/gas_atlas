@@ -48,6 +48,7 @@ export function SeriesDialog({ project, layout, onClose }: { project: string; la
   const [query, setQuery] = useState('')
   const [format, setFormat] = useState('png')
   const [orientation, setOrientation] = useState('landscape')
+  const [captionMode, setCaptionMode] = useState('field')
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -68,7 +69,7 @@ export function SeriesDialog({ project, layout, onClose }: { project: string; la
   const run = async () => {
     setBusy(true); setMessage(''); setError('')
     try {
-      const notes = await builderApi.series(project, { layout, wells, format, orientation, title })
+      const notes = await builderApi.series(project, { layout, wells, format, orientation, title, caption_mode: captionMode })
       setMessage(`Файл сохранён: графиков ${wells.length}.` + (notes ? ' ' + notes : ''))
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
@@ -119,6 +120,10 @@ export function SeriesDialog({ project, layout, onClose }: { project: string; la
                 <label className="field"><span className="field-label">Лист</span>
                   <select value={orientation} onChange={e => setOrientation(e.target.value)}>
                     <option value="landscape">альбомный</option><option value="portrait">книжный</option>
+                  </select></label>
+                <label className="field"><span className="field-label">Номер рисунка</span>
+                  <select value={captionMode} onChange={e => setCaptionMode(e.target.value)}>
+                    <option value="field">поле Word (ссылка)</option><option value="text">обычный текст</option>
                   </select></label>
               </>
             )}

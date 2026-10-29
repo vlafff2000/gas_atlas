@@ -268,7 +268,7 @@ export const builderApi = {
     request<ModelList>(`/api/projects/${project}/builder/models`, json('POST', { selected, ...extra })),
   seriesWells: (project: string, layout: unknown) =>
     request<SeriesWells>(`/api/projects/${project}/builder/series/wells`, json('POST', { layout })),
-  series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string }) =>
+  series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string; caption_mode: string }) =>
     downloadNotes(`/api/projects/${project}/builder/series`, body),
   list: (project: string) => request<{ items: LayoutItem[] }>(lib(project)).then(r => r.items),
   save: (project: string, name: string, layout: unknown) =>
