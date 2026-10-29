@@ -91,7 +91,9 @@ def excel_finish(f,ax,secondary,title,k,date_axis,categorical):
             if line.get_marker() not in (None,'None',''):
                 if 'size' not in own:line.set_markersize(5.5)
                 line.set_markeredgewidth(.75)
-        for patch in a.patches:patch.set_facecolor(paint(patch.get_facecolor()));patch.set_edgecolor('none')
+        for patch in a.patches:
+            if 'color' not in getattr(patch,'_own',()):patch.set_facecolor(paint(patch.get_facecolor()))
+            patch.set_edgecolor('none')
     for a in axes:
         a.tick_params(axis='both',length=0,labelsize=9*k,labelcolor=XL_TEXT,pad=5);a.xaxis.label.set_size(10*k);a.yaxis.label.set_size(10*k)
         a.xaxis.label.set_color(XL_TEXT);a.yaxis.label.set_color(XL_TEXT)
@@ -283,6 +285,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                         drawn=target.bar(pos,top,width=.8,bottom=below,label=label,color=decode_arrays(t.marker.color))
                         for p,v in zip(pos,top):base[p]=base.get(p,0.0)+v
                     else:drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
+                    for bar in drawn:bar._own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set()     # ручной цвет столбцов: вид Excel его не перекрашивает
                     if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y))
                 else:
                     # Plotly JSON serializes dates to strings. Preserve calendar spacing.

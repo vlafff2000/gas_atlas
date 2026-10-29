@@ -28,7 +28,7 @@ def test_series_look_in_figure():
     line, points, hidden = render.to_plotly(c).data[0], render.to_plotly(c).data[2], render.to_plotly(c).data[-1]
     assert line.line.color == '#ff0000' and line.line.dash == 'dot' and line.line.width == pytest.approx(2.4)
     assert line.mode == 'lines+markers' and line.marker.symbol == 'star' and line.marker.size == 12 and line.opacity == .5
-    assert set(line.meta['own']) == {'width', 'size', 'alpha'}
+    assert set(line.meta['own']) == {'color', 'width', 'size', 'alpha'}
     assert points.marker.symbol == 'x' and points.marker.color == '#00ff00' and points.marker.size == 10
     assert hidden.visible is False
 
