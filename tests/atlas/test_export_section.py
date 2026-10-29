@@ -554,3 +554,17 @@ def test_export_wells_in_number_order(env):
         for kind in kinds:
             part = [int(n.split(' · ')[1]) for n in names if n.startswith(kind)]
             assert part == sorted(part, key=int), (module, kind, part)
+
+
+def test_word_figures_without_captions(env):
+    """«Подписи рисунков» выключены: в документе нет подписей и полей SEQ, список рисунков не выводится."""
+    client, pid, _, store = env
+    base = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31'], 'word_list_of_figures': True}
+    def xml_of(form):
+        one = client.post(f'/api/projects/{pid}/export/word', json={'form': form}).json()
+        with zipfile.ZipFile(store.path(pid) / 'exports' / one['files'][0]) as z:
+            return z.read('word/document.xml').decode('utf8')
+    with_caption = xml_of(base)
+    without = xml_of({**base, 'word_caption_show': False})
+    assert 'SEQ' in with_caption and 'TOC \\h \\z \\c' in with_caption
+    assert 'SEQ' not in without and 'TOC \\h \\z \\c' not in without and 'w:drawing' in without

@@ -7,7 +7,7 @@ import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, 
 import { Toast, type PageProps } from './ProjectPage'
 import { ExportAnyChart } from './ExportAnyChart'
 import { ResizableFrame } from './ResizableFrame'
-import { Check, Num, Opt, Section, Select, SizePick, Text, type FieldProps as SharedFieldProps } from './exportFields'
+import { Check, Color, GRID_OPTIONS, MINOR_GRID_OPTIONS, Num, Opt, Section, Select, SizePick, Text, type FieldProps as SharedFieldProps } from './exportFields'
 
 /** Поля формы раздела «Экспорт»: общие поля получают ещё и перечень выбора (choices). */
 interface FieldProps extends SharedFieldProps { choices: ExportChoices }
@@ -408,6 +408,16 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <Select {...F} field="fmt_title" label="Шапка графика" def="show" options={[['show', 'Показывать'], ['hide', 'Скрыть']]} />
           <Select {...F} field="fmt_legend" label="Легенда" def="bottom"
             options={[['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]} />
+          <Select {...F} field="fmt_grid" label="Сетка" def="" options={GRID_OPTIONS} />
+          <Num {...F} field="fmt_grid_width" label="Толщина основной сетки, пт" def={0.7} min={0.2} max={4} step={0.1} />
+          <Color label="Цвет основной сетки" value={form.fmt_grid_color} onChange={v => set('fmt_grid_color', v)} />
+          <Select {...F} field="fmt_minor_grid" label="Доп. линии сетки" def="" options={MINOR_GRID_OPTIONS} />
+          <Num {...F} field="fmt_minor_grid_width" label="Толщина доп. линий, пт" def={0.5} min={0.2} max={4} step={0.1} />
+          <Color label="Цвет доп. линий" value={form.fmt_minor_grid_color} onChange={v => set('fmt_minor_grid_color', v)} />
+          <Check {...F} field="fmt_axis_title_bold" label="Названия осей жирным" def={false} />
+          <Check {...F} field="fmt_axis_title_italic" label="Названия осей курсивом" def={false} />
+          <Check {...F} field="fmt_tick_bold" label="Деления осей жирным" def={false} />
+          <Check {...F} field="fmt_tick_italic" label="Деления осей курсивом" def={false} />
           <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
             options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
           <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
@@ -844,6 +854,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
             <Check {...F} field="word_compress" label="Сжать картинки (легче файл)" def={false} />
           </Section>
           <Section title="Подпись">
+            <Check {...F} field="word_caption_show" label="Подписи рисунков" def={true} />
             <Select {...F} field="word_caption_mode" label="Вид подписи" def="field" options={[['field', 'Подпись Word (поле «Рисунок», ссылки)'], ['text', 'Обычный текст']]} />
             <Select {...F} field="word_caption_pos" label="Положение" def="below" options={[['below', 'Под графиком'], ['above', 'Над графиком']]} />
             <Select {...F} field="word_caption_font" label="Шрифт" def="Times New Roman" options={FONT_LIST} />

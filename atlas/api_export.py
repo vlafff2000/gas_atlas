@@ -346,6 +346,7 @@ def with_elpro(plan, data: Data, options: Mapping[str, Any]):
     from atlas.engine.core.reporting import FigureJob
     from .modules.production import ProductionModule
     from .render import to_plotly
+    from . import legend_order
     cfg = options.get('production') or {}
     if not cfg.get('elpro') or 'production' not in options['modules'] or 'elpro' not in data:
         return plan
@@ -355,6 +356,7 @@ def with_elpro(plan, data: Data, options: Mapping[str, Any]):
         fig = to_plotly(chart)
         fig.update_layout(meta={'module': 'production', 'wells': [well], 'periods': periods})
         return fig
+    mode = legend_order.mode_of(data.settings)
     for kind, values in cfg['periods'].items():
         for well in ordered(cfg['wells']) if values else []:
             params = module.spec.coerce({'mode': 'individual', 'kind': kind, 'groups': cfg['groups'], 'wells': [well],
@@ -363,7 +365,7 @@ def with_elpro(plan, data: Data, options: Mapping[str, Any]):
             result = module.run(data, params)
             plan.jobs.extend(FigureJob(f'Производительность с рядами ЭЛПРО · скважина № {well} · {kind_name(kind)}',
                                        partial(figure, chart, well, values), options.get('style', {}), 'production')
-                             for chart in result.charts if chart.id == 'production-curve')
+                             for chart in (legend_order.apply(c, mode) for c in result.charts) if chart.id == 'production-curve')
     return plan
 
 

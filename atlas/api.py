@@ -21,7 +21,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainT
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import VERSION, api_exclusions, chart_view, registry, render, season_format, thinning
+from . import VERSION, api_exclusions, chart_view, legend_order, registry, render, season_format, thinning
 from . import api_builder, api_corrected, api_export, api_projects, export_any, export_charts, group_colors
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
@@ -124,7 +124,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
                 result: Result = season_format.relabel(module.run(data, params), season_format.format_of(data.settings))
             cached = (result, round((time.perf_counter() - started) * 1000, 1))
             results.put(key, cached)
-        return cached, params, data
+        return (legend_order.apply(cached[0], legend_order.mode_of(data.settings)), cached[1]), params, data
 
     # --- справочные ---
     def health(request, body):

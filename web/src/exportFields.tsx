@@ -4,6 +4,11 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { ExportChoices, Form } from './api_projects'
 import { HEIGHT_MM, WIDTH_MM } from './ResizableFrame'
 
+const HEX = /^#[0-9a-f]{6}$/i
+// Сетка: направление основной линий и показ доп. линий; пустое значение — как задал график.
+export const GRID_OPTIONS: Opt[] = [['', 'Авто'], ['both', 'Обе'], ['h', 'Горизонтальная'], ['v', 'Вертикальная'], ['none', 'Нет']]
+export const MINOR_GRID_OPTIONS: Opt[] = [['', 'Как в графике'], ['show', 'Показывать'], ['hide', 'Скрыть']]
+
 export type Opt = [unknown, string]
 export interface FieldProps { form: Form; set: (field: string, value: unknown) => void; choices?: ExportChoices }
 // Популярные форматы: ширина × высота, мм. Без высоты — подбирается по ширине и легенде.
@@ -114,3 +119,16 @@ export function SizePick({ form, set, choices }: FieldProps) {
   )
 }
 
+/** Цвет из палитры; «авто» — пустое значение, как задал график. */
+export function Color({ label, value, onChange }: { label: string; value: unknown; onChange: (v: string) => void }) {
+  const text = typeof value === 'string' ? value : ''
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <span className="cs-range">
+        <input type="color" value={HEX.test(text) ? text : '#ffffff'} onChange={e => onChange(e.target.value)} />
+        <button type="button" className="cs-auto" disabled={!text} onClick={() => onChange('')} title="Вернуть цвет по умолчанию">авто</button>
+      </span>
+    </label>
+  )
+}
