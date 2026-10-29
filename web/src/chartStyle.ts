@@ -54,6 +54,12 @@ export const markerSymbol = (shape: MarkerShape | undefined, fallback: string) =
  *  один и тот же год, сезон или группа получает один и тот же вид на всех графиках. */
 export const seriesLookKey = (s: Series) => `${s.group || s.name}|${s.kind}`
 
+/** Год, по которому ряд узнаётся как год или сезон («2024», «2023/2024», «Сезон 2024»): цвет по умолчанию не зависит от набора рядов. */
+export const yearOfKey = (key: string): number | null => {
+  const m = /(?:^|\D)((?:19|20)\d{2})(?!\d)/.exec(key)
+  return m ? Number(m[1]) : null
+}
+
 /** Личный вид, относящийся к рядам этого графика: из общего хранилища берутся только его ключи. */
 export function looksOf(chart: Chart, all: Record<string, Look>): Record<string, Look> {
   return Object.fromEntries(chart.series.map(seriesLookKey).filter(k => all[k]).map(k => [k, all[k]]))
