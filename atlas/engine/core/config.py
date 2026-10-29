@@ -2,7 +2,8 @@ from pathlib import Path
 import os
 
 ROOT = Path(__file__).resolve().parents[3]
-STORAGE = Path(os.environ.get('GAS_ATLAS_STORAGE', ROOT / 'storage')).resolve()
+from .storage_path import resolve as _resolve_storage
+STORAGE = _resolve_storage(ROOT).resolve()     # одна папка проектов для запуска из меню ПХГ и напрямую, см. storage_path
 VERSION = '5.8.0-py3820'
 MODULES = {'production': 'Производительность скважин', 'histograms':'Гистограммы по эксплуатации скважин', 'gdi': 'ГДИ', 'response': 'Графики реагирования', 'object_pressure':'Давление объекта',
            'operations':'Суточная эксплуатация', 'water':'Контроль воды', 'bottom':'Замеры забоя',

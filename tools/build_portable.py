@@ -223,7 +223,30 @@ def write_launchers(target, folder):
         (folder / 'ПРОЧТИТЕ.txt').write_text(text, encoding='utf-8')
 
 
+# Данные пользователя в архив не попадают: распаковка поверх папки не должна ничего перезаписать.
+USER_DATA_TOP = ('storage', 'Проект', 'logs', '.pxg')
+USER_DATA_FILES = ('history.sqlite', 'import_profiles.json', 'well_presets.json', 'ui.json', 'adopted_projects.json')
+
+
+def user_data_in(names):
+    """Записи архива (пути относительно корня программы), похожие на данные пользователя: проекты, настройки, журналы."""
+    bad = []
+    for name in names:
+        parts = [x for x in str(name).replace('\\', '/').split('/') if x and x != '.']
+        if parts and (parts[0] in USER_DATA_TOP or parts[-1] in USER_DATA_FILES or ('projects' in parts and parts[-1] == 'manifest.json')):
+            bad.append(str(name))
+    return bad
+
+
+def check_no_user_data(folder):
+    folder = Path(folder)
+    bad = user_data_in(str(p.relative_to(folder)) for p in folder.rglob('*') if 'site-packages' not in p.parts)
+    if bad:
+        raise SystemExit('В сборке есть данные пользователя (проекты, настройки, журналы), архив не собран: ' + ', '.join(bad[:10]))
+
+
 def archive(target, folder, out):
+    check_no_user_data(folder)
     out.mkdir(parents=True, exist_ok=True)
     if target == 'windows':
         path = out / 'Gas_Atlas_portable_windows_x64.zip'

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from atlas.engine.core import storage_path
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -44,11 +46,10 @@ def app_url(app: App) -> str:
 
 def project_env(apps: List[App], project: Path, root: Path = ROOT) -> Dict[str, str]:
     """Переменные окружения, по которым приложения кладут данные в одну папку и знают адреса друг друга."""
-    old_storage = root / 'storage'  # проекты, созданные до единого запуска, остаются на месте
     urls = {a.id: app_url(a) for a in apps}
     return {
         'PXG_PROJECT': str(project),
-        'GAS_ATLAS_STORAGE': str(old_storage if old_storage.is_dir() else project / 'Атлас'),
+        'GAS_ATLAS_STORAGE': str(storage_path.resolve(root, project, unified=True)),  # тот же выбор, что у Атласа при прямом запуске
         'GAS_ATLAS_LOGS': str(project / 'logs'),
         'PXG_RUNS_DIR': str(project / 'pxg_runs'),
         'GSP_MAPS_HOME': str(project / 'Карты_ГСП'),
@@ -98,6 +99,9 @@ class Hub:
             logs.mkdir(exist_ok=True)
             env = dict(os.environ)
             env.update(project_env(list(self.apps.values()), self.project, self.root))
+            chosen = Path(env['GAS_ATLAS_STORAGE'])
+            if not os.environ.get('GAS_ATLAS_STORAGE'):
+                storage_path.adopt(chosen, storage_path.others(chosen, self.root, self.project))  # проекты второй папки не теряются
             argv = [sys.executable, '-s', '-X', 'utf8'] + [a.format(port=app.port) for a in app.argv]
             with open(str(logs / ('hub_%s.log' % app.id)), 'ab') as log:
                 self.procs[app.id] = subprocess.Popen(argv, cwd=str(self.root), env=env, stdout=log, stderr=subprocess.STDOUT,
