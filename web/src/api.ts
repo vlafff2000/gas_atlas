@@ -63,7 +63,7 @@ export interface TableAction {
   column?: string
   // assign: значения полей по строкам, какие из них правятся, что отправлять, запись журнала
   fields: string[]; editable: string[]; submit: 'changed' | 'all'; journal: string; values: Record<string, Cell[]>
-  target: 'groups' | 'object-categories' | 'well-categories' | 'gis-comments'   // куда уходят назначения: группы скважин, категории объектов кроссплота или ручные категории скважин фонда
+  target: 'groups' | 'object-categories' | 'well-categories' | 'gis-comments' | 'wf-status'   // куда уходят назначения: группы скважин, категории объектов кроссплота или ручные категории скважин фонда
 }
 export type Assignments = Record<string, Record<string, string>>
 export interface Table {
@@ -221,6 +221,8 @@ export const api = {
     request<Project>(`/api/projects/${id}/object-categories`, json('POST', { changes })),
   assignWellCategories: (id: string, changes: Assignments) =>
     request<Project>(`/api/projects/${id}/well-categories`, json('POST', { changes })),
+  assignWfStatus: (id: string, changes: Assignments) =>
+    request<Project>(`/api/projects/${id}/wf-status`, json('POST', { changes })),
   assignGisComments: (id: string, changes: Assignments) =>
     request<Project>(`/api/projects/${id}/gis-comments`, json('POST', { changes })),
   undo: (id: string) => request<ExclusionChange>(`/api/projects/${id}/exclusions/undo`, json('POST', {})),

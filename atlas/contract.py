@@ -217,6 +217,7 @@ class TableAction:
     ``journal`` — запись в журнале проекта. ``target`` — куда уходят назначения: ``groups`` (группы скважин)
     ``object-categories`` (категории объектов кроссплота; ``id_column`` — объект, поле ``category``) или
     ``well-categories`` (ручные категории скважин фонда по сезонам; ``id_column`` — скважина, поле ``category``) или
+    ``wf-status`` (ручные ячейки таблицы ВФ; ``id_column`` — «скважина|сезон», поле ``manual``) или
     ``gis-comments`` (подписи к столбцам плитки ГИС; ``id_column`` — «скважина|пачка|сезон», поле ``comment``).
     """
     kind: Literal['exclude', 'assign']
@@ -231,7 +232,7 @@ class TableAction:
     editable: tuple[str, ...] = ()
     submit: Literal['changed', 'all'] = 'changed'
     journal: str = ''
-    target: Literal['groups', 'object-categories', 'well-categories', 'gis-comments'] = 'groups'
+    target: Literal['groups', 'object-categories', 'well-categories', 'gis-comments', 'wf-status'] = 'groups'
 
 
 @dataclass

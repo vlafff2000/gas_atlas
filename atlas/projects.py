@@ -429,6 +429,12 @@ class Projects:
         settings = gis_tiles.with_comments(self.manifest(pid).get('settings', {}), changes)
         return self.summary(self._commit(pid, settings, expected, gis_tiles.COMMENTS_JOURNAL, {'comments': len(changes)}))
 
+    def assign_wf_status(self, pid: str, changes: Mapping[str, Any], expected: int | None = None) -> dict[str, Any]:
+        """Ручные ячейки таблицы ВФ (``settings``): значение инженера важнее подсказки программы."""
+        from .modules import an_wf_table
+        settings = an_wf_table.with_overrides(self.manifest(pid).get('settings', {}), changes)
+        return self.summary(self._commit(pid, settings, expected, an_wf_table.OVERRIDES_JOURNAL, {'cells': len(changes)}))
+
     def well_funds(self, pid: str) -> dict[str, Any]:
         """Таблица фондов скважин: итог, подсказка с причиной, признак ручного выбора."""
         from . import well_funds as well_fund

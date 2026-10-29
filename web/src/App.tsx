@@ -419,6 +419,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     onProject(await api.assignGisComments(project.id, changes))
     setToast({ text: `Сохранено комментариев: ${Object.keys(changes).length}. Пустой текст снимает комментарий.`, undo: false })
   }
+  const assignWfStatus = async (changes: Assignments) => {
+    onProject(await api.assignWfStatus(project.id, changes))
+    setToast({ text: `Сохранено ручных значений ВФ: ${Object.keys(changes).length}. Пустое значение возвращает подсказку.`, undo: false })
+  }
   const undo = async () => {
     try {
       const r = await api.undo(project.id)
@@ -583,6 +587,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               onApply={t.action?.kind === 'exclude' && t.action.dataset ? applyTable(t.action.dataset) : undefined}
               onAssign={t.action?.kind !== 'assign' ? undefined : t.action.target === 'object-categories' ? assignCategories
                 : t.action.target === 'well-categories' ? assignWellCategories
+                : t.action.target === 'wf-status' ? assignWfStatus
                 : t.action.target === 'gis-comments' ? assignGisComments : assignGroups} />
           )} />
         </div>
