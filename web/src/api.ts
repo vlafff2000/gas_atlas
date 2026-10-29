@@ -71,7 +71,11 @@ export interface Table {
   note: string; collapsed: boolean; action: TableAction | null
   header?: [string, number][][]   // объединённая шапка над подписями колонок: (подпись, пролёт)
   deferred?: boolean   // большая свёрнутая таблица: строки подгружаются при раскрытии (count — сколько их всего)
+  styles?: TableStyle[]   // заливка и цвет шрифта строк или ячеек, как в XLSX
+  merges?: TableMerge[]   // объединённые ячейки, как в XLSX (строки first..last, колонки подряд)
 }
+export interface TableStyle { rows: number[]; fill: string; font: string; columns: string[] }
+export interface TableMerge { first: number; last: number; columns: string[] }
 /** Ручное оформление оси; пусто — авто (atlas/chart_style.py). */
 export interface AxisStyle { decimals?: number; date_format?: string; font?: string; tick_size?: number; title_size?: number }
 /** Ручное оформление графика: заголовок, шрифты, легенда, сетка, фон (atlas/chart_style.py). */

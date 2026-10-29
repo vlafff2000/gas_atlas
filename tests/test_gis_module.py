@@ -368,3 +368,13 @@ def test_54_xlsx_file_keeps_fills_merges_and_blue_font():
     assert any(c.value == 'не исследовалась' for row in ws.iter_rows() for c in row)
     missing = next(c for row in ws.iter_rows() for c in row if c.value == 'не исследовалась')
     assert any((r.min_row, r.min_col) == (missing.row, missing.column) for r in ws.merged_cells.ranges)   # объединена
+
+
+def test_54_table_json_carries_the_same_styles_for_the_screen():
+    from atlas.contract import Table, _table_json
+    out = _table_json(_an_five_four())
+    assert any(s['fill'] == 'FCD5B4' and s['rows'] for s in out['styles'])
+    assert any(s['font'] == '1F3FBF' for s in out['styles'])
+    assert any(m['columns'][0] == 's1_from' and m['last'] >= m['first'] for m in out['merges'])
+    plain = _table_json(Table(id='x', title='t', frame=pd.DataFrame({'a': [1]})))
+    assert 'styles' not in plain and 'merges' not in plain          # без оформления — прежний ответ
