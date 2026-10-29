@@ -106,3 +106,23 @@ def test_series_look_and_hidden(env):
     base = shot({})
     assert shot({'looks': {item['key']: {'color': '#ff00ff', 'width': 5}}}) != base
     assert shot({'hidden': [item['group']]}) != base
+
+
+def test_histogram_xlsx_has_well_labels_and_plain_legend(env, tmp_path):
+    """Гистограммы в Excel: подписи скважин (или периодов) по оси X и имена рядов в легенде без единиц."""
+    import io
+    import openpyxl
+    from atlas.modules._production import PRODUCTION, groups_of, periods_of, wells_of
+    client, pid = env
+    data = Projects(tmp_path / 'storage').data(pid)
+    frame = data[PRODUCTION]
+    params = {'kind': 'withdrawal', 'groups': groups_of(frame, data.mapping), 'wells': wells_of(frame)[:3], 'periods': periods_of(frame, 'withdrawal')[-2:]}
+    for axis in ('well', 'period'):
+        p = {**params, 'axis': axis}
+        chart = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'histograms', 'params': p}).json()['charts'][0]
+        r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'histograms', 'params': p, 'chart': chart['id'], 'settings': {'format': 'xlsx'}})
+        assert r.status_code == 200, r.text
+        book = openpyxl.load_workbook(io.BytesIO(r.content))
+        for series in book['График']._charts[0].series:
+            assert series.cat is not None and series.cat.numRef.f.startswith("'Данные'!$A$")     # подписи из первой колонки
+            assert 'тыс' not in str(book['Данные'][series.tx.strRef.f.split('!')[1]].value)

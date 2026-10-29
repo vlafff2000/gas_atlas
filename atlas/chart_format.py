@@ -215,7 +215,7 @@ def apply(figure, cfg: Mapping[str, Any]):
     rules = cfg.get('series', [])
     for trace in fig.data:
         line = trace.type in (None, 'scatter')
-        mode = trace.mode or ''
+        mode = (trace.mode or '') if line else ''     # у столбцов и ящиков поля ``mode`` нет: цвет и скрытие к ним применяются, толщина и маркеры — нет
         width = size = None
         color = None
         name = ' '.join(str(x) for x in (trace.name, trace.legendgroup) if x).lower()
