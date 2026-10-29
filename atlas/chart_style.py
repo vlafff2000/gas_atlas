@@ -19,6 +19,7 @@ SHAPES = ('circle', 'square', 'diamond', 'triangle', 'plus', 'x', 'star')
 DASHES = ('solid', 'dash', 'dot')
 LEGENDS = ('bottom', 'top', 'right', 'hide')
 GRIDS = ('both', 'h', 'v', 'none')
+MINOR_GRIDS = ('show', 'hide')
 ALIGNS = ('left', 'center', 'right')
 DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
 HEX = re.compile(r'^#[0-9a-fA-F]{6}$')
@@ -82,16 +83,19 @@ LABELS = {
     'title_size': 'размер названия', 'font': 'шрифт', 'date_format': 'формат даты', 'title_font': 'шрифт заголовка',
     'legend': 'легенда', 'legend_font': 'шрифт легенды', 'legend_size': 'размер легенды', 'grid': 'сетка', 'grid_color': 'цвет сетки',
     'background': 'фон графика', 'plot_background': 'фон области построения', 'title_color': 'цвет заголовка',
-    'title_align': 'выравнивание заголовка', 'text_color': 'цвет текста',
+    'title_align': 'выравнивание заголовка', 'text_color': 'цвет текста', 'grid_width': 'толщина сетки',
+    'minor_grid': 'доп. линии сетки', 'minor_grid_color': 'цвет доп. линий', 'minor_grid_width': 'толщина доп. линий',
+    'title_bold': 'жирный', 'title_italic': 'курсив', 'tick_bold': 'жирные подписи', 'tick_italic': 'курсивные подписи',
 }
 
 LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DASHES, 'marker': 'bool', 'shape': SHAPES,
         'size': ('num', 2, 24), 'markerColor': 'color', 'opacity': ('num', 0.05, 1), 'valueLabels': 'bool'}
 AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FORMATS, 'font': FONTS, 'tick_size': ('num', 5, 30),
-            'title_size': ('num', 5, 30)}
+            'title_size': ('num', 5, 30), 'title_bold': 'bool', 'title_italic': 'bool', 'tick_bold': 'bool', 'tick_italic': 'bool'}
 CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,
              'font': FONTS, 'text_color': 'color', 'legend': LEGENDS, 'legend_font': FONTS, 'legend_size': ('num', 5, 30),
-             'grid': GRIDS, 'grid_color': 'color', 'background': 'color', 'plot_background': 'color'}
+             'grid': GRIDS, 'grid_color': 'color', 'grid_width': ('num', 0.2, 4), 'minor_grid': MINOR_GRIDS, 'minor_grid_color': 'color',
+             'minor_grid_width': ('num', 0.2, 4), 'background': 'color', 'plot_background': 'color'}
 
 
 def clean_look(raw: Any, index: int) -> dict[str, Any]:

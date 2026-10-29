@@ -46,6 +46,7 @@ class Layout:
     height_mm: float = 0.0           # 0 — по пропорциям графика
     dpi: int = 300
     compress: bool = False
+    caption_show: bool = True        # False — рисунки без подписей (номер и список рисунков тоже не выводятся)
     caption_pos: str = 'below'
     caption_mode: str = 'field'      # field — поле SEQ; text — обычный текст
     caption_font: str = 'Times New Roman'
@@ -128,6 +129,7 @@ def layout_from(form: Mapping[str, Any]) -> Layout:
         height_mm=_num(f, 'height_mm', d.height_mm, 0, 400, 'Высота графика, мм'),
         dpi=int(_choice(f, 'dpi', d.dpi, DPIS, 'Разрешение, DPI')),
         compress=bool(f.get('word_compress', d.compress)),
+        caption_show=bool(f.get('word_caption_show', d.caption_show)),
         caption_pos=_choice(f, 'caption_pos', d.caption_pos, ('below', 'above'), 'Положение подписи'),
         caption_mode=_choice(f, 'caption_mode', d.caption_mode, ('field', 'text'), 'Вид подписи'),
         caption_font=_choice(f, 'caption_font', d.caption_font, FONTS, 'Шрифт подписи'),
@@ -141,7 +143,7 @@ def layout_from(form: Mapping[str, Any]) -> Layout:
         frame=bool(f.get('word_frame', d.frame)),
         title=bool(f.get('word_title', d.title)),
         title_text=str(f.get('word_title_text', d.title_text))[:200],
-        list_of_figures=bool(f.get('word_list_of_figures', d.list_of_figures)),
+        list_of_figures=bool(f.get('word_list_of_figures', d.list_of_figures)) and bool(f.get('word_caption_show', d.caption_show)),   # список без подписей пуст
         list_title=str(f.get('word_list_title', d.list_title))[:100] or d.list_title,
         page_numbers=bool(f.get('word_page_numbers', d.page_numbers)),
         merge=bool(f.get('word_merge', d.merge)),
@@ -320,6 +322,8 @@ class Builder:
 
     def figure_xml(self, item: Item, index: int, break_first: bool = False) -> str:
         """Рисунок и подпись; подпись сверху — перед рисунком, ``keepNext`` держит их вместе."""
+        if not self.l.caption_show:
+            return self.picture_p(item, index, False, break_first)
         if self.l.caption_pos == 'above':
             return self.caption_p(item, index, True, break_first) + self.picture_p(item, index, False)
         return self.picture_p(item, index, True, break_first) + self.caption_p(item, index, False)

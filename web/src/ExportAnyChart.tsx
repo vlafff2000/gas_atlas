@@ -4,19 +4,17 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, defaults, type ModuleSpec, type Params, type Project } from './api'
 import { ParamBar } from './ParamBar'
 import { SeriesLookFields } from './ChartSettings'
-import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields'
+import { Check, Color, GRID_OPTIONS as GRIDS, MINOR_GRID_OPTIONS as MINOR_GRIDS, Num, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import type { Look } from './chartStyle'
 import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type Form } from './api_projects'
 
 const FORMATS: Opt[] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
 const FONTS: Opt[] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]
 const LEGENDS: Opt[] = [['auto', 'Авто'], ['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]
-const GRIDS: Opt[] = [['', 'Авто'], ['both', 'Обе'], ['h', 'Горизонтальная'], ['v', 'Вертикальная'], ['none', 'Нет']]
 const ALIGNS: Opt[] = [['', 'Авто'], ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]
 const AXIS_NAME: Record<string, string> = { x: 'Ось X', y: 'Ось Y', y2: 'Ось Y2 (справа)', y3: 'Ось Y3', y4: 'Ось Y4', y5: 'Ось Y5' }
 const SERIES_LIMIT = 40
 const DPIS = [150, 200, 250, 300, 600, 1200]
-const HEX = /^#[0-9a-f]{6}$/i
 const KIND_NOTE: Record<string, string> = {
   heat: 'Тепловая карта: действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.',
   strips: 'Матрица скважин × сезонов: действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.',
@@ -55,18 +53,6 @@ function Tick({ label, value, onChange }: { label: string; value: boolean; onCha
   return <label className="toggle"><input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} /><span>{label}</span></label>
 }
 
-function Color({ label, value, onChange }: { label: string; value: unknown; onChange: (v: string) => void }) {
-  const text = typeof value === 'string' ? value : ''
-  return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <span className="cs-range">
-        <input type="color" value={HEX.test(text) ? text : '#ffffff'} onChange={e => onChange(e.target.value)} />
-        <button type="button" className="cs-auto" disabled={!text} onClick={() => onChange('')} title="Вернуть цвет по умолчанию">авто</button>
-      </span>
-    </label>
-  )
-}
 
 export function ExportAnyChart({ project }: { project: Project }) {
   const [specs, setSpecs] = useState<ModuleSpec[]>([])
@@ -172,13 +158,14 @@ export function ExportAnyChart({ project }: { project: Project }) {
   // Общие поля — те же компоненты и подписи, что у «Производительность скважин»; значения берутся из настроек выгрузки.
   const form: Form = { format, dpi: settings.dpi, look: settings.look, width: settings.width, height: settings.height, font: settings.font,
     font_size: settings.font_size, legend: chartStyle.legend, title: chartStyle.title, title_align: chartStyle.title_align, grid: chartStyle.grid,
+    grid_width: chartStyle.grid_width, minor_grid: chartStyle.minor_grid, minor_grid_width: chartStyle.minor_grid_width,
     table_show: (settings.table as Dict | undefined)?.show !== false }
   const setField = (field: string, value: unknown) => {
     if (field === 'format') set('format', value === 'png' ? '' : value)
     else if (field === 'dpi') set('dpi', Number(value) === 300 ? '' : value)
     else if (field === 'look' || field === 'font') set(field, value === 'default' ? '' : value)
     else if (field === 'legend') sub('chart', 'legend', value === 'auto' ? '' : value)
-    else if (field === 'title' || field === 'title_align' || field === 'grid') sub('chart', field, value)
+    else if (['title', 'title_align', 'grid', 'grid_width', 'minor_grid', 'minor_grid_width'].includes(field)) sub('chart', field, value === 'auto' ? '' : value)
     else if (field === 'table_show') sub('table', 'show', value ? '' : false)
     else set(field, value)
   }
@@ -249,6 +236,10 @@ export function ExportAnyChart({ project }: { project: Project }) {
               <Color label="Цвет заголовка" value={chartStyle.title_color} onChange={v => sub('chart', 'title_color', v)} />
               <Select {...F} field="grid" label="Сетка" def="" options={GRIDS} />
               <Color label="Цвет сетки" value={chartStyle.grid_color} onChange={v => sub('chart', 'grid_color', v)} />
+              <Num {...F} field="grid_width" label="Толщина основной сетки, пт" def={0.7} min={0.2} max={4} step={0.1} />
+              <Select {...F} field="minor_grid" label="Доп. линии сетки" def="" options={MINOR_GRIDS} />
+              <Color label="Цвет доп. линий" value={chartStyle.minor_grid_color} onChange={v => sub('chart', 'minor_grid_color', v)} />
+              <Num {...F} field="minor_grid_width" label="Толщина доп. линий, пт" def={0.5} min={0.2} max={4} step={0.1} />
               <Color label="Фон рисунка" value={chartStyle.background} onChange={v => sub('chart', 'background', v)} />
               <Color label="Фон области построения" value={chartStyle.plot_background} onChange={v => sub('chart', 'plot_background', v)} />
               <Color label="Цвет текста" value={chartStyle.text_color} onChange={v => sub('chart', 'text_color', v)} />
@@ -284,6 +275,10 @@ export function ExportAnyChart({ project }: { project: Project }) {
                       <Field label="Шаг делений" value={a.step} onChange={v => axis(name, 'step', v)} />
                       <Field label="Знаков после запятой" type="number" value={a.decimals} onChange={v => axis(name, 'decimals', v === '' ? '' : Number(v))} />
                       <Field label="Размер подписей, пт" type="number" value={a.tick_size} onChange={v => axis(name, 'tick_size', v === '' ? '' : Number(v))} />
+                      <Tick label="Название оси жирным" value={!!a.title_bold} onChange={v => axis(name, 'title_bold', v ? true : '')} />
+                      <Tick label="Название оси курсивом" value={!!a.title_italic} onChange={v => axis(name, 'title_italic', v ? true : '')} />
+                      <Tick label="Деления жирным" value={!!a.tick_bold} onChange={v => axis(name, 'tick_bold', v ? true : '')} />
+                      <Tick label="Деления курсивом" value={!!a.tick_italic} onChange={v => axis(name, 'tick_italic', v ? true : '')} />
                       <Tick label="Обратное направление" value={!!a.inverse} onChange={v => axis(name, 'inverse', v ? true : '')} />
                       <Tick label="Логарифмическая шкала" value={!!a.log} onChange={v => axis(name, 'log', v ? true : '')} />
                       <Tick label="От нуля" value={!!a.from_zero} onChange={v => axis(name, 'from_zero', v ? true : '')} />
