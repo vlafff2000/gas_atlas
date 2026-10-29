@@ -136,10 +136,10 @@ def test_grid_minor_lines_and_axis_text_style(env):
         r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': MODULE, 'params': PARAMS, 'chart': chart['id'], 'settings': settings})
         assert r.status_code == 200, r.text
         return r.content
-    base = png({'dpi': 100, 'chart': {'grid': 'both'}})
-    minor = png({'dpi': 100, 'chart': {'grid': 'both', 'minor_grid': 'show', 'minor_grid_color': '#ff0000', 'minor_grid_width': 2}})
-    hidden = png({'dpi': 100, 'chart': {'grid': 'both', 'minor_grid': 'hide'}})
-    styled = png({'dpi': 100, 'chart': {'grid': 'both', 'grid_width': 3, 'grid_color': '#00ff00'},
+    base = png({'dpi': 150, 'chart': {'grid': 'both'}})
+    minor = png({'dpi': 150, 'chart': {'grid': 'both', 'minor_grid': 'show', 'minor_grid_color': '#ff0000', 'minor_grid_width': 2}})
+    hidden = png({'dpi': 150, 'chart': {'grid': 'both', 'minor_grid': 'hide'}})
+    styled = png({'dpi': 150, 'chart': {'grid': 'both', 'grid_width': 3, 'grid_color': '#00ff00'},
                   'axes': {'y': {'title_bold': True, 'title_italic': True, 'tick_bold': True, 'tick_italic': True}}})
     assert minor != base and minor != hidden and styled not in (base, minor)
 
