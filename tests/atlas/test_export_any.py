@@ -128,6 +128,29 @@ def test_histogram_xlsx_has_well_labels_and_plain_legend(env, tmp_path):
             assert 'тыс' not in str(book['Данные'][series.tx.strRef.f.split('!')[1]].value)
 
 
+def test_grid_minor_lines_and_axis_text_style(env):
+    """Сетка: толщина и цвет основной сетки, доп. линии скрываются и показываются; оси — жирный и курсив."""
+    client, pid = env
+    chart = first_chart(client, pid)
+    def png(settings):
+        r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': MODULE, 'params': PARAMS, 'chart': chart['id'], 'settings': settings})
+        assert r.status_code == 200, r.text
+        return r.content
+    base = png({'dpi': 150, 'chart': {'grid': 'both'}})
+    minor = png({'dpi': 150, 'chart': {'grid': 'both', 'minor_grid': 'show', 'minor_grid_color': '#ff0000', 'minor_grid_width': 2}})
+    hidden = png({'dpi': 150, 'chart': {'grid': 'both', 'minor_grid': 'hide'}})
+    styled = png({'dpi': 150, 'chart': {'grid': 'both', 'grid_width': 3, 'grid_color': '#00ff00'},
+                  'axes': {'y': {'title_bold': True, 'title_italic': True, 'tick_bold': True, 'tick_italic': True}}})
+    assert minor != base and minor != hidden and styled not in (base, minor)
+
+
+@pytest.mark.parametrize('bad', [{'grid_width': 9}, {'minor_grid': 'maybe'}, {'minor_grid_color': 'red'}])
+def test_grid_settings_validated(bad):
+    from atlas.chart_style import clean_chart
+    with pytest.raises(ParamError):
+        clean_chart(bad)
+
+
 def test_manual_bar_color_survives_excel_look(env):
     """Гистограмма по годам: ручной цвет года остаётся в файле и при виде «как Excel»; остальные годы — палитра Excel, без пропусков."""
     import re
