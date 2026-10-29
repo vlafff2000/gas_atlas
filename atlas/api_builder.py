@@ -110,7 +110,8 @@ def routes(projects, E) -> list[Route]:
         if orientation not in ('landscape', 'portrait'):
             raise ParamError('Ориентация листа: альбомная или книжная')
         content, name, mime, notes = lib.series_file(data, body.get('layout'), [str(w) for w in wells], str(body.get('format') or 'png'),
-                                                     str(body.get('title') or '').strip()[:300], orientation)
+                                                     str(body.get('title') or '').strip()[:300], orientation,
+                                                     caption_mode=body.get('caption_mode') or 'field')
         response = _download(content, name, mime)
         if notes:
             response.headers['X-Atlas-Notes'] = quote(' '.join(notes))
