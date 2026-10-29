@@ -3,6 +3,7 @@ import type { Assignments, Cell, Column, Table } from './api'
 import { formatCell } from './format'
 import { tableBars, tableSync, usePref } from './chartPrefs'
 import { nextSyncId, publish, subscribe, synced } from './chartSync'
+import { paintOf } from './tableSpans'
 
 const PAGE = 500
 
@@ -105,9 +106,11 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
     return { '--bar-w': share.toFixed(1) + '%', '--bar-c': v < 0 ? 'var(--bar-negative)' : 'var(--bar)' } as CSSProperties
   }
 
+  const paint = useMemo(() => paintOf(table), [table])
+  const merged = paint.starts.size > 0      // объединения не сортируем и не делим на страницы: блоки должны остаться целыми
   const order = useMemo(() => {
     const idx = Array.from({ length: table.count }, (_, i) => i)
-    if (sort) {
+    if (sort && !merged) {
       const values = table.rows[sort.col]
       idx.sort((i, j) => {
         const a = values[i], b = values[j]
@@ -116,7 +119,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
       })
     }
     return idx
-  }, [table, sort])
+  }, [table, sort, merged])
 
   const toggleSort = (col: number) =>
     setSort(s => (s?.col === col ? (s.dir === 1 ? { col, dir: -1 } : null) : { col, dir: 1 }))
@@ -183,7 +186,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
               </tr>
             </thead>
             <tbody>
-              {order.slice(0, limit).map(i => {
+              {order.slice(0, merged ? order.length : limit).map(i => {
                 const id = action?.ids[i]
                 const on = id !== undefined && checked.has(id)
                 const changed = (id !== undefined && on !== initial.has(id)) || rowChanged(i)
@@ -195,13 +198,15 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
                     {action && id !== undefined && (
                       <td className="check"><input type="checkbox" checked={on} onChange={() => flip(id)} aria-label={action.column ?? 'Исключить'} /></td>
                     )}
-                    {table.columns.map((c, k) => assign?.editable.includes(c.key) ? (
+                    {table.columns.map((c, k) => paint.covered.has(i + ':' + k) ? null : assign?.editable.includes(c.key) ? (
                       <td key={c.key} className="edit">
                         <input value={current(i, c.key)} maxLength={200} aria-label={c.label}
                           onChange={e => edit(i, c.key, e.target.value)} />
                       </td>
                     ) : (
-                      <td key={c.key} className={c.kind + (barStyle(table.rows[k][i], k) ? ' bar' : '') + tone(table.rows[k][i], c)} style={barStyle(table.rows[k][i], k)}>
+                      <td key={c.key} className={c.kind + (barStyle(table.rows[k][i], k) ? ' bar' : '') + tone(table.rows[k][i], c)}
+                          style={{ ...barStyle(table.rows[k][i], k), ...paint.cell.get(i + ':' + k) }}
+                          rowSpan={paint.starts.get(i + ':' + k)?.rowSpan} colSpan={paint.starts.get(i + ':' + k)?.colSpan}>
                         {cellView(c, table.rows[k][i])}
                       </td>
                     ))}
@@ -212,7 +217,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
           </table>
         </div>
       )}
-      {table.count > limit && (
+      {table.count > limit && !merged && (
         <button type="button" className="quiet more" onClick={() => setLimit(l => l + PAGE)}>
           Показать ещё {Math.min(PAGE, table.count - limit)} из {table.count - limit}
         </button>
