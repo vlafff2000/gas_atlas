@@ -817,14 +817,13 @@ class AuthorReportModule(Module):
 
     @staticmethod
     def class_table_report(parts: list[pd.DataFrame], edges: tuple[int, ...]) -> Table:
-        frame = pd.concat(parts, ignore_index=True)[['season', 'group', 'zero', 'low', 'high']]
-        split = edges[0] if edges else an_wells.LOW_LIMIT
+        keys, labels = an_wells.class_keys(edges)[1:], an_wells.class_labels(edges)[1:]
+        frame = pd.concat(parts, ignore_index=True)[['season', 'group', 'zero', *keys]]
         columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
-                   Column('zero', 'Нулевой расход за сезон, скв. (номера)'),
-                   Column('low', f'Расход менее {split} тыс. м³/сут, скв. (номера)'),
-                   Column('high', f'Расход {split} тыс. м³/сут и более, скв. (номера)')]
+                   Column('zero', 'Нулевой расход за сезон, скв. (номера)')]
+        columns += [Column(key, f'{name} тыс. м³/сут, скв. (номера)') for key, name in zip(keys, labels)]
         return Table('an-fund-classes', 'Классы производительности скважин', frame, columns,
-                     note='Расход — средний за сутки с расходом, тыс. м³/сут. Номера скважин — в скобках.')
+                     note='Расход — средний за сутки с расходом, тыс. м³/сут; граница класса относится к верхнему. Номера скважин — в скобках.')
 
     @staticmethod
     def class_counts_report(parts: list[pd.DataFrame], edges: tuple[int, ...]) -> Table:

@@ -45,10 +45,23 @@ def test_fund_table_by_group_and_total():
 def test_class_table_lists_well_numbers_in_brackets():
     classes = an_wells.class_table(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES).set_index('group')
     assert classes.loc[an_wells.TOTAL, 'zero'] == '2 (3, 4)'
-    assert classes.loc[an_wells.TOTAL, 'low'] == '1 (2)'
-    assert classes.loc[an_wells.TOTAL, 'high'] == '1 (1)'
+    assert classes.loc[an_wells.TOTAL, 'k1'] == '1 (2)'          # 50 тыс. м³/сут — менее 100
+    assert classes.loc[an_wells.TOTAL, 'k4'] == '1 (1)'          # 200 тыс. м³/сут — граница относится к верхнему классу: 200–250
     assert classes.loc['ГСП 1', 'zero'] == '0'
     assert classes.loc['ГСП 2', 'zero'] == '2 (3, 4)'
+
+
+def test_class_table_rebuilds_with_count_and_thresholds():
+    season = an_wells.season_wells(PROD, 'withdrawal', '2023-2024')
+    two = an_wells.class_table(season, SCOPES, (100,)).set_index('group')
+    assert list(two.columns) == ['zero', 'k1', 'k2']
+    assert two.loc[an_wells.TOTAL, ['k1', 'k2']].tolist() == ['1 (2)', '1 (1)']
+    edges = (20, 60, 100, 150, 200, 250, 300)
+    many = an_wells.class_table(season, SCOPES, edges).set_index('group')
+    assert list(many.columns) == ['zero', *an_wells.class_keys(edges)[1:]]
+    assert many.loc[an_wells.TOTAL, 'k2'] == '1 (2)'             # 50: от 20 до 60
+    assert many.loc[an_wells.TOTAL, 'k6'] == '1 (1)'             # 200: от 200 до 250
+    assert an_wells.class_table(season, SCOPES, ()).columns.tolist() == ['group', 'zero', 'k1']   # без границ — один класс с расходом
 
 
 WATER = pd.DataFrame({'well': ['1', '1', '2', '3'], 'date': pd.to_datetime(['2024-02-01', '2024-02-02', '2024-02-01', '2024-02-02']),

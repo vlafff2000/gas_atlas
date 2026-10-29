@@ -316,6 +316,18 @@ def test_injection_gets_month_and_class_charts_like_withdrawal():
     assert 'an-fund-class-counts' in tables and 'an-fund-months' not in tables and 'an-inj-classes' in tables
 
 
+def test_withdrawal_class_table_follows_count_and_thresholds():
+    data = Data({an_report.PRODUCTION: LEAP})
+    data.mapping = MAPPING
+    module = an_report.AuthorReportModule()
+    for text in ('50, 300', '20, 40, 60, 80, 100, 120'):
+        edges = an_wells.parse_edges(text)
+        result = module.run(data, {'kind': 'withdrawal', 'periods': ['2023-2024'], 'class_mode': 'manual', 'class_edges': text})
+        table = next(t for t in result.tables if t.id == 'an-fund-classes')
+        assert [c.key for c in table.columns] == ['season', 'group', 'zero', *an_wells.class_keys(edges)[1:]]
+        assert len(table.columns) == 3 + len(edges) + 1                    # нулевой класс + классы с расходом на одно больше границ
+
+
 def test_auto_classes_are_hint_with_visible_note_and_manual_edges_win():
     data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE})
     data.mapping = INJ_MAPPING
