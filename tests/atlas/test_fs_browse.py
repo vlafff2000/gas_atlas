@@ -57,7 +57,7 @@ def test_time_budget(home):
 
 def test_last_dir_shared(home):
     (home / "x").mkdir()
-    assert fs_browse.get_last() == {"dir": "", "recent": []}
+    assert fs_browse.get_last() == {"dir": "", "recent": [], "save_dir": ""}
     fs_browse.set_last(str(home / "x"))
     f = home / "x" / "a.xlsx"
     f.write_text("1")

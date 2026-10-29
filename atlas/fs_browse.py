@@ -225,19 +225,25 @@ def get_last() -> Dict[str, Any]:
         last = ""
     recent = [p for p in (data.get("recent") or [])
               if isinstance(p, str) and (is_network(p) or not is_known_local(p) or os.path.isfile(p))]  # сетевые не опрашиваем при старте
-    return {"dir": last, "recent": recent[:MAX_RECENT]}
+    save = data.get("save_dir") or ""
+    if save and is_known_local(save) and not is_network(save) and not os.path.isdir(save):
+        save = ""
+    return {"dir": last, "recent": recent[:MAX_RECENT], "save_dir": save}
 
 
-def set_last(directory: str = "", file: str = "") -> Dict[str, Any]:
-    """Запомнить папку; при выборе файла — и сам файл (папка берётся из файла)."""
+def set_last(directory: str = "", file: str = "", save_dir: str = "") -> Dict[str, Any]:
+    """Запомнить папку; при выборе файла — и сам файл (папка берётся из файла). save_dir — папка последнего сохранения."""
     file = os.path.normpath(file) if file else ""
     directory = os.path.normpath(directory) if directory else ""
+    save_dir = os.path.normpath(save_dir) if save_dir else ""
     if file and not directory:
         directory = os.path.dirname(file)
     with _lock:
         data = _read_settings()
         if directory and (is_network(directory) or not is_known_local(directory) or os.path.isdir(directory)):
             data["last_dir"] = directory
+        if save_dir and (is_network(save_dir) or not is_known_local(save_dir) or os.path.isdir(save_dir)):
+            data["save_dir"] = save_dir
         if file:
             rec = [p for p in (data.get("recent") or []) if p != file]
             data["recent"] = ([file] + rec)[:MAX_RECENT]
@@ -795,7 +801,7 @@ async def _last(request: Request) -> JSONResponse:
             body = {}
         if not isinstance(body, dict):
             body = {}
-        return JSONResponse(set_last(str(body.get("dir") or ""), str(body.get("file") or "")))
+        return JSONResponse(set_last(str(body.get("dir") or ""), str(body.get("file") or ""), str(body.get("save_dir") or "")))
     return JSONResponse(get_last())
 
 
@@ -807,6 +813,46 @@ async def _file(request: Request):
     if not os.access(path, os.R_OK):
         return JSONResponse({"error": "Нет доступа к файлу"}, status_code=403)
     return FileResponse(path, media_type="application/octet-stream")
+
+
+def clean_file_name(name: str) -> str:
+    """Имя файла без пути и символов, запрещённых в Windows."""
+    name = os.path.basename(str(name).replace("\\", "/")).strip().strip(".")
+    return "".join("_" if c in '<>:"|?*' or ord(c) < 32 else c for c in name)
+
+
+def save_bytes(path: str, data: bytes, overwrite: bool = False) -> Dict[str, Any]:
+    """Записать готовый файл по пути, выбранному инженером в проводнике (сохранение выгрузок)."""
+    folder, name = os.path.split(str(path))
+    name = clean_file_name(name)
+    if not folder or not name or not os.path.isabs(folder):
+        return {"ok": False, "error": "Укажите папку и имя файла"}
+    target = os.path.join(folder, name)
+    if os.path.isdir(target):
+        return {"ok": False, "error": "Это папка, а не файл: %s" % target}
+    if os.path.exists(target) and not overwrite:
+        return {"ok": False, "exists": True, "error": "Файл уже есть: %s" % target}
+    try:
+        tmp = target + ".part"
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, target)
+    except OSError as error:
+        return {"ok": False, "error": "%s" % (error.strerror or error)}
+    set_last(save_dir=folder)
+    return {"ok": True, "path": target, "size": len(data)}
+
+
+async def _save(request: Request) -> JSONResponse:
+    """POST /api/fs/save?path=...&overwrite=1, тело — байты файла. Заголовок X-PXG обязателен: чужая страница в браузере
+    не сможет записать файл на диск (для такого заголовка нужен предварительный запрос, на который сервер не отвечает)."""
+    from starlette.concurrency import run_in_threadpool
+
+    if request.headers.get("x-pxg") != "1":
+        return JSONResponse({"ok": False, "error": "Запрос отклонён"}, status_code=403)
+    data = await request.body()
+    res = await run_in_threadpool(save_bytes, request.query_params.get("path") or "", data, request.query_params.get("overwrite") == "1")
+    return JSONResponse(res, status_code=200 if res.get("ok") else 409 if res.get("exists") else 400)
 
 
 async def _win(request: Request) -> JSONResponse:
@@ -848,6 +894,7 @@ async def _visit(request: Request) -> JSONResponse:
 def routes() -> List[Route]:
     return [
         Route("/api/fs/file", _file),
+        Route("/api/fs/save", _save, methods=["POST"]),
         Route("/api/fs/list", _list),
         Route("/api/fs/places", _places),
         Route("/api/fs/perf", _perf, methods=["POST"]),

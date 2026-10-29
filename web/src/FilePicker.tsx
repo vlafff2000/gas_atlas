@@ -8,12 +8,14 @@ interface Listing { path: string; parent: string; items: Item[]; total: number; 
 interface Place { name: string; path: string; kind: string }
 interface Fav { path: string; name: string; network?: boolean; n?: number }
 interface Favs { favorites: Fav[]; frequent: Fav[] }
-interface Last { dir: string; recent: string[] }
+interface Last { dir: string; recent: string[]; save_dir?: string }
 
 export interface PickerOptions {
   start?: string
-  /** 'file' — один файл, 'files' — несколько (вернётся по пути на строку), 'folder' — папка */
-  mode?: 'file' | 'files' | 'folder'
+  /** 'file' — один файл, 'files' — несколько (вернётся по пути на строку), 'folder' — папка,
+   *  'save' — сохранение: инженер выбирает папку и имя файла (name — имя по умолчанию), вернётся полный путь */
+  mode?: 'file' | 'files' | 'folder' | 'save'
+  name?: string
   /** расширения, которые показываем (без «Все файлы») */
   filter?: string
   title?: string
@@ -25,12 +27,13 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init)
   return (await r.json()) as T
 }
-const remember = (body: { dir?: string; file?: string }) =>
+const remember = (body: { dir?: string; file?: string; save_dir?: string }) =>
   fetch('/api/fs/last', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => undefined)
 
 const sep = (p: string) => (p.includes('\\') && !p.includes('/') ? '\\' : '/')
 const join = (dir: string, name: string) => dir + (dir.endsWith('/') || dir.endsWith('\\') ? '' : sep(dir)) + name
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() || p
+const cleanName = (n: string) => n.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim()
 
 function crumbs(path: string): { name: string; path: string }[] {
   const s = sep(path)
@@ -53,6 +56,8 @@ const icon = (it: Item) => (it.dir ? '📁' : /^(xlsx|xlsm|xls|ods)$/.test(it.ex
 function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) => void }) {
   const folderMode = opts.mode === 'folder'
   const multi = opts.mode === 'files'
+  const saveMode = opts.mode === 'save'
+  const [fname, setFname] = useState(opts.name || '')
   const [marked, setMarked] = useState<string[]>([])
   const [places, setPlaces] = useState<Place[]>([])
   const [recent, setRecent] = useState<string[]>([])
@@ -138,7 +143,9 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
   useEffect(() => {
     let live = true
     // папка открывается сразу, не дожидаясь мест, избранного и размера окна (сбор мест может быть медленным)
-    void load(opts.start || '', undefined, false, true)
+    if (saveMode && !opts.start) {  // сохранение начинаем с папки прошлого сохранения
+      void getJson<Last>('/api/fs/last').then(l => load(l.save_dir || l.dir || '', undefined, false, true)).catch(() => load('', undefined, false, true))
+    } else void load(opts.start || '', undefined, false, true)
     getJson<{ places: Place[] }>('/api/fs/places').then(pl => { if (live) setPlaces(pl.places) }).catch(() => undefined)
     getJson<Last>('/api/fs/last').then(last => { if (live) setRecent(last.recent) }).catch(() => undefined)
     getJson<Favs>('/api/fs/favorites').then(f => { if (live && f.favorites) setFavs(f) }).catch(() => undefined)
@@ -162,15 +169,26 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
   const open = (path: string) => { setQuery(''); void postFav('/api/fs/visit', { path }); void load(path, { q: '' }, false, true) }
   const items = useMemo(() => list?.items ?? [], [list])
 
+  // сохранение: имя берём из поля; если такой файл уже есть в папке, спрашиваем про замену
+  const save = (name = fname) => {
+    if (!list || list.error) return
+    const n = cleanName(name)
+    if (!n) return
+    if (items.some(i => !i.dir && i.name.toLowerCase() === n.toLowerCase()) && !window.confirm(`Файл «${n}» уже есть в этой папке. Заменить?`)) return
+    void remember({ save_dir: list.path })
+    done(join(list.path, n))
+  }
   const activate = (it: Item) => {
     if (!list) return
     if (it.dir) { if (!it.locked) open(join(list.path, it.name)); return }
+    if (saveMode) { setFname(it.name); return }
     if (!folderMode) { multi ? setMarked([it.name]) : choose(join(list.path, it.name)) }
   }
   const toggle = (name: string) => setMarked(m => (m.includes(name) ? m.filter(x => x !== name) : [...m, name]))
   // выбор строки: обычный клик — только она, Ctrl/⌘ — добавить или снять, Shift — диапазон от опорной строки
   const rowClick = (e: React.MouseEvent, i: number, it: Item) => {
     setSel(i)
+    if (saveMode && !it.dir) setFname(it.name)
     if (!multi || it.dir) return
     if (e.shiftKey && anchor.current >= 0) {
       const [a, b] = [Math.min(anchor.current, i), Math.max(anchor.current, i)]
@@ -264,18 +282,18 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
   }
 
   const cur = items[sel]
-  const canPick = folderMode ? !!list && !list.error : multi ? marked.length > 0 : !!cur && !cur.dir
+  const canPick = saveMode ? !!list && !list.error && !!cleanName(fname) : folderMode ? !!list && !list.error : multi ? marked.length > 0 : !!cur && !cur.dir
 
   return (
     <div className="fp-back" onMouseDown={e => { if (e.target === e.currentTarget) close(null) }} onKeyDown={onKey}>
-      <div className="fp-win" role="dialog" aria-label={opts.title || 'Выбор файла'}
+      <div className="fp-win" role="dialog" aria-label={opts.title || (saveMode ? 'Сохранить файл' : 'Выбор файла')}
         style={size ? { width: Math.min(size.w, window.innerWidth - 16), height: Math.min(size.h, window.innerHeight - 16) } : undefined}>
         <span className="fp-rs nw" onPointerDown={startResize(-1, -1)} />
         <span className="fp-rs ne" onPointerDown={startResize(1, -1)} />
         <span className="fp-rs sw" onPointerDown={startResize(-1, 1)} />
         <span className="fp-rs se" onPointerDown={startResize(1, 1)} />
         <div className="fp-head">
-          <b>{opts.title || (folderMode ? 'Выбор папки' : multi ? 'Выбор файлов' : 'Выбор файла')}</b>
+          <b>{opts.title || (saveMode ? 'Сохранить файл' : folderMode ? 'Выбор папки' : multi ? 'Выбор файлов' : 'Выбор файла')}</b>
           <button className="fp-x" onClick={() => close(null)} aria-label="Закрыть">✕</button>
         </div>
         <div className="fp-bar">
@@ -334,7 +352,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
                   </span>
                 </div>))}
             </>}
-            {!folderMode && recent.length > 0 && <>
+            {!folderMode && !saveMode && recent.length > 0 && <>
               <div className="fp-cap">Недавние файлы</div>
               {recent.map(f => <button key={f} onClick={() => choose(f)} title={f}>🕘 {baseName(f)}</button>)}
             </>}
@@ -348,12 +366,12 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
             {list?.error && <div className="fp-note bad">{list.error}</div>}
             {busy && !list?.error && <div className="fp-note">Читаю папку…</div>}
             {!busy && list && !list.error && items.length === 0 && (
-              <div className="fp-note">{query ? 'Ничего не найдено.' : folderMode ? 'Вложенных папок нет.' : all ? 'Папка пуста.' : 'Подходящих файлов нет. Включите «Все файлы», если нужного не видно.'}</div>)}
+              <div className="fp-note">{query ? 'Ничего не найдено.' : folderMode ? 'Вложенных папок нет.' : saveMode ? 'Файлов этого типа нет. Введите имя внизу и нажмите «Сохранить».' : all ? 'Папка пуста.' : 'Подходящих файлов нет. Включите «Все файлы», если нужного не видно.'}</div>)}
             {items.map((it, i) => (
               <div key={it.name} role="option" aria-selected={multi ? marked.includes(it.name) : i === sel} data-name={it.name} data-dir={it.dir ? '1' : '0'}
                 className={'fp-row' + (i === sel ? ' sel' : '') + (multi && marked.includes(it.name) ? ' mark' : '') + (it.locked ? ' locked' : '')}
                 onClick={e => { if (dragged.current) return; rowClick(e, i, it) }}
-                onDoubleClick={() => { if (multi && !it.dir) { setMarked([it.name]); if (list) { void remember({ dir: list.path, file: join(list.path, it.name) }); done(join(list.path, it.name)) } } else activate(it) }}>
+                onDoubleClick={() => { if (saveMode && !it.dir) save(it.name); else if (multi && !it.dir) { setMarked([it.name]); if (list) { void remember({ dir: list.path, file: join(list.path, it.name) }); done(join(list.path, it.name)) } } else activate(it) }}>
                 <span className="fp-n" title={it.name}>{multi && !it.dir && <input type="checkbox" checked={marked.includes(it.name)}
                   onChange={() => { toggle(it.name); anchor.current = i }} onClick={e => e.stopPropagation()} />} {icon(it)} {it.name}{it.locked ? ' (нет доступа)' : ''}</span>
                 <span className="fp-d">{it.mtime}</span>
@@ -373,10 +391,12 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
           </>}
           <span className="fp-sp" />
           {!!list?.ms && list.ms > 500 && !list.error && <span className="fp-pick" title="Время чтения папки сервером">чтение {(list.ms / 1000).toFixed(1)} с</span>}
-          <span className="fp-pick">{folderMode ? (list?.path || '') : multi ? (marked.length ? 'Выбрано: ' + marked.length : 'Shift, Ctrl, рамка мышью') : cur && !cur.dir ? cur.name : ''}</span>
+          {saveMode && <input className="fp-fname" value={fname} autoFocus placeholder="Имя файла" aria-label="Имя файла"
+            onChange={e => setFname(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); save() } }} />}
+          {!saveMode && <span className="fp-pick">{folderMode ? (list?.path || '') : multi ? (marked.length ? 'Выбрано: ' + marked.length : 'Shift, Ctrl, рамка мышью') : cur && !cur.dir ? cur.name : ''}</span>}
           <button onClick={() => close(null)}>Отмена</button>
-          <button className="primary" disabled={!canPick} onClick={() => (folderMode ? list && choose(list.path) : multi ? chooseMany() : cur && choose(join(list!.path, cur.name)))}>
-            {folderMode ? 'Выбрать эту папку' : multi ? 'Добавить' : 'Открыть'}</button>
+          <button className="primary" disabled={!canPick} onClick={() => (saveMode ? save() : folderMode ? list && choose(list.path) : multi ? chooseMany() : cur && choose(join(list!.path, cur.name)))}>
+            {saveMode ? 'Сохранить' : folderMode ? 'Выбрать эту папку' : multi ? 'Добавить' : 'Открыть'}</button>
         </div>
       </div>
     </div>
