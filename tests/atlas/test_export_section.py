@@ -568,3 +568,16 @@ def test_word_figures_without_captions(env):
     without = xml_of({**base, 'word_caption_show': False})
     assert 'SEQ' in with_caption and 'TOC \\h \\z \\c' in with_caption
     assert 'SEQ' not in without and 'TOC \\h \\z \\c' not in without and 'w:drawing' in without
+
+
+def test_fund_pack_own_well_filter(env):
+    """Пакет по фонду: свой фильтр скважин вкладки (pack_wells) сужает скважины пакета, не трогая модуль добычи."""
+    from atlas.api_export import pack_options
+    _, pid, projects, _ = env
+    data = projects.data(pid)
+    everything = options_from(pack_options({}, data), data)[0]['wells']
+    assert len(everything) >= 2
+    one = everything[:1]
+    picked = options_from(pack_options({'pack_wells': one}, data), data)[0]['wells']
+    assert picked == one
+    assert options_from(pack_options({'pack_wells': []}, data), data)[0]['wells'] == []

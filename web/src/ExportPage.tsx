@@ -191,8 +191,29 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     setToast('Параметры просмотра перенесены.')
   })
 
+  // Одна кнопка: архив и Word по включённым модулям, пакет, ГГХ и (если включено в ГИС) Word и Excel — в один ZIP.
+  const exportAll = () => run('all', async () => {
+    const made: ExportResult[] = []
+    if (readyPlan) {
+      await prepare()
+      const a = await exportApi.archive(project.id, form); setArchive({ key, result: a }); made.push(a)
+      const w = await exportApi.word(project.id, form); setWord({ key, result: w }); made.push(w)
+    }
+    if (modules.includes('pack')) { const p = await exportApi.pack(project.id, form); setPack({ key, result: p }); made.push(p) }
+    if (modules.includes('ggh')) { const g = await exportApi.ggh(project.id, form); setGgh({ key, result: g }); made.push(g) }
+    if (form.gis_enabled === true && gisAvailable) {
+      const g = await exportApi.gis(project.id, form); setGisFile(g); made.push(g)
+      const h = await exportApi.gisHikg(project.id, form); setHikgFile(h); made.push(h)
+    }
+    const names = made.flatMap(r => r.files)
+    if (!names.length) throw new Error('Включите в выгрузку хотя бы один модуль, пакет, ГГХ или ГИС.')
+    const { file } = await exportApi.bundle(project.id, names)
+    saveLink(projectsApi.exportUrl(project.id, file))
+  })
+
   const ready_files = [...(word?.key === key ? word.result.files : []), ...(archive?.key === key ? archive.result.files : []),
-    ...(pack?.key === key ? pack.result.files : []), ...(ggh?.key === key ? ggh.result.files : [])]
+    ...(pack?.key === key ? pack.result.files : []), ...(ggh?.key === key ? ggh.result.files : []),
+    ...(gisFile ? gisFile.files : []), ...(hikgFile ? hikgFile.files : [])]
   const bundle = () => run('bundle', async () => {
     const { file } = await exportApi.bundle(project.id, ready_files)
     saveLink(projectsApi.exportUrl(project.id, file))
@@ -217,6 +238,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     <>
       <p className="lede">Word: страница на скважину — рисунок (ГВК, hг эф и Кг ср.взв по пачкам), таблица изменения ГВК и подпись. А4 альбомная. Скважины без замеров ГВК пропускаются.</p>
       <div className="param-bar flat">
+        <Section title="Выгрузка">
+          <Check {...F} field="gis_enabled" label="Включить ГИС и ГВК (Word и Excel) в «Выгрузить всё»" def={false} />
+        </Section>
         <Section title="Скважины">
           <Multi {...F} field="gis_wells" label="Скважины" options={choices.gis!.wells} empty="все" />
         </Section>
@@ -250,6 +274,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       {gisFile && <Outcome title="Word: ГИС и ГВК" result={gisFile} pid={project.id} ggh />}
     </>
   )
+  const packGroups = choices.groups.production ?? []
+  const packChosenGroups = ((form.pack_groups as string[] | undefined) ?? packGroups).filter(g => packGroups.includes(g))
+  const packWells = (choices.wells.production ?? []).filter(w => packChosenGroups.includes(choices.mapping[w] ?? 'Без группы'))
   const packPanel = (
     <>
       <p className="lede">Приложения к отчету: график «Производительность» каждой скважины фонда, по 2, 4 или 6 на лист A4. Шрифт, вид графиков, подписи и оформление берутся из общих настроек ниже.</p>
@@ -263,6 +290,10 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           </div>
           {!modules.includes('pack') ? <p className="muted pad">Включите, чтобы выбрать параметры. Файлы создаются кнопками «Сформировать архив» и «Создать отчет Word» внизу страницы вместе с остальными модулями.</p> : <>
           <div className="param-bar flat">
+            <Section title="Скважины">
+              <Multi {...F} field="pack_groups" label="Пакет: группы" options={packGroups} />
+              <Multi {...F} field="pack_wells" label="Пакет: скважины" options={packWells} prefix="№ " />
+            </Section>
             <Section title="Состав">
               {KINDS.map(([k, l]) => {
                 const chosen = (form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']
@@ -473,9 +504,11 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       <div className="toolbar">
         <Check {...F} field="auto" label="Автоматически обновлять предпросмотр" def={false} />
         <span className="spacer" />
-        {busy && <span className="pulse">{{ preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', pack: 'Построение графиков всех скважин, это может занять несколько минут…', ggh: 'Построение графиков и страниц ГГХ…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
+        {busy && <span className="pulse">{{ all: 'Создание всех файлов выгрузки и общего ZIP…', preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', pack: 'Построение графиков всех скважин, это может занять несколько минут…', ggh: 'Построение графиков и страниц ГГХ…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
         <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={preview}>Предпросмотр</button>
-        <button type="button" className="primary" disabled={!ready || busy !== null || packNoSeasons} onClick={makeArchive}>Сформировать архив</button>
+        <button type="button" className="primary" disabled={busy !== null || packNoSeasons} onClick={exportAll}
+          title="Все включённые вкладки (модули, пакет, ГГХ, ГИС при включении) одним ZIP">Выгрузить всё</button>
+        <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={makeArchive}>Сформировать архив</button>
         <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={makeWord}>Создать отчет Word</button>
       </div>
       {!ready && <div className="note info">Включите хотя бы один модуль в выгрузку.</div>}

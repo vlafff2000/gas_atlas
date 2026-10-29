@@ -392,6 +392,10 @@ def pack_options(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
     base = {'modules': ['production'], 'production_view': 'curve', 'production_split': 'well',
             'exclusions': form.get('exclusions', True)}
     base.update({k: v for k, v in form.items() if k.startswith('style_')})
+    # Свой фильтр вкладки: группы и скважины пакета передаются модулю добычи (не заданные — все скважины фонда).
+    for part in ('groups', 'wells'):
+        if form.get('pack_' + part) is not None:
+            base['production_' + part] = list(form['pack_' + part])
     for kind in PACK_KINDS:
         if kind not in kinds:
             base['production_periods_' + kind] = []
