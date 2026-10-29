@@ -39,7 +39,7 @@ def class_keys(edges: Sequence[int]) -> tuple[str, ...]:
 
 def class_index(days: np.ndarray, rate_k: np.ndarray, edges: Sequence[int]) -> np.ndarray:
     """Номер класса по скважинам: 0 — нет суток с расходом; 1… — диапазон по границам (граница относится к верхнему классу)."""
-    index = np.searchsorted(np.asarray(edges, float), rate_k, side='right') + 1
+    index = np.searchsorted(np.asarray(edges, float), np.round(rate_k, 6), side='right') + 1   # округление: граница не должна съезжать из-за деления на 1000
     return np.where(days == 0, 0, index)
 
 

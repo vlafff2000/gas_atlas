@@ -87,7 +87,9 @@ def class_scheme(prod: pd.DataFrame, kind: str, periods: list[str], params: Mapp
     count = int(params.get('class_count') or an_wells.DEFAULT_COUNT)
     edges = an_wells.auto_edges(rates, count)
     if not edges:
-        return (), Note('Автоматические границы классов не подобраны: в выбранных сезонах нет скважин с расходом.', 'warning')
+        reason = ('выберите сезоны' if not periods else 'задайте число классов не меньше 2' if count < 2
+                  else 'в выбранных сезонах нет скважин с расходом')
+        return (), Note(f'Автоматические границы классов не подобраны: {reason}.', 'warning')
     shown = ', '.join(map(str, edges))
     return edges, Note(f'Автоматические границы классов, тыс. м³/сут: {shown}. Подобраны по {len(rates)} скв.-сезонам с расходом '
                        f'(квантили фонда, кратно 5; совпавшие границы убраны — классов с расходом {len(edges) + 1} из {count}). '
