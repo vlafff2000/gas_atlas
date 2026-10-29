@@ -756,10 +756,10 @@ def _calc_row(data: Data, row: Row, rows: dict[int, Row], cache: dict[int, Calc 
         out.label, out.unit = calc.describe(row.transform, out.label, out.unit, word)
         x_date = pd.api.types.is_datetime64_any_dtype(out.frame['x'])
         before = '' if row.source == 'formula' else meta(row.dataset, row.y).unit     # у формулы единица — только ручная
-        seasons = _seasons(data, row) if row.transform.season else None
+        seasons = _seasons(data, row) if row.transform.season or row.transform.op == 'season' else None
         out.frame, more = calc.apply(out.frame, row.transform, before, f'Ряд {row.index}', x_date, seasons)
         notes += more
-        if x_date and (row.transform.op == 'cumsum' or (row.transform.cum and row.transform.op != 'month')) and not out.frame.empty:
+        if x_date and (row.transform.op == 'cumsum' or (row.transform.cum and row.transform.op not in ('month', 'season'))) and not out.frame.empty:
             out.frame = calc.extend_flat(out.frame, _span_end(data, row), seasons)
             if row.transform.overlay and seasons is not None:
                 out.frame = calc.overlay_seasons(out.frame, seasons)

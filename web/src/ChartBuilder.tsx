@@ -51,11 +51,11 @@ export interface BuilderRow {
   hist_agg?: Agg                           // гистограмма: сводка значений Y по категории
 }
 export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; season?: boolean; overlay?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
-type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
+type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'season' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
 type Agg = 'mean' | 'sum' | 'max' | 'min'
 const TRANSFORMS: [TransformOp, string][] = [
   ['none', 'без преобразования'], ['cumsum', 'накопленное (с начала периода)'], ['rolling', 'скользящее среднее'],
-  ['day', 'по суткам'], ['month', 'по месяцам'], ['group', 'по скважинам выборки (одна кривая)'], ['norm', 'нормировка'],
+  ['day', 'по суткам'], ['month', 'по месяцам'], ['season', 'по сезонам'], ['group', 'по скважинам выборки (одна кривая)'], ['norm', 'нормировка'],
   ['mul', 'умножить на число'], ['div', 'разделить на число'], ['add', 'прибавить число'], ['diff', 'разность соседних значений'],
 ]
 const X_SCOPES: [NonNullable<BuilderRow['x_scope']>, string][] = [
@@ -655,7 +655,7 @@ function TransformFields({ t, setT, dateX }: { t: RowTransform; setT: (p: Partia
       <label className="field">
         <span className="field-label">Преобразование</span>
         <select value={t.op} onChange={e => setT({ op: e.target.value as TransformOp })}>
-          {TRANSFORMS.map(([v, label]) => <option key={v} value={v} disabled={!dateX && (v === 'day' || v === 'month')}>{label}</option>)}
+          {TRANSFORMS.map(([v, label]) => <option key={v} value={v} disabled={!dateX && (v === 'day' || v === 'month' || v === 'season')}>{label}</option>)}
         </select>
       </label>
       {t.op === 'rolling' && (
@@ -674,7 +674,7 @@ function TransformFields({ t, setT, dateX }: { t: RowTransform; setT: (p: Partia
           </label>
         </>
       )}
-      {(t.op === 'day' || t.op === 'month' || t.op === 'group') && (
+      {(t.op === 'day' || t.op === 'month' || t.op === 'season' || t.op === 'group') && (
         <label className="field">
           <span className="field-label">Сводка</span>
           <select value={t.agg ?? 'mean'} onChange={e => setT({ agg: e.target.value as Agg })}>
@@ -694,7 +694,7 @@ function TransformFields({ t, setT, dateX }: { t: RowTransform; setT: (p: Partia
           <span>сравнение сезонов (X — сутки от начала сезона)</span>
         </label>
       )}
-      {(t.op === 'day' || t.op === 'month' || t.op === 'group') && t.agg === 'sum' && (
+      {(t.op === 'day' || t.op === 'month' || t.op === 'season' || t.op === 'group') && t.agg === 'sum' && (
         <label className="field check">
           <input type="checkbox" checked={!!t.cum} onChange={e => setT({ cum: e.target.checked || undefined })} />
           <span>и накопленное (нарастающий итог суммы)</span>
