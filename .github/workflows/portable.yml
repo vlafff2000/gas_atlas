@@ -89,9 +89,10 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
+          # один файл без обёртки: скачивается сам архив (zip для Windows, tar.gz для РЕД ОС), а не zip с архивом внутри
           name: PXG_Unified_portable_${{ matrix.target }}
-          path: gas_atlas/dist/PXG_Unified_portable_*
-          compression-level: 0
+          path: gas_atlas/dist/PXG_Unified_portable_*${{ matrix.target == 'windows' && '.zip' || '.tar.gz' }}
+          archive: false
       - uses: actions/upload-artifact@v4
         with:
           name: Base_manifest_${{ matrix.target }}
