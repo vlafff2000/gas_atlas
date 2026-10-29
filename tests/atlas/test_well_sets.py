@@ -1,13 +1,6 @@
-"""Выбор скважин: список из буфера обмена, пересечение групп и скважин, пользовательские пресеты, группы в ГДИ."""
+"""Выбор скважин: список из буфера обмена, пересечение групп и скважин, пользовательские пресеты."""
 from atlas import well_sets
-from atlas.contract import Data
-from atlas.domain import DatasetKind
-from atlas.engine.core import exclusions
-from atlas.engine.core.demo import well_demo_frames
-from atlas.modules.gdi import GdiModule
-from atlas.modules.gdi_trend import GdiTrendModule
 
-GDI = DatasetKind.GDI
 MAPPING = {'1': {'group': 'ГСП 1'}, '2': {'group': 'ГСП 1'}, '3': {'group': 'ГСП 2'}, '4': {'group': 'ГСП 2'}}
 
 
@@ -53,27 +46,3 @@ def test_user_preset_needs_name_and_wells(tmp_path, monkeypatch):
             continue
         raise AssertionError('пресет без названия или скважин не должен сохраняться')
 
-
-def test_gdi_groups_limit_wells_and_hide_the_rest():
-    gdi = exclusions.identify(well_demo_frames()['gdi'].copy(), 'gdi')
-    wells = sorted(gdi.well.astype(str).unique(), key=lambda w: int(w) if w.isdigit() else w)
-    group_of = {w: ('ГСП 1' if i < 2 else 'ГСП 2') for i, w in enumerate(wells)}
-    mapping = {w: {'group': g} for w, g in group_of.items()}
-    module = GdiModule()
-    data = Data({GDI: gdi}, {GDI: gdi}, {})
-    data.mapping = mapping
-    assert module.options('groups', data, {}) == ['ГСП 1', 'ГСП 2']
-    picked = module.spec.coerce({'groups': ['ГСП 1'], 'wells': [wells[0], wells[-1]]})
-    result = module.run(data, picked)
-    notes = [n.text for n in result.notes]
-    assert any('Скрыто фильтром' in t for t in notes)
-    assert len(result.charts) == 1                                       # скважина из другой группы не попала
-
-
-def test_gdi_trend_group_without_its_wells_gives_empty_note():
-    gdi = exclusions.identify(well_demo_frames()['gdi'].copy(), 'gdi')
-    data = Data({GDI: gdi}, {GDI: gdi}, {})
-    data.mapping = {}
-    params = GdiTrendModule().spec.coerce({'groups': ['Нет такой'], 'wells': []})
-    result = GdiTrendModule().run(data, params)
-    assert result.notes and 'не попало' in result.notes[0].text

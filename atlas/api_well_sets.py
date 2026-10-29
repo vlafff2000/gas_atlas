@@ -1,5 +1,6 @@
 """Пресеты скважин: `GET /api/projects/{pid}/well-presets` (группы, фонды, опорная сетка и пользовательские),
-`POST /api/well-presets` {name, wells} и `DELETE /api/well-presets/{id}`.
+`POST /api/well-presets` {name, wells}, `DELETE /api/well-presets/{id}` и `GET /api/projects/{pid}/well-filter`
+(фильтр скважин проекта: сколько скважин остаётся; сам фильтр сохраняется настройкой ``well_filter``).
 
 Логика — ``atlas/well_sets.py``; пресеты проекта считаются из данных проекта, пользовательские лежат в ~/.pxg.
 """
@@ -13,7 +14,7 @@ from .contract import ParamError
 from .engine.core.config import natural_key
 from .modules.an_report import reference_pressure
 from .projects import Projects
-from . import well_sets
+from . import well_filter, well_sets
 
 
 def project_presets(projects: Projects, pid: str) -> list[dict]:
@@ -57,7 +58,11 @@ def routes(projects: Projects) -> list[Route]:
         well_sets.remove_user_preset(request.path_params['preset'])
         return {'presets': well_sets.user_presets()}
 
+    def filter_status(request, body):
+        return well_filter.status(projects.data(request.path_params['pid']))
+
     return [Route('/api/projects/{pid}/well-presets', _endpoint(get)),
+            Route('/api/projects/{pid}/well-filter', _endpoint(filter_status)),
             Route('/api/well-presets', _endpoint(create), methods=['POST']),
             Route('/api/well-presets/{preset}', _endpoint(remove), methods=['DELETE'])]
 

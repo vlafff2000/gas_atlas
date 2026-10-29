@@ -28,7 +28,7 @@ from atlas.engine.core.config import parse_wells
 
 from .contract import Data, MissingData, ParamError
 from .domain import DatasetKind
-from . import group_colors, model_source
+from . import group_colors, model_source, well_filter
 
 _CACHE_PROJECTS = 3
 WARM_ROWS = 100_000     # меньшие проекты и так открываются мгновенно
@@ -58,6 +58,8 @@ EDITABLE_SETTINGS = {
     'chart_style': lambda v: isinstance(v, dict) and all(k in ('points', 'legend', 'grid', 'autoscale') and isinstance(x, bool)
                                                          for k, x in v.items()),
     # Цвета таблиц ГИС 5.4 в XLSX: вид пачки («покрышка», …) или «низкий Кг» → HEX; пустой словарь — значения по умолчанию.
+    # Фильтр скважин (группы и скважины) — сквозной для всех модулей; None — фильтр снят.
+    'well_filter': well_filter.valid,
     'an_colors': lambda v: isinstance(v, dict) and all(isinstance(k, str) and len(k) <= 40 and isinstance(x, str)
                                                        and re.fullmatch(r'#?[0-9A-Fa-f]{6}', x) for k, x in v.items()),
 }
@@ -66,7 +68,8 @@ SETTING_LABELS = {'season_format': 'Вид названий сезонов', 'r2
                   'auto_seasons': 'Определять сезоны по накопленному расходу', 'show_neutral_periods': 'Показывать нейтральные периоды в списках сезонов', 'season_gap_days': 'Минимальная пауза (нейтральный период), сут',
                   'season_rate_share': 'Порог расхода, % от типичного', 'season_schedule': 'Расписание периодов', 'peak_windows': 'Пиковые окна',
                   'auto_peaks': 'Искать пиковые режимы по расходу', 'peak_factor': 'Пик: во сколько раз выше медианы сезона',
-                  'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков'}
+                  'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков',
+                  'well_filter': 'Фильтр скважин'}
 
 
 def _setting_value(name: str, value: Any) -> Any:
@@ -83,6 +86,8 @@ def _setting_value(name: str, value: Any) -> Any:
         return float(value)
     if name == 'manometer_wells':      # как ``parse_wells`` 5.8: «№», запятые, пробелы, естественный порядок
         return parse_wells(value if isinstance(value, str) else ', '.join(str(x) for x in value))
+    if name == 'well_filter':
+        return well_filter.clean(value)
     if name == 'visible_pages':
         return list(navigation.DEFAULT) if value is None else [navigation.ALIASES.get(x, x) for x in value]
     return value
@@ -231,7 +236,7 @@ class Projects:
         out.project = data.project
         if {DatasetKind.MODEL, DatasetKind.MODEL_OBJECT, DatasetKind.MODEL_CELLS} & set(keep):
             self._add_models(out)
-        return out
+        return well_filter.apply(out)      # фильтр скважин проекта — для всех модулей
 
     @staticmethod
     def _add_models(data: Data) -> None:
@@ -303,6 +308,8 @@ class Projects:
             action = 'Выбор рабочих горизонтов'
         elif set(values) == {'chart_style'}:
             action = 'Оформление графиков'
+        elif set(values) == {'well_filter'}:
+            action = 'Фильтр скважин'
         return self.summary(self._commit(pid, cfg, expected, action, {'changed': dict(values)}))
 
     def change_exclusions(self, pid: str, dataset: DatasetKind, add: Iterable[str] = (), remove: Iterable[str] = (),

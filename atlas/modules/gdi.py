@@ -10,11 +10,10 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
-from atlas.engine.core.config import COLORS, natural_key, ordered
+from atlas.engine.core.config import COLORS, natural_key
 from atlas.engine.modules import gdi as legacy
 from atlas.engine.modules import well_analysis
 
-from .. import well_sets
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
@@ -219,8 +218,6 @@ class GdiModule(Module):
         order=30,
         save_label='Сохранить расчет в историю',
         params=(
-            Param('groups', 'Группы', 'multi', default=[], dynamic=True, section='Выбор данных', empty='все',
-                  help='Группы и скважины пересекаются: в расчёт идут скважины выбранных групп, которые есть и в списке скважин.'),
             Param('wells', 'Скважины', 'multi', default=[], source=Source(GDI, 'well'), section='Выбор данных',
                   empty='первые 5', wells_picker=True, help='Не выбрано ничего — показаны первые пять скважин по номеру: график на каждую '
                   'скважину тяжёлый, сотни графиков браузер не показывает быстро. Выберите нужные скважины в списке.'),
@@ -272,26 +269,15 @@ class GdiModule(Module):
     )
 
     # --- расчёт ---
-    def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
-        if name == 'groups':
-            wells = data[GDI].well.astype(str).unique()
-            return ordered(data.mapping.get(w, {}).get('group', 'Без группы') for w in sorted(wells, key=well_key))
-        return super().options(name, data, params)
-
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         wells, seasons, n = params['wells'], params['seasons'], int(params['last_n'])
         result = Result()
         source = in_period(data[GDI], params)
         known = sorted(source.well.astype(str).unique(), key=well_key)
-        scope, hidden = well_sets.scoped(wells, params.get('groups') or [], data.mapping, known)
-        if hidden:
-            result.notes.append(Note(f'Скрыто фильтром: {hidden} скв. из выбранных групп, в списке скважин их нет.'))
-        if scope is not None:
-            wells = scope
         if seasons and params['season_wells']:
             wells = self.season_wells(source, wells, seasons, n, result)
             seasons = []
-        elif scope is None and not wells:
+        elif not wells:
             wells = known[:DEFAULT_WELLS]
             if len(known) > DEFAULT_WELLS:
                 result.notes.append(Note(f'Скважины не выбраны: показаны первые {DEFAULT_WELLS} из {len(known)} по номеру. '
