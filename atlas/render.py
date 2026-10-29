@@ -614,7 +614,7 @@ def header_sheet(ws, table: Table) -> None:
 
 def _apply_styles(ws, table: Table, first_row: int) -> None:
     """Заливка, цвет шрифта и объединения из ``table.styles`` / ``table.merges``; ``first_row`` — первая строка данных на листе."""
-    from openpyxl.styles import Font, PatternFill
+    from openpyxl.styles import Border, Font, PatternFill, Side
     column = {c.key: k for k, c in enumerate(table.columns, 1)}
     for style in table.styles:
         keys = style.columns or list(column)
@@ -625,6 +625,10 @@ def _apply_styles(ws, table: Table, first_row: int) -> None:
                     cell.fill = PatternFill('solid', fgColor=style.fill)
                 if style.font:
                     cell.font = Font(color=style.font)
+                if style.border == 'top':
+                    side = cell.border.left
+                    cell.border = Border(left=side, right=cell.border.right, top=Side(style='medium', color='000000'),
+                                         bottom=cell.border.bottom)
     for merge in table.merges:
         cols = [column[key] for key in merge.columns]
         ws.merge_cells(start_row=first_row + merge.first, end_row=first_row + merge.last,

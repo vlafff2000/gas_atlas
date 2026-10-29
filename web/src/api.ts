@@ -74,7 +74,7 @@ export interface Table {
   styles?: TableStyle[]   // заливка и цвет шрифта строк или ячеек, как в XLSX
   merges?: TableMerge[]   // объединённые ячейки, как в XLSX (строки first..last, колонки подряд)
 }
-export interface TableStyle { rows: number[]; fill: string; font: string; columns: string[] }
+export interface TableStyle { rows: number[]; fill: string; font: string; columns: string[]; border: string }
 export interface TableMerge { first: number; last: number; columns: string[] }
 /** Ручное оформление оси; пусто — авто (atlas/chart_style.py). */
 export interface AxisStyle { decimals?: number; date_format?: string; font?: string; tick_size?: number; title_size?: number }
