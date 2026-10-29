@@ -9,19 +9,22 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import os
 import re
 import threading
 import uuid
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
 from atlas.engine.core import exclusions
-from atlas.engine.core.config import DEFAULT_SETTINGS, STORAGE, natural_key, ordered
+from atlas.engine.core.config import DEFAULT_SETTINGS, ROOT, STORAGE, natural_key, ordered
 from atlas.engine.core.history import filter_details
 from atlas.engine.core.performance import Project as FrameCache
 from atlas.engine.core.storage import Store
+from atlas.engine.core import storage_path
 from atlas import navigation
 from atlas.engine.modules import seasons
 from atlas.engine.core.config import parse_wells
@@ -123,6 +126,8 @@ class ProjectInfo:
 class Projects:
     def __init__(self, root=STORAGE, warm: bool = False):
         self.store = Store(root)
+        if Path(root).resolve() == STORAGE and not os.environ.get('GAS_ATLAS_STORAGE'):
+            storage_path.adopt(STORAGE, storage_path.others(STORAGE, ROOT))      # проекты второй папки хранения не теряются
         self.warm = warm        # после открытия большого проекта готовить суточный набор «Поскважинного анализа» в фоне
         self._lock = threading.RLock()
         self._frames: OrderedDict[tuple, FrameCache] = OrderedDict()

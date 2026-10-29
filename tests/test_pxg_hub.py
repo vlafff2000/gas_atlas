@@ -31,7 +31,8 @@ def test_env_shares_one_project_folder(tmp_path):
 
 
 def test_old_atlas_storage_stays(tmp_path):
-    (tmp_path / 'storage').mkdir()
+    (tmp_path / 'storage' / 'projects' / ('a' * 32)).mkdir(parents=True)
+    (tmp_path / 'storage' / 'projects' / ('a' * 32) / 'manifest.json').write_text('{}', encoding='utf-8')
     assert project_env(APPS, tmp_path / 'P', root=tmp_path)['GAS_ATLAS_STORAGE'] == str(tmp_path / 'storage')
 
 

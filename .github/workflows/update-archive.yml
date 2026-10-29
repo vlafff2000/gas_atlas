@@ -73,7 +73,7 @@ jobs:
           names = zipfile.ZipFile(path).namelist() if path.endswith('.zip') else tarfile.open(path).getnames()
           site = 'python/Lib/site-packages/' if target == 'windows' else 'python/lib/python3.13/site-packages/'
           # записи-каталоги выше site-packages (python/lib, python/lib/python3.13) допустимы
-          bad = [n for n in names if (n.startswith('python/') and not n.startswith(site) and not site.startswith(n.rstrip('/') + '/')) or n.startswith(('Проект/', 'storage/'))]
+          bad = [n for n in names if (n.startswith('python/') and not n.startswith(site) and not site.startswith(n.rstrip('/') + '/')) or n.split('/')[0] in ('Проект', 'storage', 'logs', '.pxg') or n.endswith(('history.sqlite', 'import_profiles.json', 'well_presets.json'))]
           assert not bad, bad[:10]
           for need in ('pxg_hub/hub.py', 'ОБНОВЛЕНИЕ.txt', 'LIBS_ADDED.txt'):
               assert need in names, need
