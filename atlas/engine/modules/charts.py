@@ -100,7 +100,7 @@ def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves
     d=prepare(df);d=d[d.well.eq(well)]
     if linear:d=d[d.q>0]
     ds=sorted(d.date.unique(),reverse=True);palette={date:COLORS[i%len(COLORS)] for i,date in enumerate(ds)}
-    for i,(key,g) in enumerate(d.groupby(KEYS,sort=False,dropna=False)):
+    for i,(key,g) in enumerate(d.sort_values(['date','method','study'],kind='stable').groupby(KEYS,sort=False,dropna=False)):
         _,date,method,study=key;color=palette[date];r=analyze_study(g,threshold)
         label=date.strftime('%d.%m.%Y')+(' · '+method if method else '')+(' · '+study if study else '')
         ids=g['_point_id'] if '_point_id' in g else pd.Series('',index=g.index)
