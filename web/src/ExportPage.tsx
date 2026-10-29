@@ -842,6 +842,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
             <Check {...F} field="word_compress" label="Сжать картинки (легче файл)" def={false} />
           </Section>
           <Section title="Подпись">
+            <Check {...F} field="word_caption_show" label="Подписи рисунков" def={true} />
             <Select {...F} field="word_caption_mode" label="Вид подписи" def="field" options={[['field', 'Подпись Word (поле «Рисунок», ссылки)'], ['text', 'Обычный текст']]} />
             <Select {...F} field="word_caption_pos" label="Положение" def="below" options={[['below', 'Под графиком'], ['above', 'Над графиком']]} />
             <Select {...F} field="word_caption_font" label="Шрифт" def="Times New Roman" options={FONT_LIST} />

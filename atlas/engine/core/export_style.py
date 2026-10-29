@@ -49,7 +49,7 @@ def _set_limits(target, name: str, spec: Mapping[str, Any], date: bool) -> None:
 
 def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], title: str, k: float, base: float, date_axis: bool) -> None:
     from matplotlib.dates import DateFormatter
-    from matplotlib.ticker import MultipleLocator
+    from matplotlib.ticker import AutoMinorLocator, MultipleLocator, NullLocator
     chart = style.get('chart') or {}
     axes = style.get('axes') or {}
     general = _family(chart.get('font'))
@@ -101,17 +101,35 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
             target.spines[side].set_color(spec['color'])
         if params:
             axis.set_tick_params(**params)
+        if spec.get('tick_bold') or spec.get('tick_italic'):
+            for tick in axis.get_ticklabels():
+                tick.set_fontweight('bold' if spec.get('tick_bold') else 'normal')
+                tick.set_fontstyle('italic' if spec.get('tick_italic') else 'normal')
         if 'title_size' in spec:
             axis.label.set_fontsize(spec['title_size'])
         if font:
             axis.label.set_fontfamily(font)
+        if spec.get('title_bold'):
+            axis.label.set_fontweight('bold')
+        if spec.get('title_italic'):
+            axis.label.set_fontstyle('italic')
 
     # сетка и фон
-    mode = chart.get('grid') or ('both' if chart.get('grid_color') else '')
+    mode = chart.get('grid') or ('both' if chart.get('grid_color') or chart.get('grid_width') else '')
     if mode:
         color = chart.get('grid_color') or '#e4e9ef'
         for axis, on in ((ax.xaxis, mode in ('both', 'v')), (ax.yaxis, mode in ('both', 'h'))):
-            axis.grid(True, color=color, linewidth=.7) if on else axis.grid(False)
+            axis.grid(True, color=color, linewidth=chart.get('grid_width', .7)) if on else axis.grid(False)
+    # доп. линии: между основными делениями; «Нет» у сетки убирает и их. Без доп. делений у осей — автоматические
+    minor = chart.get('minor_grid')
+    tuned = 'minor_grid_color' in chart or 'minor_grid_width' in chart
+    if minor == 'hide' or mode == 'none':
+        ax.grid(False, which='minor')
+    elif minor == 'show' or tuned:
+        for axis, on in ((ax.xaxis, mode in ('', 'both', 'v')), (ax.yaxis, mode in ('', 'both', 'h'))):
+            if minor == 'show' and isinstance(axis.get_minor_locator(), NullLocator) and axis.get_scale() == 'linear' and not (axis is ax.xaxis and date_axis):
+                axis.set_minor_locator(AutoMinorLocator())
+            axis.grid(on, which='minor', color=chart.get('minor_grid_color') or '#f0f2f5', linewidth=chart.get('minor_grid_width', .5))
     if chart.get('background'):
         f.patch.set_facecolor(chart['background'])
         ax.set_facecolor(chart['background'])
