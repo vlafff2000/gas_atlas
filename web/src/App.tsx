@@ -14,6 +14,8 @@ import { TableView } from './TableView'
 import { TableDock } from './TableDock'
 import { formatDate } from './format'
 import { inMenu, PROJECT_PAGES, projectsApi, saveLink } from './api_projects'
+import { MenuWindow } from './MenuWindow'
+import { menuPrefs, PAGES_GROUP } from './menuPrefs'
 import { ProjectPages } from './ProjectPage'
 import { ImportPage } from './ImportPage'
 import { EmptyProjectSteps, hasData, NewProjectSteps } from './FirstSteps'
@@ -71,6 +73,10 @@ export function App() {
   const collapsed = usePref(sidebarCollapsed)
   const currentTheme = usePref(theme)
   const [search, setSearch] = useState(false)
+  const menu = usePref(menuPrefs)
+  const hiddenGroups = new Set(menu?.groups ?? [])
+  const [menuOpen, setMenuOpen] = useState(false)
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K' || e.code === 'KeyK')) { e.preventDefault(); setSearch(o => !o) }
@@ -81,9 +87,9 @@ export function App() {
   const sections = useMemo<Section[]>(() => [
     { id: '@import', title: 'Импорт данных', group: 'Данные', hint: 'загрузка файлов' },
     { id: '@help', title: 'Справка: форматы данных', group: 'Данные', hint: 'какие файлы и колонки принимает каждый модуль FAQ' },
-    ...groups.flatMap(([group, items]) => items.filter(m => inMenu(m.id, project)).map(m => ({ id: m.id, title: m.title, group, hint: m.description }))),
-    ...(project ? PROJECT_PAGES.filter(p => inMenu(p.id, project)).map(p => ({ id: p.id, title: p.title, group: 'Документы и настройки' })) : []),
-  ], [groups, project])
+    ...groups.filter(([group]) => !hiddenGroups.has(group)).flatMap(([group, items]) => items.filter(m => inMenu(m.id, project)).map(m => ({ id: m.id, title: m.title, group, hint: m.description }))),
+    ...(project && !hiddenGroups.has(PAGES_GROUP) ? PROJECT_PAGES.filter(p => inMenu(p.id, project)).map(p => ({ id: p.id, title: p.title, group: PAGES_GROUP })) : []),
+  ], [groups, project, menu])
 
   const openProject = (id: string) => { loadProjects().then(() => setProjectId(id)) }
   const createDemo = async (large = false) => {
@@ -109,6 +115,10 @@ export function App() {
           <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
           <span className="side-label">Найти раздел</span><kbd className="side-label">Ctrl K</kbd>
         </button>
+        <button type="button" className="side-menu" onClick={() => setMenuOpen(true)} title="Какие разделы и группы показывать в меню">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" /></svg>
+          <span className="side-label">Разделы меню</span>
+        </button>
         <div className="project-picker">
           <label className="project-picker-field">
             <span>Объект</span>
@@ -122,7 +132,7 @@ export function App() {
         <nav aria-label="Разделы">
           <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page?.startsWith('@import') ? 'page' : undefined}>Импорт данных</a></li>
             <li><a href="#/@help" aria-current={page?.startsWith('@help') ? 'page' : undefined}>Справка: форматы данных</a></li></ul></section>
-          {groups.filter(([, items]) => items.some(m => inMenu(m.id, project))).map(([group, items]) => (
+          {groups.filter(([group, items]) => !hiddenGroups.has(group) && items.some(m => inMenu(m.id, project))).map(([group, items]) => (
             <section key={group}>
               <h2>{group}</h2>
               <ul>
@@ -141,9 +151,9 @@ export function App() {
               </ul>
             </section>
           ))}
-          {project && (
+          {project && !hiddenGroups.has(PAGES_GROUP) && (
             <section>
-              <h2>Документы и настройки</h2>
+              <h2>{PAGES_GROUP}</h2>
               <ul>{PROJECT_PAGES.filter(p => inMenu(p.id, project)).map(p => (
                 <li key={p.id}><a href={'#/' + p.id} aria-current={page === p.id ? 'page' : undefined}>{p.title}</a></li>
               ))}</ul>
@@ -163,6 +173,7 @@ export function App() {
         </div>
       </aside>
       <SectionSearch sections={sections} open={search} onClose={() => setSearch(false)} onGo={id => { location.hash = '#/' + id }} />
+      {menuOpen && <MenuWindow groups={groups} project={project} onClose={closeMenu} />}
 
       <main className="workspace">
         {page?.startsWith('@help') ? (

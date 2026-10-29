@@ -1,5 +1,4 @@
 // Раздел «Настройки» (5.8: страница «Настройки» в app/main.py и «Оформление графиков» боковой панели).
-import { PageList } from './PageList'
 import { useCallback, useEffect, useState } from 'react'
 import { pickLocalFiles } from './FilePicker'
 import { api } from './api'
@@ -34,7 +33,6 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
   const [threshold, setThreshold] = useState(String(s.r2_threshold ?? 0.95))
   const [manometers, setManometers] = useState(((s.manometer_wells as string[] | null) ?? []).join(', '))
   const [anColors, setAnColors] = useState<Record<string, string>>({ ...AN_DEFAULTS, ...((s.an_colors as Record<string, string> | null) ?? {}) })
-  const [pages, setPages] = useState<string[] | null>(null)
   const [mapsUrl, setMapsUrl] = useState<string | null>(null)
   const [style, setStyle] = useState<Record<string, boolean>>({})
   const [originals, setOriginals] = useState(true)
@@ -53,7 +51,6 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
     const saved = (s.chart_style as Record<string, boolean> | null) ?? {}
     setStyle({ points: true, legend: true, grid: true, ...saved })
   }, [s.season_start, s.season_end, s.r2_threshold, s.auto_seasons, s.show_neutral_periods, s.season_gap_days, s.season_rate_share, s.season_schedule, s.peak_windows, s.auto_peaks, s.peak_factor, s.manometer_wells, s.chart_style])
-  useEffect(() => { if (details) setPages(details.visible_pages) }, [details])
   useEffect(() => { api.appLinks().then(r => setMapsUrl(r.maps_url)).catch(() => setMapsUrl('')) }, [])
 
   const save = async (values: Record<string, unknown>, done: string) => {
@@ -189,20 +186,6 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
         </div>
       </section>
 
-      <section className="form-block">
-        <h2>Разделы меню</h2>
-        {pages && details ? (
-          <>
-            <PageList items={details.pages} checked={pages} locked={details.always_pages} onChange={setPages} />
-            <p className="muted small-text">Настройки и Импорт данных остаются доступными всегда. Скрытые разделы сохраняют данные и параметры.
-              Выбор как в обычном списке: клик, Shift+клик — диапазон, Ctrl+клик — добавить, стрелки — перемещение, пробел — включить или выключить выделенные.</p>
-            <div className="form-row">
-              <button type="button" className="quiet" onClick={() => save({ visible_pages: pages }, 'Состав меню сохранен.')}>Сохранить состав меню</button>
-              <button type="button" className="quiet" onClick={() => save({ visible_pages: null }, 'Восстановлено меню по умолчанию.')}>Восстановить меню по умолчанию</button>
-            </div>
-          </>
-        ) : <p className="muted">Загрузка…</p>}
-      </section>
 
       <section className="form-block">
         <h2>Тема интерфейса</h2>
