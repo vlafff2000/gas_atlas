@@ -396,7 +396,6 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
 
     xl, yl = axis_title(chart.x.label, chart.x.unit), axis_title(chart.y.label, chart.y.unit)
     right = chart.right_axes()
-    unit_of = {'y': chart.y.unit, **{name: spec.unit for name, spec in right}}
     title_of = {'y': yl, **{name: axis_title(spec.label, spec.unit) for name, spec in right}}
     wb = Workbook()
     data = wb.active
@@ -409,7 +408,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         for r, c in enumerate(cats, 2):
             data.cell(r, 1, c)
         for k, s in enumerate(chart.series, 2):
-            data.cell(1, k, f'{s.name}, {unit_of.get(s.axis, chart.y.unit)}'.rstrip(', '))
+            data.cell(1, k, s.name)          # легенда — имя ряда (год, сезон, скважина); единицы — на оси и в заголовке листа
             by = {str(x): y for x, y in zip(s.x, s.y)}
             for r, c in enumerate(cats, 2):
                 data.cell(r, k, _cell(by.get(c)))
@@ -473,6 +472,8 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
                 else:
                     one.graphicalProperties.line.solidFill = color
             part.series.append(one)
+        if category:
+            part.set_categories(Reference(data, min_col=1, min_row=2, max_row=len(cats) + 1))     # подписи категорий (скважины, периоды), а не номера по порядку
         return part
 
     drawable = [item for item in plotted if item[0].kind != 'box']

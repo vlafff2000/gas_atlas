@@ -411,6 +411,26 @@ def test_chart_format_per_dataset(env):
     assert 'уровень' in ' '.join(names['response']).lower() and 'Сумма УВ' in names['ggh']
 
 
+def test_histogram_export_with_format_rules(env):
+    """«Гистограммы»: правила оформления по наборам данных (цвет, толщина, скрытие) не падают на столбцах и меняют рисунок."""
+    import plotly.graph_objects as go
+    from atlas import chart_format
+    client, pid, _, _ = env
+    fig = go.Figure([go.Bar(x=['31', '45'], y=[1, 2], name='2024-2025'), go.Scatter(x=[1, 2], y=[1, 2], mode='lines', name='линия')])
+    out = chart_format.apply(fig, {'series': [{'match': '2024', 'color': '#ff0000', 'width': 3, 'marker': 6}]})
+    assert out.data[0].marker.color == '#ff0000' and out.data[1].line.width is None
+    base = {'modules': ['histograms'], 'histograms_wells': ['31', '45', '70'], 'formats': ['svg'], 'dpi': 300, 'width': 160}
+    name = client.post(f'/api/projects/{pid}/export/plan', json={'form': base}).json()['charts'][0]['name']
+    shot = lambda f: client.post(f'/api/projects/{pid}/export/preview', json={'form': f, 'chart': name})
+    plain = shot(base)
+    assert plain.status_code == 200, plain.text
+    rule = '[{"match": "2025", "color": "#ff0000"}, {"match": "2024", "hide": true}]'
+    styled = shot({**base, 'fmt_histograms_series': rule})
+    assert styled.status_code == 200, styled.text
+    assert styled.content != plain.content
+    assert client.post(f'/api/projects/{pid}/export/archive', json={'form': {**base, 'fmt_histograms_series': rule}}).json()['errors'] == []
+
+
 def test_pack_and_ggh_use_export_settings(env):
     """Пакет по фонду и ГГХ принимают общие настройки выгрузки: вид, шрифт, подписи и оформление наборов данных."""
     client, pid, _, store = env
@@ -509,3 +529,18 @@ def test_chart_format_single_chart_override(env):
     assert shot({**base, 'fmt_overrides': '{'}).status_code == 400
     names = client.post(f'/api/projects/{pid}/export/series', json={'form': base, 'chart': name}).json()
     assert names['chart'] and 'уровень' in ' '.join(names['chart']).lower()
+
+
+def test_export_wells_in_number_order(env):
+    """Выгрузки идут по возрастанию номера скважины, даже если в форме их выбрали в другом порядке."""
+    client, pid, _, _ = env
+    wells = ['540', '70', '31', '45']
+    for module in ('histograms', 'production'):
+        form = {'modules': [module], f'{module}_wells': wells, 'formats': ['svg']}
+        if module == 'histograms':
+            form['histograms_wells'] = wells
+        names = [c['name'] for c in client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()['charts']]
+        kinds = {n.split(' · ')[0] for n in names}
+        for kind in kinds:
+            part = [int(n.split(' · ')[1]) for n in names if n.startswith(kind)]
+            assert part == sorted(part, key=int), (module, kind, part)

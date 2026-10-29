@@ -12,7 +12,7 @@ export function BuilderLibrary({ project, layout, onOpen }:
   const [saved, setSaved] = useState<unknown>(null)          // что лежало в нём при открытии или сохранении
   const [name, setName] = useState('')
   const [mode, setMode] = useState<'' | 'new' | 'rename'>('')
-  const [word, setWord] = useState({ title: '', caption: '', orientation: 'landscape' })
+  const [word, setWord] = useState({ title: '', caption: '', orientation: 'landscape', caption_mode: 'field' })
   const [message, setMessage] = useState<{ text: string; level: 'info' | 'warning' } | null>(null)
   const [missing, setMissing] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -126,8 +126,13 @@ export function BuilderLibrary({ project, layout, onOpen }:
             <option value="landscape">альбомный</option><option value="portrait">книжный</option>
           </select>
         </label>
+        <label className="field">Номер рисунка
+          <select value={word.caption_mode} onChange={e => setWord({ ...word, caption_mode: e.target.value })}>
+            <option value="field">поле Word (ссылка)</option><option value="text">обычный текст</option>
+          </select>
+        </label>
         <button type="button" className="primary" disabled={!filled || busy}
-          onClick={() => run(() => builderApi.word(project, { layout, title: word.title || layout.title, caption: word.caption, orientation: word.orientation }))}>Скачать Word</button>
+          onClick={() => run(() => builderApi.word(project, { layout, title: word.title || layout.title, caption: word.caption, orientation: word.orientation, caption_mode: word.caption_mode }))}>Скачать Word</button>
       </details>
       <p className="muted lib-hint">В отчёт «Авторский надзор» макет добавляется в его параметре «Макеты конструктора в отчёте».</p>
     </details>

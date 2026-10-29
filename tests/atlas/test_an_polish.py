@@ -87,7 +87,7 @@ def test_category_chart_xlsx_is_stacked():
     chart.series.append(Series('Ноябрь', ['ГСП 1', 'ГСП 2'], [1.0, 2.0], 'bar', stack='g'))
     chart.series.append(Series('Декабрь', ['ГСП 1', 'ГСП 2'], [3.0, np.nan], 'bar', stack='g'))
     wb = openpyxl.load_workbook(io.BytesIO(render.chart_file(chart, 'xlsx', 300)[0]))
-    assert [list(r) for r in wb['Данные'].values] == [['Группа', 'Ноябрь, тыс. м³/сут', 'Декабрь, тыс. м³/сут'],
+    assert [list(r) for r in wb['Данные'].values] == [['Группа', 'Ноябрь', 'Декабрь'],
                                                       ['ГСП 1', 1.0, 3.0], ['ГСП 2', 2.0, None]]
 
 

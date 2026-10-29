@@ -102,6 +102,17 @@ def test_old_project_without_layouts_and_broken_store(env):
     assert lib.items_of({lib.KEY: 'мусор'}) == []
 
 
+def test_word_caption_number_as_text(env):
+    """Конструктор → Word: номер рисунка — обычный текст по выбору, без поля SEQ (то же, что вид подписи на вкладке «Экспорт»)."""
+    client, pid, _ = env
+    r = client.post(f'/api/projects/{pid}/builder/word', json={'layout': LAYOUT, 'title': 'Дебит', 'caption': 'Суточный расход', 'caption_mode': 'text'})
+    assert r.status_code == 200, r.text
+    xml = zipfile.ZipFile(io.BytesIO(r.content)).read('word/document.xml').decode()
+    assert 'Суточный расход' in xml and 'SEQ' not in xml
+    bad = client.post(f'/api/projects/{pid}/builder/word', json={'layout': LAYOUT, 'caption': 'x', 'caption_mode': 'bmp'})
+    assert bad.status_code == 400
+
+
 def test_word_one_chart_with_caption(env):
     client, pid, _ = env
     r = client.post(f'/api/projects/{pid}/builder/word', json={'layout': LAYOUT, 'title': 'Дебит скважины 31', 'caption': 'Суточный расход'})
