@@ -75,7 +75,9 @@ def main(argv=None) -> None:
         except (AttributeError, TypeError):
             pass
         try:
-            webview.create_window('Газовый атлас', url, width=1440, height=900, min_size=(1024, 680))
+            from .desktop_save import SaveApi
+            saver = SaveApi()
+            saver.bind(webview.create_window('Газовый атлас', url, width=1440, height=900, min_size=(1024, 680), js_api=saver))
             webview.start()
             server.should_exit = True
             return
