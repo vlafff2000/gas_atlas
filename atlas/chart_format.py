@@ -13,6 +13,10 @@
 Пустое значение — автоматически. Рисует ``atlas.engine.core.export.figure_bytes`` (сетка делений начинается с нижней границы).
 Отдельные графики (поле ``fmt_overrides``): JSON ``{"<имя графика>": {"series": [правила], "axes": {...}}}`` — то же, что выше, но для одного
 графика из семейства; правила наборов данных идут после правил типа (перекрывают их), оси заменяют оси типа по каждой оси отдельно.
+Сетка и оси для всех графиков (поля ``fmt_grid``, ``fmt_grid_width``, ``fmt_grid_color``, ``fmt_minor_grid``, ``fmt_minor_grid_color``,
+``fmt_minor_grid_width``; жирный и курсив — ``fmt_axis_title_bold``, ``fmt_axis_title_italic``, ``fmt_tick_bold``, ``fmt_tick_italic``):
+те же правила и проверки, что у «Любой график» (``atlas/chart_style.py``); попадают в ``layout.meta['style']`` и рисуются
+``atlas.engine.core.export_style``.
 Оформление накладывается на уже построенный график (как подписи, ``chart_labels``), пересчёта не требует.
 """
 
@@ -23,6 +27,8 @@ import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Mapping
+
+from .chart_style import clean_axis, clean_chart
 
 ANGLES = ('auto', '0', '30', '45', '60', '90')
 LEGENDS = ('bottom', 'top', 'right', 'hide')
@@ -177,6 +183,36 @@ def common(form: Mapping[str, Any]) -> Dict[str, Any]:
         out['title'] = 'hide'
     if form.get('fmt_legend') in LEGENDS and form.get('fmt_legend') != 'bottom':
         out['legend'] = form['fmt_legend']
+    style = style_of(form)
+    if style:
+        out['style'] = style
+    return out
+
+
+STYLE_CHART = ('grid', 'grid_width', 'grid_color', 'minor_grid', 'minor_grid_color', 'minor_grid_width')
+STYLE_TEXT = ('title_bold', 'title_italic', 'tick_bold', 'tick_italic')
+
+
+def style_of(form: Mapping[str, Any]) -> Dict[str, Any]:
+    """Сетка графика и жирный/курсив подписей осей из общих полей формы; пустые поля не передаются."""
+    chart = clean_chart({key: form.get('fmt_' + key) for key in STYLE_CHART})
+    text = clean_axis({key: form.get('fmt_axis_' + key if key.startswith('title') else 'fmt_' + key) for key in STYLE_TEXT}, 'общие')
+    out: Dict[str, Any] = {}
+    if chart:
+        out['chart'] = chart
+    if text:
+        out['text'] = text
+    return out
+
+
+def _merged_style(old: Any, style: Mapping[str, Any]) -> Dict[str, Any]:
+    """Оформление графика: прежнее (от конструктора) + общие поля выгрузки (они сильнее); flags подписей — на оси X, Y и Y2."""
+    out = dict(old or {})
+    out['chart'] = {**(out.get('chart') or {}), **style.get('chart', {})}
+    axes = {name: dict(spec) for name, spec in (out.get('axes') or {}).items()}
+    for name in ('x', 'y', 'y2'):
+        axes[name] = {**axes.get(name, {}), **style.get('text', {})}
+    out['axes'] = axes
     return out
 
 
@@ -211,6 +247,9 @@ def apply(figure, cfg: Mapping[str, Any]):
         look['axes'] = cfg['axes']
     if look:
         meta['format'] = look
+    if cfg.get('style'):
+        meta['style'] = _merged_style(meta.get('style'), cfg['style'])
+    if look or cfg.get('style'):
         fig.layout.meta = meta
     rules = cfg.get('series', [])
     for trace in fig.data:
