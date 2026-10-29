@@ -1,5 +1,6 @@
 // Клиент API разделов «Проекты», «Настройки» и «Экспорт» (atlas/api_projects.py, atlas/api_export.py).
 import { ApiError, type Chart, type Project } from './api'
+import { menuPrefs } from './menuPrefs'
 
 export type Form = Record<string, unknown>
 
@@ -161,10 +162,24 @@ const PAGE_OF: Record<string, string> = {
   '@import': 'Импорт данных', '@export': 'Экспорт', exclusions: 'Исключенные точки', filter_history: 'История фильтра',
   overview: 'Обзор', '@projects': 'Проекты', '@passport': 'Паспорт скважины', '@funds': 'Настройки', '@settings': 'Настройки',
 }
-export function inMenu(id: string, project: Project | null): boolean {
-  const page = PAGE_OF[id]
+/** Всегда видны в меню: без них не настроить и не наполнить объект. */
+export const alwaysInMenu = (id: string): boolean => PAGE_OF[id] === 'Настройки' || PAGE_OF[id] === 'Импорт данных'
+
+/** Состав меню, который был у объекта (5.8): всё, чего нет в его списке разделов, скрыто. */
+export function projectMenuHidden(project: Project | null): Set<string> {
   const menu = (project as (Project & { menu?: string[] }) | null)?.menu
-  return !page || !menu || page === 'Настройки' || page === 'Импорт данных' || menu.includes(page)
+  if (!menu) return new Set()
+  return new Set(Object.keys(PAGE_OF).filter(id => PAGE_OF[id] && !menu.includes(PAGE_OF[id])))
+}
+
+/** Скрытые разделы и модули: выбор пользователя, а пока его нет — состав меню объекта. */
+export function hiddenPages(project: Project | null): Set<string> {
+  const saved = menuPrefs.get()
+  return saved ? new Set(saved.hidden) : projectMenuHidden(project)
+}
+
+export function inMenu(id: string, project: Project | null): boolean {
+  return alwaysInMenu(id) || !hiddenPages(project).has(id)
 }
 
 export const PROJECT_PAGES = [
