@@ -260,11 +260,16 @@ def add_layout_charts(result: Result, data: Data, names: list[str], wells: list[
 
 # ---------- Word: один график с заголовком и подписью ----------
 
-def word_file(chart, title: str, caption: str, orientation: str = 'landscape', font: str = 'default', font_size=None) -> tuple[bytes, str]:
-    """Документ Word с одним графиком: заголовок, рисунок и подпись «Рисунок N – …» (номер — поле SEQ, как в выгрузке графиков)."""
+def word_file(chart, title: str, caption: str, orientation: str = 'landscape', font: str = 'default', font_size=None,
+              caption_mode: str = 'field') -> tuple[bytes, str]:
+    """Документ Word с одним графиком: заголовок, рисунок и подпись «Рисунок N – …».
+
+    Номер — поле SEQ (``field``, как в выгрузке графиков) или обычный текст (``text``): поле Word подсвечивается как ссылка.
+    """
     from . import render, word_export
     from .word_export import Item, Layout
-    layout = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', title=bool(title), title_text=title, dpi=200)
+    layout = Layout(orientation='landscape' if orientation != 'portrait' else 'portrait', title=bool(title), title_text=title, dpi=200,
+                    caption_mode=caption_mode if caption_mode in ('field', 'text') else 'field')
     text = ' '.join(str(caption or chart.title or 'График').split())
     item = Item(chart.title or 'График', 'Рисунок ', 1, ' – ' + text, module='builder')
     cap_h = word_export.caption_height(layout, item.text, layout.cell())
