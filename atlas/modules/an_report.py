@@ -402,6 +402,10 @@ class AuthorReportModule(Module):
                   section='Вид', show_if={'class_mode': 'auto'},
                   help='Сколько классов с расходом подобрать. Границы — квантили фонда по среднему расходу (примерно равное число скважин в классе), '
                        'округлённые до кратных 5. Совпавшие границы убираются, поэтому классов может стать меньше.'),
+            Param('class_seasons', 'Сезоны для сравнения классов по группам', 'multi', default=[], dynamic=True, depends=('kind',),
+                  empty='ничего', section='Вид',
+                  help='Два и более сезона: график «Классы производительности по группам за сезоны» — столбик на пару «группа · сезон», '
+                       'группы по возрастанию номера, внутри группы сезоны по порядку. Не обязаны совпадать с сезонами отчёта. Для отбора и закачки.'),
             Param('month_chart', 'Работавшие по месяцам (табл. 1.4)', 'choice', default='table', section='Вид', chart_kind=True,
                   options=MONTH_CHARTS, help='Для отбора и закачки. Добавляет таблицу «Работавшие скважины по месяцам» и график к ней: '
                   'работавшие и простаивавшие скважины объекта по месяцам сезона, под графиком — таблица по группам.'),
@@ -434,7 +438,7 @@ class AuthorReportModule(Module):
             d = d[d.kind.eq(kind) & d.period.isin(params.get('periods') or periods_of(d, kind))]
             wells = ordered(d.well.astype(str).unique())
             return ordered(set(well_scopes(data.mapping, wells).values()))
-        if name != 'periods':
+        if name not in ('periods', 'class_seasons'):
             return super().options(name, data, params)
         return visible_periods(periods_of(data[PRODUCTION], params.get('kind') or 'withdrawal'), data.settings)
 
@@ -483,6 +487,7 @@ class AuthorReportModule(Module):
             if group_pressure is not None:
                 result.charts.append(group_pressure)
             self.plan_details(result, data, kind, period)
+        self.class_seasons_details(result, data, kind, params, edges)
         if kind == 'injection':
             self.injection_details(result, data)
             self.injection_season(result, data, summaries, edges)
@@ -719,6 +724,26 @@ class AuthorReportModule(Module):
         if 'wf_max' in extremes:
             result.summary.append(Stat(f'Максимальный ВФ · {period}', f'{extremes["wf_max"]:.1f} {WF_UNIT}'.replace('.', ','),
                                        f'Скважина {extremes["wf_max_well"]}, группа {extremes["wf_max_group"]}'))
+
+    def class_seasons_details(self, result: Result, data: Data, kind: str, params: dict[str, Any], edges: tuple[int, ...]) -> None:
+        """График классов по группам сквозь выбранные сезоны (параметр «Сезоны для сравнения классов»): считается сам, не зависит от «Классы производительности»."""
+        chosen = set(params.get('class_seasons') or [])
+        seasons = [p for p in periods_of(data[PRODUCTION], kind) if p in chosen]
+        if len(seasons) == 1:
+            result.notes.append(Note('Сравнение классов по группам: выберите два и более сезона — график за один сезон не строится.'))
+        if len(seasons) < 2:
+            return
+        parts = []
+        for season in seasons:
+            wells = an_wells.season_wells(data[PRODUCTION], kind, season)
+            if not wells.empty:
+                parts.append(an_wells.class_counts(wells, well_scopes(data.mapping, ordered(wells.well)), edges).assign(season=season))
+        if not parts:
+            return
+        callouts = 'dot' if params.get('class_chart') == 'dot' else 'box'
+        chart = an_charts.class_seasons_chart(kind, pd.concat(parts, ignore_index=True), seasons, callouts, edges)
+        if chart is not None:
+            result.charts.append(chart)
 
     def plan_details(self, result: Result, data: Data, kind: str, period: str) -> None:
         """Рис. 1.8: план и факт по группам сезона (модуль «План и факт»), самое большое и маленькое отклонение."""

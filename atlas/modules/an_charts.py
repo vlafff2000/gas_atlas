@@ -11,6 +11,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from atlas.engine.core.config import ordered
 from atlas.engine.modules.charts import group_palette, well_colors
 
 from ..contract import Axis, Chart, ChartTable, HeatMap, Series, WellStrips
@@ -287,17 +288,46 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: st
         return None
     keys, labels = an_wells.class_keys(edges), an_wells.class_labels(edges)
     cats = [str(g) for g in part.group]
-    size = part[list(keys)].sum(axis=1).to_numpy(float)
     chart = Chart(f'an-class-share-{kind}-{period}', f'Классы производительности скважин по группам · {period}',
                   Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
     chart.callouts = 'dot' if callouts == 'dot' else 'box'
+    _class_bars(chart, part, cats, keys, labels)
+    if chart.callouts == 'dot':
+        chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in keys])
+    return chart
+
+
+def _class_bars(chart: Chart, part: pd.DataFrame, cats: list[str], keys: Sequence[str], labels: Sequence[str]) -> None:
+    """Стопка классов: по строке ``part`` на категорию ``cats``; высота сегмента — число скважин класса (абсолютное)."""
+    size = part[list(keys)].sum(axis=1).to_numpy(float)
     for key, name in zip(keys, labels):
         n = part[key].to_numpy(int)
         label = name if name == '0' else f'{name} тыс. м³/сут'
         chart.series.append(Series(label, cats, n.astype(float), 'bar', stack='classes',
                                    segments=[str(v) if v else '' for v in n], labels=[f'{v} из {int(t)} скв., {v / t * 100:.0f} %' if t else f'{v} скв.' for v, t in zip(n, size)]))
+
+
+def class_seasons_chart(kind: str, counts: pd.DataFrame, seasons: Sequence[str], callouts: str = 'box',
+                        edges: Sequence[int] = an_wells.DEFAULT_EDGES) -> Chart | None:
+    """Классы производительности по группам сквозь несколько сезонов: столбик на пару «группа · сезон». Группы по возрастанию номера, внутри группы сезоны по порядку ``seasons``.
+
+    ``counts`` — таблицы ``class_counts`` по сезонам с колонкой ``season``; «Всего» не участвует. Пары без скважин пропускаются. Меньше двух сезонов — графика нет."""
+    part = counts[~counts.group.eq(an_wells.TOTAL)]
+    if len(seasons) < 2 or part.empty:
+        return None
+    indexed = part.set_index(['group', 'season'])
+    pairs = [(g, s) for g in ordered(part.group.unique()) for s in seasons if (g, s) in indexed.index]
+    if not pairs:
+        return None
+    rows = indexed.loc[pairs].reset_index()
+    keys, labels = an_wells.class_keys(edges), an_wells.class_labels(edges)
+    cats = [f'{g} · {s}' for g, s in pairs]
+    chart = Chart(f'an-class-seasons-{kind}', f'Классы производительности по группам за сезоны · {", ".join(seasons)}',
+                  Axis('Группа · сезон', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
+    chart.callouts = 'dot' if callouts == 'dot' else 'box'
+    _class_bars(chart, rows, cats, keys, labels)
     if chart.callouts == 'dot':
-        chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in keys])
+        chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in rows[k].to_numpy(int)] for k in keys])
     return chart
 
 
@@ -329,10 +359,10 @@ def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: li
     idle = fund - working
     chart = Chart(f'an-month-working-{kind}-{period}', f'Работавшие скважины по месяцам · {period}',
                   Axis('Месяц', scale='category', categories=labels), Axis('Скважин', 'скв.', from_zero=True))
-    chart.series.append(Series('Работало', labels, working.astype(float), 'bar', stack='months', segments=[str(v) for v in working],
-                               labels=[f'{v} из {fund} скв., {v / fund * 100:.0f} %' for v in working]))
-    chart.series.append(Series('Не работало', labels, idle.astype(float), 'bar', stack='months', segments=[str(v) if v else '' for v in idle],
-                               labels=[f'{v} из {fund} скв.' for v in idle]))
+    chart.series.append(Series('в работе', labels, working.astype(float), 'bar', stack='months', segments=[str(v) for v in working],
+                               labels=[f'{v} скв. в работе, {v / fund * 100:.0f} %' for v in working]))
+    chart.series.append(Series('остановлено', labels, idle.astype(float), 'bar', stack='months', segments=[str(v) if v else '' for v in idle],
+                               labels=[f'{v} скв. остановлено' for v in idle]))
     if peaks and len(peaks) == len(labels):
         # поверх столбиков — кривая: одна точка на месяц, максимум скважин, работавших одновременно в одни сутки месяца
         chart.series.append(Series('Максимум одновременно за сутки', labels, [float(n) for n, _ in peaks], 'line', color='#111827', width=2.2, markers=True,
