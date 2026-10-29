@@ -21,7 +21,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainT
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import VERSION, api_exclusions, chart_view, legend_order, registry, render, season_format, thinning
+from . import VERSION, api_exclusions, chart_view, legend_order, registry, render, season_format, thinning, well_filter
 from . import api_builder, api_corrected, api_export, api_projects, export_any, export_charts, group_colors
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
@@ -114,9 +114,10 @@ def create_app(projects: Projects | None = None) -> Starlette:
 
     def compute(module, pid, raw_params, full=False):
         """``full`` — результат без прореживания самого модуля (выгрузка графика, окно увеличения); кэшируется отдельно."""
+        flt, raw_params = well_filter.split(raw_params)       # фильтр скважин вкладки приходит среди её параметров
         params = module.spec.coerce(raw_params)
-        data = projects.select(pid, module.spec.needs, module.spec.optional)
-        key = (module.spec.id, pid, data.revision, json.dumps(params, sort_keys=True, ensure_ascii=False, default=str), full)
+        data = projects.select(pid, module.spec.needs, module.spec.optional, flt)
+        key = (module.spec.id, pid, data.revision, json.dumps([params, flt], sort_keys=True, ensure_ascii=False, default=str), full)
         cached = results.get(key)
         if cached is None:
             started = time.perf_counter()
@@ -179,7 +180,11 @@ def create_app(projects: Projects | None = None) -> Starlette:
             dataset = DatasetKind(request.query_params.get('dataset', ''))
         except ValueError:
             raise Failure(400, 'Неизвестный вид данных') from None
-        return projects.options(request.path_params['pid'], dataset, request.query_params.get('column', ''))
+        try:
+            flt = well_filter.clean(json.loads(request.query_params.get('filter') or 'null'))
+        except (ValueError, AttributeError):
+            raise Failure(400, 'Фильтр скважин: ожидаются списки групп и скважин') from None
+        return projects.options(request.path_params['pid'], dataset, request.query_params.get('column', ''), flt)
 
     def exclusions(request, body):
         try:
@@ -217,8 +222,9 @@ def create_app(projects: Projects | None = None) -> Starlette:
         module, pid, panel = module_of(request), request.path_params['pid'], panel_of(request, body)
         if request.method == 'GET':
             return projects.saved_state(pid, module, panel)
-        params = module.spec.coerce(body.get('params'))
-        data = projects.select(pid, module.spec.needs, module.spec.optional)
+        flt, raw = well_filter.split(body.get('params'))
+        params = module.spec.coerce(raw)
+        data = projects.select(pid, module.spec.needs, module.spec.optional, flt)
         return projects.save_state(pid, module, params, data, panel)
 
     def param_options(request, body):
@@ -228,8 +234,9 @@ def create_app(projects: Projects | None = None) -> Starlette:
         param = next((p for p in module.spec.params if p.name == name and p.dynamic), None)
         if param is None:
             raise Failure(404, 'Нет такого списка')
-        data = projects.select(body.get('project'), module.spec.needs, module.spec.optional)
-        current = {p.name: p.coerce(body.get('params', {}).get(p.name)) for p in module.spec.params
+        flt, raw = well_filter.split(body.get('params'))
+        data = projects.select(body.get('project'), module.spec.needs, module.spec.optional, flt)
+        current = {p.name: p.coerce(raw.get(p.name)) for p in module.spec.params
                    if p.name in param.depends}
         return module.options(name, data, current)
 

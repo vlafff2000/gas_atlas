@@ -1,6 +1,8 @@
-"""Фильтр скважин проекта: сквозной для всех модулей (группы и скважины пересекаются, логика «И»)."""
+"""Фильтр скважин вкладки: свой у каждой вкладки, пресеты общие (группы и скважины пересекаются, логика «И»)."""
+import json
+
 from atlas import well_filter
-from atlas.contract import Data
+from atlas.contract import Data, ParamError
 from atlas.domain import DatasetKind
 from atlas.engine.core import exclusions
 from atlas.engine.core.demo import well_demo_frames
@@ -10,13 +12,13 @@ from atlas.modules.gdi_trend import GdiTrendModule
 GDI = DatasetKind.GDI
 
 
-def _data(settings):
+def _data(settings=None):
     gdi = exclusions.identify(well_demo_frames()['gdi'].copy(), 'gdi')
     wells = sorted(gdi.well.astype(str).unique(), key=lambda w: int(w) if w.isdigit() else w)
     data = Data({GDI: gdi}, {GDI: gdi}, {})
     data.mapping = {w: {'group': 'ГСП 1' if i < 2 else 'ГСП 2'} for i, w in enumerate(wells)}
     data.wells = wells
-    data.settings = settings
+    data.settings = settings or {}
     return data
 
 
@@ -35,11 +37,12 @@ def test_no_filter_returns_the_same_data():
 
 def test_groups_and_wells_intersect_for_every_module():
     first, last = _data({}).wells[0], _data({}).wells[-1]    # last — из другой группы
-    data = _data({'well_filter': {'groups': ['ГСП 1'], 'wells': [first, last]}})
-    scoped = well_filter.apply(data)
+    data = _data()
+    flt = {'groups': ['ГСП 1'], 'wells': [first, last]}
+    scoped = well_filter.apply(data, flt)
     assert scoped.wells == [first]
     assert set(scoped[GDI].well.astype(str)) == {first}
-    assert well_filter.status(data) == {'groups': ['ГСП 1'], 'wells': [first, last], 'total': len(data.wells), 'shown': 1, 'hidden': 1}
+    assert well_filter.status(data, flt) == {'groups': ['ГСП 1'], 'wells': [first, last], 'total': len(data.wells), 'shown': 1, 'hidden': 1}
     # Модули ГДИ берут уже отобранные скважины, без собственного фильтра групп
     result = GdiModule().run(scoped, GdiModule().spec.coerce({'wells': []}))
     assert len(result.charts) == 1
@@ -47,35 +50,64 @@ def test_groups_and_wells_intersect_for_every_module():
 
 
 def test_group_filter_without_wells_keeps_the_group():
-    data = _data({'well_filter': {'groups': ['ГСП 2'], 'wells': []}})
-    scoped = well_filter.apply(data)
+    data = _data()
+    scoped = well_filter.apply(data, {'groups': ['ГСП 2'], 'wells': []})
     assert scoped.wells == data.wells[2:]
     assert set(scoped[GDI].well.astype(str)) <= set(data.wells[2:])
 
 
-def test_filter_is_a_project_setting_and_shows_status(tmp_path, monkeypatch):
+def test_project_setting_no_longer_limits_modules():
+    """Прежний общий фильтр проекта расчёты не ограничивает: фильтр задаёт каждая вкладка сама."""
+    data = _data({'well_filter': {'groups': ['ГСП 2'], 'wells': []}})
+    assert well_filter.apply(data) is data
+
+
+def test_split_takes_the_filter_out_of_tab_params():
+    flt, rest = well_filter.split({'wells': ['3'], 'well_filter': {'groups': ['ГСП 1', 'ГСП 1'], 'wells': []}})
+    assert flt == {'groups': ['ГСП 1'], 'wells': []} and rest == {'wells': ['3']}
+    assert well_filter.split({'well_filter': {'groups': [], 'wells': []}})[0] is None
+    assert well_filter.split(None) == (None, {})
+    try:
+        well_filter.split({'well_filter': {'groups': 'ГСП 1'}})
+    except ParamError:
+        pass
+    else:
+        raise AssertionError('неверный фильтр должен быть отклонён')
+
+
+def _client(tmp_path, monkeypatch):
     import atlas.api_projects as api_projects
     from starlette.testclient import TestClient
     from atlas.api import create_app
-    from atlas.engine.core.storage import Store
     from atlas.projects import Projects
 
     monkeypatch.setattr(api_projects, 'LOG_DIR', tmp_path / 'logs')
     client = TestClient(create_app(Projects(tmp_path / 'storage')))
-    pid = client.post('/api/projects/demo').json()['id']
+    return client, client.post('/api/projects/demo').json()['id']
+
+
+def test_each_tab_filters_by_itself(tmp_path, monkeypatch):
+    """Фильтр идёт среди параметров вкладки: расчёт, списки и состояние других вкладок от него не зависят."""
+    client, pid = _client(tmp_path, monkeypatch)
     groups = client.get(f'/api/projects/{pid}/group-list').json()['groups']
     total = client.get(f'/api/projects/{pid}/well-filter').json()['total']
-    r = client.patch(f'/api/projects/{pid}/settings', json={'values': {'well_filter': {'groups': groups[:1], 'wells': []}}})
-    assert r.status_code == 200, r.text
-    assert r.json()['settings']['well_filter'] == {'groups': groups[:1], 'wells': []}
-    status = client.get(f'/api/projects/{pid}/well-filter').json()
-    assert 0 < status['shown'] < total and status['groups'] == groups[:1]
-    assert Store(tmp_path / 'storage').history(pid).iloc[0]['Действие'] == 'Фильтр скважин'
-    r = client.patch(f'/api/projects/{pid}/settings', json={'values': {'well_filter': None}})
-    assert r.json()['settings']['well_filter'] is None
-    assert client.get(f'/api/projects/{pid}/well-filter').json()['shown'] == total
-    bad = client.patch(f'/api/projects/{pid}/settings', json={'values': {'well_filter': {'groups': 'ГСП 1'}}})
-    assert bad.status_code == 400
+    flt = {'groups': [g for g in groups if g != 'Без группы'][:1], 'wells': []}
+    status = client.post(f'/api/projects/{pid}/well-filter', json=flt).json()
+    assert 0 < status['shown'] < total and status['groups'] == flt['groups']
+    assert client.get(f'/api/projects/{pid}/well-filter').json()['shown'] == total     # без фильтра — все
+    all_wells = client.get(f'/api/projects/{pid}/options', params={'dataset': 'production', 'column': 'well'}).json()
+    some = client.get(f'/api/projects/{pid}/options', params={'dataset': 'production', 'column': 'well',
+                                                              'filter': json.dumps(flt)}).json()
+    assert 0 < len(some) < len(all_wells) and set(some) <= set(all_wells)
+    bad = client.get(f'/api/projects/{pid}/options', params={'dataset': 'production', 'column': 'well', 'filter': '{"groups": "x"}'})
+    assert bad.status_code == 400 or set(bad.json()) <= set(all_wells)
+    # расчёт: у вкладки с фильтром меньше скважин, у вкладки без фильтра — все; запросы друг друга не затирают
+    mine = client.post('/api/modules/gdi/run', json={'project': pid, 'params': {'well_filter': flt}}).json()
+    other = client.post('/api/modules/gdi/run', json={'project': pid, 'params': {}}).json()
+    assert 'error' not in mine and 'error' not in other
+    assert mine['summary'] != other['summary'] or len(mine['charts']) <= len(other['charts'])
+    broken = client.post('/api/modules/gdi/run', json={'project': pid, 'params': {'well_filter': {'wells': 5}}})
+    assert broken.status_code == 400
 
 
 def test_export_filters_per_tab_are_kept_and_cleaned():

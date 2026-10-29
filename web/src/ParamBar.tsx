@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { api, type ModuleSpec, type Param, type Params } from './api'
 import { MultiSelect } from './MultiSelect'
 import { openFilePicker } from './FilePicker'
 import { paramsCollapsed, usePref } from './chartPrefs'
 import { formatDate } from './format'
+import { WellFilter, filterSummary } from './WellFilter'
+import type { WellFilter as Filter } from './api_wells'
 
 interface Props {
   spec: ModuleSpec
@@ -11,8 +13,10 @@ interface Props {
   panel: number
   values: Params
   onChange: (values: Params) => void
+  revision?: number          // ревизия проекта: после её смены списки скважин и групп фильтра берутся заново
 }
 
+const isWellsParam = (p: Param) => /(^|_)wells$/.test(p.name)      // пресеты скважин проекта — в списке «Скважины» любой вкладки
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i])
 
 /** Выбор по умолчанию из вариантов: 'all' | 'first:N' | 'last:N'. */
@@ -62,7 +66,7 @@ export function paramSummary(params: Param[], values: Params, options: Record<st
   return out
 }
 
-export function ParamBar({ spec, project, panel, values, onChange }: Props) {
+export function ParamBar({ spec, project, panel, values, onChange, revision = 0 }: Props) {
   const [options, setOptions] = useState<Record<string, string[]>>({})
   const [dynamic, setDynamic] = useState<Record<string, string[] | undefined>>({})
   // параметр с requires_dataset показываем, только если набор данных есть в проекте (проверяем тем же списком значений)
@@ -70,6 +74,7 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
   const collapsed = usePref(paramsCollapsed)
   const latest = useRef(values)
   latest.current = values
+  const filterKey = JSON.stringify(values.well_filter ?? null)      // у другой вкладки — другой фильтр и другие списки
 
   useEffect(() => {
     let alive = true
@@ -77,17 +82,17 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
     setHasData({})
     for (const p of spec.params) {
       if (p.requires_dataset) {
-        api.options(project, p.requires_dataset, 'well')
+        api.options(project, p.requires_dataset, 'well', latest.current.well_filter)
           .then(list => { if (alive) setHasData(h => ({ ...h, [p.name]: list.length > 0 })) })
           .catch(() => { if (alive) setHasData(h => ({ ...h, [p.name]: false })) })
       }
       if (!p.source || p.dynamic) continue
-      api.options(project, p.source.dataset, p.source.column)
+      api.options(project, p.source.dataset, p.source.column, latest.current.well_filter)
         .then(list => { if (alive) setOptions(o => ({ ...o, [p.name]: list })) })
         .catch(() => { if (alive) setOptions(o => ({ ...o, [p.name]: [] })) })
     }
     return () => { alive = false }
-  }, [spec, project])
+  }, [spec, project, filterKey])
 
   // Несколько вызовов в одном такте (автовыбор нескольких списков) складываются, а не затирают друг друга.
   const set = (name: string, value: unknown) => {
@@ -103,7 +108,13 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
     if (last && last[0] === p.section) last[1].push(p); else sections.push([p.section, [p]])
   }
 
-  const summary = paramSummary(spec.params, values, { ...options, ...dynamic })
+  const summary = [filterSummary(values.well_filter as Filter | null), ...paramSummary(spec.params, values, { ...options, ...dynamic })].filter(Boolean)
+  const setFilter = (v: Filter | null) => set('well_filter', v)
+  // фильтр стоит в разделе со списком «Скважины» (иначе — в первом разделе), рядом с ним
+  const isWells = isWellsParam
+  const home = Math.max(0, sections.findIndex(([, ps]) => ps.some(isWells)))
+  const before = sections[home]?.[1].find(isWells)      // перед этим списком стоит фильтр; нет такого — в начале раздела
+  const filterField = <WellFilter project={project} revision={revision} value={values.well_filter as Filter | null} onChange={setFilter} />
   return (
     <div className={'param-bar' + (collapsed ? ' collapsed' : '')}>
       <button type="button" className="param-summary" aria-expanded={!collapsed} onClick={() => paramsCollapsed.set(!collapsed)}
@@ -115,11 +126,16 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
       </button>
       {/* свёрнутые поля остаются на странице: списки сами подбирают варианты по умолчанию */}
       <div className="param-sections" hidden={collapsed}>
-      {sections.map(([title, params]) => (
+      {sections.length === 0 && (
+        <fieldset className="param-section" aria-label="Фильтр скважин"><span className="param-title" aria-hidden="true">Выбор данных</span>
+          <div className="param-fields">{filterField}</div></fieldset>
+      )}
+      {sections.map(([title, params], at) => (
         <fieldset key={title || '-'} className="param-section" aria-label={title || undefined}>
           <span className="param-title" aria-hidden="true">{title}</span>
           <div className="param-fields">
-            {params.map(p => p.kind === 'map'
+            {at === home && !before && filterField}
+            {params.map(p => <Fragment key={p.name}>{at === home && p === before && filterField}{p.kind === 'map'
               ? <DynamicMap key={p.name} spec={spec} project={project} param={p} values={values} onChange={v => set(p.name, v)} />
               : p.dynamic && p.kind === 'choice'
               ? <DynamicChoice key={p.name} spec={spec} project={project} param={p}
@@ -129,7 +145,7 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
               ? <DynamicMulti key={p.name} spec={spec} project={project} panel={panel} param={p}
                               values={values} onChange={v => set(p.name, v)}
                               onOptions={list => setDynamic(d => (d[p.name] === list ? d : { ...d, [p.name]: list }))} />
-              : <Field key={p.name} param={p} project={project} value={values[p.name]} options={options[p.name]} onChange={v => set(p.name, v)} />)}
+              : <Field key={p.name} param={p} project={project} value={values[p.name]} options={options[p.name]} onChange={v => set(p.name, v)} />}</Fragment>)}
           </div>
         </fieldset>
       ))}
@@ -144,11 +160,11 @@ function DynamicChoice({ spec, project, param: p, values, onChange, onOptions }:
     onOptions: (list: string[] | undefined) => void }) {
   const [options, setOptions] = useState<string[] | undefined>()
   const value = typeof values[p.name] === 'string' ? (values[p.name] as string) : ''
-  const deps = JSON.stringify(p.depends.map(d => values[d]))
+  const deps = JSON.stringify([p.depends.map(d => values[d]), values.well_filter ?? null])
 
   useEffect(() => {
     const ctrl = new AbortController()
-    const current = Object.fromEntries(p.depends.map(d => [d, values[d]]))
+    const current = { ...Object.fromEntries(p.depends.map(d => [d, values[d]])), well_filter: values.well_filter }
     api.paramOptions(spec.id, project, p.name, current, ctrl.signal)
       .then(setOptions)
       .catch(e => { if ((e as Error).name !== 'AbortError') setOptions([]) })
@@ -185,11 +201,11 @@ function DynamicMulti({ spec, project, param: p, values, onChange, onOptions }:
   const touched = useRef(false)
   // значение обязано быть списком: одиночный параметр с той же меткой не должен ронять весь интерфейс
   const value = Array.isArray(values[p.name]) ? (values[p.name] as string[]) : []
-  const deps = JSON.stringify(p.depends.map(d => values[d]))
+  const deps = JSON.stringify([p.depends.map(d => values[d]), values.well_filter ?? null])
 
   useEffect(() => {
     const ctrl = new AbortController()
-    const current = Object.fromEntries(p.depends.map(d => [d, values[d]]))
+    const current = { ...Object.fromEntries(p.depends.map(d => [d, values[d]])), well_filter: values.well_filter }
     api.paramOptions(spec.id, project, p.name, current, ctrl.signal)
       .then(setOptions)
       .catch(e => { if ((e as Error).name !== 'AbortError') setOptions([]) })
@@ -211,7 +227,7 @@ function DynamicMulti({ spec, project, param: p, values, onChange, onOptions }:
   }, [options])
 
   return <MultiSelect label={p.label} options={options ?? []} value={value} loading={options === undefined}
-    emptyMeaning={p.empty} prefix={p.prefix} picker={p.wells_picker ? project : undefined}
+    emptyMeaning={p.empty} prefix={p.prefix} picker={p.wells_picker || isWellsParam(p) ? project : undefined}
     onChange={v => { touched.current = true; onChange(v) }} />
 }
 
@@ -220,10 +236,10 @@ function DynamicMap({ spec, project, param: p, values, onChange }:
   { spec: ModuleSpec; project: string; param: Param; values: Params; onChange: (v: Record<string, number>) => void }) {
   const [keys, setKeys] = useState<string[]>([])
   const value = (values[p.name] as Record<string, number> | undefined) ?? {}
-  const deps = JSON.stringify(p.depends.map(d => values[d]))
+  const deps = JSON.stringify([p.depends.map(d => values[d]), values.well_filter ?? null])
   useEffect(() => {
     const ctrl = new AbortController()
-    const current = Object.fromEntries(p.depends.map(d => [d, values[d]]))
+    const current = { ...Object.fromEntries(p.depends.map(d => [d, values[d]])), well_filter: values.well_filter }
     api.paramOptions(spec.id, project, p.name, current, ctrl.signal)
       .then(setKeys)
       .catch(e => { if ((e as Error).name !== 'AbortError') setKeys([]) })
@@ -287,7 +303,7 @@ function Field({ param: p, project, value, options, onChange }:
     const list = options ?? p.options.map(o => String(o.value))
     return <MultiSelect label={p.label} options={list} value={(value as string[]) ?? []} onChange={onChange}
       loading={p.source !== null && options === undefined} emptyMeaning={p.empty} prefix={p.prefix}
-      picker={p.wells_picker ? project : undefined} />
+      picker={p.wells_picker || isWellsParam(p) ? project : undefined} />
   }
   if (p.kind === 'boolean') {
     return (

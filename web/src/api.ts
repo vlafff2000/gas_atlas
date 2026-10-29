@@ -202,8 +202,9 @@ export const api = {
   modules: () => request<ModuleSpec[]>('/api/modules'),
   projects: () => request<Project[]>('/api/projects'),
   createDemo: (large = false) => request<{ id: string }>('/api/projects/demo', json('POST', { large })),
-  options: (project: string, dataset: string, column: string) =>
-    request<string[]>(`/api/projects/${project}/options?dataset=${encodeURIComponent(dataset)}&column=${encodeURIComponent(column)}`),
+  options: (project: string, dataset: string, column: string, filter?: unknown) =>
+    request<string[]>(`/api/projects/${project}/options?dataset=${encodeURIComponent(dataset)}&column=${encodeURIComponent(column)}`
+      + (filter ? `&filter=${encodeURIComponent(JSON.stringify(filter))}` : '')),
   projectGroups: (project: string) => request<{ groups: string[] }>(`/api/projects/${project}/group-list`).then(r => r.groups),
   projectWells: (project: string) => request<{ wells: string[] }>(`/api/projects/${project}/wells`).then(r => r.wells),
   appLinks: () => request<{ maps_url: string }>('/api/app/links'),

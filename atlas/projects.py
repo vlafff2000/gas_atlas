@@ -230,7 +230,7 @@ class Projects:
                 pass
         threading.Thread(target=build, name='warm-wells', daemon=True).start()
 
-    def select(self, pid: str, needs, optional=()) -> Data:
+    def select(self, pid: str, needs, optional=(), flt=None) -> Data:
         data = self.data(pid)
         missing = [k for k in needs if k not in data or data[k].empty]
         if missing:
@@ -241,7 +241,7 @@ class Projects:
         out.project = data.project
         if {DatasetKind.MODEL, DatasetKind.MODEL_OBJECT, DatasetKind.MODEL_CELLS} & set(keep):
             self._add_models(out)
-        return well_filter.apply(out)      # фильтр скважин проекта — для всех модулей
+        return well_filter.apply(out, flt)      # фильтр скважин вкладки (у каждой вкладки свой)
 
     @staticmethod
     def _add_models(data: Data) -> None:
@@ -263,10 +263,14 @@ class Projects:
         if cells is not None:
             data._frames[DatasetKind.MODEL_CELLS] = data.raw[DatasetKind.MODEL_CELLS] = cells
 
-    def options(self, pid: str, dataset: DatasetKind, column: str) -> list[str]:
-        frame = self.data(pid).raw.get(dataset)
+    def options(self, pid: str, dataset: DatasetKind, column: str, flt=None) -> list[str]:
+        data = self.data(pid)
+        frame = data.raw.get(dataset)
         if frame is None or column not in frame:
             return []
+        keep = well_filter.keep_set(data, flt)
+        if keep is not None and 'well' in frame:      # списки вкладки показывают только оставленные фильтром скважины
+            frame = frame[frame['well'].astype(str).isin(keep)]
         values = frame[column].dropna().astype(str)
         return sorted((v for v in values.unique() if v != ''), key=natural_key)
 

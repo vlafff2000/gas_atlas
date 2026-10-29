@@ -58,6 +58,7 @@ API:
 | `GET/POST /api/projects/{id}/state/{module}?panel=N` | сохранённый вид панели и «Расчет …» в истории (формат 5.8) |
 | `POST /api/modules/{id}/options` `{project, param, params}` | варианты зависимого списка |
 | `GET /api/projects/{id}/passport?well=`, `POST …/passport/comment`, `POST …/passport/pdf` | «Паспорт скважины» (`atlas/api_passport.py`) |
+| `POST /api/projects/{id}/well-filter` `{filter}`, `GET …/options?…&filter=` | фильтр скважин вкладки: сколько скважин остаётся; списки значений только по оставленным скважинам. Сам фильтр — `params.well_filter` = `{groups, wells}` в запросах расчёта, списков и сохранения вида (у каждой вкладки свой, пресеты общие), см. `atlas/well_filter.py` |
 | `POST /api/projects/{id}/import/ggh`, `…/ggh/apply`; `POST …/export/ggh` | данные ГГХ и Word с графиками ГГХ для отчёта, см. `docs/GGH.md` |
 | `/api/import/*`, `/api/projects/{id}/import/*` | импорт данных (файлы → распознавание → проверка → применение), см. `atlas/api_import.py` и `docs/parity/import.md` |
 
