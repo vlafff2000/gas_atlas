@@ -45,7 +45,7 @@ def _bytes(fig: Any, fmt: str, dpi: int) -> bytes:
 
 def figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = None) -> bytes:
     """``opts`` — ручные настройки выгрузки (``atlas/export_any.py``): width_mm, height_mm, font, font_size, legend, table_font_size,
-    table_row, table_show, segment_size; без них — прежний вид."""
+    table_row, table_show, segment_size, cell_size (текст в ячейках тепловой карты и матрицы), style (chart.style); без них — прежний вид."""
     from .render import group_colors, series_color
     plt = _setup()
     o = opts or {}
@@ -53,8 +53,9 @@ def figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = 
         if o.get('font') and o['font'] != 'default':
             from atlas.engine.core.fonts import family_for
             plt.rcParams['font.family'] = family_for(o['font'])
-        fig = _heat_figure(plt, chart) if chart.heat is not None else _strip_figure(plt, chart) if chart.strips is not None \
+        fig = _heat_figure(plt, chart, o) if chart.heat is not None else _strip_figure(plt, chart, o) if chart.strips is not None \
             else _stack_figure(plt, chart, group_colors(chart), series_color, o)
+        _dress(fig, chart, o)
         if o.get('width_mm') and o.get('height_mm'):
             fig.set_size_inches(o['width_mm'] / 25.4, o['height_mm'] / 25.4)
         elif o.get('width_mm'):
@@ -63,6 +64,29 @@ def figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = 
         return _bytes(fig, fmt, dpi)
     finally:
         plt.close('all')
+
+
+def _dress(fig: Any, chart: Chart, o: dict[str, Any]) -> None:
+    """Общее оформление графика (``chart.style``, как у обычных графиков): заголовок, фон, цвет текста, сетка; пустое — как задал график."""
+    st = o.get('style') or {}
+    ax = fig.axes[0]
+    base = float(o.get('font_size') or 12)
+    if st.get('background'):
+        fig.patch.set_facecolor(st['background'])
+    if st.get('plot_background') and chart.heat is None and chart.strips is None:
+        ax.set_facecolor(st['plot_background'])
+    if st.get('text_color'):
+        for a in fig.axes:
+            for t in [a.title, a.xaxis.label, a.yaxis.label, *a.get_xticklabels(), *a.get_yticklabels()]:
+                t.set_color(st['text_color'])
+    if chart.title:
+        align = {'left': 'left', 'right': 'right'}.get(st.get('title_align') or '', 'center')
+        ax.set_title(chart.title, loc=align, fontsize=float(st.get('title_size') or base + 1), color=st.get('title_color') or st.get('text_color') or 'black',
+                     fontweight='bold' if st.get('title_bold') else 'normal', y=ax.title.get_position()[1])
+    grid = st.get('grid')
+    if grid in ('both', 'h', 'v') and chart.heat is None and chart.strips is None:
+        ax.grid(True, axis={'both': 'both', 'h': 'y', 'v': 'x'}[grid], color=st.get('grid_color') or '#d0d7da', lw=float(st.get('grid_width') or 0.7))
+        ax.set_axisbelow(True)
 
 
 def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color: Any, o: dict[str, Any] | None = None):
@@ -160,9 +184,12 @@ def _aligned_table(plt: Any, fig: Any, ax: Any, table: Any, n: int, fs: float = 
             tab.text(k, i + 0.5, v, ha='center', va='center', fontsize=fs)
 
 
-def _strip_figure(plt: Any, chart: Chart):
+def _strip_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
     """Скважины × сезоны плитками: номер, ряд мелких квадратов (цвет ГСП; серый — нет; штриховка — ревизии не было), число сезонов."""
     from matplotlib.patches import Rectangle
+    o = o or {}
+    cell = float(o.get('cell_size') or 9)
+    base = float(o.get('font_size') or 12)
     st = chart.strips
     groups = list(dict.fromkeys(st.groups))
     palette = ['#2a6f97', '#d1495b', '#3a9d5d', '#e0a100', '#7b4fa3', '#e07a1f', '#2b9aa0', '#8c5a3c', '#5b6c8f', '#a3a33a']
@@ -176,39 +203,42 @@ def _strip_figure(plt: Any, chart: Chart):
     y = 0.0
     for name, idx in blocks:
         if name:
-            ax.text(0, y + 0.35, name, color=color[name], fontsize=12, fontweight='bold', va='center')
+            ax.text(0, y + 0.35, name, color=color[name], fontsize=base, fontweight='bold', va='center')
             y += 0.8
         for k, i in enumerate(idx):
             x0, y0 = (k % per_row) * (chip_w + 0.15), y + (k // per_row) * 0.8
             ax.add_patch(Rectangle((x0, y0), chip_w, 0.62, fill=False, ec='#b9c4c7', lw=0.8))
-            ax.text(x0 + 0.62, y0 + 0.31, st.rows[i].replace('№ ', ''), ha='right', va='center', fontsize=9, fontweight='bold')
+            ax.text(x0 + 0.62, y0 + 0.31, st.rows[i].replace('№ ', ''), ha='right', va='center', fontsize=cell, fontweight='bold')
             for j, v in enumerate(st.cells[i]):
                 xs = x0 + 0.7 + j * (sq + gap)
                 if v is None:
                     ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fc='#fff4d6', hatch='////', ec='#8a5a00', lw=0.8))
                 else:
                     ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fc=color[st.groups[i]] if v else '#e4eaec', lw=0))
-            ax.text(x0 + chip_w - 0.1, y0 + 0.31, str(st.counts[i]), ha='right', va='center', fontsize=9, color='#555')
+            ax.text(x0 + chip_w - 0.1, y0 + 0.31, str(st.counts[i]), ha='right', va='center', fontsize=cell, color='#555')
         y += -(-len(idx) // per_row) * 0.8 + 0.2
     ax.set_xlim(-0.05, per_row * (chip_w + 0.15))
     ax.set_ylim(y, -0.2)
     ax.axis('off')
-    ax.set_title(chart.title, fontsize=13)
-    fig.text(0.01, 0.01, 'Квадраты слева направо: ' + ' · '.join(st.columns) + '; число справа — сколько сезонов', fontsize=9, color='#555')
+    ax.set_title(chart.title, fontsize=base + 1)
+    fig.text(0.01, 0.01, 'Квадраты слева направо: ' + ' · '.join(st.columns) + '; число справа — сколько сезонов', fontsize=cell, color='#555')
     return fig
 
 
-def _heat_figure(plt: Any, chart: Chart):
+def _heat_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
     from matplotlib.patches import Rectangle
+    o = o or {}
+    cell = float(o.get('cell_size') or 10)
+    base = float(o.get('font_size') or 10)
     h = chart.heat
     z = np.array([[np.nan if v is None else float(v) for v in row] for row in h.values])
     top = h.maximum or float(np.nanmax(z)) if np.isfinite(z).any() else 1.0
     fig, ax = plt.subplots(figsize=(1.3 * len(h.columns) + 3.2, 0.5 * len(h.rows) + 2.2))
     image = ax.imshow(np.ma.masked_invalid(z), cmap='OrRd', vmin=0, vmax=top, aspect='auto')
     ax.set_xticks(range(len(h.columns)))
-    ax.set_xticklabels(h.columns)
+    ax.set_xticklabels(h.columns, fontsize=base)
     ax.set_yticks(range(len(h.rows)))
-    ax.set_yticklabels(h.rows)
+    ax.set_yticklabels(h.rows, fontsize=base)
     ax.spines[:].set_visible(False)
     ax.tick_params(length=0)
     for i, row in enumerate(h.values):
@@ -216,11 +246,11 @@ def _heat_figure(plt: Any, chart: Chart):
             text = h.texts[i][j]
             if v is None:
                 ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, hatch='///', ec='#aaa', lw=0))
-                ax.text(j, i, text or h.missing_text, ha='center', va='center', fontsize=9, color='#555')
+                ax.text(j, i, text or h.missing_text, ha='center', va='center', fontsize=cell, color='#555')
             elif text:
-                ax.text(j, i, text, ha='center', va='center', color='white' if v > top * 0.55 else '#111')
+                ax.text(j, i, text, ha='center', va='center', fontsize=cell, color='white' if v > top * 0.55 else '#111')
     fig.colorbar(image, ax=ax, label=h.unit)
-    ax.set_title(chart.title, fontsize=13)
+    ax.set_title(chart.title, fontsize=base + 3)
     return fig
 
 

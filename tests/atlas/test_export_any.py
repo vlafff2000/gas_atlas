@@ -172,3 +172,37 @@ def test_manual_bar_color_survives_excel_look(env):
 
     assert '#123456' in fills('default')
     assert '#123456' in fills('excel')
+
+
+def test_saved_builder_layouts_are_charts(env):
+    """Сохранённые макеты конструктора доступны как «раздел»: каждый макет — график; имя файла задаёт инженер."""
+    client, pid = env
+    ids = lambda: {m['id'] for m in client.get(f'/api/projects/{pid}/export/any/modules').json()['modules']}
+    assert 'builder-saved' not in ids()
+    layout = {'series': [{'dataset': 'production', 'y': 'q', 'wells': ['31']}], 'title': 'Дебит 31'}
+    assert client.post(f'/api/projects/{pid}/builder/layouts', json={'name': 'Дебит', 'layout': layout}).status_code == 200
+    assert 'builder-saved' in ids()
+    found = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'builder-saved', 'params': {}}).json()
+    assert len(found['charts']) == 1 and found['charts'][0]['id'].startswith('layout-')
+    r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'builder-saved', 'params': {}, 'chart': found['charts'][0]['id'],
+                                                                'settings': {'dpi': 150, 'filename': 'мой/график'}})
+    assert r.status_code == 200 and r.content[:4] == b'\x89PNG'
+    assert 'filename*=UTF-8' in r.headers['content-disposition'] and '%2F' not in r.headers['content-disposition'].split("''")[1]
+
+
+def test_facets_listed_and_special_style_applied():
+    """Признаки рядов отдаются реестру; у тепловой карты действуют размер текста в ячейках и общее оформление (фон, заголовок)."""
+    import io
+    from PIL import Image
+    from atlas.contract import Axis, Chart, HeatMap, Series
+    from atlas.export_any import describe, export
+    chart = Chart('h', 'Карта', Axis('Сезон'), Axis('ГСП'),
+                  series=[Series('a', [1, 2], [1, 2], facets={'Период': '2023'}), Series('b', [1, 2], [2, 3], facets={'Период': '2024'})])
+    assert describe(chart)['facets'] == [{'name': 'Период', 'values': ['2023', '2024']}]
+    heat = Chart('heat', 'Карта', Axis('Сезон'), Axis('ГСП'), heat=HeatMap(['ГСП-1'], ['2023', '2024'], [[1.0, 2.0]], [['1', '2']]))
+    def shot(settings):
+        content, name, _, _ = export(heat, {'dpi': 150, **settings})
+        return Image.open(io.BytesIO(content)).convert('RGB')
+    plain = shot({})
+    painted = shot({'cell_size': 20, 'chart': {'background': '#ffeecc'}})
+    assert plain.getpixel((2, 2)) == (255, 255, 255) and painted.getpixel((2, 2)) == (255, 238, 204)
