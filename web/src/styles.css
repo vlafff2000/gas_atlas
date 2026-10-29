@@ -105,10 +105,19 @@ button, input, select { font: inherit; color: inherit; }
     transparent 8px 10px, var(--accent) 10.5px 11px);
 }
 .project-picker { display: grid; gap: 4px; padding: 0 6px; font-size: 13px; color: var(--side-muted); }
+.project-picker-field { display: grid; gap: 4px; }
 .project-picker select {
   background: var(--side-raised); color: #fff; border: 1px solid #3a4f59; border-radius: var(--radius);
   padding: 7px 8px; font-size: 14px; width: 100%; min-width: 0; text-overflow: ellipsis;
 }
+.side-new-project { justify-self: start; background: none; border: 0; padding: 2px 0; font-size: 13px; color: var(--side-muted); cursor: pointer; }
+.side-new-project:hover { color: #fff; text-decoration: underline; }
+.side-new-project-form { display: grid; gap: 6px; }
+.side-new-project-form input {
+  background: var(--side-raised); color: #fff; border: 1px solid #3a4f59; border-radius: var(--radius);
+  padding: 7px 8px; font-size: 14px; width: 100%; min-width: 0;
+}
+.side-new-project-actions { display: flex; gap: 6px; }
 .sidebar nav { display: grid; gap: 18px; }
 .sidebar h2 { font-size: 13px; font-weight: 400; color: var(--side-muted); padding: 0 6px 6px; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
@@ -348,6 +357,11 @@ td.edit input { width: 100%; min-width: 12ch; border: 1px solid var(--line); bor
   border-radius: var(--radius); background: none; cursor: pointer; font-size: 14px; text-align: left;
 }
 .side-search span { flex: 1; }
+.side-menu {
+  display: flex; align-items: center; gap: 8px; margin: 6px 0 0; padding: 7px 10px; border: 1px solid #34474f;
+  border-radius: var(--radius); background: none; cursor: pointer; font-size: 14px; text-align: left; color: var(--side-muted);
+}
+.side-menu:hover { background: var(--side-raised); color: var(--side-ink); }
 .side-search kbd, .palette kbd {
   font-family: inherit; font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 4px; border: 1px solid currentColor; opacity: .75;
 }
@@ -360,7 +374,7 @@ td.edit input { width: 100%; min-width: 12ch; border: 1px solid var(--line); bor
 .shell.collapsed .sidebar { padding: 18px 8px 20px; align-items: center; }
 .shell.collapsed .brand { flex-direction: column; padding: 0; gap: 12px; }
 .shell.collapsed .brand-name, .shell.collapsed .side-label, .shell.collapsed .project-picker, .shell.collapsed .sidebar nav { display: none; }
-.shell.collapsed .side-search { margin: 0; padding: 8px; justify-content: center; }
+.shell.collapsed .side-search, .shell.collapsed .side-menu { margin: 0; padding: 8px; justify-content: center; }
 .shell.collapsed .theme-switch { flex-direction: column; align-self: center; }
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(10, 18, 22, .38); display: grid; justify-items: center; align-items: start; padding-top: 14vh; }
