@@ -18,6 +18,7 @@ from atlas.engine.core.config import COLORS
 from atlas.engine.core.export import csv_bytes, figure_bytes, safe_name, xlsx_bytes
 
 from .contract import Chart, Series, Table
+from .rich_text import plain
 
 SYMBOLS = {'circle': 'circle', 'square': 'square', 'diamond': 'diamond', 'triangle': 'triangle-up', 'plus': 'cross', 'x': 'x', 'star': 'star'}
 LOOK_DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'dot'}
@@ -394,10 +395,10 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
     from openpyxl.chart.shapes import GraphicalProperties
     from openpyxl.styles import Alignment, Font
 
-    xl, yl = axis_title(chart.x.label, chart.x.unit), axis_title(chart.y.label, chart.y.unit)
+    xl, yl = plain(axis_title(chart.x.label, chart.x.unit)), plain(axis_title(chart.y.label, chart.y.unit))
     right = chart.right_axes()
     unit_of = {'y': chart.y.unit, **{name: spec.unit for name, spec in right}}
-    title_of = {'y': yl, **{name: axis_title(spec.label, spec.unit) for name, spec in right}}
+    title_of = {'y': yl, **{name: plain(axis_title(spec.label, spec.unit)) for name, spec in right}}
     wb = Workbook()
     data = wb.active
     data.title = 'Данные'
@@ -409,7 +410,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
         for r, c in enumerate(cats, 2):
             data.cell(r, 1, c)
         for k, s in enumerate(chart.series, 2):
-            data.cell(1, k, s.name)                       # легенда Excel берёт эту ячейку: год или сезон без единиц
+            data.cell(1, k, plain(s.name))                       # легенда Excel берёт эту ячейку: год или сезон без единиц
             by = {str(x): y for x, y in zip(s.x, s.y)}
             for r, c in enumerate(cats, 2):
                 data.cell(r, k, _cell(by.get(c)))
@@ -418,11 +419,11 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
     else:
         col = 1
         for s in chart.series:
-            data.cell(1, col, f'{s.name} · {xl}')
-            data.cell(1, col + 1, f'{s.name} · {title_of.get(s.axis, yl)}')
+            data.cell(1, col, f'{plain(s.name)} · {xl}')
+            data.cell(1, col + 1, f'{plain(s.name)} · {title_of.get(s.axis, yl)}')
             extra = [s.labels] if s.labels is not None else []
             if extra:
-                data.cell(1, col + 2, f'{s.name} · подсказка')
+                data.cell(1, col + 2, f'{plain(s.name)} · подсказка')
             for r, (x, y) in enumerate(zip(s.x, s.y), 2):
                 cx, cy = _cell(x), _cell(y)
                 data.cell(r, col, cx)
@@ -455,7 +456,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
                 one = XSeries(values, title_from_data=True)
             else:
                 one = XSeries(Reference(data, min_col=cy, min_row=r0, max_row=r1), Reference(data, min_col=cx, min_row=r0, max_row=r1),
-                              title=s.name)
+                              title=plain(s.name))
                 if s.kind == 'points':
                     one.marker.symbol = 'circle'
                     one.marker.size = 5
@@ -480,7 +481,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
     drawable = [item for item in plotted if item[0].kind != 'box']
     if drawable:
         main = build([i for i in drawable if i[0].axis == 'y'] or drawable, False)
-        main.title = chart.title
+        main.title = plain(chart.title)
         main.x_axis.title, main.y_axis.title = xl, yl
         main.x_axis.delete = main.y_axis.delete = False
         main.height, main.width = 11, 20
@@ -497,7 +498,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
             main += secondary
         sheet = wb.create_sheet('График')
         sheet.add_chart(main, 'A1')
-    return_name = f'{safe_name(chart.title)}.xlsx'
+    return_name = f'{safe_name(plain(chart.title))}.xlsx'
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue(), return_name, XLSX
@@ -509,12 +510,12 @@ def chart_csv(chart: Chart) -> tuple[bytes, str, str]:
     for s in chart.series:
         if s.kind == 'box' or len(s.x) != len(s.y):
             continue
-        frames.append(pd.DataFrame({'Ряд': s.name, 'Ось': s.axis, 'X': list(s.x), 'Y': list(s.y)}))
+        frames.append(pd.DataFrame({'Ряд': plain(s.name), 'Ось': s.axis, 'X': list(s.x), 'Y': list(s.y)}))
     frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=['Ряд', 'Ось', 'X', 'Y'])
     for col in ('X', 'Y'):
         if frame[col].map(lambda v: isinstance(v, (pd.Timestamp, dt.datetime, dt.date))).any():
             frame[col] = frame[col].map(lambda v: pd.Timestamp(v).strftime('%Y-%m-%d') if v is not None and not pd.isna(v) else '')
-    return csv_bytes(frame), f'{safe_name(chart.title)}.csv', 'text/csv; charset=utf-8'
+    return csv_bytes(frame), f'{safe_name(plain(chart.title))}.csv', 'text/csv; charset=utf-8'
 
 
 def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_size=None) -> tuple[bytes, str, str]:
@@ -522,8 +523,8 @@ def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_s
     if (chart.heat is not None or chart.strips is not None) and fmt in ('xlsx', 'csv'):
         frame = chart_special.heat_frame(chart) if chart.heat is not None else chart_special.strips_frame(chart)
         if fmt == 'csv':
-            return csv_bytes(frame), f'{safe_name(chart.title)}.csv', 'text/csv; charset=utf-8'
-        return xlsx_bytes({chart.title: frame}), f'{safe_name(chart.title)}.xlsx', XLSX
+            return csv_bytes(frame), f'{safe_name(plain(chart.title))}.csv', 'text/csv; charset=utf-8'
+        return xlsx_bytes({plain(chart.title): frame}), f'{safe_name(plain(chart.title))}.xlsx', XLSX
     if fmt == 'xlsx':
         return chart_xlsx(chart)
     if fmt == 'csv':
@@ -531,8 +532,8 @@ def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_s
     if fmt not in FORMATS:
         raise ValueError('Формат графика: svg, pdf, png, xlsx или csv')
     if chart_special.is_special(chart):      # подписи в сегментах, выноски, таблица под графиком, тепловая карта — общий экспортёр их не рисует
-        return chart_special.figure_file(chart, fmt, dpi), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
-    return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size), f'{safe_name(chart.title)}.{fmt}', FORMATS[fmt]
+        return chart_special.figure_file(chart, fmt, dpi), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
+    return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
 
 
 def column_titles(table: Table) -> list[str]:

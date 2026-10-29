@@ -4,6 +4,7 @@ import type { ChartStyle } from './api'
 import { HEX, SeriesLookFields } from './ChartSettings'
 import { FONT_CHOICES } from './chartTheme'
 import type { Look } from './chartStyle'
+import { RichField } from './RichField'
 import './builder.css'
 
 // Всплывающие окна настройки конструктора: «Ряд», «Ось», «График». Всё необязательно: пустое поле — авто.
@@ -251,7 +252,7 @@ export function ChartDialog({ title, autoTitle, style, onTitle, onChange, onClos
         <div className="cs-editor">
           <fieldset>
             <legend>Заголовок</legend>
-            <Text label="Текст" value={title} placeholder={autoTitle} onChange={onTitle} />
+            <RichField label="Текст" value={title} placeholder={autoTitle} onChange={onTitle} />
             <Choice label="Шрифт" value={style.title_font} options={FONT_OPTIONS} onChange={v => set({ title_font: v })} auto="как у графика" />
             <div className="cs-row">
               <Num label="Размер" value={style.title_size} min={6} max={48} onChange={v => set({ title_size: v })} />
