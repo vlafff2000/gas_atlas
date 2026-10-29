@@ -207,6 +207,9 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
     from matplotlib import pyplot as plt
     from matplotlib.ticker import MultipleLocator, StrMethodFormatter
     from matplotlib.dates import AutoDateLocator, DateFormatter
+    if fmt in ('xlsx','csv'):
+        from .figure_data import figure_data_bytes
+        return figure_data_bytes(fig,fmt)
     if fmt not in ('png','svg','pdf'):raise ValueError('Неподдерживаемый формат')
     if dpi not in (150,200,250,300,600,1200):raise ValueError('DPI должен быть 150, 200, 250, 300, 600 или 1200')
     if not 80<=width_mm<=300:raise ValueError('Ширина должна быть от 80 до 300 мм')

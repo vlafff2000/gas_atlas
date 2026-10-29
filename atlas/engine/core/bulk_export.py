@@ -31,7 +31,7 @@ def _modules(plan):
 def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metadata=None,progress=None,chunk_size=40,max_part_bytes=70*1024**2,height_mm=None,renderer=None):
     # Legacy keyword arguments remain accepted; they no longer split the output.
     if chunk_size<1:raise ValueError('Размер части должен быть положительным')
-    if any(fmt not in ('svg','pdf','png') for fmt in formats):raise ValueError('Неизвестный формат графика')
+    if any(fmt not in ('svg','pdf','png','xlsx','csv') for fmt in formats):raise ValueError('Неизвестный формат графика')
     paths=[];errors=[];completed=0;files=0;metadata=metadata or {};processed=0
     directory=store.path(pid)/'exports';directory.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='pending_export_',dir=str(directory)) as tmp:
