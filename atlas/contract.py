@@ -234,6 +234,25 @@ class TableAction:
 
 
 @dataclass
+class CellStyle:
+    """Оформление ячеек для XLSX (на экране не показывается): заливка и цвет шрифта. ``rows`` — номера строк данных с нуля,
+    ``columns`` — ключи колонок; пусто — вся строка. Поздние записи перекрывают ранние."""
+    rows: list[int]
+    fill: str = ''                    # HEX без «#», например 'FCD5B4'
+    font: str = ''
+    columns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CellMerge:
+    """Объединение ячеек для XLSX: строки ``first``..``last`` (с нуля, включительно) по колонкам ``columns`` (подряд).
+    Текст — в первой ячейке фрейма, как и остальные значения."""
+    first: int
+    last: int
+    columns: list[str]
+
+
+@dataclass
 class Table:
     id: str
     title: str
@@ -248,6 +267,9 @@ class Table:
     # Формулы колонок для Excel (на экране — значения): {ключ колонки: шаблон}. В шаблоне «{ключ}» — ячейка этой колонки
     # в той же строке, «{ключ@prev}» — в предыдущей строке, «{ключ@col}» — весь столбец данных; первая строка данных предыдущей не имеет (формула пуста).
     formulas: dict[str, str] = field(default_factory=dict)
+    # Оформление и объединения только для XLSX (заливка по видам пачек, синий шрифт, «не исследовалась»).
+    styles: list[CellStyle] = field(default_factory=list)
+    merges: list[CellMerge] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.columns:
@@ -288,6 +310,7 @@ class Series:
     labels: Sequence[str] | None = None  # строка подсказки на каждую точку (поверх X и Y)
     ids: Sequence[str] | None = None  # идентификаторы точек: по ним щелчок исключает точку
     dataset: DatasetKind | None = None   # набор, к которому относятся ids
+    suspect: bool = False            # точки-подсказки выбросов: подсвечены красным; двойной щелчок снимает сомнение
     markers: bool = False            # для 'line': показывать точки на линии (lines+markers в 5.8)
     axis: Literal['y', 'y2', 'y3', 'y4', 'y5'] = 'y'   # правые оси по порядку: y2 — у графика, дальше y3, y4, y5 (смещение и цвет по ряду)
     stack: str = ''                  # одинаковое значение: столбцы или линии с заливкой складываются стопкой
