@@ -110,6 +110,11 @@ def test_word_one_chart_with_caption(env):
     assert z.testzip() is None
     xml = z.read('word/document.xml').decode()
     assert 'Дебит скважины 31' in xml and 'Рисунок' in xml and 'Суточный расход' in xml and 'SEQ' in xml
+    text_mode = client.post(f'/api/projects/{pid}/builder/word', json={'layout': LAYOUT, 'caption': 'Суточный расход', 'caption_mode': 'text'})
+    assert text_mode.status_code == 200, text_mode.text
+    xml_text = zipfile.ZipFile(io.BytesIO(text_mode.content)).read('word/document.xml').decode()
+    assert 'Суточный расход' in xml_text and 'SEQ' not in xml_text and 'Рисунок' in xml_text
+    assert client.post(f'/api/projects/{pid}/builder/word', json={'layout': LAYOUT, 'caption_mode': 'link'}).status_code == 400
     media = [n for n in z.namelist() if n.startswith('word/media/')]
     assert len(media) == 1 and z.read(media[0])[:8] == b'\x89PNG\r\n\x1a\n'
     assert client.post(f'/api/projects/{pid}/builder/word', json={'layout': {'series': []}}).status_code == 400

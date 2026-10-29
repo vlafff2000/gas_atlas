@@ -268,7 +268,7 @@ export const builderApi = {
     request<ModelList>(`/api/projects/${project}/builder/models`, json('POST', { selected, ...extra })),
   seriesWells: (project: string, layout: unknown) =>
     request<SeriesWells>(`/api/projects/${project}/builder/series/wells`, json('POST', { layout })),
-  series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string }) =>
+  series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string; caption_mode?: string }) =>
     downloadNotes(`/api/projects/${project}/builder/series`, body),
   list: (project: string) => request<{ items: LayoutItem[] }>(lib(project)).then(r => r.items),
   save: (project: string, name: string, layout: unknown) =>
@@ -281,7 +281,7 @@ export const builderApi = {
   importFile: (project: string, content: string, fileName: string) =>
     request<{ item: LayoutItem; items: LayoutItem[]; layout: unknown; missing: string[] }>(lib(project, '/import'), json('POST', { content, file_name: fileName })),
   exportFile: (project: string, name: string, layout: unknown) => download(lib(project, '/file'), { name, layout }),
-  word: (project: string, body: { layout: unknown; title: string; caption: string; orientation: string }) =>
+  word: (project: string, body: { layout: unknown; title: string; caption: string; orientation: string; caption_mode?: string }) =>
     download(`/api/projects/${project}/builder/word`, body),
   data: (project: string, layout: unknown, format: 'xlsx' | 'csv') =>
     download('/api/modules/builder/export', { project, params: { layout }, target: 'chart', id: 'builder', format, dpi: 300 }),
