@@ -126,3 +126,26 @@ def test_histogram_xlsx_has_well_labels_and_plain_legend(env, tmp_path):
         for series in book['График']._charts[0].series:
             assert series.cat is not None and series.cat.numRef.f.startswith("'Данные'!$A$")     # подписи из первой колонки
             assert 'тыс' not in str(book['Данные'][series.tx.strRef.f.split('!')[1]].value)
+
+
+def test_manual_bar_color_survives_excel_look(env):
+    """Гистограмма по годам: ручной цвет года остаётся в файле и при виде «как Excel»; остальные годы — палитра Excel, без пропусков."""
+    import re
+    client, pid = env
+    groups = client.post('/api/modules/production/options', json={'project': pid, 'param': 'groups', 'params': {}}).json()
+    params = dict(kind='withdrawal', groups=groups, wells=['31', '45', '540'], periods=['2023-2024', '2024-2025', '2025-2026'],
+                  hist_size='Все', direction='number', axis='well')
+    found = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'histograms', 'params': params}).json()
+    chart = found['charts'][0]
+    manual = next(i for i in chart['items'] if i['name'] == '2024-2025')
+    view = {'looks': {manual['key']: {'color': '#123456'}}}
+
+    def fills(look):
+        r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'histograms', 'params': params, 'chart': chart['id'],
+                                                                      'settings': {'format': 'svg', 'look': look, 'view': view}})
+        assert r.status_code == 200, r.text
+        svg = r.content.decode('utf8')
+        return set(re.findall(r'fill: ?(#[0-9a-fA-F]{6})', svg)) | set(re.findall(r'fill="(#[0-9a-fA-F]{6})"', svg))
+
+    assert '#123456' in fills('default')
+    assert '#123456' in fills('excel')
