@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type Project } from './api'
 import { MultiSelect } from './MultiSelect'
-import { wellFilterApi, type WellFilterStatus } from './api_wells'
+import { wellFilterApi, wellPresetApi, type WellFilterStatus } from './api_wells'
 import './wellfilter.css'
 
 interface Props {
@@ -19,12 +19,24 @@ export function WellFilter({ project, onProject }: Props) {
   const [allWells, setAllWells] = useState<string[]>([])
   const [status, setStatus] = useState<WellFilterStatus | null>(null)
   const [error, setError] = useState('')
+  const [legacy, setLegacy] = useState(0)                       // старые пресеты общей папки, ещё не перенесённые в проект
 
   useEffect(() => {
     api.projectGroups(project.id).then(setAllGroups).catch(() => setAllGroups([]))
     api.projectWells(project.id).then(setAllWells).catch(() => setAllWells([]))
     wellFilterApi.status(project.id).then(setStatus).catch(() => setStatus(null))
+    wellPresetApi.list(project.id).then(r => setLegacy(r.legacy ?? 0)).catch(() => setLegacy(0))
   }, [project.id, project.revision])
+
+  const importLegacy = async () => {
+    setError('')
+    try {
+      const r = await wellPresetApi.importLegacy(project.id)
+      setLegacy(r.legacy ?? 0)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   const openPanel = () => {
     setGroups(saved?.groups ?? [])
@@ -73,6 +85,12 @@ export function WellFilter({ project, onProject }: Props) {
             <button type="button" onClick={() => apply([], [])} disabled={!active}>Снять фильтр</button>
             <button type="button" className="quiet" onClick={() => setOpen(false)}>Отмена</button>
           </div>
+          {legacy > 0 && (
+            <div className="well-filter-legacy">
+              <span>Старых пресетов из общей папки: {legacy}. Перенести их в этот проект?</span>
+              <button type="button" onClick={importLegacy}>Перенести пресеты</button>
+            </div>
+          )}
         </div>
       )}
     </div>

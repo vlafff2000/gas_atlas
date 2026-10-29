@@ -115,35 +115,28 @@ export function ImportPage({ project, onProject, onCreated, pressure }: Props) {
   )
 }
 
+/** Создание проекта здесь — только когда объектов ещё нет; дальше — «+ Новый проект» в списке слева. */
 function NewProject({ project, onCreated }: { project: Project | null; onCreated: (id: string) => Promise<void> }) {
-  const [open, setOpen] = useState(!project)
   const [name, setName] = useState('')
   const [failure, setFailure] = useState('')
-  useEffect(() => { if (!project) setOpen(true) }, [project])
   const create = async () => {
     if (!name.trim()) { setFailure('Введите название объекта'); return }
     try {
       const { id } = await importApi.createProject(name.trim())
-      setName(''); setFailure(''); setOpen(false)
+      setName(''); setFailure('')
       await onCreated(id)
     } catch (e) { setFailure((e as Error).message) }
   }
-  if (!open) {
-    return (
-      <div className="toolbar">
-        <span className="muted">Загрузка в проект «{project?.name}».</span>
-        <button type="button" className="quiet" onClick={() => setOpen(true)}>Новый проект</button>
-      </div>
-    )
+  if (project) {
+    return <div className="toolbar"><span className="muted">Загрузка в проект «{project.name}». Новый объект — «+ Новый проект» в списке слева.</span></div>
   }
   return (
     <form className="new-project" onSubmit={e => { e.preventDefault(); create() }}>
-      <strong>{project ? 'Новый проект' : 'Сначала создайте проект'}</strong>
+      <strong>Сначала создайте проект</strong>
       <label className="field">Название объекта
-        <input value={name} onChange={e => setName(e.target.value)} autoFocus={!project} />
+        <input value={name} onChange={e => setName(e.target.value)} autoFocus />
       </label>
       <button type="submit" className="primary">Создать</button>
-      {project && <button type="button" className="quiet" onClick={() => setOpen(false)}>Отмена</button>}
       {failure && <div className="note warning">{failure}</div>}
     </form>
   )

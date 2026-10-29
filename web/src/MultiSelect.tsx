@@ -91,7 +91,7 @@ export function MultiSelect({ label, options, value, onChange, emptyMeaning = 'Ð
 
   const removePreset = async (preset: WellPreset) => {
     if (!picker) return
-    try { await wellPresetApi.remove(preset.id); refreshPresets(picker) } catch (e) { setNote((e as Error).message) }
+    try { await wellPresetApi.remove(picker, preset.id); refreshPresets(picker) } catch (e) { setNote((e as Error).message) }
   }
 
   const saveWells = async (name: string, wells: string[]) => {

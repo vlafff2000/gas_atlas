@@ -2,7 +2,8 @@
 import { ApiError } from './api'
 
 export interface WellPreset { id: string; kind: 'group' | 'fund' | 'grid' | 'user'; label: string; wells: string[] }
-interface PresetList { presets: WellPreset[] }
+// legacy — сколько пресетов осталось в прежней общей папке ~/.pxg (их можно перенести в проект)
+interface PresetList { presets: WellPreset[]; legacy?: number }
 
 // Фильтр скважин проекта: что выбрано и сколько скважин остаётся (сам фильтр — настройка проекта well_filter).
 export interface WellFilterStatus { groups: string[]; wells: string[]; total: number; shown: number; hidden: number }
@@ -29,6 +30,9 @@ export const wellFilterApi = {
 
 export const wellPresetApi = {
   list: (project: string) => send(`/api/projects/${project}/well-presets`),
-  save: (project: string, name: string, wells: string[]) => send('/api/well-presets', json('POST', { project, name, wells })),
-  remove: (id: string) => send(`/api/well-presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  save: (project: string, name: string, wells: string[]) =>
+    send(`/api/projects/${project}/well-presets`, json('POST', { name, wells })),
+  remove: (project: string, id: string) =>
+    send(`/api/projects/${project}/well-presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  importLegacy: (project: string) => send(`/api/projects/${project}/well-presets/import-legacy`, { method: 'POST' }),
 }

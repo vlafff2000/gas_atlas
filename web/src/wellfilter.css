@@ -13,3 +13,4 @@
 .well-filter-error { margin: 0; color: #8a1c1c; font-size: 12px; }
 .well-filter-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 560px) { .well-filter-fields { grid-template-columns: 1fr; } }
+.well-filter-legacy { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; border-top: 1px solid var(--line, #d9dee5); padding-top: 8px; }

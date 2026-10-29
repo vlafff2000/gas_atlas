@@ -29,20 +29,32 @@ def test_scoped_intersects_groups_with_wells_filter_and_counts_hidden():
     assert well_sets.scoped(['9'], ['ГСП 1'], MAPPING, ['1', '2']) == ([], 2)
 
 
-def test_user_presets_are_saved_in_pxg_home(tmp_path, monkeypatch):
-    monkeypatch.setenv('PXG_HOME', str(tmp_path))
-    assert well_sets.user_presets() == []
-    presets = well_sets.add_user_preset(' Сетка ', ['31', '31', '12'])
+def test_user_presets_are_saved_in_project_folder(tmp_path):
+    project_a, project_b = tmp_path / 'a', tmp_path / 'b'
+    assert well_sets.user_presets(project_a) == []
+    presets = well_sets.add_user_preset(project_a, ' Сетка ', ['31', '31', '12'])
     assert presets[0]['label'] == 'Сетка' and presets[0]['wells'] == ['31', '12']
-    assert well_sets.remove_user_preset(presets[0]['id']) == []
+    assert well_sets.user_presets(project_b) == []                    # в другом проекте фильтра нет
+    assert well_sets.remove_user_preset(project_a, presets[0]['id']) == []
 
 
-def test_user_preset_needs_name_and_wells(tmp_path, monkeypatch):
-    monkeypatch.setenv('PXG_HOME', str(tmp_path))
+def test_user_preset_needs_name_and_wells(tmp_path):
     for name, wells in (('', ['1']), ('Пусто', [])):
         try:
-            well_sets.add_user_preset(name, wells)
+            well_sets.add_user_preset(tmp_path, name, wells)
         except ValueError:
             continue
         raise AssertionError('пресет без названия или скважин не должен сохраняться')
+
+
+def test_legacy_global_presets_are_imported_once_and_kept(tmp_path, monkeypatch):
+    legacy, project = tmp_path / 'home', tmp_path / 'project'
+    monkeypatch.setenv('PXG_HOME', str(legacy))
+    well_sets.add_user_preset(legacy, 'Старый', ['5', '6'])
+    assert well_sets.legacy_count() == 1
+    assert well_sets.user_presets(project) == []                      # общая папка больше не видна проектам
+    imported = well_sets.import_legacy(project)
+    assert [(p['label'], p['wells']) for p in imported] == [('Старый', ['5', '6'])]
+    assert len(well_sets.import_legacy(project)) == 1                 # повторный перенос ничего не дублирует
+    assert well_sets.legacy_count() == 1                              # прежний файл не тронут
 
