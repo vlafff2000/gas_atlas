@@ -122,10 +122,10 @@ const FONT_OPTIONS = FONT_CHOICES.map(f => ({ value: f.value, label: f.label }))
 
 // ---------- ряд ----------
 
-export type BuilderView = 'line' | 'points' | 'line_points' | 'bar' | 'area' | 'step'
+export type BuilderView = 'line' | 'points' | 'line_points' | 'bar' | 'area' | 'step' | 'hist'
 /** Вид ряда в карточке: линия, точки, линия с точками, столбцы, область (линия с заливкой), ступенчатая линия. */
 export const VIEWS: [BuilderView, string][] = [['line', 'линия'], ['points', 'точки'], ['line_points', 'линия с точками'],
-  ['bar', 'столбцы'], ['area', 'область'], ['step', 'ступенчатая']]
+  ['bar', 'столбцы'], ['area', 'область'], ['step', 'ступенчатая'], ['hist', 'гистограмма']]
 const VIEW_LABEL = Object.fromEntries(VIEWS) as Record<BuilderView, string>
 
 export interface RowItem { id: string; title: string; view: BuilderView; look: Look }
@@ -147,7 +147,7 @@ export function SeriesDialog({ rows, activeId, onActive, onChange, onClose }:
         </ul>
         {row && <div className="cs-editor">
           <h3>{row.title} <small>{VIEW_LABEL[row.view]}</small></h3>
-          <SeriesLookFields s={{ kind: row.view === 'points' ? 'points' : row.view === 'bar' ? 'bar' : 'line', fill: row.view === 'area', dash: '', dashed: false, width: 0, markers: row.view === 'line_points', symbol: 'circle', opacity: 1 }}
+          <SeriesLookFields s={{ kind: row.view === 'points' ? 'points' : row.view === 'bar' || row.view === 'hist' ? 'bar' : 'line', fill: row.view === 'area', dash: '', dashed: false, width: 0, markers: row.view === 'line_points', symbol: 'circle', opacity: 1 }}
             color="#2a78d6" look={row.look} onChange={patch => onChange(row.id, compact({ ...row.look, ...patch }))} />
           <p className="cs-hint">Цвет «авто» — по палитре: каждая скважина своим цветом. Заданный цвет получают все кривые ряда.</p>
           <div className="cs-actions">

@@ -46,6 +46,9 @@ export interface BuilderRow {
   x_transform?: RowTransform               // преобразование X (накопленное и т. п.); нет — без преобразования
   model?: string                           // модель tNav (набор «Модель ГДМ»); пусто — первая из выбранных
   color_by?: string                        // поле набора, по которому красятся точки (вид «точки»); пусто — один цвет
+  x_cats?: string[]                        // гистограмма: скважины или группы по оси X; пусто — по фильтру или все
+  x_filter?: string                        // гистограмма: часть названия скважины или группы
+  hist_agg?: Agg                           // гистограмма: сводка значений Y по категории
 }
 export interface RowTransform { op: TransformOp; n?: number; by?: 'points' | 'days'; agg?: Agg; cum?: boolean; season?: boolean; overlay?: boolean; norm?: 'first' | 'max' | 'value'; value?: string }
 type TransformOp = 'none' | 'cumsum' | 'rolling' | 'day' | 'month' | 'group' | 'norm' | 'mul' | 'div' | 'add' | 'diff'
@@ -464,7 +467,25 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
                 onChange={e => { const n = Math.round(Number(e.target.value)); if (Number.isFinite(n) && n >= 0 && n <= 366) onChange({ days: n }) }} />
             </label>
           )}
-          {ds?.entity === 'well' && (
+          {row.view === 'hist' && !!ds?.entity && (
+            <>
+              <MultiSelect label={`по оси X: ${entity}`} options={ds.entities} value={row.x_cats ?? []} onChange={w => onChange({ x_cats: w })}
+                prefix={ds.entity === 'well' ? '№ ' : ''} />
+              <label className="field">
+                <span className="field-label">Фильтр по названию</span>
+                <input type="text" value={row.x_filter ?? ''} placeholder="нет" maxLength={120}
+                  title="Скважины или группы, в названии которых есть эта часть (без учёта регистра); добавляются к выбранным"
+                  onChange={e => onChange({ x_filter: e.target.value })} />
+              </label>
+              <label className="field">
+                <span className="field-label">Сводка по категории</span>
+                <select value={row.hist_agg ?? 'mean'} onChange={e => onChange({ hist_agg: e.target.value as Agg })}>
+                  {AGGS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                </select>
+              </label>
+            </>
+          )}
+          {ds?.entity === 'well' && row.view !== 'hist' && (
             <label className="field">
               <span className="field-label">Скважины ряда</span>
               <select value={row.wells_mode === 'current' ? 'current' : 'fixed'} onChange={e => onChange({ wells_mode: e.target.value as 'fixed' | 'current' })}>
@@ -473,7 +494,7 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
               </select>
             </label>
           )}
-          {ds?.entity && !(ds.entity === 'well' && row.wells_mode === 'current') && (
+          {ds?.entity && row.view !== 'hist' && !(ds.entity === 'well' && row.wells_mode === 'current') && (
             <MultiSelect label={entity} options={ds.entities} value={row.wells} onChange={w => onChange({ wells: w })}
               prefix={ds.entity === 'well' ? '№ ' : ''} />
           )}
