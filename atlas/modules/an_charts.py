@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,7 @@ Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
 WHAT = {'withdrawal': ('отбор', 'отбора', 'Суточный отбор'), 'injection': ('закачка', 'закачки', 'Суточная закачка')}
 WHOLE = 'Весь сезон'
+OBJECT_COLOR = '#6b7c84'        # объект целиком — нейтральный серый, не цвет группы
 MONTHS = ('январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь')
 
 
@@ -186,9 +187,11 @@ def cum_groups_season(kind: str, period: str, rates: pd.DataFrame, object_name: 
     noun = WHAT[kind][0]
     chart = Chart(f'an-cum-groups-{kind}-{period}', f'Накопленный {noun} за сезон по группам · {period}',
                   Axis('Дата', scale='time'), Axis(f'Накопленный {noun}', 'млн м³', from_zero=True))
-    for scope, daily in _cum_frames(rates).items():
+    frames = _cum_frames(rates)
+    colors = group_palette([s for s in frames if s != object_name])
+    for scope, daily in frames.items():
         chart.series.append(Series(scope, daily.index.to_numpy(), (daily.cumsum() / 1e6).to_numpy(), 'line',
-                                   group=scope, width=2.2 if scope == object_name else 1.2, dashed=scope == object_name))
+                                   group=scope, color=OBJECT_COLOR if scope == object_name else colors[scope], width=2.2 if scope == object_name else 1.2, dashed=scope == object_name))
     return chart
 
 
@@ -204,8 +207,10 @@ def cum_groups_months(kind: str, period: str, rates: pd.DataFrame, object_name: 
     cats = [month_name(m) for m in months]
     chart = Chart(f'an-cum-months-{kind}-{period}', f'Накопленный {noun} за месяц по группам · {period}',
                   Axis('Месяц', scale='category', categories=cats), Axis(f'Накопленный {noun} за месяц', 'млн м³', from_zero=True))
+    colors = group_palette(rates.scope.astype(str))
     for scope in dict.fromkeys(rates.scope.astype(str)):
-        chart.series.append(Series(scope, cats, np.array([by.get((scope, m), np.nan) for m in months], float), 'bar', group=scope))
+        chart.series.append(Series(scope, cats, np.array([by.get((scope, m), np.nan) for m in months], float), 'bar', group=scope,
+                                   color=colors[scope]))
     return chart
 
 
@@ -250,10 +255,11 @@ def monthly_groups_chart(kind: str, period: str, means: pd.DataFrame) -> Chart |
     months = list(dict.fromkeys(part.period))
     chart = Chart(f'an-monthly-groups-{kind}-{period}', f'Средний суточный расход по месяцам и группам · {period}',
                   Axis('Месяц', scale='category', categories=months), Axis('Средний суточный расход', Q_UNIT, from_zero=True))
+    colors = group_palette(part.scope.astype(str))
     for group, rows in part.groupby('scope', sort=False):
         by = rows.set_index('period')['mean']
         chart.series.append(Series(str(group), months, np.array([by.get(m, np.nan) for m in months], float), 'bar',
-                                   group=str(group), stack='groups'))
+                                   group=str(group), stack='groups', color=colors[str(group)]))
     return chart
 
 
@@ -271,37 +277,40 @@ def fund_chart(kind: str, period: str, fund: pd.DataFrame) -> Chart | None:
     return chart
 
 
-def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: str = 'box') -> Chart | None:
+def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: str = 'box',
+                      edges: Sequence[int] = an_wells.DEFAULT_EDGES) -> Chart | None:
     """Классы производительности по группам (табл. 1.5): высота сегмента — число скважин класса в группе (абсолютное), число — внутри сегмента; группы идут по возрастанию номера.
 
-    Узкие сегменты: ``callouts='box'`` — выноска в рамке цвета класса, ``'dot'`` — точка, а числа в таблице под графиком."""
+    Узкие сегменты: ``callouts='box'`` — выноска в рамке цвета класса, ``'dot'`` — точка, а числа в таблице под графиком. ``edges`` — границы, по которым посчитаны ``counts``."""
     part = counts[~counts.group.eq(an_wells.TOTAL)]       # «Всего» — отдельным графиком (``class_total_chart``)
     if part.empty:
         return None
+    keys, labels = an_wells.class_keys(edges), an_wells.class_labels(edges)
     cats = [str(g) for g in part.group]
-    size = part[list(an_wells.CLASS_KEYS)].sum(axis=1).to_numpy(float)
+    size = part[list(keys)].sum(axis=1).to_numpy(float)
     chart = Chart(f'an-class-share-{kind}-{period}', f'Классы производительности скважин по группам · {period}',
                   Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
     chart.callouts = 'dot' if callouts == 'dot' else 'box'
-    for key, name in zip(an_wells.CLASS_KEYS, an_wells.CLASS_NAMES):
+    for key, name in zip(keys, labels):
         n = part[key].to_numpy(int)
         label = name if name == '0' else f'{name} тыс. м³/сут'
         chart.series.append(Series(label, cats, n.astype(float), 'bar', stack='classes',
                                    segments=[str(v) if v else '' for v in n], labels=[f'{v} из {int(t)} скв., {v / t * 100:.0f} %' if t else f'{v} скв.' for v, t in zip(n, size)]))
     if chart.callouts == 'dot':
-        chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in an_wells.CLASS_KEYS])
+        chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in keys])
     return chart
 
 
-def class_total_chart(kind: str, period: str, counts: pd.DataFrame) -> Chart | None:
+def class_total_chart(kind: str, period: str, counts: pd.DataFrame, edges: Sequence[int] = an_wells.DEFAULT_EDGES) -> Chart | None:
     """Классы производительности по всему объекту (строка «ИТОГО» табл. 1.5): гистограмма, цвета классов те же, что у графика по группам."""
     total = counts[counts.group.eq(an_wells.TOTAL)]
     if total.empty:
         return None
-    names = [n if n == '0' else n.replace('Менее', '<').replace('От ', '').replace(' до ', '–').replace('Более', '>') for n in an_wells.CLASS_NAMES]
+    keys, labels = an_wells.class_keys(edges), an_wells.class_labels(edges)
+    names = [n if n == '0' else n.replace('Менее', '<').replace('От ', '').replace(' до ', '–').replace('Более', '>') for n in labels]
     chart = Chart(f'an-class-total-{kind}-{period}', f'Классы производительности скважин, всего по объекту · {period}',
                   Axis('Производительность, тыс. м³/сут', scale='category', categories=names), Axis('Скважин', 'скв.', from_zero=True))
-    for i, (key, name) in enumerate(zip(an_wells.CLASS_KEYS, an_wells.CLASS_NAMES)):
+    for i, (key, name) in enumerate(zip(keys, labels)):
         n = int(total[key].iloc[0])
         values = [float(n) if j == i else 0.0 for j in range(len(names))]
         chart.series.append(Series(name if name == '0' else f'{name} тыс. м³/сут', names, values, 'bar', stack='total', legend=False,

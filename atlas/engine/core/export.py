@@ -181,6 +181,13 @@ def value_labels(ax,bars,values,family,size):
         ax.annotate(text,(rect.get_x()+rect.get_width()/2,edge),xytext=(0,2 if up else -2),textcoords='offset points',
                     ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=90 if wide else 0)
 
+def sort_legend(handles,labels):
+    # годы, сезоны («2023/24») и номера групп — по возрастанию; остальные подписи не трогаем
+    skeleton={re.sub(r'\d+','#',str(l)) for l in labels}
+    if len(labels)<2 or len(skeleton)!=1 or '#' not in skeleton.copy().pop():return handles,labels
+    order=sorted(range(len(labels)),key=lambda i:[int(t) for t in re.findall(r'\d+',str(labels[i]))])
+    return [handles[i] for i in order],[labels[i] for i in order]
+
 def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default'):
     """``font`` / ``font_size`` — шрифт (``atlas.engine.core.fonts.FONTS``) и основной размер в пт; заголовок и легенда масштабируются вместе с ним.
     ``look='excel'`` — вид диаграммы Excel (Office: Calibri, палитра, тонкие серые горизонтальные линии сетки, легенда внизу); шрифт по умолчанию — Calibri.
@@ -342,6 +349,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 handles,labels=ax.get_legend_handles_labels()
                 for extra in [*rights.values(),*overlays.values()]:
                     h,l=extra.get_legend_handles_labels();handles+=h;labels+=l
+                handles,labels=sort_legend(handles,labels)
                 if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=wrap_at)) for v in labels]
                 if handles:
                     where={'top':'outside upper center','right':'outside center right'}.get(fo.get('legend'),'outside lower center')

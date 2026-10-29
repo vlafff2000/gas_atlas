@@ -11,10 +11,10 @@ from atlas.engine.modules import well_analysis as legacy
 from atlas.api import create_app
 from atlas.contract import Data
 from atlas.domain import DatasetKind
-from atlas.modules.gdi_trend import GdiTrendModule, VERDICTS, histories, rating
+from atlas.modules.gdi_trend import GdiTrendModule, VERDICTS, histories, quality_filter, rating
 from atlas.projects import Projects
 
-PARAMS = {'wells': [], 'methods': [], 'threshold': 0.95, 'change': 10.0, 'last_n': 0}
+PARAMS = {'wells': [], 'quality': 'all', 'threshold': 0.95, 'change': 10.0, 'last_n': 0}
 
 
 def degraded():
@@ -74,3 +74,15 @@ def test_spec_through_api(tmp_path):
     assert spec['needs'] == ['gdi'] and any(p['formula'] for p in spec['params'])
     body = client.post('/api/modules/gdi_trend/run', json={'project': pid, 'params': {}}).json()
     assert body['tables'][0]['id'] == 'rating' and len(body['charts']) == 3
+
+
+def test_quality_filter_splits_by_r2_threshold():
+    history = histories(degraded(), 0.95, [])
+    good = quality_filter(history, 'good', 0.95)
+    low = quality_filter(history, 'low', 0.95)
+    assert len(good) + len(low) == len(history) and good.r2.ge(0.95).all() and not low.r2.ge(0.95).any()
+    assert quality_filter(history, 'all', 0.95) is history
+    module = GdiTrendModule()
+    only_low = module.run(Data({DatasetKind.GDI: degraded()}), {**PARAMS, 'quality': 'low', 'threshold': 1.01})
+    assert table(only_low, 'studies').shape[0] == len(history) and not only_low.charts
+    assert table(only_low, 'rating').verdict.eq(VERDICTS['few']).all()

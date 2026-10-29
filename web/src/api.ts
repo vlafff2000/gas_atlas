@@ -28,6 +28,7 @@ export interface Param {
   empty: string
   show_if: Record<string, unknown> | null
   chart_kind: boolean
+  wells_picker: boolean
   extensions: string
 }
 export interface ModuleSpec {
@@ -92,6 +93,7 @@ export interface Series {
   x: Cell[]; y: Cell[]; ids: string[] | null; labels: string[] | null; dataset: string | null
   markers: boolean; axis: 'y' | 'y2' | 'y3' | 'y4' | 'y5'; stack?: string
   fill?: boolean; step?: boolean            // линия с заливкой (область) и ступенчатая линия (конструктор графиков)
+  suspect?: boolean                         // сомнительные точки выбросов: двойной щелчок снимает сомнение
   total: number      // точек в серии на самом деле; если больше x.length — линия прорежена (М4: пики и провалы сохранены)
   facets: Record<string, string> | null     // признаки для легенды рядами: {'Скважина': '№ 101', 'Период': '2024'}
   captions?: string[] | null                // текст над каждой точкой (подписи причин отсутствия замеров)
@@ -112,7 +114,7 @@ export interface HeatMap {
 }
 export interface WellStrips {
   rows: string[]; groups: string[]; columns: string[]; cells: (number | null)[][]; counts: number[]
-  layout: 'matrix' | 'panels'; missing_text: string
+  layout: 'matrix' | 'panels'; missing_text: string; colors?: Record<string, string>
 }
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean
@@ -198,6 +200,7 @@ export const api = {
   createDemo: (large = false) => request<{ id: string }>('/api/projects/demo', json('POST', { large })),
   options: (project: string, dataset: string, column: string) =>
     request<string[]>(`/api/projects/${project}/options?dataset=${encodeURIComponent(dataset)}&column=${encodeURIComponent(column)}`),
+  projectGroups: (project: string) => request<{ groups: string[] }>(`/api/projects/${project}/group-list`).then(r => r.groups),
   projectWells: (project: string) => request<{ wells: string[] }>(`/api/projects/${project}/wells`).then(r => r.wells),
   appLinks: () => request<{ maps_url: string }>('/api/app/links'),
   run: (module: string, project: string, params: Params, signal?: AbortSignal, thin = true) =>
@@ -265,7 +268,7 @@ export const builderApi = {
     request<ModelList>(`/api/projects/${project}/builder/models`, json('POST', { selected, ...extra })),
   seriesWells: (project: string, layout: unknown) =>
     request<SeriesWells>(`/api/projects/${project}/builder/series/wells`, json('POST', { layout })),
-  series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string }) =>
+  series: (project: string, body: { layout: unknown; wells: string[]; format: string; orientation: string; title: string; caption_mode: string }) =>
     downloadNotes(`/api/projects/${project}/builder/series`, body),
   list: (project: string) => request<{ items: LayoutItem[] }>(lib(project)).then(r => r.items),
   save: (project: string, name: string, layout: unknown) =>
@@ -278,7 +281,7 @@ export const builderApi = {
   importFile: (project: string, content: string, fileName: string) =>
     request<{ item: LayoutItem; items: LayoutItem[]; layout: unknown; missing: string[] }>(lib(project, '/import'), json('POST', { content, file_name: fileName })),
   exportFile: (project: string, name: string, layout: unknown) => download(lib(project, '/file'), { name, layout }),
-  word: (project: string, body: { layout: unknown; title: string; caption: string; orientation: string }) =>
+  word: (project: string, body: { layout: unknown; title: string; caption: string; orientation: string; caption_mode: string }) =>
     download(`/api/projects/${project}/builder/word`, body),
   data: (project: string, layout: unknown, format: 'xlsx' | 'csv') =>
     download('/api/modules/builder/export', { project, params: { layout }, target: 'chart', id: 'builder', format, dpi: 300 }),

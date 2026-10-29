@@ -185,3 +185,35 @@ def test_class_share_groups_in_natural_order():
     wells = pd.DataFrame({'well': list(scopes), 'rate': [120_000.0] * 3, 'days': [5] * 3, 'gas': [1.0] * 3})
     chart = an_charts.class_share_chart('withdrawal', '2023-2024', an_wells.class_counts(wells, scopes))
     assert list(chart.x.categories) == ['ГСП 1', 'ГСП 2', 'ГСП 10']
+
+
+def test_parse_edges_accepts_integers_and_rejects_fractions_and_repeats():
+    assert an_wells.parse_edges('20, 75;100 250') == (20, 75, 100, 250)
+    for bad in ('', '100, 50', '100, 100', '12.5, 20', '0, 10', 'abc'):
+        with pytest.raises(ValueError):
+            an_wells.parse_edges(bad)
+
+
+def test_auto_edges_are_multiples_of_five_without_duplicates():
+    rates = [0.3, 1.0, 2.0, 2.2, 3.1, 40.0, 42.0, 77.0, 120.0, 260.0, 0.0, float('nan')]
+    edges = an_wells.auto_edges(rates, 4)
+    assert edges and all(e % 5 == 0 and e > 0 for e in edges)
+    assert list(edges) == sorted(set(edges))           # по возрастанию, без повторов
+    assert an_wells.auto_edges([], 4) == () and an_wells.auto_edges([3.0, 3.0, 3.0], 4) == (5,)   # одинаковые значения сливаются
+
+
+def test_class_counts_with_custom_edges_keeps_boundary_in_upper_class():
+    wells = pd.DataFrame({'well': ['a', 'b', 'c', 'd'], 'rate': [19_000.0, 20_000.0, 75_000.0, 0.0],
+                          'days': [3, 3, 3, 0], 'gas': [1.0] * 4})
+    scopes = {w: 'ГСП 1' for w in wells.well}
+    counts = an_wells.class_counts(wells, scopes, (20, 75)).set_index('group')
+    assert an_wells.class_labels((20, 75)) == ('0', 'Менее 20', 'От 20 до 75', 'Более 75')
+    assert counts.loc[an_wells.TOTAL, list(an_wells.class_keys((20, 75)))].tolist() == [1, 1, 1, 1]   # 19 — менее 20; 20 — от 20; 75 — более 75
+    assert counts.loc[an_wells.TOTAL, 'zero_numbers'] == '1 (d)'
+
+
+def test_class_share_chart_uses_custom_labels():
+    from atlas.modules import an_charts
+    counts = an_wells.class_counts(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES, (20, 75))
+    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'box', (20, 75))
+    assert [s.name for s in chart.series] == ['0', 'Менее 20 тыс. м³/сут', 'От 20 до 75 тыс. м³/сут', 'Более 75 тыс. м³/сут']

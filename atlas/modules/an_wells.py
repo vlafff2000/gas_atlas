@@ -7,20 +7,70 @@
 """
 from __future__ import annotations
 
-from typing import Any, Mapping
+import re
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 
 from atlas.engine.core.config import ordered
 
-LOW_LIMIT = 100          # тыс. м³/сут: граница класса «менее 100 тысяч» (табл. 1.5)
+LOW_LIMIT = 100          # тыс. м³/сут: граница двухклассовой таблицы по умолчанию (табл. 1.5); теперь — первая граница схемы
 TOTAL = 'Всего'
-# Табл. 1.5 отчёта: классы среднего расхода за сутки с расходом, тыс. м³/сут; граница класса — в верхнем. Нулевой класс — скважины без суток с расходом.
-CLASS_EDGES = (100, 150, 200, 250, 300)
-CLASS_NAMES = ('0', 'Менее 100', 'От 100 до 150', 'От 150 до 200', 'От 200 до 250', 'От 250 до 300', 'Более 300')
-CLASS_KEYS = tuple(f'k{i}' for i in range(len(CLASS_NAMES)))
+# Классы среднего расхода за сутки с расходом, тыс. м³/сут; граница класса — в верхнем. Класс «0» — скважины без суток с расходом.
+DEFAULT_EDGES = (100, 150, 200, 250, 300)   # схема до настройки: та же, что была в табл. 1.5 и 2.3
+DEFAULT_COUNT = 6                           # классов с расходом в автоматическом режиме (как у DEFAULT_EDGES)
+CLASS_STEP = 5                              # автоматические границы кратны 5 тыс. м³/сут
 WF_UNIT = 'л/тыс. м³'
+
+
+def class_labels(edges: Sequence[int]) -> tuple[str, ...]:
+    """Подписи классов: «0», затем диапазоны по границам — «Менее a», «От a до b», …, «Более z». Без границ — один класс «С расходом»."""
+    if not edges:
+        return ('0', 'С расходом')
+    ranges = [f'Менее {edges[0]}', *(f'От {a} до {b}' for a, b in zip(edges, edges[1:])), f'Более {edges[-1]}']
+    return ('0', *ranges)
+
+
+def class_keys(edges: Sequence[int]) -> tuple[str, ...]:
+    """Колонки классов: ``k0`` — «0», далее ``k1``… — диапазоны в порядке ``class_labels``."""
+    return tuple(f'k{i}' for i in range(len(class_labels(edges))))
+
+
+def class_index(days: np.ndarray, rate_k: np.ndarray, edges: Sequence[int]) -> np.ndarray:
+    """Номер класса по скважинам: 0 — нет суток с расходом; 1… — диапазон по границам (граница относится к верхнему классу)."""
+    index = np.searchsorted(np.asarray(edges, float), np.round(rate_k, 6), side='right') + 1   # округление: граница не должна съезжать из-за деления на 1000
+    return np.where(days == 0, 0, index)
+
+
+def parse_edges(text: str) -> tuple[int, ...]:
+    """Ручные границы из строки «100, 150, 200»: целые положительные числа по возрастанию, без повторов. Иначе ValueError с пояснением."""
+    parts = [p for p in re.split(r'[\s,;]+', str(text or '')) if p]
+    if not parts:
+        raise ValueError('не указано ни одной границы')
+    for p in parts:
+        if not p.isdigit() or int(p) <= 0:
+            raise ValueError(f'«{p}» — не целое положительное число (дробные границы не используются)')
+    edges = tuple(int(p) for p in parts)
+    if any(b <= a for a, b in zip(edges, edges[1:])):
+        raise ValueError('границы должны идти по возрастанию без повторов')
+    return edges
+
+
+def auto_edges(rates_k: Iterable[float], count: int = DEFAULT_COUNT) -> tuple[int, ...]:
+    """Подсказка границ: квантили среднего расхода по скважинам с расходом (примерно равное число скважин в классе),
+    округлённые до кратных ``CLASS_STEP``. Совпавшие границы убираются, поэтому классов может стать меньше ``count``."""
+    values = np.asarray(list(rates_k), float)
+    values = values[np.isfinite(values) & (values > 0)]
+    if values.size == 0 or count < 2:
+        return ()
+    raw = np.quantile(values, np.arange(1, count) / count)
+    rounded = CLASS_STEP * np.maximum(1, np.floor(raw / CLASS_STEP + 0.5))
+    return tuple(dict.fromkeys(int(v) for v in rounded))
+
+
+CLASS_NAMES = class_labels(DEFAULT_EDGES)
+CLASS_KEYS = class_keys(DEFAULT_EDGES)
 
 
 def season_wells(prod: pd.DataFrame, kind: str, period: str) -> pd.DataFrame:
@@ -52,10 +102,11 @@ def fund_table(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
     return out
 
 
-def class_table(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
-    """Табл. 1.5: по группам — число и номера скважин с нулевым расходом за сезон, с расходом менее 100 тыс. м³/сут и не менее."""
+def class_table(wells: pd.DataFrame, scopes: Mapping[str, str], edges: Sequence[int] = DEFAULT_EDGES) -> pd.DataFrame:
+    """Табл. 1.5 (две группы): по группам — число и номера скважин с нулевым расходом за сезон, с расходом ниже первой границы и не ниже."""
+    split = edges[0] if edges else LOW_LIMIT
     w = wells.assign(group=wells.well.map(scopes), rate_k=wells.rate / 1000)
-    w['cls'] = np.where(w.days.eq(0), 'zero', np.where(w.rate_k.lt(LOW_LIMIT), 'low', 'high'))
+    w['cls'] = np.where(w.days.eq(0), 'zero', np.where(w.rate_k.lt(split), 'low', 'high'))
     rows = []
     for name, part in [(TOTAL, w)] + [(g, w[w.group.eq(g)]) for g in ordered(w.group.unique())]:
         rows.append({
@@ -103,17 +154,17 @@ def month_peaks(prod: pd.DataFrame, kind: str, period: str) -> list[tuple[int, A
     return out
 
 
-def class_counts(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
-    """Табл. 1.5 отчёта: по группам число скважин в каждом из семи классов производительности; строка «Всего» — первая.
+def class_counts(wells: pd.DataFrame, scopes: Mapping[str, str], edges: Sequence[int] = DEFAULT_EDGES) -> pd.DataFrame:
+    """Табл. 1.5 отчёта: по группам число скважин в каждом классе производительности (``class_keys(edges)``); строка «Всего» — первая.
 
-    Колонки ``k0``…``k6`` — числа, ``zero_numbers`` — номера скважин нулевого класса."""
+    Колонки ``k0``… — числа, ``zero_numbers`` — номера скважин нулевого класса."""
+    keys = class_keys(edges)
     w = wells.assign(group=wells.well.map(scopes), rate_k=wells.rate / 1000)
-    index = np.searchsorted(np.array(CLASS_EDGES, float), w.rate_k.to_numpy(float), side='right') + 1
-    w['cls'] = np.where(w.days.eq(0), 0, index)
+    w['cls'] = class_index(w.days.to_numpy(), w.rate_k.to_numpy(float), edges)
     rows = []
     for name, part in [(TOTAL, w)] + [(g, w[w.group.eq(g)]) for g in ordered(w.group.unique())]:
-        counts = np.bincount(part.cls.to_numpy(int), minlength=len(CLASS_KEYS))
-        rows.append({'group': name, **dict(zip(CLASS_KEYS, (int(v) for v in counts))),
+        counts = np.bincount(part.cls.to_numpy(int), minlength=len(keys))
+        rows.append({'group': name, **dict(zip(keys, (int(v) for v in counts))),
                      'zero_numbers': _numbers(ordered(part[part.cls.eq(0)].well))})
     return pd.DataFrame(rows)
 

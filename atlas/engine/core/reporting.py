@@ -73,7 +73,7 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
     jobs=[];tables={};wells=options.get('wells',[]);raw_frames=raw_frames or frames;style=options.get('style',settings.get('chart_style',{}))
     def add(name,fn,*args,**kwargs):jobs.append(FigureJob(name,partial(fn,*args,**kwargs),style))
     for module in options.get('modules',list(frames)):
-        cfg=options.get(module,{});ws=[w for w in cfg.get('wells',wells) if w in wells]
+        cfg=options.get(module,{});ws=ordered(w for w in cfg.get('wells',wells) if w in wells)
         if module=='well_dashboard':
             from atlas.engine.modules import well_charts
             provider=WellProvider(frames,settings,mapping,cfg);combined={}

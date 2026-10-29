@@ -22,7 +22,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import VERSION, api_exclusions, chart_view, registry, render, season_format, thinning
-from . import api_builder, api_corrected, api_export, api_projects, export_charts
+from . import api_builder, api_corrected, api_export, api_projects, export_any, export_charts, group_colors
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
 from .projects import Conflict, Projects
@@ -155,6 +155,10 @@ def create_app(projects: Projects | None = None) -> Starlette:
 
     def project_wells(request, body):
         return {'wells': projects.wells(request.path_params['pid'])}
+
+    def project_groups(request, body):
+        mapping = projects.data(request.path_params['pid']).mapping
+        return {'groups': group_colors.sort_groups(v['group'] for v in mapping.values() if v.get('group'))}
 
     def create_demo(request, body):
         rows = body.get('rows') or {}
@@ -349,6 +353,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/settings', E(settings), methods=['PATCH']),
         Route('/api/projects/{pid}/options', E(options)),
         Route('/api/projects/{pid}/wells', E(project_wells)),
+        Route('/api/projects/{pid}/group-list', E(project_groups)),
         Route('/api/app/links', E(app_links)),
         Route('/api/app/maps', maps_open),
         Route('/api/projects/{pid}/exclusions', E(exclusions), methods=['POST']),
@@ -358,13 +363,16 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/well-categories', E(well_categories), methods=['POST']),
         Route('/api/projects/{pid}/gis-comments', E(gis_comments), methods=['POST']),
         Route('/api/projects/{pid}/state/{mid}', E(state), methods=['GET', 'POST']),
+        *group_colors.routes(),     # ручные цвета групп, общие для всех программ
         *__import__('atlas.fs_browse', fromlist=['routes']).routes(),   # проводник: список папок, последняя папка
         *api_builder.routes(projects, E),   # библиотека макетов конструктора, Word одного графика
         *api_exclusions.routes(projects),
         *api_corrected.routes(projects),   # «Исправленная БД» вкладки
         *api_projects.routes(projects), *api_export.routes(projects),   # «Проекты», «Настройки», «Экспорт»
+        *export_any.routes(projects, E, compute),   # «Экспорт» → «Любой график»
         *__import__('atlas.api_passport', fromlist=['routes']).routes(projects),   # «Паспорт скважины»
         *__import__('atlas.api_fund', fromlist=['routes']).routes(projects),   # «Фонды скважин»
+        *__import__('atlas.api_well_sets', fromlist=['routes']).routes(projects),   # пресеты скважин, список из буфера
         *__import__('atlas.api_import', fromlist=['routes']).routes(projects),   # раздел «Импорт данных»
         *__import__('atlas.project_folder', fromlist=['routes']).routes(projects),   # «Папка проекта»: файлы, роли, загрузка
         *__import__('atlas.runlog', fromlist=['routes']).routes(),   # лог: сведения, пакет для отправки
