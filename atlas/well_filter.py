@@ -40,6 +40,22 @@ def selection(settings: Mapping[str, Any]) -> tuple[list[str], list[str]]:
     return list(value.get('groups') or []), list(value.get('wells') or [])
 
 
+def valid_tabs(value: Any) -> bool:
+    """Настройка ``export_filters``: None или словарь «вкладка экспорта → фильтр скважин»."""
+    return value is None or isinstance(value, dict) and all(isinstance(k, str) and len(k) <= 60 and isinstance(v, dict) and valid(v)
+                                                            for k, v in value.items())
+
+
+def clean_tabs(value: Any) -> dict[str, dict[str, list[str]]] | None:
+    """Фильтры вкладок экспорта в нормальной форме. Поле без списка (None) не хранится — это «все»; пустой список — «ничего»."""
+    out = {}
+    for tab, flt in (value or {}).items():
+        item = {k: list(dict.fromkeys(str(x) for x in flt[k])) for k in ('groups', 'wells') if flt.get(k) is not None}
+        if item:
+            out[tab] = item
+    return out or None
+
+
 def _subset(frame: pd.DataFrame | None, keep: set[str]) -> pd.DataFrame | None:
     if frame is None or 'well' not in frame.columns:
         return frame

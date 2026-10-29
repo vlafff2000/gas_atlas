@@ -5,6 +5,7 @@ import { ChartView } from './ChartView'
 import { api, type Chart } from './api'
 import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type WordPreview } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
+import { wellPresetApi, type WellPreset } from './api_wells'
 import { ExportAnyChart } from './ExportAnyChart'
 import { ResizableFrame } from './ResizableFrame'
 import { Check, Color, GRID_OPTIONS, MINOR_GRID_OPTIONS, Num, Opt, Section, Select, SizePick, Text, type FieldProps as SharedFieldProps } from './exportFields'
@@ -19,6 +20,27 @@ const KINDS = [['withdrawal', 'Отбор'], ['injection', 'Закачка']] as
 const ELPRO_ROWS: [string, string][] = [['hours', 'Часы работы'], ['cru', 'КРУ, %'], ['p', 'Давление, кгс/см²'], ['t', 'Температура, °C']]
 /** Вкладки экспорта, которые строят готовые документы, а не перечень графиков: включаются в выгрузку так же, как модули. */
 const EXTRAS = ['pack', 'ggh']
+
+/** Фильтр скважин одной вкладки: поля формы, которые читает выгрузка (как у модуля), и ключ в настройках проекта. */
+function filterFields(tab: string): { groups?: string; wells: string } | null {
+  if (tab === 'pack') return { groups: 'pack_groups', wells: 'pack_wells' }
+  if (tab === 'ggh') return { wells: 'ggh_wells' }
+  if (tab === 'gis') return { wells: 'gis_wells' }
+  if (tab === 'any' || tab === 'custom' || tab === 'waterfactor') return null
+  return { groups: tab + '_groups', wells: (tab === 'well_dashboard' ? 'dashboard' : tab) + '_wells' }
+}
+/** Скважины, которые предлагает вкладка (ГГХ — с учетом выбранных горизонтов). */
+function wellsOf(tab: string, choices: ExportChoices, form: Form): string[] {
+  if (tab === 'pack') return choices.wells.production ?? []
+  if (tab === 'gis') return choices.gis?.wells ?? []
+  if (tab === 'ggh') {
+    const horizons = (form.ggh_horizons as string[] | undefined) ?? []
+    return (choices.ggh?.wells ?? []).filter(w => !horizons.length || horizons.includes(choices.ggh!.horizon_of[w]))
+  }
+  return choices.wells[tab] ?? []
+}
+const groupOf = (choices: ExportChoices, well: string) => choices.mapping[well] ?? 'Без группы'
+type TabFilter = { groups?: string[]; wells?: string[] }
 
 /** Без локального хранилища черновика: форма живёт, пока открыт раздел; для повтора — шаблоны. */
 export function ExportPage({ project, onProject, view = 'export' }: PageProps & { view?: 'export' | 'pack' | 'ggh' }) {
@@ -55,6 +77,38 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   }, [project.id, project.revision, exclusions])
 
   const set = useCallback((field: string, value: unknown) => setForm(f => ({ ...f, [field]: value })), [])
+  // Фильтры вкладок хранятся в проекте: при открытии раздела берутся оттуда, при изменении сохраняются (с паузой, чтобы не писать на каждый щелчок).
+  const savedFilters = (project.settings.export_filters ?? {}) as Record<string, TabFilter>
+  const pendingFilters = useRef<Record<string, TabFilter> | null>(null)
+  const saveTimer = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    const saved = (project.settings.export_filters ?? {}) as Record<string, TabFilter>
+    setForm(f => {
+      const next = { ...f }
+      for (const [tab, value] of Object.entries(saved)) {
+        const fields = filterFields(tab)
+        if (!fields) continue
+        if (fields.groups && next[fields.groups] === undefined && value.groups !== undefined) next[fields.groups] = value.groups
+        if (next[fields.wells] === undefined && value.wells !== undefined) next[fields.wells] = value.wells
+      }
+      return next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id])
+  const setTabFilter = (tab: string, groups: string[] | undefined, wells: string[] | undefined) => {
+    const fields = filterFields(tab)
+    if (!fields) return
+    if (fields.groups) set(fields.groups, groups)
+    set(fields.wells, wells)
+    const entry: TabFilter = { ...(groups ? { groups } : {}), ...(wells ? { wells } : {}) }
+    pendingFilters.current = { ...(pendingFilters.current ?? savedFilters), [tab]: entry }
+    window.clearTimeout(saveTimer.current)
+    saveTimer.current = window.setTimeout(() => {
+      const values = pendingFilters.current
+      pendingFilters.current = null
+      if (values) api.saveSettings(project.id, { export_filters: values }).then(onProject).catch(e => setError((e as Error).message))
+    }, 700)
+  }
   const modules = (form.modules as string[] | undefined) ?? choices?.default_modules ?? []
   const key = JSON.stringify([project.revision, form])
   // Перечень графиков от размера не зависит: растягивание в предпросмотре не должно его сбрасывать.
@@ -241,9 +295,6 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         <Section title="Выгрузка">
           <Check {...F} field="gis_enabled" label="Включить ГИС и ГВК (Word и Excel) в «Выгрузить всё»" def={false} />
         </Section>
-        <Section title="Скважины">
-          <Multi {...F} field="gis_wells" label="Скважины" options={choices.gis!.wells} empty="все" />
-        </Section>
         {(choices.gis!.seasons ?? []).length > 0 && (
           <Section title="Сезоны">
             <Multi {...F} field="gis_seasons" label="Сезоны (Σ hi × Кг)" options={choices.gis!.seasons ?? []} empty="все" />
@@ -274,9 +325,6 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       {gisFile && <Outcome title="Word: ГИС и ГВК" result={gisFile} pid={project.id} ggh />}
     </>
   )
-  const packGroups = choices.groups.production ?? []
-  const packChosenGroups = ((form.pack_groups as string[] | undefined) ?? packGroups).filter(g => packGroups.includes(g))
-  const packWells = (choices.wells.production ?? []).filter(w => packChosenGroups.includes(choices.mapping[w] ?? 'Без группы'))
   const packPanel = (
     <>
       <p className="lede">Приложения к отчету: график «Производительность» каждой скважины фонда, по 2, 4 или 6 на лист A4. Шрифт, вид графиков, подписи и оформление берутся из общих настроек ниже.</p>
@@ -290,10 +338,6 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           </div>
           {!modules.includes('pack') ? <p className="muted pad">Включите, чтобы выбрать параметры. Файлы создаются кнопками «Сформировать архив» и «Создать отчет Word» внизу страницы вместе с остальными модулями.</p> : <>
           <div className="param-bar flat">
-            <Section title="Скважины">
-              <Multi {...F} field="pack_groups" label="Пакет: группы" options={packGroups} />
-              <Multi {...F} field="pack_wells" label="Пакет: скважины" options={packWells} prefix="№ " />
-            </Section>
             <Section title="Состав">
               {KINDS.map(([k, l]) => {
                 const chosen = (form.pack_kinds as string[] | undefined) ?? ['withdrawal', 'injection']
@@ -352,9 +396,6 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <div className="param-bar flat">
             <Section title="Скважины">
               <Multi {...F} field="ggh_horizons" label="Горизонты" options={[...new Set(Object.values(choices.ggh!.horizon_of).filter(Boolean))].sort()} empty="все" />
-              <Multi {...F} field="ggh_wells" label="Скважины"
-                options={choices.ggh!.wells.filter(w => !((form.ggh_horizons as string[] | undefined) ?? []).length || ((form.ggh_horizons as string[]) ?? []).includes(choices.ggh!.horizon_of[w]))}
-                empty="все" />
             </Section>
             <Section title="Подписи и качество">
               <Text {...F} field="ggh_section" label="Раздел (буква приложения)" def="В" />
@@ -389,7 +430,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         {readyPlan && <button type="button" role="tab" aria-selected={current === 'custom'} onClick={() => setTab('custom')}>Отдельные графики</button>}
       </div>
   )
-  if (current === 'any') return <><Title />{tabsRow}<ExportAnyChart project={project} /></>
+  if (current === 'any') return <><Title />{tabsRow}<TabWellFilter tab={current} choices={choices} form={form} projectId={project.id} onChange={() => undefined} /><ExportAnyChart project={project} /></>
 
   return (
     <>
@@ -461,6 +502,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       </div>
 
       {tabsRow}
+      <TabWellFilter tab={current} choices={choices} form={form} projectId={project.id}
+        onChange={(groups, wells) => setTabFilter(current, groups, wells)} />
       {current === 'custom' ? (
         <CustomCharts {...F} projectId={project.id} loadPlan={prepare} planned={planned} />
       ) : current === 'pack' || current === 'ggh' || current === 'gis' ? (
@@ -585,6 +628,58 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   )
 }
 
+/** Фильтр скважин вкладки: группы, скважины, пресеты проекта. Видим на каждой вкладке; выгрузка вкладки берет именно его. */
+function TabWellFilter({ tab, choices, form, projectId, onChange }: { tab: string; choices: ExportChoices; form: Form; projectId: string;
+  onChange: (groups: string[] | undefined, wells: string[] | undefined) => void }) {
+  const [presets, setPresets] = useState<WellPreset[]>([])
+  useEffect(() => { wellPresetApi.list(projectId).then(r => setPresets(r.presets)).catch(() => setPresets([])) }, [projectId])
+  const fields = filterFields(tab)
+  const wells = fields ? wellsOf(tab, choices, form) : []
+  if (!fields || !wells.length) {
+    const note = tab === 'custom' ? 'Отдельные графики берутся из уже выбранных вкладок: фильтр задается на них.'
+      : tab === 'any' ? 'Любой график строится по параметрам своего раздела: скважины выбираются в его панели.'
+      : fields ? 'Скважин для фильтра на этой вкладке нет: выбор скважин задан в ее панели.'
+      : 'На этой вкладке фильтр скважин не применяется.'
+    return <p className="muted pad filter-note">{note}</p>
+  }
+  const groups = [...new Set(wells.map(w => groupOf(choices, w)))]
+  const chosenGroups = (((fields.groups && form[fields.groups]) as string[] | undefined) ?? groups).filter(g => groups.includes(g))
+  const available = wells.filter(w => chosenGroups.includes(groupOf(choices, w)))
+  const chosen = (((form[fields.wells]) as string[] | undefined) ?? available).filter(w => available.includes(w))
+  const pickGroups = (next: string[]) => {
+    const kept = wells.filter(w => next.includes(groupOf(choices, w)) && chosen.includes(w))
+    onChange(fields.groups ? next : undefined, kept)
+  }
+  const pickPreset = (id: string) => {
+    const preset = presets.find(p => p.id === id)
+    if (!preset) return
+    const picked = wells.filter(w => preset.wells.includes(w))
+    onChange(fields.groups ? [...new Set(picked.map(w => groupOf(choices, w)))] : undefined, picked)
+  }
+  return (
+    <section className="table-block tab-filter">
+      <div className="block-head"><h3>Фильтр скважин: эта вкладка</h3><span className="muted">выбрано {chosen.length} из {wells.length}</span></div>
+      <div className="param-bar flat">
+        <Section title="Выбор">
+          {fields.groups && <MultiSelect label="Группы" options={groups} value={chosenGroups} emptyMeaning="ничего" onChange={pickGroups} />}
+          <MultiSelect label="Скважины" options={available} value={chosen} emptyMeaning="ничего" prefix="№ "
+            onChange={v => onChange(fields.groups ? chosenGroups : undefined, v)} />
+        </Section>
+        <Section title="Пресеты проекта">
+          <label className="field">
+            <span className="field-label">Применить пресет</span>
+            <select value="" onChange={e => pickPreset(e.target.value)} disabled={!presets.length}>
+              <option value="" />
+              {presets.map(p => <option key={p.id} value={p.id}>{p.label} ({p.wells.length})</option>)}
+            </select>
+          </label>
+          <button type="button" className="quiet" onClick={() => onChange(undefined, undefined)}>Все скважины</button>
+        </Section>
+      </div>
+    </section>
+  )
+}
+
 function Title() {
   return (
     <header className="module-title">
@@ -697,12 +792,6 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
   const prefix = module === 'well_dashboard' ? 'dashboard' : module
   const chosenGroups = ((form[module + '_groups'] as string[] | undefined) ?? groups).filter(g => groups.includes(g))
   const wells = (choices.wells[module] ?? []).filter(w => chosenGroups.includes(choices.mapping[w] ?? 'Без группы'))
-  const selection = (
-    <Section title="Скважины">
-      <Multi {...F} field={module + '_groups'} label={label + ': группы'} options={groups} />
-      <Multi {...F} field={prefix + '_wells'} label={label + ': скважины'} options={wells} prefix="№ " />
-    </Section>
-  )
   let body: ReactNode = null
   if (module === 'production' || module === 'histograms') {
     const split = (form[module + '_split'] as string | undefined) ?? 'well'
@@ -818,7 +907,7 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
       </>
     )
   }
-  return <>{head}{selection}{body}</>
+  return <>{head}{body}</>
 }
 
 function ChartsPick(F: FieldProps) {

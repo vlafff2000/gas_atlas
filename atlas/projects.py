@@ -61,6 +61,8 @@ EDITABLE_SETTINGS = {
     # Цвета таблиц ГИС 5.4 в XLSX: вид пачки («покрышка», …) или «низкий Кг» → HEX; пустой словарь — значения по умолчанию.
     # Фильтр скважин (группы и скважины) — сквозной для всех модулей; None — фильтр снят.
     'well_filter': well_filter.valid,
+    # Фильтр скважин каждой вкладки экспорта (своя выгрузка на каждой вкладке); хранится в проекте.
+    'export_filters': well_filter.valid_tabs,
     'an_colors': lambda v: isinstance(v, dict) and all(isinstance(k, str) and len(k) <= 40 and isinstance(x, str)
                                                        and re.fullmatch(r'#?[0-9A-Fa-f]{6}', x) for k, x in v.items()),
 }
@@ -70,7 +72,7 @@ SETTING_LABELS = {'season_format': 'Вид названий сезонов', 'le
                   'season_rate_share': 'Порог расхода, % от типичного', 'season_schedule': 'Расписание периодов', 'peak_windows': 'Пиковые окна',
                   'auto_peaks': 'Искать пиковые режимы по расходу', 'peak_factor': 'Пик: во сколько раз выше медианы сезона',
                   'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков',
-                  'well_filter': 'Фильтр скважин'}
+                  'well_filter': 'Фильтр скважин', 'export_filters': 'Фильтры вкладок экспорта'}
 
 
 def _setting_value(name: str, value: Any) -> Any:
@@ -89,6 +91,8 @@ def _setting_value(name: str, value: Any) -> Any:
         return parse_wells(value if isinstance(value, str) else ', '.join(str(x) for x in value))
     if name == 'well_filter':
         return well_filter.clean(value)
+    if name == 'export_filters':
+        return well_filter.clean_tabs(value)
     if name == 'visible_pages':
         return list(navigation.DEFAULT) if value is None else [navigation.ALIASES.get(x, x) for x in value]
     return value
@@ -311,6 +315,8 @@ class Projects:
             action = 'Оформление графиков'
         elif set(values) == {'well_filter'}:
             action = 'Фильтр скважин'
+        elif set(values) == {'export_filters'}:
+            action = 'Фильтры экспорта'
         return self.summary(self._commit(pid, cfg, expected, action, {'changed': dict(values)}))
 
     def change_exclusions(self, pid: str, dataset: DatasetKind, add: Iterable[str] = (), remove: Iterable[str] = (),
