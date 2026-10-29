@@ -147,7 +147,7 @@ def rgba(color: str, alpha: float) -> str:
 
 def look_meta(look: dict) -> dict:
     """Что задано вручную (``Series.look``): статический рендер берёт эти значения вместо своих по умолчанию (``own``)."""
-    own = [name for name, key in (('width', 'width'), ('size', 'size'), ('alpha', 'opacity')) if key in look]
+    own = [name for name, key in (('color', 'color'), ('width', 'width'), ('size', 'size'), ('alpha', 'opacity')) if key in look]
     return {'own': own}
 
 
@@ -265,7 +265,8 @@ def to_plotly(chart: Chart):
                                      showlegend=s.legend and first, marker_color=color, boxpoints=False))
                 first = False
         elif s.kind == 'bar':
-            extra = {'meta': {'value_labels': True}} if look.get('valueLabels') else {}     # подписи значений: рисует atlas/engine/core/export.py
+            bar_meta = {**({'own': ['color']} if 'color' in look else {}), **({'value_labels': True} if look.get('valueLabels') else {})}     # own — ручной цвет: вид Excel его не меняет
+            extra = {'meta': bar_meta} if bar_meta else {}     # подписи значений: рисует atlas/engine/core/export.py
             if s.stack and not s.segments and chart.id.startswith('gis-tile'):      # столбцы стопкой по категориям: в файле друг на друге, а не рядом
                 extra.setdefault('meta', {})['cat_stack'] = s.stack
             if combo:       # конструктор: столбцы на своей оси, рядом или стопкой по имени, дата остаётся датой
