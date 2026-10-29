@@ -36,6 +36,7 @@
 .fp-foot { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13px; }
 .fp-sp { flex: 1; }
 .fp-pick { color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-fname { flex: 1 1 220px; min-width: 120px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; font: inherit; background: var(--panel, #fff); color: inherit; }
 @media (max-width: 640px) { .fp-side { display: none; } .fp-d { display: none; } .fp-search { width: 120px; } }
 
 .fp-rs { position: absolute; width: 16px; height: 16px; z-index: 5; touch-action: none; }
