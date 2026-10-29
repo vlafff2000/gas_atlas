@@ -59,10 +59,39 @@ NOTE = ('Средние считаются по суткам с положите
 # Не строятся: геологические запасы газа и модельный объём газа; карты — вне Атласа.
 CHAPTER2_SKIPPED = ('Не построены: геологические запасы газа (ГПО) '
                     'и модельный объём газа — в Атласе нет этих данных; карты — вне Атласа.')
-# Табл. 2.3 (закачка): классы среднего расхода за сутки с расходом, тыс. м³/сут; граница уходит в верхний класс
-INJ_CLASSES = (('Менее 100', 0, 100), ('От 100 до 150', 100, 150), ('От 150 до 200', 150, 200),
-               ('От 200 до 250', 200, 250), ('От 250 до 300', 250, 300), ('Более 300', 300, np.inf))
-INJ_CLASS_KEYS = tuple(f'c{i}' for i in range(len(INJ_CLASSES)))
+
+# Табл. 2.3 (закачка) — те же классы, что у отбора (границы — общая схема ``class_scheme``); колонки c0… — диапазоны без «0».
+def injection_keys(edges: tuple[int, ...]) -> tuple[str, ...]:
+    return tuple(f'c{i}' for i in range(len(edges) + 1))
+
+
+CLASS_MODES = (Option('manual', 'Вручную: границы из списка'),
+               Option('auto', 'Автоматически: подсказка по фонду, границы кратны 5'))
+
+
+def class_scheme(prod: pd.DataFrame, kind: str, periods: list[str], params: Mapping[str, Any]) -> tuple[tuple[int, ...], Note | None]:
+    """Границы классов производительности (тыс. м³/сут) для выбранных сезонов.
+
+    «Вручную» — границы из поля ``class_edges``; при ошибке в поле — стандартные и предупреждение. «Автоматически» — подсказка
+    по фонду: квантили среднего расхода по всем выбранным сезонам сразу, чтобы классы были одинаковы между сезонами."""
+    if params.get('class_mode') != 'auto':
+        try:
+            return an_wells.parse_edges(params.get('class_edges') or ''), None
+        except ValueError as exc:
+            default = ', '.join(map(str, an_wells.DEFAULT_EDGES))
+            return an_wells.DEFAULT_EDGES, Note(f'Границы классов: {exc}. Использованы стандартные: {default}.', 'warning')
+    rates: list[float] = []
+    for period in periods:
+        wells = an_wells.season_wells(prod, kind, period)
+        rates.extend((wells.rate[wells.days.gt(0)] / 1000).tolist())
+    count = int(params.get('class_count') or an_wells.DEFAULT_COUNT)
+    edges = an_wells.auto_edges(rates, count)
+    if not edges:
+        return (), Note('Автоматические границы классов не подобраны: в выбранных сезонах нет скважин с расходом.', 'warning')
+    shown = ', '.join(map(str, edges))
+    return edges, Note(f'Автоматические границы классов, тыс. м³/сут: {shown}. Подобраны по {len(rates)} скв.-сезонам с расходом '
+                       f'(квантили фонда, кратно 5; совпавшие границы убраны — классов с расходом {len(edges) + 1} из {count}). '
+                       'Это подсказка: при необходимости перенесите границы в ручной режим.')
 
 
 def pressure_near(pressure: pd.DataFrame | None, when: Any) -> float | None:
@@ -262,18 +291,18 @@ def season_report(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], 
     return summary, pd.DataFrame(rows)
 
 
-def injection_class_table(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
+def injection_class_table(wells: pd.DataFrame, scopes: Mapping[str, str], edges: tuple[int, ...] = an_wells.DEFAULT_EDGES) -> pd.DataFrame:
     """Табл. 2.3: по группам — число и номера скважин с нулевым расходом за сезон и по классам среднего расхода (тыс. м³/сут)."""
     w = wells.assign(group=wells.well.map(scopes), rate_k=wells.rate / 1000)
-    conds = [w.days.eq(0)] + [w.rate_k.ge(lo) & w.rate_k.lt(hi) for _, lo, hi in INJ_CLASSES]
-    w['cls'] = np.select(conds, ['zero', *INJ_CLASS_KEYS], default='none')
+    w['cls'] = an_wells.class_index(w.days.to_numpy(), w.rate_k.to_numpy(float), edges)
+    keys = injection_keys(edges)
     rows = []
     for name, part in [(an_wells.TOTAL, w)] + [(g, w[w.group.eq(g)]) for g in ordered(w.group.unique())]:
-        row = {'group': name, 'zero': an_wells._numbers(ordered(part[part.cls.eq('zero')].well))}
-        for key in INJ_CLASS_KEYS:
-            row[key] = an_wells._numbers(ordered(part[part.cls.eq(key)].well))
+        row = {'group': name, 'zero': an_wells._numbers(ordered(part[part.cls.eq(0)].well))}
+        for i, key in enumerate(keys, start=1):
+            row[key] = an_wells._numbers(ordered(part[part.cls.eq(i)].well))
         rows.append(row)
-    return pd.DataFrame(rows, columns=['group', 'zero', *INJ_CLASS_KEYS])
+    return pd.DataFrame(rows, columns=['group', 'zero', *keys])
 
 
 def monthly_wells(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], period: str) -> tuple[pd.DataFrame, list[Any]]:
@@ -359,6 +388,18 @@ class AuthorReportModule(Module):
             Param('class_chart', 'Классы производительности (табл. 1.5)', 'choice', default='none', section='Вид', chart_kind=True,
                   options=CLASS_CHARTS, help='Для отбора и закачки. Добавляет таблицу «Количество скважин по классам производительности» и график к ней: '
                   'столбики — доли классов по группам, числа скважин внутри сегментов, узкие сегменты — выноской или точкой с таблицей под графиком.'),
+            Param('class_mode', 'Границы классов', 'choice', default='manual', section='Вид', options=CLASS_MODES,
+                  help='Общие для классов отбора (табл. 1.5) и закачки (табл. 2.3) и их графиков. «Вручную» — границы из поля ниже. '
+                       '«Автоматически» — подсказка по фонду выбранных сезонов, границы кратны 5; её можно перенести в ручной режим и поправить.'),
+            Param('class_edges', 'Границы классов, тыс. м³/сут', 'text', default=', '.join(map(str, an_wells.DEFAULT_EDGES)), section='Вид',
+                  show_if={'class_mode': 'manual'},
+                  help='Целые числа через запятую, по возрастанию. Например 20, 75, 100, 250 — классы: менее 20, от 20 до 75, от 75 до 100, от 100 до 250 и более 250. '
+                       'Граница относится к верхнему классу. Классов с расходом на одно больше, чем границ: пять границ — шесть классов. '
+                       'Первая граница — также порог двухклассовой таблицы.'),
+            Param('class_count', 'Классов с расходом (автоматически)', 'integer', default=an_wells.DEFAULT_COUNT, minimum=2, maximum=12,
+                  section='Вид', show_if={'class_mode': 'auto'},
+                  help='Сколько классов с расходом подобрать. Границы — квантили фонда по среднему расходу (примерно равное число скважин в классе), '
+                       'округлённые до кратных 5. Совпавшие границы убираются, поэтому классов может стать меньше.'),
             Param('month_chart', 'Работавшие по месяцам (табл. 1.4)', 'choice', default='table', section='Вид', chart_kind=True,
                   options=MONTH_CHARTS, help='Для отбора и закачки. Добавляет таблицу «Работавшие скважины по месяцам» и график к ней: '
                   'работавшие и простаивавшие скважины объекта по месяцам сезона, под графиком — таблица по группам.'),
@@ -415,6 +456,9 @@ class AuthorReportModule(Module):
         periods = [p for p in params['periods'] if p in known]
         if not periods:
             result.notes.append(Note('Выберите сезон: в проекте нет данных для выбранного режима.'))
+        edges, class_note = class_scheme(data[PRODUCTION], kind, periods, params)
+        if class_note is not None:
+            result.notes.append(class_note)
         summaries, means = [], []
         fund, classes, wet, counts, month_tables = [], [], [], [], []
         if PLAN not in data:
@@ -431,7 +475,7 @@ class AuthorReportModule(Module):
             result.summary += [Stat(f'Длительность · {period}', f'{summary["days"]} сут', 'Календарные сутки с расходом'),
                                Stat(f'Средний расход · {period}', f'{summary["mean"]:.1f} {Q_UNIT}'.replace('.', ','))]
             self.fund_details(result, data, kind, period, summary, fund, classes, wet, counts, params.get('class_chart') or 'none',
-                              params.get('month_chart') or 'none', month_tables)
+                              params.get('month_chart') or 'none', month_tables, edges=edges)
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
             group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'])
             if group_pressure is not None:
@@ -439,7 +483,7 @@ class AuthorReportModule(Module):
             self.plan_details(result, data, kind, period)
         if kind == 'injection':
             self.injection_details(result, data)
-            self.injection_season(result, data, summaries)
+            self.injection_season(result, data, summaries, edges)
         if summaries:
             result.tables.append(self.season_table(summaries))
             if water is not None and kind == 'withdrawal':
@@ -448,9 +492,9 @@ class AuthorReportModule(Module):
         if fund:
             result.tables.append(self.fund_table_report(fund))
         if classes:
-            result.tables.append(self.class_table_report(classes))
+            result.tables.append(self.class_table_report(classes, edges))
         if counts:
-            result.tables.append(self.class_counts_report(counts))
+            result.tables.append(self.class_counts_report(counts, edges))
         if month_tables:
             result.tables.append(self.month_working_report(month_tables))
         if wet:
@@ -500,7 +544,7 @@ class AuthorReportModule(Module):
             return
         result.tables.append(self.injection_table(frame))
 
-    def injection_season(self, result: Result, data: Data, summaries: list[dict[str, Any]]) -> None:
+    def injection_season(self, result: Result, data: Data, summaries: list[dict[str, Any]], edges: tuple[int, ...]) -> None:
         """Глава 2 (разделы 2.1.1–2.1.2): рис. 2.1, 2.2, 2.3, 2.4 и табл. 2.1–2.4 по выбранным сезонам закачки."""
         prod = data[PRODUCTION]
         plan_cmp = None
@@ -516,7 +560,7 @@ class AuthorReportModule(Module):
             months, mlist = monthly_wells(prod, data.mapping, period)
             months_parts.append(self.injection_months_table(months, mlist, period, len(months_parts)))
             wells = an_wells.season_wells(prod, 'injection', period)
-            classes.append(injection_class_table(wells, well_scopes(data.mapping, ordered(wells.well))).assign(season=period))
+            classes.append(injection_class_table(wells, well_scopes(data.mapping, ordered(wells.well)), edges).assign(season=period))
             if plan_cmp is None or not plan_cmp.period.eq(period).any():
                 continue
             part = plan_cmp[plan_cmp.period.eq(period)]
@@ -528,7 +572,7 @@ class AuthorReportModule(Module):
             result.tables.append(self.plan_fact_table(pd.concat(plan_rows, ignore_index=True)))
         result.tables.extend(months_parts)
         if classes:
-            result.tables.append(self.injection_class_report(pd.concat(classes, ignore_index=True)))
+            result.tables.append(self.injection_class_report(pd.concat(classes, ignore_index=True), edges))
         result.tables.extend(cards)
 
     @staticmethod
@@ -636,7 +680,8 @@ class AuthorReportModule(Module):
     def fund_details(self, result: Result, data: Data, kind: str, period: str, summary: dict[str, Any],
                      fund: list[pd.DataFrame], classes: list[pd.DataFrame], wet: list[pd.DataFrame],
                      counts: list[pd.DataFrame], class_chart: str = 'none',
-                     month_chart: str = 'none', months: list[pd.DataFrame] | None = None) -> None:
+                     month_chart: str = 'none', months: list[pd.DataFrame] | None = None,
+                     edges: tuple[int, ...] = an_wells.DEFAULT_EDGES) -> None:
         """Фонд сезона: табл. 1.4 и 1.5, а для отбора — табл. 1.6 по воде и сводка по воде для текста."""
         wells = an_wells.season_wells(data[PRODUCTION], kind, period)
         scopes = well_scopes(data.mapping, ordered(wells.well))
@@ -650,11 +695,12 @@ class AuthorReportModule(Module):
             if chart is not None:
                 result.charts.append(chart)
         if kind == 'withdrawal':
-            classes.append(an_wells.class_table(wells, scopes).assign(season=period))      # закачка: классы — табл. 2.3 (injection_class_table)
+            classes.append(an_wells.class_table(wells, scopes, edges).assign(season=period))      # закачка: классы — табл. 2.3 (injection_class_table)
         if class_chart != 'none':
-            by_class = an_wells.class_counts(wells, scopes)
+            by_class = an_wells.class_counts(wells, scopes, edges)
             counts.append(by_class.assign(season=period))
-            for chart in (an_charts.class_share_chart(kind, period, by_class, class_chart), an_charts.class_total_chart(kind, period, by_class)):
+            for chart in (an_charts.class_share_chart(kind, period, by_class, class_chart, edges),
+                          an_charts.class_total_chart(kind, period, by_class, edges)):
                 if chart is not None:
                     result.charts.append(chart)
         if kind != 'withdrawal':
@@ -717,11 +763,12 @@ class AuthorReportModule(Module):
                      note='Скважины с расходом хотя бы в одни сутки месяца; фонд — скважины сезона.')
 
     @staticmethod
-    def injection_class_report(frame: pd.DataFrame) -> Table:
+    def injection_class_report(frame: pd.DataFrame, edges: tuple[int, ...]) -> Table:
+        keys, labels = injection_keys(edges), an_wells.class_labels(edges)[1:]
         columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
                    Column('zero', 'Нулевой расход за сезон, скв. (номера)')]
-        columns += [Column(key, f'{name} тыс. м³/сут, скв. (номера)') for key, (name, _, _) in zip(INJ_CLASS_KEYS, INJ_CLASSES)]
-        return Table('an-inj-classes', 'Условная классификация скважин по производительности', frame[['season', 'group', 'zero', *INJ_CLASS_KEYS]],
+        columns += [Column(key, f'{name} тыс. м³/сут, скв. (номера)') for key, name in zip(keys, labels)]
+        return Table('an-inj-classes', 'Условная классификация скважин по производительности', frame[['season', 'group', 'zero', *keys]],
                      columns, note='Средний расход за сутки с расходом, тыс. м³/сут; граница класса относится к верхнему. Номера — в скобках.')
 
     @staticmethod
@@ -742,21 +789,23 @@ class AuthorReportModule(Module):
                      note='Рекомендованный объём закачки по группам и месяцам (План по группам).')
 
     @staticmethod
-    def class_table_report(parts: list[pd.DataFrame]) -> Table:
+    def class_table_report(parts: list[pd.DataFrame], edges: tuple[int, ...]) -> Table:
         frame = pd.concat(parts, ignore_index=True)[['season', 'group', 'zero', 'low', 'high']]
+        split = edges[0] if edges else an_wells.LOW_LIMIT
         columns = [Column('season', 'Сезон'), Column('group', 'Группа'),
                    Column('zero', 'Нулевой расход за сезон, скв. (номера)'),
-                   Column('low', f'Расход менее {an_wells.LOW_LIMIT} тыс. м³/сут, скв. (номера)'),
-                   Column('high', f'Расход {an_wells.LOW_LIMIT} тыс. м³/сут и более, скв. (номера)')]
+                   Column('low', f'Расход менее {split} тыс. м³/сут, скв. (номера)'),
+                   Column('high', f'Расход {split} тыс. м³/сут и более, скв. (номера)')]
         return Table('an-fund-classes', 'Классы производительности скважин', frame, columns,
                      note='Расход — средний за сутки с расходом, тыс. м³/сут. Номера скважин — в скобках.')
 
     @staticmethod
-    def class_counts_report(parts: list[pd.DataFrame]) -> Table:
-        frame = pd.concat(parts, ignore_index=True)[['season', 'group', *an_wells.CLASS_KEYS]]
+    def class_counts_report(parts: list[pd.DataFrame], edges: tuple[int, ...]) -> Table:
+        keys = an_wells.class_keys(edges)
+        frame = pd.concat(parts, ignore_index=True)[['season', 'group', *keys]]
         columns = [Column('season', 'Сезон'), Column('group', 'Группа')]
         columns += [Column(key, name if name == '0' else f'{name}, тыс. м³/сут', decimals=0, kind='number')
-                    for key, name in zip(an_wells.CLASS_KEYS, an_wells.CLASS_NAMES)]
+                    for key, name in zip(keys, an_wells.class_labels(edges))]
         return Table('an-fund-class-counts', 'Количество скважин с различной производительностью', frame, columns,
                      note='Расход — средний за сутки с расходом, тыс. м³/сут; граница класса относится к верхнему. Класс «0» — скважины без суток с расходом.')
 
