@@ -1,0 +1,16 @@
+/* Фильтр скважин проекта (WellFilter.tsx): кнопка рядом с «Скважины» и окно с группами и скважинами. */
+.well-filter { position: relative; margin: 0 0 8px; }
+.well-filter-button { display: inline-flex; align-items: baseline; gap: 8px; border: 1px solid var(--line, #c8d0da); border-radius: 6px;
+  background: transparent; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+.well-filter.active .well-filter-button { border-color: var(--accent, #2f6fb3); font-weight: 600; }
+.well-filter-value { opacity: 0.75; font-weight: normal; }
+.well-filter-panel { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; width: min(440px, calc(100vw - 32px));
+  display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line, #c8d0da); border-radius: 8px; background: var(--surface, #fff);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); }
+.well-filter-hint { margin: 0; font-size: 12px; opacity: 0.8; }
+.well-filter-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.well-filter-fields .multi { min-width: 0; }
+.well-filter-error { margin: 0; color: #8a1c1c; font-size: 12px; }
+.well-filter-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 560px) { .well-filter-fields { grid-template-columns: 1fr; } }
+.well-filter-legacy { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; border-top: 1px solid var(--line, #d9dee5); padding-top: 8px; }
