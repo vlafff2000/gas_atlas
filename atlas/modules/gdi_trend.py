@@ -12,10 +12,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from atlas.engine.core.config import COLORS, ordered
+from atlas.engine.core.config import COLORS
 from atlas.engine.modules import well_analysis as legacy
 
-from .. import well_sets
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source, Stat, Table
 from ..domain import UNITS, DatasetKind
 from .gdi import select, well_key
@@ -96,8 +95,6 @@ class GdiTrendModule(Module):
         needs=(GDI,),
         order=35,
         params=(
-            Param('groups', 'Группы', 'multi', default=[], dynamic=True, section='Выбор данных', empty='все',
-                  help='Группы и скважины пересекаются: в расчёт идут скважины выбранных групп, которые есть и в списке скважин.'),
             Param('wells', 'Скважины', 'multi', default=[], source=Source(GDI, 'well'), section='Выбор данных', wells_picker=True),
             Param('last_n', 'Последние даты исследований', 'choice', default=6, section='Выбор данных',
                   options=(Option(3, '3'), Option(6, '6'), Option(10, '10'), Option(0, 'Все')),
@@ -118,17 +115,10 @@ class GdiTrendModule(Module):
         ),
     )
 
-    def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
-        if name == 'groups':
-            return ordered(data.mapping.get(w, {}).get('group', 'Без группы') for w in data[GDI].well.astype(str).unique())
-        return super().options(name, data, params)
-
     def run(self, data: Data, params: dict[str, Any]) -> Result:
-        known = sorted(data[GDI].well.astype(str).unique(), key=well_key)
-        scope, hidden = well_sets.scoped(params['wells'], params.get('groups') or [], data.mapping, known)
-        notes = [Note(f'Скрыто фильтром: {hidden} скв. из выбранных групп, в списке скважин их нет.')] if hidden else []
-        # Пустой список скважин в select означает «все», поэтому пересечение без скважин даёт пустую выборку отдельно.
-        gdi = data[GDI].iloc[:0] if scope == [] else select(data[GDI], scope or [], [], int(params['last_n']))
+        notes: list[Note] = []
+        # Пустой список скважин в select означает «все»; фильтр групп и скважин проекта уже применён к данным.
+        gdi = select(data[GDI], params['wells'], [], int(params['last_n']))
         history = histories(gdi, params['threshold'], []) if not gdi.empty else pd.DataFrame()
         history = quality_filter(history, params['quality'], params['threshold'])
         if history.empty:

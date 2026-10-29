@@ -7,6 +7,7 @@ import { StripView } from './StripView'
 import { ChartBuilder } from './ChartBuilder'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
+import { WellFilter } from './WellFilter'
 import { PassportPage } from './PassportPage'
 import { FundPage } from './FundPage'
 import { TableView } from './TableView'
@@ -451,7 +452,9 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
 
       <ChartKinds spec={spec} values={params} onChange={changeParams} />
 
-      {!builder && <ParamBar key={resets} spec={spec} project={project.id} panel={panel} values={params} onChange={changeParams} />}
+      <WellFilter project={project} onProject={onProject} />
+      {/* ключ с ревизией: после смены фильтра или групп списки «Скважины» берутся заново */}
+      {!builder && <ParamBar key={`${resets}:${project.revision}`} spec={spec} project={project.id} panel={panel} values={params} onChange={changeParams} />}
 
       <div className="toolbar">
         {selectable && (

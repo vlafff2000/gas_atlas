@@ -14,7 +14,7 @@ from .contract import ParamError
 from .engine.core.config import natural_key
 from .modules.an_report import reference_pressure
 from .projects import Projects
-from . import well_sets
+from . import well_filter, well_sets
 
 
 def project_presets(projects: Projects, pid: str) -> list[dict]:
@@ -65,6 +65,9 @@ def routes(projects: Projects) -> list[Route]:
         well_sets.remove_user_preset(folder(pid), request.path_params['preset'])
         return {'presets': project_presets(projects, pid) + well_sets.user_presets(folder(pid))}
 
+    def filter_status(request, body):
+        return well_filter.status(projects.data(request.path_params['pid']))
+
     def import_legacy(request, body):
         pid = request.path_params['pid']
         well_sets.import_legacy(folder(pid))
@@ -74,4 +77,5 @@ def routes(projects: Projects) -> list[Route]:
     return [Route('/api/projects/{pid}/well-presets', _endpoint(get), methods=['GET']),
             Route('/api/projects/{pid}/well-presets', _endpoint(create), methods=['POST']),
             Route('/api/projects/{pid}/well-presets/{preset}', _endpoint(remove), methods=['DELETE']),
-            Route('/api/projects/{pid}/well-presets/import-legacy', _endpoint(import_legacy), methods=['POST'])]
+            Route('/api/projects/{pid}/well-presets/import-legacy', _endpoint(import_legacy), methods=['POST']),
+            Route('/api/projects/{pid}/well-filter', _endpoint(filter_status))]
