@@ -167,6 +167,16 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
             </select>
           </label>
         </div>
+        <div className="form-row">
+          <label className="field">
+            <span className="field-label">Порядок подписей в легенде</span>
+            <select value={s.legend_order === 'module' ? 'module' : 'asc'}
+              onChange={e => save({ legend_order: e.target.value }, 'Порядок легенды сохранён.')}>
+              <option value="asc">По возрастанию: сезоны, годы, даты, скважины, группы</option>
+              <option value="module">Как задал модуль</option>
+            </select>
+          </label>
+        </div>
       </section>
 
       <section className="form-block">
