@@ -4,6 +4,7 @@ import io
 import json
 import re
 import zipfile
+from ...rich_text import mpl_text
 import threading
 import textwrap
 import datetime
@@ -258,7 +259,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 base_axes=target
                 if layered and is_combo(t) and not is_back(t):target=overlays.setdefault(id(target),overlay(ax));bases[id(target)]=base_axes      # линии и точки — над столбцами и областями
                 x=list(decode_arrays(t.x)) if t.x is not None else [];y=np.array(decode_arrays(t.y),dtype=float) if t.y is not None else np.array([])
-                label=t.name if t.showlegend is not False else '_nolegend_'
+                label=mpl_text(t.name) if t.showlegend is not False else '_nolegend_'
                 if t.type=='box':
                     bi=next(i for i,b in enumerate(boxes) if b is t)
                     category=str(t.x[0]) if t.x is not None and len(t.x) else str(t.name)
@@ -314,16 +315,16 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     if target is not base_axes:ghost(base_axes,x,y)
             for target,drawn,y in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85))
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
-            title=re.sub('<[^>]+>','',fig.layout.title.text or '')
+            title=mpl_text(fig.layout.title.text or '')
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}
             if fo.get('title')=='hide':title=''
             if compact:ax.set_title(title,loc='center',fontsize=8.5*k,fontweight='bold',pad=5)
             else:ax.set_title(title,loc='left',fontsize=12*k,pad=14)
-            ax.set_xlabel(fig.layout.xaxis.title.text or '');ax.set_ylabel(fig.layout.yaxis.title.text or '')
+            ax.set_xlabel(mpl_text(fig.layout.xaxis.title.text));ax.set_ylabel(mpl_text(fig.layout.yaxis.title.text))
             if fig.layout.xaxis.autorange=='reversed' and not date_axis:ax.invert_xaxis()
             if fig.layout.yaxis.autorange=='reversed':ax.invert_yaxis()
             for name,twin in rights.items():
-                twin.set_ylabel(getattr(fig.layout,'yaxis'+name[1:]).title.text or '')
+                twin.set_ylabel(mpl_text(getattr(fig.layout,'yaxis'+name[1:]).title.text))
                 if getattr(fig.layout,'yaxis'+name[1:]).autorange=='reversed':twin.invert_yaxis()
                 twin.grid(False);twin.spines['top'].set_visible(False)
             if not date_axis and isinstance(fig.layout.xaxis.dtick,(int,float)) and fig.layout.xaxis.dtick>0:
