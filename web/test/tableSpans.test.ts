@@ -26,3 +26,8 @@ test('неизвестная колонка в правилах не ломае�
   const paint = paintOf(table({ styles: [{ rows: [0], fill: 'FFFFFF', font: '', columns: ['нет'] }] }))
   assert.equal(paint.cell.size, 0)
 })
+
+test('граница скважины — толстая линия сверху строки', () => {
+  const paint = paintOf(table({ styles: [{ rows: [2], fill: '', font: '', columns: [], border: 'top' }] }))
+  assert.deepEqual(paint.cell.get('2:0'), { borderTop: '2px solid #000' })
+})

@@ -378,3 +378,26 @@ def test_54_table_json_carries_the_same_styles_for_the_screen():
     assert any(m['columns'][0] == 's1_from' and m['last'] >= m['first'] for m in out['merges'])
     plain = _table_json(Table(id='x', title='t', frame=pd.DataFrame({'a': [1]})))
     assert 'styles' not in plain and 'merges' not in plain          # без оформления — прежний ответ
+
+
+def test_54_gvk_columns_are_never_merged_alone():
+    """Нг и ГВК не объединяются никогда; объединение с ними допускается только как «не исследовалась» по всей ширине сезона."""
+    table = _an_five_four()
+    for m in table.merges:
+        gvk = [c for c in m.columns if c.endswith(('_h', '_depth', '_abs'))]
+        assert not gvk or (len(m.columns) == 6 and table.frame.loc[m.first, m.columns[0]] == 'не исследовалась')
+
+
+def test_54_each_well_starts_with_a_thick_line():
+    table = _an_five_four()
+    assert sorted(r for s in table.styles if s.border == 'top' for r in s.rows) == [0, 3]     # скважины 1 и 4
+
+
+def test_54_xlsx_draws_the_well_line_and_keeps_gvk_in_one_row():
+    import io
+    from openpyxl import load_workbook
+    from atlas import render
+    content, _, _ = render.tables_file([_an_five_four()], 'Таблица 5.4')
+    ws = load_workbook(io.BytesIO(content)).worksheets[0]
+    row4 = next(c.row for row in ws.iter_rows(min_col=1, max_col=1) for c in row if c.value == '4')
+    assert ws.cell(row4, 1).border.top.style == 'medium'

@@ -3,7 +3,7 @@
 import type { Table } from './api'
 
 export interface Paint {
-  cell: Map<string, { backgroundColor?: string; color?: string }>
+  cell: Map<string, { backgroundColor?: string; color?: string; borderTop?: string }>
   covered: Set<string>                             // ячейки под объединением, кроме левой верхней: не выводятся
   starts: Map<string, { rowSpan: number; colSpan: number }>
 }
@@ -18,6 +18,7 @@ export function paintOf(table: Table): Paint {
         const key = r + ':' + k, current = cell.get(key) ?? {}
         if (s.fill) current.backgroundColor = '#' + s.fill
         if (s.font) current.color = '#' + s.font
+        if (s.border === 'top') current.borderTop = '2px solid #000'
         cell.set(key, current)
       }
     }

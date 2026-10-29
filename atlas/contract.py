@@ -242,6 +242,7 @@ class CellStyle:
     fill: str = ''                    # HEX без «#», например 'FCD5B4'
     font: str = ''
     columns: list[str] = field(default_factory=list)
+    border: str = ''                  # 'top' — толстая линия сверху: граница блока (скважины)
 
 
 @dataclass
@@ -603,8 +604,9 @@ def _table_json(t: Table, defer: bool = False) -> dict[str, Any]:
     out = {'id': t.id, 'title': t.title, 'columns': [asdict(c) for c in t.columns], 'note': t.note,
            'collapsed': t.collapsed, 'action': action, 'header': [[[a, n] for a, n in row] for row in t.header],
            'rows': [_column(frame[k]) for k in keys], 'count': len(frame)}  # по колонкам: компактнее
-    if t.styles:      # оформление ячеек, как в XLSX (заливка, шрифт) — на экране то же самое
-        out['styles'] = [{'rows': s.rows, 'fill': s.fill, 'font': s.font, 'columns': s.columns} for s in t.styles]
+    if t.styles:      # оформление ячеек, как в XLSX (заливка, шрифт, линия) — на экране то же самое
+        out['styles'] = [{'rows': s.rows, 'fill': s.fill, 'font': s.font, 'columns': s.columns, 'border': s.border}
+                         for s in t.styles]
     if t.merges:      # объединения ячеек, как в XLSX
         out['merges'] = [{'first': m.first, 'last': m.last, 'columns': m.columns} for m in t.merges]
     return out

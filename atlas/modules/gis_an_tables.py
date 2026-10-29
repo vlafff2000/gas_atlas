@@ -237,7 +237,7 @@ def _has(blocks: dict[str, pd.DataFrame], gvk: dict, well: str, pack: str, label
 def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str], pack_names: list[str], labels: list[str],
                   gvk: dict, span: str, colors: dict[str, str]) -> Table:
     """5.4: по скважине и пачке блок строк. Интервалы сезона — в нижних строках блока (лишние строки сверху пустые);
-    ГВК и Нг — в первой строке блока, объединены по его высоте. Нет исследования скважины в сезоне — «не исследовалась»
+    ГВК и Нг — только в первой строке блока и никогда не объединяются. Нет исследования скважины в сезоне — «не исследовалась»
     по ширине сезона на всю скважину; нет исследования пачки в сезоне — то же по блоку этой пачки."""
     part = seasoned(intervals)
     part = part[part['season'].isin(labels) & part['well'].isin(wells) & part['pack'].isin(pack_names)]
@@ -262,6 +262,7 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
         if not blocks_of:
             continue
         well_top = len(rows)
+        styles.append(CellStyle([well_top], border='top'))      # граница скважины: толстая линия сверху её первой строки
         well_gap = [i for i, label in enumerate(labels) if not any(_has(b, gvk, well, p, label) for p, b in blocks_of.items())]
         for pack, blocks in blocks_of.items():
             height = max([len(b) for b in blocks.values()] + [1])
@@ -288,8 +289,6 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
                 if item:
                     rows[top][f's{i}_h'], rows[top][f's{i}_depth'], rows[top][f's{i}_abs'] = (
                         _fmt(item['h_eff']), _fmt(item['depth']), _fmt(item['abs']))
-                    if height > 1:
-                        merges.append(CellMerge(top, top + height - 1, [f's{i}_{n}' for n in ('h', 'depth', 'abs')]))
         for i in well_gap:
             rows[well_top][f's{i}_from'] = NOT_STUDIED
             merges.append(CellMerge(well_top, len(rows) - 1, season_keys(i)))
@@ -301,7 +300,7 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
     frame = pd.DataFrame(rows, columns=[c.key for c in columns])
     return Table(f'gis-an-5-{FIRST_NUMBER}', f'Таблица 5.{FIRST_NUMBER} – Результаты исследований ГИС-контроль, выполненных в {span}',
                  frame, columns, header=header, collapsed=True, styles=styles, merges=merges,
-                 note='Интервалы последнего замера сезона по пачке; Кг — в процентах. Нг (hг эф) и ГВК — по пачке, объединены по высоте блока. '
+                 note='Интервалы последнего замера сезона по пачке; Кг — в процентах. Нг (hг эф) и ГВК — по пачке, в первой строке блока. '
                       f'Голубой фон и синий шрифт — интервалы с Кг ≤ {LOW_KG:g} %.')
 
 
