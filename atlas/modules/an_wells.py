@@ -15,7 +15,6 @@ import pandas as pd
 
 from atlas.engine.core.config import ordered
 
-LOW_LIMIT = 100          # тыс. м³/сут: граница двухклассовой таблицы по умолчанию (табл. 1.5); теперь — первая граница схемы
 TOTAL = 'Всего'
 # Классы среднего расхода за сутки с расходом, тыс. м³/сут; граница класса — в верхнем. Класс «0» — скважины без суток с расходом.
 DEFAULT_EDGES = (100, 150, 200, 250, 300)   # схема до настройки: та же, что была в табл. 1.5 и 2.3
@@ -103,19 +102,17 @@ def fund_table(wells: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
 
 
 def class_table(wells: pd.DataFrame, scopes: Mapping[str, str], edges: Sequence[int] = DEFAULT_EDGES) -> pd.DataFrame:
-    """Табл. 1.5 (две группы): по группам — число и номера скважин с нулевым расходом за сезон, с расходом ниже первой границы и не ниже."""
-    split = edges[0] if edges else LOW_LIMIT
+    """Табл. 1.5 с номерами: по группам — номера скважин с нулевым расходом за сезон и по каждому классу с расходом (``class_keys(edges)[1:]``)."""
+    keys = class_keys(edges)[1:]
     w = wells.assign(group=wells.well.map(scopes), rate_k=wells.rate / 1000)
-    w['cls'] = np.where(w.days.eq(0), 'zero', np.where(w.rate_k.lt(split), 'low', 'high'))
+    w['cls'] = class_index(w.days.to_numpy(), w.rate_k.to_numpy(float), edges)
     rows = []
     for name, part in [(TOTAL, w)] + [(g, w[w.group.eq(g)]) for g in ordered(w.group.unique())]:
-        rows.append({
-            'group': name,
-            'zero': _numbers(ordered(part[part.cls.eq('zero')].well)),
-            'low': _numbers(ordered(part[part.cls.eq('low')].well)),
-            'high': _numbers(ordered(part[part.cls.eq('high')].well)),
-        })
-    return pd.DataFrame(rows)
+        row = {'group': name, 'zero': _numbers(ordered(part[part.cls.eq(0)].well))}
+        for i, key in enumerate(keys, start=1):
+            row[key] = _numbers(ordered(part[part.cls.eq(i)].well))
+        rows.append(row)
+    return pd.DataFrame(rows, columns=['group', 'zero', *keys])
 
 
 MONTH_NAMES = ('Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек')
