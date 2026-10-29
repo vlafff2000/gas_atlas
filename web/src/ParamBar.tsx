@@ -129,7 +129,7 @@ export function ParamBar({ spec, project, panel, values, onChange }: Props) {
               ? <DynamicMulti key={p.name} spec={spec} project={project} panel={panel} param={p}
                               values={values} onChange={v => set(p.name, v)}
                               onOptions={list => setDynamic(d => (d[p.name] === list ? d : { ...d, [p.name]: list }))} />
-              : <Field key={p.name} param={p} value={values[p.name]} options={options[p.name]} onChange={v => set(p.name, v)} />)}
+              : <Field key={p.name} param={p} project={project} value={values[p.name]} options={options[p.name]} onChange={v => set(p.name, v)} />)}
           </div>
         </fieldset>
       ))}
@@ -211,7 +211,8 @@ function DynamicMulti({ spec, project, param: p, values, onChange, onOptions }:
   }, [options])
 
   return <MultiSelect label={p.label} options={options ?? []} value={value} loading={options === undefined}
-    emptyMeaning={p.empty} prefix={p.prefix} onChange={v => { touched.current = true; onChange(v) }} />
+    emptyMeaning={p.empty} prefix={p.prefix} picker={p.wells_picker ? project : undefined}
+    onChange={v => { touched.current = true; onChange(v) }} />
 }
 
 /** Число на каждый вариант, который считает модуль (порог у каждой группы); пусто — общее значение. */
@@ -280,12 +281,13 @@ function HelpMark({ param: p }: { param: Param }) {
   )
 }
 
-function Field({ param: p, value, options, onChange }:
-  { param: Param; value: unknown; options?: string[]; onChange: (v: unknown) => void }) {
+function Field({ param: p, project, value, options, onChange }:
+  { param: Param; project: string; value: unknown; options?: string[]; onChange: (v: unknown) => void }) {
   if (p.kind === 'multi') {
     const list = options ?? p.options.map(o => String(o.value))
     return <MultiSelect label={p.label} options={list} value={(value as string[]) ?? []} onChange={onChange}
-      loading={p.source !== null && options === undefined} emptyMeaning={p.empty} prefix={p.prefix} />
+      loading={p.source !== null && options === undefined} emptyMeaning={p.empty} prefix={p.prefix}
+      picker={p.wells_picker ? project : undefined} />
   }
   if (p.kind === 'boolean') {
     return (

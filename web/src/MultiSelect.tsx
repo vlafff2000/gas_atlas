@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { ClipboardEvent as ReactClipboardEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { clickRow, emptyHighlight, moveCursor, selectAll, selectRange, toggleHighlighted } from './listSelection'
+import { parseWellList, normWell } from './wellList'
+import { wellPresetApi } from './api_wells'
+import type { WellPreset } from './api_wells'
+import './wellpicker.css'
 
 interface Props {
   label: string
@@ -10,9 +14,10 @@ interface Props {
   emptyMeaning?: string      // что значит пустой выбор: «все» или «ничего»
   loading?: boolean
   prefix?: string            // приставка к подписи варианта, например «№ »
+  picker?: string            // id проекта: список скважин с пресетами и вставкой из буфера обмена
 }
 
-export function MultiSelect({ label, options, value, onChange, emptyMeaning = 'все', loading, prefix = '' }: Props) {
+export function MultiSelect({ label, options, value, onChange, emptyMeaning = 'все', loading, prefix = '', picker }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const root = useRef<HTMLDivElement>(null)
@@ -25,6 +30,11 @@ export function MultiSelect({ label, options, value, onChange, emptyMeaning = '�
     const q = query.trim().toLowerCase()
     return q ? options.filter(o => o.toLowerCase().includes(q)) : options
   }, [options, query])
+  const [presets, setPresets] = useState<WellPreset[]>([])
+  const [note, setNote] = useState('')
+  const [newOpen, setNewOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newText, setNewText] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -41,6 +51,15 @@ export function MultiSelect({ label, options, value, onChange, emptyMeaning = '�
   }, [open])
   useEffect(() => { setHighlight(emptyHighlight()); setCursor(0) }, [query, open])
   useEffect(() => { list.current?.children[cursor]?.scrollIntoView({ block: 'nearest' }) }, [cursor])
+  useEffect(() => {
+    if (!open || !picker) return
+    refreshPresets(picker)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, picker])
+
+  const refreshPresets = (project: string) => {
+    wellPresetApi.list(project).then(r => setPresets(r.presets)).catch(e => setNote((e as Error).message))
+  }
 
   const summary = loading ? 'загрузка…'
     : value.length === 0 ? emptyMeaning
@@ -57,6 +76,53 @@ export function MultiSelect({ label, options, value, onChange, emptyMeaning = '�
     const next = new Set(chosen)
     for (const o of visible) { if (on) next.add(o); else next.delete(o) }
     onChange(options.filter(o => next.has(o)))
+  }
+
+  // Выбрать ровно эти скважины: остальные выключаются. Пишет, что найдено и что в списке нет.
+  const applyWells = (wells: string[], source: string) => {
+    const wanted = new Set(wells.map(normWell))
+    const found = options.filter(o => wanted.has(normWell(o)))
+    const known = new Set(options.map(normWell))
+    const missing = [...wanted].filter(w => !known.has(w))
+    onChange(found)
+    const tail = missing.length ? `; нет в списке: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '…' : ''}` : ''
+    setNote(`${source}: выбрано ${found.length}${tail}`)
+  }
+
+  const removePreset = async (preset: WellPreset) => {
+    if (!picker) return
+    try { await wellPresetApi.remove(preset.id); refreshPresets(picker) } catch (e) { setNote((e as Error).message) }
+  }
+
+  const saveWells = async (name: string, wells: string[]) => {
+    if (!picker) return
+    try {
+      const r = await wellPresetApi.save(picker, name, wells)
+      setPresets(r.presets)
+      setNewName(''); setNewText('')
+      setNote(`Пресет «${name.trim()}» сохранён: ${wells.length} скв.`)
+    } catch (e) { setNote((e as Error).message) }
+  }
+
+  const groupFromClipboard = async () => {
+    let text: string
+    try { text = await navigator.clipboard.readText() } catch {
+      setNote('Браузер не дал прочитать буфер обмена. Вставьте список в поле ниже (Ctrl+V) и нажмите «Сохранить группу из списка».')
+      return
+    }
+    const wells = parseWellList(text)
+    if (!wells.length) { setNote('В буфере обмена нет скважин.'); return }
+    setNewText(text)
+    await saveWells(newName || `Группа из буфера (${wells.length})`, wells)
+  }
+
+  // Ctrl+V на выделенном списке скважин: список из буфера выбирается сразу, остальные выключаются.
+  const pasteWells = (e: ReactClipboardEvent) => {
+    if (!picker) return
+    const text = e.clipboardData.getData('text')
+    if (!parseWellList(text).length) return
+    e.preventDefault()
+    applyWells(parseWellList(text), 'Из буфера обмена')
   }
 
   // Выделение строк как в 5.8: мышью (Shift — диапазон, Ctrl — добавить, протяжка), Пробел ставит или снимает флажки всем выделенным.
@@ -98,12 +164,48 @@ export function MultiSelect({ label, options, value, onChange, emptyMeaning = '�
       </button>
       {open && (
         <div className="popover" role="dialog" aria-label={label}>
+          {picker && (
+            <div className="well-presets">
+              <div className="preset-chips">
+                {presets.map(p => (
+                  <span key={p.id} className={`preset-chip kind-${p.kind}`}>
+                    <button type="button" onClick={() => applyWells(p.wells, p.label)}
+                      title={`${p.label}: ${p.wells.length} скв. Выбрать только их`}>
+                      {p.label} <span className="preset-count">{p.wells.length}</span>
+                    </button>
+                    {p.kind === 'user' && (
+                      <button type="button" className="preset-del" aria-label={`Удалить пресет ${p.label}`}
+                        onClick={() => removePreset(p)}>×</button>
+                    )}
+                  </span>
+                ))}
+                <button type="button" className="preset-add" aria-expanded={newOpen} onClick={() => setNewOpen(o => !o)}>+ Свой пресет</button>
+              </div>
+              {newOpen && (
+                <div className="preset-form">
+                  <input placeholder="Название пресета" value={newName} onChange={e => setNewName(e.target.value)} />
+                  <textarea rows={3} value={newText} onChange={e => setNewText(e.target.value)}
+                    placeholder="Список скважин: столбец из Excel, через запятую, точку с запятой или табуляцию (Ctrl+V)" />
+                  <div className="popover-actions">
+                    <button type="button" onClick={groupFromClipboard}>Сформировать группу из буфера обмена</button>
+                    <button type="button" disabled={!parseWellList(newText).length}
+                      onClick={() => saveWells(newName, parseWellList(newText))}>Сохранить группу из списка</button>
+                    <button type="button" disabled={!value.length} onClick={() => saveWells(newName, value)}>
+                      Сохранить выбранные ({value.length})
+                    </button>
+                  </div>
+                </div>
+              )}
+              {note && <p className="well-note" role="status">{note}</p>}
+            </div>
+          )}
           <input autoFocus className="search" placeholder="Найти" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={searchKey} />
           <div className="popover-actions">
             <button type="button" onClick={() => setVisible(true)}>Выбрать {query ? 'найденные' : 'все'}</button>
             <button type="button" onClick={() => setVisible(false)}>Снять {query ? 'найденные' : 'все'}</button>
           </div>
-          <ul className="option-list" ref={list} tabIndex={0} role="listbox" aria-multiselectable="true" onKeyDown={listKey}>
+          <ul className="option-list" ref={list} tabIndex={0} role="listbox" aria-multiselectable="true" onKeyDown={listKey}
+            onPaste={pasteWells}>
             {visible.map((o, i) => (
               <li key={o} role="option" aria-selected={highlight.rows.has(o)}
                 className={(highlight.rows.has(o) ? 'highlight' : '') + (i === cursor ? ' cursor' : '')}
@@ -114,7 +216,7 @@ export function MultiSelect({ label, options, value, onChange, emptyMeaning = '�
             ))}
             {visible.length === 0 && <li className="muted">Ничего не найдено</li>}
           </ul>
-          <p className="popover-foot" title="Выделите строки мышью и нажмите Пробел. Shift — диапазон, Ctrl — добавить, Ctrl+A — все, стрелки — по строкам">{value.length ? `Выбрано ${value.length}` : emptyMeaning === 'все' ? 'Ничего не выбрано — все' : 'Ничего не выбрано'}<span className="popover-hint">Shift/Ctrl — выделить, Пробел — отметить</span></p>
+          <p className="popover-foot" title="Выделите строки мышью и нажмите Пробел. Shift — диапазон, Ctrl — добавить, Ctrl+A — все, стрелки — по строкам">{value.length ? `Выбрано ${value.length}` : emptyMeaning === 'все' ? 'Ничего не выбрано — все' : 'Ничего не выбрано'}<span className="popover-hint">Shift/Ctrl — выделить, Пробел — отметить{picker ? ', Ctrl+V — список из буфера' : ''}</span></p>
         </div>
       )}
     </div>

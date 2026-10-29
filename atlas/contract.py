@@ -67,6 +67,7 @@ class Param:
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
     chart_kind: bool = False          # переключатель вида графиков: выводится в верхнем тулбаре раздела
     extensions: str = ''              # для file: расширения в проводнике, через пробел: 'xlsx docx'
+    wells_picker: bool = False        # список скважин: пресеты (группы, фонды, сетка), вставка из буфера обмена
 
     def coerce(self, value: Any) -> Any:
         if value is None or (self.kind == 'date' and value == ''):
