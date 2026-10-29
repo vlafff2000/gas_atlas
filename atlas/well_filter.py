@@ -1,9 +1,13 @@
-"""Фильтр скважин проекта: группы и скважины, сквозные для всех модулей Атласа.
+"""Фильтр скважин вкладки: группы и скважины, свои у каждой вкладки (раздел и панель) Атласа.
 
-Хранится в настройках проекта (``well_filter``: ``{groups, wells}``), поэтому у каждого проекта свой.
-Пусто — скважины не ограничены. Группы и скважины пересекаются (логика «И», как в ``well_sets.scoped``).
-Фильтр применяется к данным проекта до расчёта модуля: модули видят только отобранные скважины.
+Фильтр приходит вместе с параметрами вкладки (``params['well_filter']`` = ``{groups, wells}``): у каждой вкладки своё
+состояние, включение одной вкладки на другие не влияет. Общими остаются только пресеты скважин проекта
+(``well_sets``). Пусто — скважины не ограничены. Группы и скважины пересекаются (логика «И», как в ``well_sets.scoped``).
+Фильтр применяется к данным проекта до расчёта вкладки: расчёт видит только отобранные скважины.
 Решение за инженером: программа только показывает, сколько скважин скрыто фильтром; меняет фильтр инженер.
+
+Настройка проекта ``well_filter`` — прежний общий фильтр: расчёты она больше не ограничивает, интерфейс лишь
+подставляет её как начальный фильтр вкладки, у которой своего ещё нет.
 """
 from __future__ import annotations
 
@@ -12,9 +16,9 @@ from typing import Any, Mapping
 import pandas as pd
 
 from . import well_sets
-from .contract import Data
+from .contract import Data, ParamError
 
-KEY = 'well_filter'
+KEY = 'well_filter'     # и настройка проекта (прежний общий фильтр), и ключ фильтра среди параметров вкладки
 
 
 def valid(value: Any) -> bool:
@@ -23,8 +27,8 @@ def valid(value: Any) -> bool:
         return True
     if not isinstance(value, dict) or not set(value) <= {'groups', 'wells'}:
         return False
-    return all(isinstance(x, str) for k in ('groups', 'wells') for x in (value.get(k) or [])) \
-        and all(isinstance(value.get(k) or [], list) for k in ('groups', 'wells'))
+    return all(isinstance(value.get(k) or [], list) for k in ('groups', 'wells')) \
+        and all(isinstance(x, str) for k in ('groups', 'wells') for x in (value.get(k) or []))
 
 
 def clean(value: Any) -> dict[str, list[str]] | None:
@@ -34,10 +38,18 @@ def clean(value: Any) -> dict[str, list[str]] | None:
     return {'groups': groups, 'wells': wells} if groups or wells else None
 
 
-def selection(settings: Mapping[str, Any]) -> tuple[list[str], list[str]]:
-    """Выбранные группы и скважины фильтра проекта (пустые списки — фильтра нет)."""
-    value = settings.get(KEY) or {}
-    return list(value.get('groups') or []), list(value.get('wells') or [])
+def selection(flt: Mapping[str, Any] | None) -> tuple[list[str], list[str]]:
+    """Выбранные группы и скважины фильтра (пустые списки — фильтра нет)."""
+    return list((flt or {}).get('groups') or []), list((flt or {}).get('wells') or [])
+
+
+def split(raw: Mapping[str, Any] | None) -> tuple[dict[str, list[str]] | None, dict[str, Any]]:
+    """Параметры вкладки без фильтра и сам фильтр в нормальной форме (``None`` — не задан)."""
+    rest = dict(raw or {})
+    value = rest.pop(KEY, None)
+    if not valid(value):
+        raise ParamError('Фильтр скважин: ожидаются списки групп и скважин')
+    return clean(value), rest
 
 
 def valid_tabs(value: Any) -> bool:
@@ -62,9 +74,18 @@ def _subset(frame: pd.DataFrame | None, keep: set[str]) -> pd.DataFrame | None:
     return frame[frame['well'].astype(str).isin(keep)]
 
 
-def apply(data: Data) -> Data:
+def keep_set(data: Data, flt: Mapping[str, Any] | None) -> set[str] | None:
+    """Скважины, которые остаются после фильтра (``None`` — фильтра нет, остаются все)."""
+    groups, wells = selection(flt)
+    if not groups and not wells:
+        return None
+    keep, _hidden = well_sets.scoped(wells, groups, data.mapping, data.wells)
+    return set(keep or [])
+
+
+def apply(data: Data, flt: Mapping[str, Any] | None = None) -> Data:
     """Данные проекта без скважин, скрытых фильтром. Без фильтра возвращаются как есть."""
-    groups, wells = selection(data.settings)
+    groups, wells = selection(flt)
     if not groups and not wells:
         return data
     keep, _hidden = well_sets.scoped(wells, groups, data.mapping, data.wells)
@@ -76,9 +97,9 @@ def apply(data: Data) -> Data:
     return out
 
 
-def status(data: Data) -> dict[str, Any]:
+def status(data: Data, flt: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Что видно в окне фильтра: сколько скважин проекта остаётся и сколько скрыто."""
-    groups, wells = selection(data.settings)
+    groups, wells = selection(flt)
     total = len(data.wells)
     if not groups and not wells:
         return {'groups': [], 'wells': [], 'total': total, 'shown': total, 'hidden': 0}

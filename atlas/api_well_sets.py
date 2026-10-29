@@ -1,5 +1,5 @@
 """Пресеты скважин проекта: `GET /api/projects/{pid}/well-presets` (группы, фонды, опорная сетка и пользовательские),
-`POST /api/projects/{pid}/well-presets` {name, wells}, `DELETE /api/projects/{pid}/well-presets/{id}` и
+`POST /api/projects/{pid}/well-presets` {name, wells}, `POST /api/projects/{pid}/well-filter` {groups, wells} (сколько скважин остаётся), `DELETE /api/projects/{pid}/well-presets/{id}` и
 `POST /api/projects/{pid}/well-presets/import-legacy` (перенос пресетов из прежней общей папки ~/.pxg).
 
 Логика — ``atlas/well_sets.py``; пресеты проекта считаются из данных проекта, пользовательские лежат в папке проекта.
@@ -66,7 +66,9 @@ def routes(projects: Projects) -> list[Route]:
         return {'presets': project_presets(projects, pid) + well_sets.user_presets(folder(pid))}
 
     def filter_status(request, body):
-        return well_filter.status(projects.data(request.path_params['pid']))
+        """Сколько скважин остаётся у фильтра вкладки; фильтр — в теле запроса (``GET`` — без фильтра)."""
+        flt, _ = well_filter.split({'well_filter': body.get('filter', body) if body else None})
+        return well_filter.status(projects.data(request.path_params['pid']), flt)
 
     def import_legacy(request, body):
         pid = request.path_params['pid']
@@ -78,4 +80,4 @@ def routes(projects: Projects) -> list[Route]:
             Route('/api/projects/{pid}/well-presets', _endpoint(create), methods=['POST']),
             Route('/api/projects/{pid}/well-presets/{preset}', _endpoint(remove), methods=['DELETE']),
             Route('/api/projects/{pid}/well-presets/import-legacy', _endpoint(import_legacy), methods=['POST']),
-            Route('/api/projects/{pid}/well-filter', _endpoint(filter_status))]
+            Route('/api/projects/{pid}/well-filter', _endpoint(filter_status), methods=['GET', 'POST'])]

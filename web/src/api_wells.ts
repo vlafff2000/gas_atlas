@@ -6,6 +6,8 @@ export interface WellPreset { id: string; kind: 'group' | 'fund' | 'grid' | 'use
 interface PresetList { presets: WellPreset[]; legacy?: number }
 
 // Фильтр скважин проекта: что выбрано и сколько скважин остаётся (сам фильтр — настройка проекта well_filter).
+// Фильтр вкладки: хранится среди её параметров (params.well_filter), у каждой вкладки свой
+export interface WellFilter { groups?: string[]; wells?: string[] }
 export interface WellFilterStatus { groups: string[]; wells: string[]; total: number; shown: number; hidden: number }
 
 async function send<T = PresetList>(path: string, init?: RequestInit): Promise<T> {
@@ -25,7 +27,7 @@ const json = (method: string, body: unknown): RequestInit => ({
 })
 
 export const wellFilterApi = {
-  status: (project: string) => send<WellFilterStatus>(`/api/projects/${project}/well-filter`),
+  status: (project: string, filter: WellFilter) => send<WellFilterStatus>(`/api/projects/${project}/well-filter`, json('POST', { filter })),
 }
 
 export const wellPresetApi = {

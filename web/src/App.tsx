@@ -8,6 +8,7 @@ import { ChartBuilder } from './ChartBuilder'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
 import { WellFilter } from './WellFilter'
+import type { WellFilter as WellFilterValue } from './api_wells'
 import { PassportPage } from './PassportPage'
 import { FundPage } from './FundPage'
 import { TableView } from './TableView'
@@ -318,7 +319,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
       setSaved(state)
       const base = { ...defaults(spec), ...(state.panel ?? {}) }
       const local = remembered.has(storeKey) ? remembered.get<Params>(storeKey, {}) : {}
-      setParams(withSettings(spec, { ...base, ...local }, project))
+      // прежний общий фильтр проекта — начальный фильтр вкладки, у которой своего ещё нет
+      const legacy = project.settings.well_filter
+      const own = 'well_filter' in local || 'well_filter' in (state.panel ?? {}) || !legacy ? {} : { well_filter: legacy }
+      setParams(withSettings(spec, { ...base, ...own, ...local }, project))
     })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -452,9 +456,12 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
 
       <ChartKinds spec={spec} values={params} onChange={changeParams} />
 
-      <WellFilter project={project} onProject={onProject} />
-      {/* ключ с ревизией: после смены фильтра или групп списки «Скважины» берутся заново */}
-      {!builder && <ParamBar key={`${resets}:${project.revision}`} spec={spec} project={project.id} panel={panel} values={params} onChange={changeParams} />}
+      {/* ключ с ревизией: после смены групп списки «Скважины» берутся заново; фильтр скважин — часть параметров этой вкладки */}
+      {builder
+        ? <WellFilter project={project.id} revision={project.revision} value={params.well_filter as WellFilterValue | null}
+            onChange={v => changeParams({ ...params, well_filter: v })} />
+        : <ParamBar key={`${resets}:${project.revision}`} spec={spec} project={project.id} panel={panel} values={params} revision={project.revision}
+            onChange={changeParams} />}
 
       <div className="toolbar">
         {selectable && (
