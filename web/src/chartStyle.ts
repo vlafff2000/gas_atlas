@@ -50,10 +50,14 @@ const SYMBOLS: Record<MarkerShape, string> = { circle: 'circle', square: 'rect',
 /** Символ ECharts для выбранной формы; без выбора — форма из модуля. */
 export const markerSymbol = (shape: MarkerShape | undefined, fallback: string) => (shape ? SYMBOLS[shape] : fallback)
 
-/** Ключ графика в хранилище: заголовок и подписи осей (как ключ границ Y). */
-export const chartLookKey = (chart: Chart) => `${chart.title}|${chart.y.label}|${[chart.y2, chart.y3, chart.y4, chart.y5].filter(Boolean).map(a => a!.label).join('|')}`
-/** Ключ ряда внутри графика: группа или имя, и вид ряда. */
+/** Ключ ряда в общем хранилище: группа или имя, и вид ряда. Не зависит от графика, заголовка и набора скважин:
+ *  один и тот же год, сезон или группа получает один и тот же вид на всех графиках. */
 export const seriesLookKey = (s: Series) => `${s.group || s.name}|${s.kind}`
+
+/** Личный вид, относящийся к рядам этого графика: из общего хранилища берутся только его ключи. */
+export function looksOf(chart: Chart, all: Record<string, Look>): Record<string, Look> {
+  return Object.fromEntries(chart.series.map(seriesLookKey).filter(k => all[k]).map(k => [k, all[k]]))
+}
 
 /** График с личным видом рядов: у каждого ряда, для которого он задан, появляется поле look. */
 export function applyLooks(chart: Chart, looks: Record<string, Look> | undefined): Chart {
