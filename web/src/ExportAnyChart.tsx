@@ -4,20 +4,17 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, defaults, type ModuleSpec, type Params, type Project } from './api'
 import { ParamBar } from './ParamBar'
 import { SeriesLookFields } from './ChartSettings'
-import { Check, Num, Section, Select, SizePick, Text, type Opt } from './exportFields'
+import { Check, Color, GRID_OPTIONS as GRIDS, MINOR_GRID_OPTIONS as MINOR_GRIDS, Num, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import type { Look } from './chartStyle'
 import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type Form } from './api_projects'
 
 const FORMATS: Opt[] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
 const FONTS: Opt[] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]
 const LEGENDS: Opt[] = [['auto', 'Авто'], ['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]
-const GRIDS: Opt[] = [['', 'Авто'], ['both', 'Обе'], ['h', 'Горизонтальная'], ['v', 'Вертикальная'], ['none', 'Нет']]
-const MINOR_GRIDS: Opt[] = [['auto', 'Как в графике'], ['show', 'Показывать'], ['hide', 'Скрыть']]
 const ALIGNS: Opt[] = [['', 'Авто'], ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]
 const AXIS_NAME: Record<string, string> = { x: 'Ось X', y: 'Ось Y', y2: 'Ось Y2 (справа)', y3: 'Ось Y3', y4: 'Ось Y4', y5: 'Ось Y5' }
 const SERIES_LIMIT = 40
 const DPIS = [150, 200, 250, 300, 600, 1200]
-const HEX = /^#[0-9a-f]{6}$/i
 const KIND_NOTE: Record<string, string> = {
   heat: 'Тепловая карта: действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.',
   strips: 'Матрица скважин × сезонов: действуют размер рисунка, шрифт и заголовок; размер текста внутри задаёт сам график.',
@@ -56,18 +53,6 @@ function Tick({ label, value, onChange }: { label: string; value: boolean; onCha
   return <label className="toggle"><input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} /><span>{label}</span></label>
 }
 
-function Color({ label, value, onChange }: { label: string; value: unknown; onChange: (v: string) => void }) {
-  const text = typeof value === 'string' ? value : ''
-  return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <span className="cs-range">
-        <input type="color" value={HEX.test(text) ? text : '#ffffff'} onChange={e => onChange(e.target.value)} />
-        <button type="button" className="cs-auto" disabled={!text} onClick={() => onChange('')} title="Вернуть цвет по умолчанию">авто</button>
-      </span>
-    </label>
-  )
-}
 
 export function ExportAnyChart({ project }: { project: Project }) {
   const [specs, setSpecs] = useState<ModuleSpec[]>([])
@@ -252,7 +237,7 @@ export function ExportAnyChart({ project }: { project: Project }) {
               <Select {...F} field="grid" label="Сетка" def="" options={GRIDS} />
               <Color label="Цвет сетки" value={chartStyle.grid_color} onChange={v => sub('chart', 'grid_color', v)} />
               <Num {...F} field="grid_width" label="Толщина основной сетки, пт" def={0.7} min={0.2} max={4} step={0.1} />
-              <Select {...F} field="minor_grid" label="Доп. линии сетки" def="auto" options={MINOR_GRIDS} />
+              <Select {...F} field="minor_grid" label="Доп. линии сетки" def="" options={MINOR_GRIDS} />
               <Color label="Цвет доп. линий" value={chartStyle.minor_grid_color} onChange={v => sub('chart', 'minor_grid_color', v)} />
               <Num {...F} field="minor_grid_width" label="Толщина доп. линий, пт" def={0.5} min={0.2} max={4} step={0.1} />
               <Color label="Фон рисунка" value={chartStyle.background} onChange={v => sub('chart', 'background', v)} />
