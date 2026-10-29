@@ -216,3 +216,20 @@ def test_season_wells_without_studies_in_season_is_a_note(frame):
     res = run(frame, seasons=['2030-2031'], season_wells=True, last_n=3)
     assert not any(t.id == 'studies' and len(t.frame) for t in res.tables)
     assert any(n.level == 'warning' for n in res.notes)
+
+
+def test_suspects_are_red_overlay_and_confirmed_ones_leave_the_list(frame):
+    result = run(frame, last_n=1, outliers=True, outlier_threshold=15)
+    flagged = [s for c in result.charts for s in c.series if s.suspect]
+    suspects = sorted(i for s in flagged for i in s.ids)
+    assert suspects == sorted(table(result, 'outliers').frame.id) and suspects
+    assert all(s.color == '#ff1744' and s.legend for s in flagged)
+    # подтверждённая двойным щелчком точка остаётся в расчётах: не подсвечена и не в таблице подсказок
+    module = registry.get('gdi')
+    data = Data({GDI: frame}, {GDI: frame}, {})
+    data.settings = {'gdi_confirmed_points': [suspects[0]]}
+    again = module.run(data, module.spec.coerce(dict(last_n=1, outliers=True, outlier_threshold=15)))
+    left = sorted(i for c in again.charts for s in c.series if s.suspect for i in s.ids)
+    assert suspects[0] not in left and left == suspects[1:]
+    assert suspects[0] not in set(table(again, 'outliers').frame.id)
+    assert not any(s.suspect for c in run(frame, last_n=1).charts for s in c.series)

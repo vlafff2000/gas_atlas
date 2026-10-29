@@ -42,6 +42,7 @@ EDITABLE_SETTINGS = {
     'season_end': _month,
     'season_format': lambda v: v in ('dash', 'slash'),
     'auto_seasons': lambda v: isinstance(v, bool),
+    'gdi_confirmed_points': lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),   # подтверждённые сомнительные точки ГДИ
     'show_neutral_periods': lambda v: isinstance(v, bool),
     'season_gap_days': lambda v: not isinstance(v, bool) and float(v) == int(v) and 1 <= int(v) <= 365,
     'season_rate_share': lambda v: not isinstance(v, bool) and 0 < float(v) <= 50,
