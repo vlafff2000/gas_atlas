@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import re
 import threading
 import uuid
 from collections import OrderedDict
@@ -56,6 +57,9 @@ EDITABLE_SETTINGS = {
     'working_horizons': lambda v: isinstance(v, list) and all(isinstance(h, str) for h in v),
     'chart_style': lambda v: isinstance(v, dict) and all(k in ('points', 'legend', 'grid', 'autoscale') and isinstance(x, bool)
                                                          for k, x in v.items()),
+    # Цвета таблиц ГИС 5.4 в XLSX: вид пачки («покрышка», …) или «низкий Кг» → HEX; пустой словарь — значения по умолчанию.
+    'an_colors': lambda v: isinstance(v, dict) and all(isinstance(k, str) and len(k) <= 40 and isinstance(x, str)
+                                                       and re.fullmatch(r'#?[0-9A-Fa-f]{6}', x) for k, x in v.items()),
 }
 SETTING_LABELS = {'season_format': 'Вид названий сезонов', 'r2_threshold': 'Порог R²', 'season_start': 'Первый месяц сезона отбора (1–12)',
                   'season_end': 'Последний месяц сезона отбора (1–12)', 'manometer_wells': 'Скважины с глубинными манометрами',
