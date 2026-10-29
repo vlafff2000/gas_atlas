@@ -329,10 +329,10 @@ def month_working_chart(kind: str, period: str, months: pd.DataFrame, labels: li
     idle = fund - working
     chart = Chart(f'an-month-working-{kind}-{period}', f'Работавшие скважины по месяцам · {period}',
                   Axis('Месяц', scale='category', categories=labels), Axis('Скважин', 'скв.', from_zero=True))
-    chart.series.append(Series('Работало', labels, working.astype(float), 'bar', stack='months', segments=[str(v) for v in working],
-                               labels=[f'{v} из {fund} скв., {v / fund * 100:.0f} %' for v in working]))
-    chart.series.append(Series('Не работало', labels, idle.astype(float), 'bar', stack='months', segments=[str(v) if v else '' for v in idle],
-                               labels=[f'{v} из {fund} скв.' for v in idle]))
+    chart.series.append(Series('в работе', labels, working.astype(float), 'bar', stack='months', segments=[str(v) for v in working],
+                               labels=[f'{v} скв. в работе, {v / fund * 100:.0f} %' for v in working]))
+    chart.series.append(Series('остановлено', labels, idle.astype(float), 'bar', stack='months', segments=[str(v) if v else '' for v in idle],
+                               labels=[f'{v} скв. остановлено' for v in idle]))
     if peaks and len(peaks) == len(labels):
         # поверх столбиков — кривая: одна точка на месяц, максимум скважин, работавших одновременно в одни сутки месяца
         chart.series.append(Series('Максимум одновременно за сутки', labels, [float(n) for n, _ in peaks], 'line', color='#111827', width=2.2, markers=True,

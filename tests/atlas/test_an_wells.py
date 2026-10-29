@@ -142,7 +142,7 @@ def test_month_working_chart_has_group_table_under_bars():
     from atlas.modules import an_charts
     frame, labels = an_wells.month_working(PROD, 'withdrawal', '2023-2024', SCOPES)
     chart = an_charts.month_working_chart('withdrawal', '2023-2024', frame, labels)
-    assert [s.name for s in chart.series] == ['Работало', 'Не работало'] and chart.table.swatches is False
+    assert [s.name for s in chart.series] == ['в работе', 'остановлено'] and chart.table.swatches is False
     assert chart.table.columns == ['Фонд', *labels] and chart.table.rows[0] == an_wells.TOTAL
     assert chart.series[0].y[0] + chart.series[1].y[0] == 4             # работало + не работало = фонд
 
