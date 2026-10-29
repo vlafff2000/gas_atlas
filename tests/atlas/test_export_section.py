@@ -512,9 +512,9 @@ def test_chart_format_single_chart_override(env):
 
 
 def test_well_charts_always_in_natural_number_order(env):
-    """Графики скважин в выгрузке идут по возрастанию номера («2» раньше «10»), каким бы ни был порядок выбора и сортировки на экране."""
+    """По умолчанию графики скважин в выгрузке идут по возрастанию номера («2» раньше «10»), каким бы ни был порядок выбора в форме."""
     client, pid, _, _ = env
-    form = {**FORM, 'modules': ['production'], 'production_wells': ['132', '45', '31', '70'], 'production_direction': 'desc'}
+    form = {**FORM, 'modules': ['production'], 'production_wells': ['132', '45', '31', '70']}
     names = [c['name'] for c in client.post(f'/api/projects/{pid}/export/plan', json={'form': form}).json()['charts']]
     wells = [n.split(' · ', 1)[1] for n in names if n.startswith('Отбор · ')]
     assert len(wells) >= 2

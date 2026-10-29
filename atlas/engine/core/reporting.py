@@ -106,7 +106,7 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
             d=with_index(production.periods(frames[module],settings['season_start'],settings['season_end']),module)
             for kind,ps in cfg.get('periods',{}).items():
                 if not ps:continue
-                chosen=production.rank_wells(d,kind,ps,ws,'number');split=cfg.get('split','well');view=cfg.get('view','mixed')
+                chosen=production.rank_wells(d,kind,ps,ws,cfg.get('direction','number'));split=cfg.get('split','well');view=cfg.get('view','mixed')
                 averages=production.averages(d,kind,ps,chosen);present=set(averages.loc[~averages.missing,'well']);chosen=[w for w in chosen if w in present]
                 if split=='group_total':
                     selected_groups=cfg.get('groups',ordered(mapping.get(w,{}).get('group','Без группы') for w in chosen))
@@ -118,7 +118,7 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
                     continue
                 if split=='well':sets={w:[w] for w in chosen}
                 elif split=='all':sets={'Все выбранные':chosen}
-                elif split=='subgroup':sets=production.partitions(d,mapping,kind,ps,chosen,cfg.get('group_mode','manual'),cfg.get('size',8),'number')
+                elif split=='subgroup':sets=production.partitions(d,mapping,kind,ps,chosen,cfg.get('group_mode','manual'),cfg.get('size',8),cfg.get('direction','number'))
                 else:sets={group:[w for w in chosen if mapping.get(w,{}).get('group','Без группы')==group] for group in ordered(mapping.get(w,{}).get('group','Без группы') for w in chosen)}
                 for label,part in sets.items():
                     title=('Отбор' if kind=='withdrawal' else 'Закачка')+' · '+label
