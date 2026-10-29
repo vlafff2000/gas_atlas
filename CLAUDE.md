@@ -17,7 +17,7 @@
 
 ## Проверка перед коммитом
 - `python -m pytest -q tests` (при узкой правке — только затронутые файлы)
-- `cd web && npx tsc --noEmit && npm run build` — собранный интерфейс `atlas/web/dist` лежит в git, CI это проверяет,
+- `cd web && npx tsc --noEmit && npm run build` — собранный интерфейс `atlas/web/dist` в git НЕ коммитится (в .gitignore; архивы собирают его в CI),
 - новый интерфейс смотреть в браузере (`python -m atlas --server` и `npm run dev`), а не только по тестам.
 
 ## Экономия лимита

@@ -321,6 +321,8 @@ def main(argv=None):
     scripts = Path(args.scripts).resolve()
     sp = load(scripts / 'tools' / 'build_portable.py', 'scripts_build_portable')
 
+    if not (ROOT / 'atlas' / 'web' / 'dist' / 'index.html').exists():
+        sys.exit('Нет собранного интерфейса atlas/web/dist: выполните cd web && npm ci && npm run build.')
     spec = bp.RUNTIMES[args.target]
     build = ROOT / 'build' / ('unified_' + args.target)
     shutil.rmtree(str(build), ignore_errors=True)

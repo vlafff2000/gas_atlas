@@ -7,5 +7,5 @@ logs/
 .pytest_cache/
 dist/
 exports/
-!atlas/web/dist/
+atlas/web/dist/
 build/
