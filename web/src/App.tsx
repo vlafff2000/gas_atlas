@@ -108,13 +108,16 @@ export function App() {
           <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
           <span className="side-label">Найти раздел</span><kbd className="side-label">Ctrl K</kbd>
         </button>
-        <label className="project-picker">
-          <span>Объект</span>
-          <select value={project?.id ?? ''} disabled={!projects?.length} onChange={e => setProjectId(e.target.value)}>
-            {!projects?.length && <option value="">нет проектов</option>}
-            {projects?.map(p => <option key={p.id} value={p.id}>{p.name}{p.demo ? ' (демо)' : ''}</option>)}
-          </select>
-        </label>
+        <div className="project-picker">
+          <label className="project-picker-field">
+            <span>Объект</span>
+            <select value={project?.id ?? ''} disabled={!projects?.length} onChange={e => setProjectId(e.target.value)}>
+              {!projects?.length && <option value="">нет проектов</option>}
+              {projects?.map(p => <option key={p.id} value={p.id}>{p.name}{p.demo ? ' (демо)' : ''}</option>)}
+            </select>
+          </label>
+          <SidebarNewProject onCreated={async id => { await loadProjects(); setProjectId(id) }} />
+        </div>
         <nav aria-label="Разделы">
           <section><h2>Данные</h2><ul><li><a href="#/@import" aria-current={page?.startsWith('@import') ? 'page' : undefined}>Импорт данных</a></li>
             <li><a href="#/@help" aria-current={page?.startsWith('@help') ? 'page' : undefined}>Справка: форматы данных</a></li></ul></section>
@@ -183,6 +186,35 @@ export function App() {
         )}
       </main>
     </div>
+  )
+}
+
+/** «+ Новый проект» под списком объектов в левой панели. */
+function SidebarNewProject({ onCreated }: { onCreated: (id: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [failure, setFailure] = useState('')
+  const close = () => { setOpen(false); setName(''); setFailure('') }
+  const create = async () => {
+    if (!name.trim()) { setFailure('Введите название объекта'); return }
+    setBusy(true); setFailure('')
+    try {
+      const { id } = await projectsApi.create(name.trim())
+      close()
+      await onCreated(id)
+    } catch (e) { setFailure((e as Error).message) } finally { setBusy(false) }
+  }
+  if (!open) return <button type="button" className="side-new-project" onClick={() => setOpen(true)}>+ Новый проект</button>
+  return (
+    <form className="side-new-project-form" onSubmit={e => { e.preventDefault(); create() }}>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Название объекта" aria-label="Название объекта" autoFocus />
+      <div className="side-new-project-actions">
+        <button type="submit" className="primary" disabled={busy}>Создать</button>
+        <button type="button" className="quiet" onClick={close}>Отмена</button>
+      </div>
+      {failure && <div className="note warning">{failure}</div>}
+    </form>
   )
 }
 
