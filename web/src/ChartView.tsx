@@ -7,6 +7,8 @@ import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
+import { echartsRich, plainRich, richHtml } from './richText'
+import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
@@ -242,7 +244,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const dual = alignedYAxes(chart, base)
   const twin = yCount(chart) > 1 && Y_NAMES.slice(0, yCount(chart)).every((_, i) => yAxisAt(chart, i).scale === 'value')      // ручные границы тоже делятся на 5
   const manyRight = rightAxes(chart).length > 1
-  const rightNames = yAxesOf(chart).map(a => fitAxisName(a.label, a.unit, Y_BAND - 8, a.style?.title_size ?? 12))
+  const rightNames = yAxesOf(chart).map(a => fitAxisName(plainRich(a.label), a.unit, Y_BAND - 8, a.style?.title_size ?? 12))
   const nameLines = manyRight ? Math.max(...rightNames.slice(1).map(n => n.lines)) : 1
   const axis = (a: Axis, position: 'x' | YName) => {
     const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position !== 'x' ? dual?.[position] : undefined
@@ -278,6 +280,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     const ink = a.color || cs.text_color || tk.muted
     const showGrid = !cs.grid || cs.grid === 'both' || cs.grid === (y ? 'h' : 'v')
     const dateFormat = as.date_format ? as.date_format.replace(/(dd|MM|yyyy)/g, '{$1}') : null
+    const nameRich = echartsRich(axisTitle(a.label, a.unit), as.title_size ?? 12)
     return {
       type: a.scale, inverse: a.inverse, scale: !zero,
       min: a.scale === 'category' ? undefined : a.minimum ?? (zero ? 0 : undefined),
@@ -285,13 +288,13 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       interval: a.step && a.scale === 'value' ? a.step : undefined,
       minInterval: a.unit === 'скв.' && a.scale === 'value' ? 1 : undefined,      // скважин — целое число, делений по 0,5 не бывает
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
-      name: narrow ? narrow.text : axisTitle(a.label, a.unit),
+      name: narrow ? narrow.text : nameRich.text,
       // подпись шкалы Y — горизонтально над осью, читается без наклона головы
       nameLocation: y ? (a.inverse ? 'start' : 'end') : 'middle', nameGap: y ? 14 : 30,
-      ...(narrow?.cut ? { triggerEvent: true, tooltip: { show: true, formatter: () => escapeHtml(axisTitle(a.label, a.unit)) } } : {}),
+      ...(narrow?.cut ? { triggerEvent: true, tooltip: { show: true, formatter: () => richHtml(axisTitle(a.label, a.unit)) } } : {}),
       nameTextStyle: y
-        ? { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 15 } : {}), padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0] }
-        : { color: ink, fontSize: as.title_size ?? 12, fontFamily: family },
+        ? { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 15 } : {}), padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0], rich: nameRich.rich }
+        : { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, rich: nameRich.rich },
       axisLine: { show: !y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color, lineStyle: { color: a.color || tk.axis } },
       ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
       axisTick: { show: false },
@@ -821,7 +824,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
     /** Подсказка по кривым в положении h; py — вертикаль, к которой ближе всего выбираются строки. */
     const valuesTip = (h: Hover, py: number, events: string[], foot: string) => {
       const chart = st.chart, colors = colorOf(chart)
-      const xTitle = axisTitle(chart.x.label, chart.x.unit)
+      const xTitle = richHtml(axisTitle(chart.x.label, chart.x.unit))
         const curves = h.values
         const focus = h.focus
         const others = curves.filter(v => v !== focus)
@@ -847,7 +850,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
         extra.push(...events)
         const hidden = curves.length - others.length - (focus ? 1 : 0)
         const rows = [...(focus ? [row(focus, true)] : []), ...others.map(v => row(v))]
-        return tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(h.focus?.x ?? h.x))}</b>`, rows,
+        return tipHtml(`<span>${xTitle}</span><b>${escapeHtml(fmtX()(h.focus?.x ?? h.x))}</b>`, rows,
           extra, hidden > 0 ? `ещё ${hidden} — ближе к курсору, чтобы увидеть` : foot)
     }
 
@@ -994,7 +997,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
       el.style.cursor = selectable ? 'pointer' : ''
 
       // подсказка
-      const xTitle = axisTitle(chart.x.label, chart.x.unit)
+      const xTitle = richHtml(axisTitle(chart.x.label, chart.x.unit))
       const events = nearEvents(cx)
       const foot = selectable ? 'Щелчок исключит точку' : st.excludeMode ? '' : 'Щелчок закрепит подсказку'
       let html = ''
@@ -1002,14 +1005,14 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
         const p = h.point, s = p.track.series, j = p.track.src[p.k]
         const label = s.labels?.[j] ?? ''
         const yTitle = axisTitle(yAxisAt(chart, p.track.axis).label, '')
-        html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(p.x))}</b>`,
+        html = tipHtml(`<span>${xTitle}</span><b>${escapeHtml(fmtX()(p.x))}</b>`,
           [{ name: s.name, color: colors(s), dash: false, symbol: s.symbol, value: '', strong: true },
-            { name: yTitle, color: 'transparent', dash: false, value: `<b>${escapeHtml(fmtY(p.track.axis)(p.y))}</b> ${escapeHtml(unit(p.track.axis))}` }],
+            { name: plainRich(yTitle), color: 'transparent', dash: false, value: `<b>${escapeHtml(fmtY(p.track.axis)(p.y))}</b> ${escapeHtml(unit(p.track.axis))}` }],
           [...(label ? label.split(' · ').map(escapeHtml) : []), ...(tipsOf(chart, s)).map(escapeHtml), ...events], foot)
       } else if (h.values.length) {
         html = valuesTip(h, m![1], events, foot)
       } else if (events.length) {
-        html = tipHtml(`<span>${escapeHtml(xTitle)}</span><b>${escapeHtml(fmtX()(h.x))}</b>`, [], events)
+        html = tipHtml(`<span>${xTitle}</span><b>${escapeHtml(fmtX()(h.x))}</b>`, [], events)
       }
       if (!html) { card.hidden = true; return }
       card.innerHTML = html
@@ -1406,7 +1409,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
   return (
     <figure className={'chart' + (excludeMode ? ' exclude-mode' : '')}>
       <figcaption>
-        <span title={chart.title} style={titleStyle(chart.style)}>{chart.title}</span>
+        <RichText value={chart.title} style={titleStyle(chart.style)} />
         <span className="chart-actions">
           {chart.x.scale !== 'category' && <>
             <span className="chart-tools">

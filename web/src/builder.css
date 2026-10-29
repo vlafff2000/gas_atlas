@@ -157,3 +157,19 @@ details.builder-recipes > summary { cursor: pointer; font-weight: 700; font-size
 .builder-criterion .builder-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 6px; }
 .builder-criterion input[type="number"] { width: 90px; }
 .builder-variants { margin-top: 4px; }
+
+/* Подписи с индексами (RichField): поле с Ctrl+«+» / Ctrl+«-», кнопка символов */
+.rich-row { display: flex; gap: 4px; align-items: center; }
+.rich-input { flex: 1; min-width: 0; min-height: 30px; padding: 4px 8px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; line-height: 1.4; white-space: nowrap; overflow: hidden; outline: none; }
+.rich-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.rich-input:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.rich-input sup, .rich-text sup { font-size: 70%; line-height: 0; vertical-align: super; }
+.rich-input sub, .rich-text sub { font-size: 70%; line-height: 0; vertical-align: sub; }
+.rich-symbols { min-width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.rich-symbols[aria-expanded='true'] { border-color: var(--accent); }
+.rich-popup { margin-top: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 18px rgb(0 0 0 / 12%); display: grid; gap: 6px; position: relative; z-index: 5; }
+.rich-group-title { font-size: 12px; color: var(--muted); }
+.rich-chars { display: flex; flex-wrap: wrap; gap: 2px; }
+.rich-chars button { min-width: 28px; height: 28px; padding: 0 4px; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
+.rich-chars button:hover { border-color: var(--line); background: var(--accent-soft); }
+.rich-hint { margin: 0; font-size: 12px; color: var(--muted); }

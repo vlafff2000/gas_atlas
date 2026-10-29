@@ -8,6 +8,7 @@ import { FUNCTIONS, checkFormula, findCycle, letter, renumber } from './builderF
 import { BuilderLibrary } from './BuilderLibrary'
 import { BuilderModels } from './BuilderModels'
 import { BuilderRecipes } from './BuilderRecipes'
+import { RichField } from './RichField'
 import { SeriesDialog as SeriesExport, WellPicker } from './BuilderWells'
 import './builder.css'
 
@@ -319,12 +320,8 @@ export function ChartBuilder({ project, revision, value, onChange }:
 }
 
 function LabelInput({ label, value, auto, onChange }: { label: string; value: string; auto: string; onChange: (v: string) => void }) {
-  return (
-    <label className="field label-input">
-      <span className="field-label">{label}</span>
-      <input type="text" value={value} placeholder={auto} onChange={e => onChange(e.target.value)} />
-    </label>
-  )
+  return <RichField label={label} value={value} placeholder={auto} onChange={onChange} />
+
 }
 
 function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, onChange, onPickY, onDuplicate, onRemove }: {
