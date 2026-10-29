@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [claude/python-backend-ui-update-zdhgen]
-    paths: ['atlas/**', 'pxg_hub/**', 'tools/**', 'requirements-lock-py313.txt']
+    paths: ['atlas/**', 'web/**', 'pxg_hub/**', 'tools/**', 'requirements-lock-py313.txt']
   schedule:
     - cron: '17 3 * * *'
 concurrency:
@@ -41,6 +41,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gas_atlas/web/package-lock.json
+      - name: Собрать интерфейс (atlas/web/dist в git не хранится: сборка кладёт его в архив)
+        run: cd gas_atlas/web && npm ci && npm run build
       - name: Манифест последнего полного архива (что уже лежит в архиве у пользователя)
         env:
           GH_TOKEN: ${{ github.token }}

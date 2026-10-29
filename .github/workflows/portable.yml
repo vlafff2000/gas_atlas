@@ -33,6 +33,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gas_atlas/web/package-lock.json
+      - name: Собрать интерфейс (atlas/web/dist в git не хранится: сборка кладёт его в архив)
+        run: cd gas_atlas/web && npm ci && npm run build
       - name: Build unified portable folder
         run: cd gas_atlas && python tools/build_unified.py ${{ matrix.target }} --scripts ../all_scripts
       - name: Unpack and check the bundled Python (stdlib, pywin32) before starting anything
