@@ -28,6 +28,7 @@ export interface Param {
   empty: string
   show_if: Record<string, unknown> | null
   chart_kind: boolean
+  wells_picker: boolean
   extensions: string
 }
 export interface ModuleSpec {
