@@ -87,3 +87,22 @@ def test_registry_lists_every_known_output_family():
     labels = ' '.join(r['label'] for r in project_folder.registry())
     for word in ('ЭЛПРО', 'учету газа', 'База ГИС', 'расходов', 'ГДИ', 'воды', 'межколонок', 'Пересчёт давлений', 'шахматка'):
         assert word in labels
+
+
+def test_rebuilt_runs_of_one_db_keep_only_latest_visible(tmp_path):
+    import os
+    names = ['БД_расходы_2026-10-20_1530.xlsx', 'БД_расходы_2026-10-28_0900.xlsx', 'БД_расходы_2026-10-25_1000.xlsx', 'БД_ГДИ.xlsx']
+    for i, n in enumerate(names):
+        pd.DataFrame({'a': [1]}).to_excel(tmp_path / n, index=False)
+        os.utime(tmp_path / n, (1_700_000_000 + i * 1000,) * 2)
+    os.utime(tmp_path / names[1], (1_700_100_000,) * 2)
+    files = _by_name(project_folder.scan(tmp_path))
+    assert not files['БД_расходы_2026-10-28_0900.xlsx']['stale']
+    assert files['БД_расходы_2026-10-20_1530.xlsx']['stale'] and files['БД_расходы_2026-10-25_1000.xlsx']['stale']
+    assert files['БД_расходы_2026-10-20_1530.xlsx']['latest'] == 'БД_расходы_2026-10-28_0900.xlsx'
+    assert not files['БД_ГДИ.xlsx']['stale']
+
+
+def test_different_years_are_not_runs_of_one_db():
+    assert project_folder.family_key('БД_ГДИ_лето_2026.xlsx') != project_folder.family_key('БД_ГДИ_лето_2025.xlsx')
+    assert project_folder.family_key('БД_расходы (2).xlsx') == project_folder.family_key('БД_расходы.xlsx')

@@ -24,6 +24,9 @@ export interface FolderFile {
   known: string
   qc: QcSummary | null
   load: FolderLoad | null
+  /** Не самый свежий прогон той же БД (общее имя без дат и версий): по умолчанию скрыт. */
+  stale: boolean
+  latest: string
 }
 
 /** Статус загрузки в проект: null — проект не выбран или файл не таблица. */
