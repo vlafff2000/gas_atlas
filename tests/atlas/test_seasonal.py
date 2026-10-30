@@ -30,7 +30,9 @@ def test_volume_days_and_delta():
     assert inj.loc['2023', 'delta'] == pytest.approx(0.5) and inj.loc['2023', 'delta_pct'] == pytest.approx(100 / 3)
     assert 'Нейтральный период Весна 2022' not in set(t.period)
     c = S.cycles_table(t)
-    assert list(c.cycle) == [2022, 2023] and c.w_volume.iloc[0] == pytest.approx(3.0) and pd.isna(c.w_volume.iloc[1])
+    # цикл = отбор + следующая за ним закачка: закачка 2022 — до отбора (цикл 2021), отбор 2022-2023 и закачка 2023 — цикл 2022
+    assert list(c.cycle) == [2021, 2022] and pd.isna(c.w_volume.iloc[0]) and c.w_volume.iloc[1] == pytest.approx(3.0)
+    assert c.i_volume.iloc[0] == pytest.approx(1.5) and c.i_volume.iloc[1] == pytest.approx(2.0)
 
 
 def test_reference_source_and_discrepancy():
