@@ -40,6 +40,8 @@ class DatasetKind(str, Enum):
     GIS_PACKS = 'gis_packs'              # «База ГИС»: пачки по замерам (ГВК, hг эф, Кг ср.взв, этаж), одна строка на пачку
     GIS_OBSERVATIONS = 'gis_observations'  # «База ГИС»: замеры по скважине и дате со статусом наблюдения
     GIS_INTERVALS = 'gis_intervals'      # «База ГИС»: интервалы замера (от, до, Кп, Кг, hэф)
+    KRS_WORKS = 'krs_works'              # КРС: проведённые капитальные ремонты (год, тип), одна строка на ремонт
+    KRS_PRIORITY = 'krs_priority'        # КРС: приоритет КР по скважине (подсказка, 1 — срочно), одна строка на скважину
     MODEL = 'model'                      # векторы скважин модели tNavigator (в проекте не хранится, читается из папок моделей)
     MODEL_OBJECT = 'model_object'        # показатели объекта по кубам модели (по датам рестарта); читаются по запросу
     MODEL_CELLS = 'model_cells'          # ячейки куба модели на выбранные даты (для кроссплотов); читаются по запросу
@@ -70,6 +72,8 @@ LABELS = {
     DatasetKind.GIS_PACKS: 'ГИС: пачки',
     DatasetKind.GIS_OBSERVATIONS: 'ГИС: замеры',
     DatasetKind.GIS_INTERVALS: 'ГИС: интервалы',
+    DatasetKind.KRS_WORKS: 'КРС: проведённые КР',
+    DatasetKind.KRS_PRIORITY: 'КРС: приоритет КР',
     DatasetKind.MODEL: 'Модель ГДМ',
     DatasetKind.MODEL_OBJECT: 'Модель ГДМ: кубы',
     DatasetKind.MODEL_CELLS: 'Модель ГДМ: ячейки',
@@ -96,6 +100,8 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.GIS_PACKS: ('well', 'date', 'pack'),
     DatasetKind.GIS_OBSERVATIONS: ('well', 'date'),
     DatasetKind.GIS_INTERVALS: ('well', 'date', 'pack', 'from_m', 'to_m'),
+    DatasetKind.KRS_WORKS: ('well', 'year'),
+    DatasetKind.KRS_PRIORITY: ('well',),
     DatasetKind.MODEL: ('well', 'date', 'model'),
     DatasetKind.MODEL_OBJECT: ('date', 'model'),
     DatasetKind.MODEL_CELLS: ('date', 'model', 'k'),

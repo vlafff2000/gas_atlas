@@ -11,6 +11,25 @@ export interface PassportInfo {
   note?: string
 }
 
+export interface Shape { t: 'rect' | 'line'; x0: number; x1: number; y0: number; y1: number; fill?: string; pattern?: string; stroke?: string; width?: number; name: string }
+export interface Tag { y: number; at: number; text: string; color: string }
+export interface Schematic {
+  items: { kind: string; label: string; top: number; bottom: number }[]
+  notes: string[]; skipped: string[]; top: number; bottom: number; bottom_m: number | null
+  shapes?: Shape[]; labels?: Tag[]; covered_m?: number
+}
+export interface Kpi { label: string; value: number | null; text?: string; unit?: string; digits?: number; hint?: string; extra?: string }
+export interface SeasonRow { kind: 'withdrawal' | 'injection'; period: string; volume: number | null; days: number; max_rate: number | null
+  max_date: string; mean_rate: number | null; hours: number | null; water: number | null; coverage: number | null }
+export interface GdiRow { date: string; method: string; a: number | null; b: number | null; r2: number | null; q_max: number | null
+  q_free: number | null; reliable: boolean; note: string }
+export interface KrsInfo { works: { year: number | null; type: string; detail: string }[]; loaded: boolean; note: string
+  priority: { value: number | null; reason: string; sand: string } | null }
+export interface PassportCard {
+  well: string; group: string; construction_date: string; kpi: Kpi[]; seasons: SeasonRow[]; gdi: GdiRow[]; krs: KrsInfo
+  schematic: Schematic; notes: string[]
+}
+
 async function send(path: string, init?: RequestInit): Promise<Response> {
   let response: Response
   try {
@@ -33,12 +52,15 @@ export const passportApi = {
   info: async (project: string, well?: string, signal?: AbortSignal) =>
     (await send(`/api/projects/${project}/passport` + (well ? `?well=${encodeURIComponent(well)}` : ''), { signal }))
       .json() as Promise<PassportInfo>,
+  card: async (project: string, well: string, signal?: AbortSignal) =>
+    (await send(`/api/projects/${project}/passport/card?well=${encodeURIComponent(well)}`, { signal }))
+      .json() as Promise<PassportCard>,
   saveComment: async (project: string, well: string, comment: string, revision?: number) =>
     (await send(`/api/projects/${project}/passport/comment`, post({ well, comment, revision })))
       .json() as Promise<Project & { comment: string }>,
   /** Формирует PDF (сохраняется и в выгрузках проекта) и отдаёт его браузеру. */
-  pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string) => {
-    const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, sections, periods, comment }))
+  pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true) => {
+    const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, sections, periods, comment, card }))
     const match = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') ?? '')
     const name = match ? decodeURIComponent(match[1]) : `Паспорт_скважины_${well}.pdf`
     const url = URL.createObjectURL(await response.blob())

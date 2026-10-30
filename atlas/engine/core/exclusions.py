@@ -6,7 +6,7 @@ import pandas as pd
 KEYS={'pressure_match':['object','scenario','well','date','fact','model'],'production':['kind','well','date'],
       'gdi':['well','date','method','study','q','dp2'],
       'response':['well','date','horizon'], 'object_pressure':['date'],
-      'plan':['kind','group','date'], 'ggh':['well','date'], 'elpro':['kind','group','well','date','np'], 'gas_db':['kind','date'], 'well_geo':['well'], 'gis_packs':['well','date','pack'], 'gis_observations':['well','date'], 'gis_intervals':['well','date','pack','from_m'],'operations':['well','date','kind'], 'water':['well','date'], 'water_factor':['date'], 'bottom':['well','date'], 'annulus':['well','date'],
+      'plan':['kind','group','date'], 'ggh':['well','date'], 'elpro':['kind','group','well','date','np'], 'gas_db':['kind','date'], 'well_geo':['well'], 'gis_packs':['well','date','pack'], 'gis_observations':['well','date'], 'gis_intervals':['well','date','pack','from_m'], 'krs_works':['well','year','work_type'], 'krs_priority':['well'],'operations':['well','date','kind'], 'water':['well','date'], 'water_factor':['date'], 'bottom':['well','date'], 'annulus':['well','date'],
       'construction':['well','date','element','top_m','bottom_m','diameter_mm']}
 
 def _text(series):

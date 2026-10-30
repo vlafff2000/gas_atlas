@@ -53,6 +53,13 @@ ITEMS: list[dict[str, Any]] = [
     {'key': 'ggh', 'label': 'Газогидрохимия (ГГХ)', 'used': 'Раздел ГГХ, отчёт Word по ГГХ',
      'example': '08_GGH.xlsx', 'columns': ['№№ скв.', 'Дата отбора', 'Водоносный горизонт', 'Газонасыщенность, см³/л', 'СН4', 'С2Н6', '…'],
      'note': 'Лист «Общий» книги отчёта по ГГХ; шапка ищется в первых 20 строках.'},
+    {'key': 'krs_works', 'label': 'КРС: проведённые капитальные ремонты', 'used': 'Паспорт скважины, КРС: приоритет ремонта',
+     'columns': ['Скважина', 'Год', 'Тип ремонта', '…'], 'example': ['31', '2023', 'Колтюбинг без СКО'],
+     'note': 'Лист «Ремонты» книги «КРС_для_Атласа.xlsx» из «Работы с исходными данными» → «Состояние скважин и приоритет КР». '
+             'Книга загружается целиком (ремонты и приоритет) во вкладке «Импорт».'},
+    {'key': 'krs_priority', 'label': 'КРС: приоритет капремонта по скважинам', 'used': 'Паспорт скважины, КРС: приоритет ремонта',
+     'columns': ['Скважина', 'ГСП', 'Приоритет итог', 'Приоритет (расчёт)', 'Приоритет вручную', 'Песок в ревизиях КРУ', 'Причина'],
+     'note': 'Лист «Приоритет» той же книги. Приоритет (1 — срочно) — подсказка, ручное значение главнее расчёта: решает инженер.'},
     {'key': 'gis_packs', 'label': 'ГИС: пачки', 'used': 'ГИС и ГВК, hэф, Кг, уровень ГВК',
      'columns': ['Скважина', 'Дата', 'Пачка', 'hг эф, м', 'Кг ср.взв', 'ГВК а.о., м'], 'note': 'Лист «Свод» книги «ГИС_свод.xlsx» Базы ПХГ или CSV gis_packs.'},
     {'key': 'gis_intervals', 'label': 'ГИС: интервалы', 'used': 'ГИС и ГВК, кривые и столбцы, Σ hi·Кг',
@@ -160,6 +167,12 @@ def _lines(key: str, f: pd.DataFrame) -> list[list[str]]:
         add('Сезоны', _list(f, 'season', 30))
         add('Пачки', _list(f, 'pack'))
         add('Скважин с уровнем ГВК', _filled(f, 'gvk_abs_m'))
+    elif key == 'krs_works':
+        add('Типы ремонта', _list(f, 'work_type', counts=True))
+        add('Годы', _list(f.assign(year=pd.to_numeric(f['year'], errors='coerce').dropna().astype(int)) if _has(f, 'year') else f, 'year', 30))
+    elif key == 'krs_priority':
+        add('С приоритетом', int(pd.to_numeric(f.get('priority'), errors='coerce').notna().sum()) if _has(f, 'priority') else 0)
+        add('Приоритет 1 (срочно)', int(pd.to_numeric(f.get('priority'), errors='coerce').eq(1).sum()) if _has(f, 'priority') else 0)
     elif key == 'gis_intervals':
         add('Интервалов', len(f))
     elif key == 'gis_observations':

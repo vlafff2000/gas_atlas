@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Project } from './api'
-import { passportApi, type PassportInfo } from './api_passport'
+import { passportApi, type PassportCard, type PassportInfo } from './api_passport'
 import { MultiSelect } from './MultiSelect'
+import { PassportDashboard } from './PassportCard'
 
-/** «Паспорт скважины» 5.8: скважина, разделы, периоды, комментарий инженера и PDF. */
+/** «Паспорт скважины»: дашборд (показатели, схема забоя, сезоны, ГДИ, КРС) и PDF из выбранных разделов с комментарием инженера. */
 export function PassportPage({ project, onProject }: { project: Project; onProject: (p: Project) => void }) {
   const [info, setInfo] = useState<PassportInfo | null>(null)
   const [well, setWell] = useState<string | undefined>()
@@ -14,6 +15,20 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
   const [busy, setBusy] = useState<'' | 'comment' | 'pdf'>('')
   const [message, setMessage] = useState<{ text: string; level: 'info' | 'warning' } | null>(null)
   const started = useRef(false)
+  const [tab, setTab] = useState<'dash' | 'pdf'>('dash')
+  const [card, setCard] = useState<PassportCard | null>(null)
+  const [cardError, setCardError] = useState('')
+  const [withCard, setWithCard] = useState(true)
+
+  useEffect(() => {
+    if (!well) return
+    const ctrl = new AbortController()
+    setCard(null); setCardError('')
+    passportApi.card(project.id, well, ctrl.signal).then(setCard).catch(e => {
+      if ((e as Error).name !== 'AbortError') setCardError((e as Error).message)
+    })
+    return () => ctrl.abort()
+  }, [project.id, project.revision, well])
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -46,7 +61,7 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
     if (!well) return
     setBusy('pdf'); setMessage(null)
     try {
-      const name = await passportApi.pdf(project.id, well, sections, periods, comment)
+      const name = await passportApi.pdf(project.id, well, sections, periods, comment, withCard)
       setMessage({ text: `Паспорт создан и сохранен в выгрузках проекта: ${name}`, level: 'info' })
     } catch (e) { setMessage({ text: 'Не удалось создать паспорт: ' + (e as Error).message, level: 'warning' }) } finally { setBusy('') }
   }
@@ -56,22 +71,42 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
       <header className="module-title">
         <div>
           <h1>Паспорт скважины</h1>
-          <p className="lede">Динамика, ГДИ, реагирование, расчетные параметры и комментарий инженера в PDF.</p>
+          <p className="lede">Работа скважины, конструкция у забоя, ГДИ и КРС на одной странице; то же — в PDF.</p>
         </div>
       </header>
       {!info ? <p className="muted loading-line">Загрузка…</p> : info.wells.length === 0 ? (
         <div className="note info">{info.note ?? 'Сначала загрузите данные скважин.'}</div>
       ) : (
+        <>
+        <div className="toolbar">
+          <label className="field">
+            <span className="field-label">Скважина</span>
+            <select value={well ?? ''} onChange={e => setWell(e.target.value)}>
+              {info.wells.map(w => <option key={w} value={w}>№ {w}</option>)}
+            </select>
+          </label>
+          <span className="spacer" />
+          <button type="button" className="primary" disabled={busy !== ''} onClick={createPdf}>
+            {busy === 'pdf' ? 'Формирование паспорта…' : 'Скачать PDF'}
+          </button>
+        </div>
+        <div className="passport-tabs" role="tablist">
+          <button type="button" aria-pressed={tab === 'dash'} onClick={() => setTab('dash')}>Дашборд</button>
+          <button type="button" aria-pressed={tab === 'pdf'} onClick={() => setTab('pdf')}>Состав PDF и комментарий</button>
+        </div>
+        {message && <div className={'note ' + message.level} role="status">{message.text}</div>}
+        {tab === 'dash' ? (
+          cardError ? <div className="note warning">{cardError}</div>
+            : !card ? <p className="muted loading-line">Собираю паспорт…</p> : <PassportDashboard card={card} />
+        ) : (
         <section className="panel">
           <div className="param-bar">
             <fieldset className="param-section">
               <span className="param-title">Выбор</span>
               <div className="param-fields">
-                <label className="field">
-                  <span className="field-label">Скважина для паспорта</span>
-                  <select value={well ?? ''} onChange={e => setWell(e.target.value)}>
-                    {info.wells.map(w => <option key={w} value={w}>№ {w}</option>)}
-                  </select>
+                <label className="toggle">
+                  <input type="checkbox" checked={withCard} onChange={e => setWithCard(e.target.checked)} />
+                  <span>Первая страница — паспорт (показатели, схема забоя, сезоны, ГДИ, КРС)</span>
                 </label>
                 {Object.entries(info.periods).filter(() => sections.includes('production')).map(([kind, p]) => (
                   <MultiSelect key={kind} label={`${p.label}: периоды паспорта`} options={p.options}
@@ -104,13 +139,14 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
             <button type="button" className="quiet" disabled={busy !== '' || comment === saved} onClick={saveComment}>
               {busy === 'comment' ? 'Сохраняю…' : 'Сохранить комментарий'}
             </button>
-            <button type="button" className="primary" disabled={busy !== '' || sections.length === 0} onClick={createPdf}>
+            <button type="button" className="primary" disabled={busy !== '' || (sections.length === 0 && !withCard)} onClick={createPdf}>
               {busy === 'pdf' ? 'Формирование паспорта…' : 'Создать паспорт PDF'}
             </button>
-            {sections.length === 0 && <span className="muted">Выберите хотя бы один раздел.</span>}
+            {sections.length === 0 && !withCard && <span className="muted">Выберите хотя бы один раздел.</span>}
           </div>
-          {message && <div className={'note ' + message.level} role="status">{message.text}</div>}
         </section>
+        )}
+        </>
       )}
     </>
   )
