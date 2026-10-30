@@ -23,7 +23,7 @@ from starlette.staticfiles import StaticFiles
 
 from . import VERSION, api_exclusions, chart_view, legend_order, registry, render, season_format, thinning, well_filter
 from . import second_window
-from . import api_builder, api_corrected, api_export, api_projects, export_any, export_charts, group_colors
+from . import api_builder, api_corrected, api_export, api_projects, export_any, export_charts, group_colors, group_paint
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
 from .projects import Conflict, Projects
@@ -123,7 +123,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         if cached is None:
             started = time.perf_counter()
             with thinning.full_resolution() if full else nullcontext():
-                result: Result = season_format.relabel(module.run(data, params), season_format.format_of(data.settings))
+                result: Result = group_paint.paint(season_format.relabel(module.run(data, params), season_format.format_of(data.settings)))
             cached = (result, round((time.perf_counter() - started) * 1000, 1))
             results.put(key, cached)
         return (legend_order.apply(cached[0], legend_order.mode_of(data.settings)), cached[1]), params, data

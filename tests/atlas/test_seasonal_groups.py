@@ -16,7 +16,7 @@ GROUPS = {'1': 'ГСП 1', '2': 'ГСП 2', '3': 'ГСП 2'}
 
 
 def frame():
-    """Закачка 2022 и 2023, отбор 2022-2023 (цикл 2022). Скважина 1 — ГСП 1; 2 и 3 — ГСП 2. Скважина 2 простаивает 3 суток отбора."""
+    """Закачка 2022 и 2023, отбор 2022-2023: цикл 2022 = отбор 2022-2023 + закачка 2023, закачка 2022 — цикл 2021. Скважина 1 — ГСП 1; 2 и 3 — ГСП 2. Скважина 2 простаивает 3 суток отбора."""
     rows = []
     for kind, period, start, rates in (
             ('injection', '2022', '2022-05-01', {'1': 100000, '2': 50000}),
@@ -89,12 +89,13 @@ def test_balance_and_hints_with_reason():
     df = frame()
     all_groups = G.group_table(wells_of(df), seasons(df))
     b = G.balance_table(all_groups, None, 10.0).set_index(['cycle', 'group'])
-    assert b.loc[(2022, 'ГСП 1'), 'injection'] == pytest.approx(1.0)
+    assert b.loc[(2022, 'ГСП 1'), 'injection'] == pytest.approx(1.5)                   # закачка 2023, следом за отбором
     assert b.loc[(2022, 'ГСП 1'), 'withdrawal'] == pytest.approx(2.0)
-    assert b.loc[(2022, 'Итого'), 'injection'] == pytest.approx(1.5)
+    assert b.loc[(2022, 'Итого'), 'injection'] == pytest.approx(2.0)
     assert b.loc[(2022, 'Итого'), 'withdrawal'] == pytest.approx(2.7)                  # скважина 2 простояла 3 суток
-    assert b.loc[(2022, 'Итого'), 'ratio'] == pytest.approx(180.0)
-    assert 'отбор 180 % закачки' in b.loc[(2022, 'Итого'), 'hint']
+    assert b.loc[(2022, 'Итого'), 'ratio'] == pytest.approx(135.0)
+    assert 'отбор 135 % закачки' in b.loc[(2022, 'Итого'), 'hint']
+    assert 'в цикле нет отбора' in b.loc[(2021, 'Итого'), 'hint']                      # закачка 2022 — до отбора
     # Кривой порог: при 300 % подсказки нет
     assert G.balance_table(all_groups, None, 300.0).set_index(['cycle', 'group']).loc[(2022, 'Итого'), 'hint'] == ''
 
@@ -104,6 +105,34 @@ def test_balance_reports_missing_side():
     df = df[df.kind.eq('injection')]
     b = G.balance_table(G.group_table(G.well_table(df, seasons(df), GROUPS, 50.0), seasons(df)), None, 10.0)
     assert b.hint.str.contains('в цикле нет отбора').all()
+
+
+def test_cycle_is_withdrawal_plus_next_injection():
+    t = seasons().set_index(['kind', 'period'])
+    assert t.loc[('withdrawal', '2022-2023'), 'cycle'] == 2022 == t.loc[('injection', '2023'), 'cycle']
+    assert t.loc[('injection', '2022'), 'cycle'] == 2021
+    assert S.cycle_label(2022) == '2022/2023'
+
+
+def test_period_choice_and_group_chart_colors():
+    from atlas.group_colors import colors_for, set_known_groups
+    set_known_groups(['ГСП 1', 'ГСП 2'])
+    data = Data({PROD: frame()})
+    data.mapping = {w: {'group': g} for w, g in GROUPS.items()}
+    m = SeasonalGroupsModule()
+    assert m.options('periods', data, {}) == ['2022', '2022-2023', '2023'] and m.options('group_view', data, {}) == ['ГСП 1', 'ГСП 2']
+    r = m.run(data, {'periods': ['2022-2023'], 'group_view': 'ГСП 2', 'balance_tol': 10, 'work_low': 50})
+    wells = next(t for t in r.tables if t.id == 'seasonal-groups-wells').frame
+    assert set(wells.period) == {'2022-2023'}
+    bal = next(t for t in r.tables if t.id == 'seasonal-groups-balance').frame
+    assert set(bal.cycle) == {'2022/2023'}                          # цикл выбранного отбора, закачка цикла — целиком
+    single = next(c for c in r.charts if c.id == 'seasonal-group-balance')
+    assert 'ГСП 2' in single.title and [s.name for s in single.series] == ['Закачка', 'Отбор', 'Баланс: отбор − закачка']
+    assert single.series[1].color == colors_for(['ГСП 2'])['ГСП 2']
+    share = next(c for c in r.charts if c.id == 'seasonal-groups-share-withdrawal')
+    assert {s.name: s.color for s in share.series} == {n: colors_for([n])[n] for n in ('ГСП 1', 'ГСП 2')}
+    other = m.run(data, {'group_view': 'ГСП 1', 'balance_tol': 10, 'work_low': 50})
+    assert 'ГСП 1' in next(c for c in other.charts if c.id == 'seasonal-group-balance').title
 
 
 def test_module_run_and_excel():

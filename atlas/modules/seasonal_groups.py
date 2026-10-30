@@ -10,13 +10,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..group_colors import natural_key
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
 from ..engine.modules import revision_report as rr
 from . import _group_problems as P
 from . import _seasonal as S
 from . import _seasonal_groups as G
-from ._production import PRODUCTION, group_of, groups_of
+from ..engine.modules.charts import group_palette
+from ._production import PRODUCTION, group_of, groups_of, periods_of, visible_periods
 
 GAS_DB = DatasetKind.GAS_DB
 GDI = DatasetKind.GDI
@@ -24,8 +26,20 @@ SECTION = 'Выбор данных'
 SECTION_RULES = 'Пороги подсказок'
 SECTION_PROBLEMS = 'Проблемные скважины'
 NOTE = ('Сезоны — как в «Сезонных показателях». Доля — от суммы всех групп сезона; Δ доли — в процентных пунктах к прошлому сезону того же вида. '
-        'Баланс — отбор и закачка группы за цикл (год): подсказка, если разница больше порога. Простой — сутки с нулевым расходом; '
+        'Цикл — сезон отбора и следующий за ним сезон закачки (отбор 2025/2026 + закачка 2026). '
+        'Баланс — отбор и закачка группы за цикл: подсказка, если разница больше порога. Простой — сутки с нулевым расходом; '
         'пропуски («нет данных») не считаются. Подсказки — не выводы: решение о дисбалансе и простое за инженером.')
+
+
+BALANCE_COLOR = '#6b7280'
+
+
+def _tint(color: str, k: float = 0.5) -> str:
+    """Светлый оттенок цвета (смесь с белым): закачка рядом с отбором той же группы."""
+    if not (color.startswith('#') and len(color) == 7):
+        return color
+    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    return '#%02x%02x%02x' % tuple(round(v + (255 - v) * k) for v in (r, g, b))
 
 
 class SeasonalGroupsModule(Module):
@@ -38,8 +52,13 @@ class SeasonalGroupsModule(Module):
         optional=(GAS_DB, GDI),
         order=13,
         params=(
+            Param('periods', 'Сезоны', 'multi', default=[], dynamic=True, empty='все', section=SECTION,
+                  help='Какие сезоны показывать и сравнивать; пусто — все. Баланс показан для циклов, куда входит выбранный сезон: '
+                       'и отбор, и закачка цикла берутся целиком'),
             Param('groups', 'Группы', 'multi', default=[], dynamic=True, empty='все', section=SECTION,
-                  help='Для таблиц и графика по группам; пусто — все группы'),
+                  help='Для таблиц и графиков по группам; пусто — все группы'),
+            Param('group_view', 'Группа для графика баланса', 'choice', default='', dynamic=True, auto='first:1', section=SECTION,
+                  help='Один график баланса по циклам для выбранной группы; смена группы перестраивает его. Пусто — первая группа'),
             Param('balance_tol', 'Порог дисбаланса', 'number', default=10.0, minimum=0, maximum=100, unit='%', section=SECTION_RULES,
                   help='Подсказка в балансе, если отбор отличается от закачки за цикл больше чем на эту долю'),
             Param('work_low', 'Порог малой работы', 'number', default=50.0, minimum=0, maximum=100, unit='%', section=SECTION_RULES,
@@ -56,6 +75,11 @@ class SeasonalGroupsModule(Module):
     def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
         if name == 'groups':
             return groups_of(data[PRODUCTION], data.mapping)
+        if name == 'periods':
+            df = data[PRODUCTION]
+            return visible_periods(sorted(set(periods_of(df, 'injection')) | set(periods_of(df, 'withdrawal'))), data.settings)
+        if name == 'group_view':
+            return groups_of(data[PRODUCTION], data.mapping)
         return super().options(name, data, params)
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:
@@ -69,17 +93,32 @@ class SeasonalGroupsModule(Module):
         result.notes.append(Note(NOTE))
         mapping = {str(w): group_of(data.mapping, w) for w in df.well.unique()}
         groups = params.get('groups') or None
+        chosen = params.get('periods') or None
         wells = G.well_table(df, seasons, mapping, float(params.get('work_low', 50.0)))
         all_groups = G.group_table(wells, seasons)
         by_group = G.group_table(wells, seasons, groups)
+        cycles = sorted(seasons[seasons.period.isin(chosen)].cycle.unique()) if chosen else None
+        if chosen:
+            by_group = by_group[by_group.period.isin(chosen)]
+            wells = wells[wells.period.isin(chosen)]
         if by_group.empty:
             result.notes.append(Note('Выбранные группы не работали в сезонах.', 'warning'))
             return result
         balance = G.balance_table(all_groups, groups, float(params.get('balance_tol', 10.0)))
+        if cycles is not None:
+            balance = balance[balance.cycle.isin(cycles)].reset_index(drop=True)
+        view = params.get('group_view') or ''
+        if view not in set(all_groups.group):
+            view = sorted(set(by_group.group), key=natural_key)[0]
+        single = G.balance_table(all_groups, [view], float(params.get('balance_tol', 10.0)))
+        single = single[single.group.eq(view)]
+        if cycles is not None:
+            single = single[single.cycle.isin(cycles)]
         shown = wells[wells.group.isin(groups)] if groups else wells
         result.summary = self.summary(by_group, balance)
         result.charts += self.share_charts(by_group, seasons)
         result.charts += self.balance_charts(balance)
+        result.charts += self.group_balance_chart(single, view)
         result.tables += self.tables(by_group, balance, shown)
         self.problems(result, data, params, groups)
         return result
@@ -145,10 +184,11 @@ class SeasonalGroupsModule(Module):
             periods = [p for p in order if p in set(part.period)]
             c = Chart(f'seasonal-groups-share-{kind}', f'{S.KIND_LABEL[kind]}: доля группы в сезоне',
                       Axis('Сезон', scale='category', categories=periods), Axis('Доля в сумме групп', '%', from_zero=True))
+            colors = group_palette(part.group.astype(str))
             for name, rows in part.groupby('group', sort=True):
                 by = rows.set_index('period').share
                 c.series.append(Series(str(name), periods, np.array([by.get(p, np.nan) for p in periods], float), 'line',
-                                       group=str(name), markers=True))
+                                       group=str(name), color=colors.get(str(name), ''), markers=True))
             out.append(c)
         return out
 
@@ -158,12 +198,32 @@ class SeasonalGroupsModule(Module):
         if part.empty:
             return []
         keys = sorted(part.cycle.unique())
+        cats = [S.cycle_label(k) for k in keys]
         c = Chart('seasonal-groups-balance', 'Баланс по группам: отбор минус закачка за цикл',
-                  Axis('Цикл (год)', scale='category', categories=[str(k) for k in keys]), Axis('Отбор − закачка', 'млн м³'))
+                  Axis('Цикл (отбор + закачка)', scale='category', categories=cats), Axis('Отбор − закачка', 'млн м³'))
+        colors = group_palette(part.group.astype(str))
         for name, rows in part.groupby('group', sort=True):
             by = rows.set_index('cycle')['diff']
-            c.series.append(Series(str(name), [str(k) for k in keys], np.array([by.get(k, np.nan) for k in keys], float), 'bar',
-                                   group=str(name)))
+            c.series.append(Series(str(name), cats, np.array([by.get(k, np.nan) for k in keys], float), 'bar',
+                                   group=str(name), color=colors.get(str(name), '')))
+        return [c]
+
+    @staticmethod
+    def group_balance_chart(balance: pd.DataFrame, group: str) -> list[Chart]:
+        """Один график выбранной группы: закачка и отбор по циклам столбцами, баланс (отбор − закачка) линией.
+        Цвет — цвет группы (закачка — его светлый оттенок), как на всех графиках по группам."""
+        if balance.empty:
+            return []
+        color = group_palette([group]).get(group, '')
+        light = _tint(color)
+        cats = [S.cycle_label(k) for k in balance.cycle]
+        labels = [h or '' for h in balance.hint]
+        c = Chart('seasonal-group-balance', f'{group}: закачка, отбор и баланс по циклам',
+                  Axis('Цикл (отбор + закачка)', scale='category', categories=cats), Axis('Объём за цикл', 'млн м³'))
+        c.series.append(Series('Закачка', cats, balance.injection.to_numpy(float), 'bar', color=light))
+        c.series.append(Series('Отбор', cats, balance.withdrawal.to_numpy(float), 'bar', color=color))
+        c.series.append(Series('Баланс: отбор − закачка', cats, balance['diff'].to_numpy(float), 'line',
+                               color=BALANCE_COLOR, width=2.5, markers=True, labels=labels))
         return [c]
 
     @staticmethod
@@ -178,9 +238,9 @@ class SeasonalGroupsModule(Module):
             note='Доля и Δ считаются от суммы всех групп сезона, даже если в таблице выбраны не все. Простаивало — скважина без единых '
                  'суток расхода в сезоне; сутки простоя — строки с нулевым расходом.')]
         if not balance.empty:
-            frame = balance.assign(hint=balance.hint.where(balance.hint.ne(''), '—'))
+            frame = balance.assign(hint=balance.hint.where(balance.hint.ne(''), '—'), cycle=balance.cycle.map(S.cycle_label))
             out.append(Table('seasonal-groups-balance', 'Баланс закачки и отбора по группам', frame, [
-                Column('cycle', 'Цикл', kind='number'), Column('group', 'Группа'),
+                Column('cycle', 'Цикл'), Column('group', 'Группа'),
                 Column('injection', 'Закачка', 'млн м³', 2, 'number'), Column('withdrawal', 'Отбор', 'млн м³', 2, 'number'),
                 Column('diff', 'Отбор − закачка', 'млн м³', 2, 'number'), Column('ratio', 'Отбор к закачке', '%', 1, 'number'),
                 Column('hint', 'Подсказка (причина)')],

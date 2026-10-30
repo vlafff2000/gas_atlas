@@ -13,6 +13,7 @@ import pandas as pd
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
 from . import _seasonal as S
+from ..engine.modules.charts import group_palette
 from ._production import PRODUCTION, group_of, groups_of, periods_of, visible_periods
 
 GAS_DB = DatasetKind.GAS_DB
@@ -21,7 +22,7 @@ Q_UNIT = 'тыс. м³/сут'
 NOTE = ('Сезон — период закачки или отбора по границам, принятым в проекте (автоопределение или «Расписание периодов» в '
         '«Настройках»: там же границы правятся вручную). Объём — сумма суточных расходов объекта в границах сезона, '
         'средний расход — по суткам с положительным расходом. Δ — к предыдущему сезону того же вида. '
-        'Цикл — год: закачка этого года и отбор, начавшийся с июля этого года.')
+        'Цикл — сезон отбора и следующий за ним сезон закачки: отбор 2025/2026 и закачка 2026 — цикл 2025/2026.')
 
 
 def _cols(prefix: str = '') -> list[Column]:
@@ -108,8 +109,8 @@ class SeasonalModule(Module):
     @staticmethod
     def charts(seasons: pd.DataFrame, by_group: pd.DataFrame) -> list[Chart]:
         cycles = S.cycles_table(seasons)
-        cats = [str(c) for c in cycles.cycle]
-        chart = Chart('seasonal-volume', 'Объём газа за сезон: закачка и отбор', Axis('Цикл (год)', scale='category', categories=cats),
+        cats = [S.cycle_label(c) for c in cycles.cycle]
+        chart = Chart('seasonal-volume', 'Объём газа за сезон: закачка и отбор', Axis('Цикл (отбор + закачка)', scale='category', categories=cats),
                       Axis('Объём за сезон', 'млн м³', from_zero=True))
         for kind, tag in (('injection', 'i'), ('withdrawal', 'w')):
             if cycles[f'{tag}_volume'].notna().any():
@@ -123,18 +124,19 @@ class SeasonalModule(Module):
             periods = list(dict.fromkeys(part.period))
             c = Chart(f'seasonal-groups-{kind}', f'{S.KIND_LABEL[kind]}: объём по группам',
                       Axis('Сезон', scale='category', categories=periods), Axis('Объём за сезон', 'млн м³', from_zero=True))
+            colors = group_palette(part.group.astype(str))
             for name, rows in part.groupby('group', sort=True):
                 by = rows.set_index('period').volume
                 c.series.append(Series(str(name), periods, np.array([by.get(p, np.nan) for p in periods], float), 'bar',
-                                       group=str(name), stack='groups'))
+                                       group=str(name), color=colors.get(str(name), ''), stack='groups'))
             out.append(c)
         return out
 
     @staticmethod
     def tables(seasons: pd.DataFrame, by_group: pd.DataFrame) -> list[Table]:
         cycles = S.cycles_table(seasons)
-        side = Table('seasonal-cycles', 'Все сезоны: закачка и отбор', cycles,
-                     [Column('cycle', 'Цикл', kind='number')] + _cols('i_') + _cols('w_'),
+        side = Table('seasonal-cycles', 'Все сезоны: закачка и отбор', cycles.assign(cycle=cycles.cycle.map(S.cycle_label)),
+                     [Column('cycle', 'Цикл')] + _cols('i_') + _cols('w_'),
                      note='Δ — разница с предыдущим сезоном того же вида: млн м³ и % от него.',
                      header=[[('', 1), ('Закачка', 9), ('Отбор', 9)]])
         detail = Table('seasonal-sources', 'Источник объёма и расхождение', seasons[['kind', 'period', 'source', 'volume', 'volume_wells', 'volume_ref', 'diff_pct', 'delta', 'delta_pct', 'wells']]
@@ -189,10 +191,11 @@ class SeasonalModule(Module):
                 cats_g = [S.month_name(m) for m in months_g]
                 cg = Chart(f'seasonal-months-groups-{kind}', f'{noun}: объём по месяцам и группам · {periods[-1]}',
                            Axis('Месяц', scale='category', categories=cats_g), Axis('Объём за месяц', 'млн м³', from_zero=True))
+                colors = group_palette(g.group.astype(str))
                 for name, rows in g.groupby('group', sort=True):
                     by = rows.set_index('month').volume
                     cg.series.append(Series(str(name), cats_g, np.array([by.get(m, np.nan) for m in months_g], float), 'bar',
-                                            group=str(name), stack='groups'))
+                                            group=str(name), color=colors.get(str(name), ''), stack='groups'))
                 out.append(cg)
         return out
 

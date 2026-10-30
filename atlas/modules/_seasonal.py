@@ -30,8 +30,27 @@ def _daily(frame: pd.DataFrame) -> pd.Series:
 
 
 def cycle_of(kind: str, start: pd.Timestamp) -> int:
-    """Год цикла для пары «закачка — отбор»: год начала закачки и год начала отбора того же года (с июля)."""
-    return start.year if kind == 'injection' or start.month >= 7 else start.year - 1
+    """Цикл — сезон отбора и следующий за ним сезон закачки; его номер — год начала отбора (отбор 2025/2026 и закачка 2026 — цикл 2025).
+    Для сезона отбора (с июля — этого года, раньше — предыдущего); закачку к циклу относит ``assign_cycles`` по предшествующему отбору,
+    здесь — запасной вариант: закачка весны-лета идёт после отбора прошлой зимы."""
+    return start.year if kind == 'withdrawal' and start.month >= 7 else start.year - 1
+
+
+def cycle_label(cycle: Any) -> str:
+    """Подпись цикла: «2025/2026» (отбор 2025/2026 и закачка 2026); вид тире или слэша задают настройки проекта."""
+    return f'{int(cycle)}/{int(cycle) + 1}'
+
+
+def assign_cycles(seasons: pd.DataFrame) -> pd.DataFrame:
+    """Закачка относится к циклу ближайшего предшествующего отбора (не дальше года); без такого отбора — по запасному правилу."""
+    out = seasons.copy()
+    w = out[out.kind.eq('withdrawal')].sort_values('start')
+    starts, cycles = w.start.to_numpy(), w.cycle.to_numpy()
+    for i in out.index[out.kind.eq('injection')]:
+        at = int(np.searchsorted(starts, out.at[i, 'start'].to_datetime64(), side='right')) - 1
+        fallback = cycle_of('injection', out.at[i, 'start'])
+        out.at[i, 'cycle'] = int(cycles[at]) if at >= 0 and out.at[i, 'start'].year - int(cycles[at]) <= 1 else fallback
+    return out
 
 
 def _stats(daily: pd.Series) -> dict[str, Any]:
@@ -79,6 +98,8 @@ def season_table(df: pd.DataFrame, ref: pd.DataFrame | None = None, source: str 
             rows.append(row)
     out = pd.DataFrame(rows, columns=SEASON_COLUMNS)
     out = out.sort_values(['kind', 'start']).reset_index(drop=True)
+    if not out.empty:
+        out = assign_cycles(out)
     prev = out.groupby('kind').volume.shift()
     out['delta'] = out.volume - prev
     out['delta_pct'] = (out.delta / prev * 100.0).where(prev > 0)
