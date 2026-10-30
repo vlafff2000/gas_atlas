@@ -100,6 +100,36 @@ def _norm(name: str) -> str:
     return re.sub(r'[\s_\-]+', ' ', name.lower()).strip()
 
 
+_RUN_MARKS = (
+    r'\d{4}[-_.]\d{1,2}[-_.]\d{1,2}([-_. t]\d{2}[-_.:]?\d{2}([-_.:]?\d{2})?)?', r'\d{1,2}[-_.]\d{1,2}[-_.]\d{4}([-_. t]\d{2}[-_.:]?\d{2}([-_.:]?\d{2})?)?',      # даты
+    r'\d{8}', r'\d{6}', r'\d{1,2}[-_.:]\d{2}[-_.:]\d{2}',                     # 20261030, 103045, 10-30-45
+    r'\(\d+\)', r'\bv\s?\d+\b', r'\bкопия\b', r'\bcopy\b', r'\bnew\b', r'\bновый\b', r'\b\d{1,3}$',
+)
+
+
+def family_key(name: str) -> str:
+    """Ключ «одной и той же БД»: имя без дат, времени, номеров версий и копий. Файлы с общим ключом — прогоны одной БД."""
+    stem = Path(name).stem.lower()
+    for pat in _RUN_MARKS:
+        stem = re.sub(pat, ' ', stem)
+    return _norm(stem) or _norm(Path(name).stem)
+
+
+def _mark_runs(files: list[dict[str, Any]]) -> None:
+    """В каждом семействе (общее имя без дат и версий, то же расширение) свежим считается файл с самым поздним временем изменения;
+    остальные получают ``stale`` и имя свежего в ``latest``. Роль и загрузка не меняются: решение остаётся за инженером."""
+    best: dict[tuple[str, str], dict[str, Any]] = {}
+    for f in files:
+        key = (family_key(f['name']), Path(f['name']).suffix.lower())
+        f['family'] = key[0]
+        if key not in best or (f['mtime'], f['name']) > (best[key]['mtime'], best[key]['name']):
+            best[key] = f
+    for f in files:
+        top = best[(f['family'], Path(f['name']).suffix.lower())]
+        f['stale'] = top is not f
+        f['latest'] = top['name'] if top is not f else ''
+
+
 def _known(name: str) -> dict[str, Any] | None:
     key = _norm(Path(name).stem)
     for prefix, role, normalized, label in KNOWN_RESULTS:
@@ -322,7 +352,9 @@ def scan(raw_folder: Any, loaded: dict[str, Any] | None = None) -> dict[str, Any
                       'modified': dt.datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='minutes'),
                       'role': role, 'role_label': ROLES.get(role, ''), 'role_source': source if role else '', 'role_reason': reason,
                       'normalized': normalized, 'known': known['label'] if known else '',
+                      'mtime': int(stat.st_mtime),
                       'qc': _qc_summary(folder, name), 'load': _load_state(path, loaded)})
+    _mark_runs(files)
     if not files and not warning:
         warning = 'В папке нет таблиц Excel или CSV: положите файлы данных или выберите другую папку.'
     return {'folder': str(folder), 'manifest': bool(manifest) or (folder / MANIFEST).exists(), 'warning': warning,

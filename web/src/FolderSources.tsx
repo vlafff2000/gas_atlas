@@ -70,6 +70,7 @@ export function FolderSources({ project, onProject }: { project: Project | null;
   const [model, setModel] = useState<FolderCheck | null>(null)
   const [modelPicked, setModelPicked] = useState<boolean | null>(null)
   const [rejectedMode, setRejectedMode] = useState<RejectedMode>('skip')
+  const [showOld, setShowOld] = useState(false)
 
   const scan = sources[0]?.scan ?? null
   const reset = () => { setEdits({}); setResults([]); setWarning(''); setChecks({}); setPicked({}); setModel(null) }
@@ -153,7 +154,10 @@ export function FolderSources({ project, onProject }: { project: Project | null;
 
   const removeSource = (folderPath: string) => { setSources(prev => prev.filter(x => x.scan.folder !== folderPath)); setChecks({}); setPicked({}) }
 
-  const rows = sources.flatMap(src => shown(src).map(f => ({ src, f, key: keyOf(src.scan.folder, f.name) })))
+  const allRows = sources.flatMap(src => shown(src).map(f => ({ src, f, key: keyOf(src.scan.folder, f.name) })))
+  // Одну БД пересобирают много раз: по умолчанию видна только самая свежая, старые прогоны скрыты (их можно показать).
+  const staleCount = allRows.filter(r => r.f.stale).length
+  const rows = showOld ? allRows : allRows.filter(r => !r.f.stale)
   const current = (f: FolderFile, key: string) => ({ role: f.role, normalized: f.normalized, ...edits[key] })
   const change = (key: string, patch: FolderEdit) => setEdits(prev => ({ ...prev, [key]: { ...prev[key], ...patch } }))
   const dirty = Object.keys(edits).length > 0
@@ -281,13 +285,28 @@ export function FolderSources({ project, onProject }: { project: Project | null;
     }
   }
 
+  /** Явная загрузка одного файла в проект: без предварительной общей проверки. */
+  const loadOne = async (key: string) => {
+    if (!project || dirty) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const { out, snaps, warn } = await loadGroups([key], rejectedMode)
+      setResults(out); setWarning(warn); setUndo(snaps)
+      setMessage(`Загрузка выполнена: ${out.filter(r => r.status === 'loaded').length} из ${out.length}.`)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const counts = (kind: string) => rows.filter(r => current(r.f, r.key).role === kind).length
   const multi = sources.length > 1
 
   return (
-    <section className="folder-sources" aria-label="Источники данных">
-      <h2>Источники</h2>
-      <p className="lede">Папка с файлами проекта: какой файл чем является. Укажите роли (многие определяются сами), нажмите «Проверить всё»: по каждому файлу будет сводка без записи в проект. Затем «Загрузить всё отмеченное». Роли и признак нормированной базы сохраняются в папке рядом с данными.</p>
+    <details className="folder-sources" aria-label="Источники данных">
+      <summary><h2 style={{ display: 'inline' }}>Источники</h2> <span className="muted">папка с готовыми БД: свёрнуто, раскройте при необходимости</span></summary>
+      <p className="lede">Папка с файлами проекта: какой файл чем является. Укажите роли (многие определяются сами), нажмите «Проверить всё»: по каждому файлу будет сводка без записи в проект. Старые прогоны той же БД скрыты, виден самый свежий. Загрузить файл можно кнопкой «Загрузить» в его строке или сразу все отмеченные. Роли и признак нормированной базы сохраняются в папке рядом с данными.</p>
 
       {project && projectFolders?.project && (
         <div className="folder-row" aria-label="Папка проекта из Базы ПХГ">
@@ -329,6 +348,12 @@ export function FolderSources({ project, onProject }: { project: Project | null;
             ))}
           </ul>
 
+          {staleCount > 0 && (
+            <div className="folder-row">
+              <label className="muted"><input type="checkbox" checked={showOld} onChange={e => setShowOld(e.target.checked)} />{' '}
+                Показать старые прогоны тех же БД ({staleCount})</label>
+            </div>
+          )}
           {project && (
             <div className="folder-row">
               <button type="button" onClick={loadPending} disabled={busy || dirty || pendingRows.length === 0}>
@@ -377,7 +402,7 @@ export function FolderSources({ project, onProject }: { project: Project | null;
 
           <table className="folder-table">
             <thead>
-              <tr><th>Файл</th><th>Размер</th><th>Роль</th><th>Нормирована</th><th>Загрузка</th><th>Проверка перед загрузкой</th><th>Результат Базы ПХГ и проверка</th></tr>
+              <tr><th>Файл</th><th>Размер</th><th>Роль</th><th>Нормирована</th><th>Загрузка в проект</th><th>Проверка перед загрузкой</th><th>Результат Базы ПХГ и проверка</th></tr>
             </thead>
             <tbody>
               {rows.map(({ src, f, key }) => {
@@ -402,6 +427,11 @@ export function FolderSources({ project, onProject }: { project: Project | null;
                     </td>
                     <td>
                       {f.load ? LOAD_LABEL[f.load] : <span className="muted">—</span>}
+                      {f.stale && <div className="muted">старый прогон; свежий: {f.latest}</div>}
+                      {project && cur.role && (
+                        <div><button type="button" onClick={() => loadOne(key)} disabled={busy || dirty}
+                          title="Загрузить в проект только этот файл по его роли">{f.load === 'loaded' ? 'Загрузить заново' : 'Загрузить'}</button></div>
+                      )}
                     </td>
                     <td>
                       {checks[key] ? (
@@ -450,6 +480,6 @@ export function FolderSources({ project, onProject }: { project: Project | null;
           </div>
         </>
       )}
-    </section>
+    </details>
   )
 }
