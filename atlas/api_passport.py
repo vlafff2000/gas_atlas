@@ -75,7 +75,7 @@ class Passport:
         return ordered({w for d in self.raw.values() if 'well' in d for w in d.well.unique()})
 
     def sections(self) -> list[str]:
-        return [x for x in self.frames if x != 'object_pressure']
+        return [x for x in self.frames if x != 'object_pressure' and x in MODULES]
 
     def periods(self) -> dict[str, list[str]]:
         if 'production' not in self.frames:
@@ -107,9 +107,11 @@ class Passport:
     def mapping(self) -> dict[str, dict[str, str]]:
         return self.projects.data(self.pid).mapping
 
-    def card(self, well: str, krs_book: str = '') -> dict[str, Any]:
+    def card(self, well: str) -> dict[str, Any]:
         from atlas import passport_card
-        return passport_card.build(self.frames, self.settings, self.mapping(), well, krs_book)
+        names = self.manifest.get('tables', {})
+        krs = tuple(self.raw[n] if n in names else None for n in ('krs_works', 'krs_priority'))
+        return passport_card.build(self.frames, self.settings, self.mapping(), well, krs)
 
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting
@@ -164,7 +166,7 @@ def routes(projects: Projects) -> list[Route]:
     def card(request, body):
         passport = Passport(projects, request.path_params['pid'])
         well = passport.well(request.query_params.get('well'))
-        return passport.card(well, request.query_params.get('krs') or '')
+        return passport.card(well)
 
     def comment(request, body):
         pid = request.path_params['pid']
@@ -191,7 +193,7 @@ def routes(projects: Projects) -> list[Route]:
         text = body.get('comment')
         if text is None:
             text = passport.settings.get('well_comments', {}).get(well, '')
-        card = passport.card(well, str(body.get('krs') or '')) if with_card else None
+        card = passport.card(well) if with_card else None
         content, path = passport.build(well, [str(s) for s in sections], periods, str(text)[:COMMENT_LIMIT], card)
         return Response(content, media_type='application/pdf',
                         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(path.name)}"})

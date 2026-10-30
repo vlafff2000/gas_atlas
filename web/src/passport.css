@@ -32,5 +32,4 @@
 .passport-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .passport-table tbody tr:hover { background: var(--row-hover); }
 .passport-table tr.unreliable td { color: var(--muted); font-style: italic; }
-.krs-book { display: inline-flex; align-items: center; gap: 8px; }
 @media print { .passport-tabs, .toolbar { display: none; } }

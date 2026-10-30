@@ -2,11 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Project } from './api'
 import { passportApi, type PassportCard, type PassportInfo } from './api_passport'
 import { MultiSelect } from './MultiSelect'
-import { openFilePicker } from './FilePicker'
 import { PassportDashboard } from './PassportCard'
-
-const KRS_KEY = 'passport-krs-book'
-const readKrs = () => { try { return localStorage.getItem(KRS_KEY) ?? '' } catch { return '' } }
 
 /** «Паспорт скважины»: дашборд (показатели, схема забоя, сезоны, ГДИ, КРС) и PDF из выбранных разделов с комментарием инженера. */
 export function PassportPage({ project, onProject }: { project: Project; onProject: (p: Project) => void }) {
@@ -20,7 +16,6 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
   const [message, setMessage] = useState<{ text: string; level: 'info' | 'warning' } | null>(null)
   const started = useRef(false)
   const [tab, setTab] = useState<'dash' | 'pdf'>('dash')
-  const [krs, setKrs] = useState(readKrs)
   const [card, setCard] = useState<PassportCard | null>(null)
   const [cardError, setCardError] = useState('')
   const [withCard, setWithCard] = useState(true)
@@ -29,20 +24,11 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
     if (!well) return
     const ctrl = new AbortController()
     setCard(null); setCardError('')
-    passportApi.card(project.id, well, krs, ctrl.signal).then(setCard).catch(e => {
+    passportApi.card(project.id, well, ctrl.signal).then(setCard).catch(e => {
       if ((e as Error).name !== 'AbortError') setCardError((e as Error).message)
     })
     return () => ctrl.abort()
-  }, [project.id, project.revision, well, krs])
-
-  const pickKrs = async () => {
-    const chosen = await openFilePicker({ mode: 'file', start: krs || undefined, filter: 'xlsx', title: 'Книга КРС (КРС_для_Атласа.xlsx)' })
-    if (chosen) setBook(chosen.split('\n')[0])
-  }
-  const setBook = (path: string) => {
-    setKrs(path)
-    try { localStorage.setItem(KRS_KEY, path) } catch { /* без памяти браузера работает так же */ }
-  }
+  }, [project.id, project.revision, well])
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -75,7 +61,7 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
     if (!well) return
     setBusy('pdf'); setMessage(null)
     try {
-      const name = await passportApi.pdf(project.id, well, sections, periods, comment, withCard, krs)
+      const name = await passportApi.pdf(project.id, well, sections, periods, comment, withCard)
       setMessage({ text: `Паспорт создан и сохранен в выгрузках проекта: ${name}`, level: 'info' })
     } catch (e) { setMessage({ text: 'Не удалось создать паспорт: ' + (e as Error).message, level: 'warning' }) } finally { setBusy('') }
   }
@@ -99,11 +85,6 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
               {info.wells.map(w => <option key={w} value={w}>№ {w}</option>)}
             </select>
           </label>
-          <span className="krs-book" title={krs || 'КРС_для_Атласа.xlsx из «Работы с исходными данными»'}>
-            <span className="field-label">Книга КРС: {krs ? krs.split(/[\\/]/).pop() : 'не выбрана'}</span>
-            <button type="button" onClick={pickKrs}>Выбрать…</button>
-            {krs && <button type="button" onClick={() => setBook('')}>Убрать</button>}
-          </span>
           <span className="spacer" />
           <button type="button" className="primary" disabled={busy !== ''} onClick={createPdf}>
             {busy === 'pdf' ? 'Формирование паспорта…' : 'Скачать PDF'}

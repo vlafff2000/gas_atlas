@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.core import elpro_import as elpro
-from atlas.engine.core import gas_db_import, gis_import, water_monthly_import, well_geo_import
+from atlas.engine.core import gas_db_import, gis_import, krs_import, water_monthly_import, well_geo_import
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
@@ -74,7 +74,7 @@ def looks_ggh(raw: Any) -> bool:
     return len(fields - {None, 'well', 'date'}) >= 2
 
 
-SPECIAL_KINDS = {'база ЭЛПРО': 'elpro', '«БД по учету газа»': 'gas', 'газогидрохимия (ГГХ)': 'ggh'}
+SPECIAL_KINDS = {'книга КРС': 'krs', 'база ЭЛПРО': 'elpro', '«БД по учету газа»': 'gas', 'газогидрохимия (ГГХ)': 'ggh'}
 
 
 def special_kind(tables: dict[str, pd.DataFrame], name: str = '') -> tuple[str, str]:
@@ -102,6 +102,8 @@ def base_book(tables: dict[str, pd.DataFrame], name: str = '') -> str:
         return '«БД по учету газа»'
     if any(gis_import.detect(raw.iloc[0].tolist()) for raw in tables.values() if raw is not None and not raw.empty):
         return 'таблица «База ГИС»'
+    if krs_import.looks_like(tables):
+        return 'книга КРС'
     if well_geo_import.looks_like(tables, Path(name).suffix.lower() in TEXT):
         return 'файл положения и перфорации скважин'
     if water_monthly_import.looks_like(tables, name):
@@ -739,7 +741,7 @@ class Imports:
         undo = out['undo'] if out else None
         notes = [out['message']] if out else []
         loaders = {'elpro': self.elpro_load, 'gas': self.gas_db_load, 'geo': self.geo_load, 'water': self.water_monthly_load,
-                   'ggh': self.ggh_load, 'pressure': self.pressure_load}
+                   'ggh': self.ggh_load, 'pressure': self.pressure_load, 'krs': self.krs_load}
         saved = None
         for sp in specials:                  # файлы со своим разбором: тот же шаг «Применить», отдельная запись в проект на файл
             try:
@@ -1250,6 +1252,28 @@ class Imports:
                              details={'file': name, 'rows': len(new)})
         self._keep_originals(pid, [(name, content)])
         return {'message': message, 'warnings': [], 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def krs_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+        """Книга КРС (КРС_для_Атласа.xlsx, atlas/engine/core/krs_import.py) → ``krs_works`` и ``krs_priority``.
+        Скважины нового файла заменяют прежние строки этих скважин; «оставить прежние» — добавляются только новые скважины."""
+        if policy not in POLICIES:
+            raise ParamError('Неизвестное правило повторов')
+        try:
+            parts, warnings = krs_import.read(name, content)
+        except (ValueError, OSError) as e:
+            raise ParamError(f'«{name}»: файл не прочитан ({e})') from e
+        if all(p.empty for p in parts.values()):
+            raise ParamError(f'«{name}»: в книге КРС нет строк со скважиной.')
+        m = self.projects.manifest(pid)
+        raw = self._raw_frames(pid, m)
+        frames = dict(raw)
+        for kind, new in parts.items():
+            frames[kind] = krs_import.merge(raw.get(kind), new, keep_old=policy == 'old')
+        saved = self._commit(pid, frames, m['revision'], 'Импорт КРС',
+                             details={'file': name, 'rows': sum(len(p) for p in parts.values())})
+        self._keep_originals(pid, [(name, content)])
+        return {'message': f'КРС «{name}» — ' + krs_import.summary(parts), 'warnings': warnings,
+                'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     def gis_load(self, pid: str, name: str, content: bytes, policy: str, table: str = '') -> dict[str, Any]:
         """Таблица «База ГИС» (CSV выгрузки, atlas/engine/core/gis_import.py) → gis_packs / gis_observations / gis_intervals.

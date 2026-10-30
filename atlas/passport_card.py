@@ -2,7 +2,7 @@
 
 Расчёты не новые: сезоны, ГДИ и конструкцию даёт ``atlas.engine.modules.well_analysis``; здесь только выбор данных и
 представление, плюс максимальный суточный расход по сезону (максимум по дням той же таблицы суточных объёмов).
-КРС читаются из книги ``КРС_для_Атласа.xlsx`` («Работа с исходными данными» → «Состояние скважин и приоритет КР»).
+КРС — таблицы проекта ``krs_works`` и ``krs_priority`` (книга ``КРС_для_Атласа.xlsx`` загружается во вкладке «Импорт»).
 Схема — список интервалов в метрах; экран (SVG) и PDF (matplotlib) рисуют по нему одинаково.
 """
 from __future__ import annotations
@@ -208,38 +208,26 @@ def gdi_table(history: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
-def krs_rows(path: str, well: str) -> dict[str, Any]:
-    """КРС скважины из книги «КРС_для_Атласа.xlsx»: список ремонтов и приоритет (подсказка, решает инженер)."""
-    if not path:
-        return {'works': [], 'priority': None, 'loaded': False, 'note': 'Книга КРС не выбрана: список проведённых КР не показан.'}
-    try:
-        sheets = pd.read_excel(path, sheet_name=None)
-    except (OSError, ValueError) as exc:
-        return {'works': [], 'priority': None, 'loaded': False, 'note': f'Не удалось прочитать книгу КРС: {exc}'}
-    if 'Ремонты' not in sheets:
-        return {'works': [], 'priority': None, 'loaded': False, 'note': 'В книге нет листа «Ремонты»: нужен КРС_для_Атласа.xlsx.'}
-
-    def mine(frame: pd.DataFrame) -> pd.DataFrame:
-        if 'Скважина' not in frame:
-            return frame.iloc[0:0]
-        key = frame['Скважина'].map(lambda v: str(int(v)) if isinstance(v, (int, float, np.integer)) and not pd.isna(v)
-                                    and float(v).is_integer() else str(v).strip())
-        return frame[key.eq(str(well))]
-    works = mine(sheets['Ремонты'])
-    extra = [c for c in works.columns if c not in ('Скважина', 'Год', 'Тип ремонта')]
-    rows = [{'year': None if pd.isna(r.get('Год')) else int(r['Год']), 'type': str(r.get('Тип ремонта', '')),
-             'detail': '; '.join(f'{c}: {r[c]}' for c in extra[:3] if not pd.isna(r[c]))}
-            for _, r in works.sort_values('Год').iterrows()] if 'Год' in works else []
-    priority = None
-    p = mine(sheets.get('Приоритет', pd.DataFrame()))
-    if not p.empty:
-        r = p.iloc[0]
-        priority = {'value': _num(r.get('Приоритет итог')), 'reason': '' if pd.isna(r.get('Причина')) else str(r.get('Причина')),
-                    'sand': '' if pd.isna(r.get('Песок в ревизиях КРУ')) else str(r.get('Песок в ревизиях КРУ'))}
-    return {'works': rows, 'priority': priority, 'loaded': True, 'note': '' if rows else 'По этой скважине КР в книге нет.'}
+def krs_rows(works: pd.DataFrame | None, priority: pd.DataFrame | None, well: str) -> dict[str, Any]:
+    """КРС скважины из таблиц проекта (импорт книги «КРС_для_Атласа.xlsx»): ремонты и приоритет-подсказка."""
+    if works is None and priority is None:
+        return {'works': [], 'priority': None, 'loaded': False,
+                'note': 'КРС не загружены: импортируйте книгу КРС_для_Атласа.xlsx во вкладке «Импорт».'}
+    rows = []
+    if works is not None and not works.empty:
+        mine = works[works.well.astype(str).eq(str(well))].sort_values('year')
+        rows = [{'year': None if pd.isna(r.year) else int(r.year), 'type': str(r.work_type or ''), 'detail': str(r.detail or '')}
+                for _, r in mine.iterrows()]
+    info = None
+    if priority is not None and not priority.empty:
+        p = priority[priority.well.astype(str).eq(str(well))]
+        if not p.empty:
+            r = p.iloc[0]
+            info = {'value': _num(r.priority), 'reason': str(r.reason or ''), 'sand': str(r.sand or '')}
+    return {'works': rows, 'priority': info, 'loaded': True, 'note': '' if rows else 'По этой скважине КР в загруженных данных нет.'}
 
 
-def build(frames, settings, mapping, well: str, krs_book: str = '') -> dict[str, Any]:
+def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None)) -> dict[str, Any]:
     """Всё для карточки одной скважины. Пустые разделы — заметка, не ошибка."""
     from atlas.engine.modules import well_analysis
     by_kind: dict[str, dict[str, Any]] = {}
@@ -253,7 +241,7 @@ def build(frames, settings, mapping, well: str, krs_book: str = '') -> dict[str,
     construction = first['construction']
     cons = schematic(construction, bottom_m) if not construction.empty else schematic(pd.DataFrame(
         columns=['element', 'top_m', 'bottom_m']), bottom_m)
-    krs = krs_rows(krs_book, well)
+    krs = krs_rows(krs[0], krs[1], well)
     out_rows = [r for r in seasons if r['kind'] == 'withdrawal']
     peak = max((r for r in out_rows if r['max_rate'] is not None), key=lambda r: r['max_rate'], default=None)
     reliable = [g for g in gdi_all if g['reliable']]

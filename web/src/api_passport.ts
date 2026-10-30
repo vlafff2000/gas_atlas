@@ -52,15 +52,15 @@ export const passportApi = {
   info: async (project: string, well?: string, signal?: AbortSignal) =>
     (await send(`/api/projects/${project}/passport` + (well ? `?well=${encodeURIComponent(well)}` : ''), { signal }))
       .json() as Promise<PassportInfo>,
-  card: async (project: string, well: string, krs: string, signal?: AbortSignal) =>
-    (await send(`/api/projects/${project}/passport/card?well=${encodeURIComponent(well)}` + (krs ? `&krs=${encodeURIComponent(krs)}` : ''), { signal }))
+  card: async (project: string, well: string, signal?: AbortSignal) =>
+    (await send(`/api/projects/${project}/passport/card?well=${encodeURIComponent(well)}`, { signal }))
       .json() as Promise<PassportCard>,
   saveComment: async (project: string, well: string, comment: string, revision?: number) =>
     (await send(`/api/projects/${project}/passport/comment`, post({ well, comment, revision })))
       .json() as Promise<Project & { comment: string }>,
   /** Формирует PDF (сохраняется и в выгрузках проекта) и отдаёт его браузеру. */
-  pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true, krs = '') => {
-    const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, sections, periods, comment, card, krs }))
+  pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true) => {
+    const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, sections, periods, comment, card }))
     const match = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') ?? '')
     const name = match ? decodeURIComponent(match[1]) : `Паспорт_скважины_${well}.pdf`
     const url = URL.createObjectURL(await response.blob())
