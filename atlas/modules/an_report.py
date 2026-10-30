@@ -364,8 +364,8 @@ PRESSURE_SOURCES = (Option('auto', 'Авто: столбец «Давление 
                     Option('object', 'Столбец «Давление объекта» из БД'),
                     Option('grid', 'Опорная сетка: реагирование, давление (пересчёт)'),
                     Option('match', 'Опорная сетка: кроссплот, факт'))
-CLASS_CHARTS = (Option('none', 'Только таблица классов (номера скважин)'), Option('box', 'График: узкие сегменты — выноска в рамке'),
-                Option('dot', 'График: узкие сегменты — точка, числа в таблице под графиком'))
+CLASS_CHARTS = (Option('none', 'Только таблица классов (номера скважин)'),
+                Option('dot', 'График с таблицей под ним: узкие сегменты — точки (сколько скважин, столько точек)'))
 MONTH_CHARTS = (Option('none', 'Нет'), Option('table', 'График с таблицей по группам под ним'))
 SIDES = (Option('fund', 'Фонд и работавшие скважины'), Option('none', 'Нет'),
          *(o for o in VIEWS if o.value != 'canvas'))
@@ -387,9 +387,9 @@ class AuthorReportModule(Module):
                   empty='ничего', section='Выбор данных'),
             Param('view', 'График', 'choice', default='canvas', section='Вид', chart_kind=True, options=VIEWS),
             Param('side', 'Правый график', 'choice', default='fund', section='Вид', chart_kind=True, options=SIDES),
-            Param('class_chart', 'Классы производительности (табл. 1.5)', 'choice', default='none', section='Вид', chart_kind=True,
+            Param('class_chart', 'Классы производительности (табл. 1.5)', 'choice', default='dot', section='Вид', chart_kind=True, aliases={'box': 'dot'},
                   options=CLASS_CHARTS, help='Для отбора и закачки. Добавляет таблицу «Количество скважин по классам производительности» и график к ней: '
-                  'столбики — доли классов по группам, числа скважин внутри сегментов, узкие сегменты — выноской или точкой с таблицей под графиком.'),
+                  'столбики — доли классов по группам, числа скважин внутри сегментов, узкие сегменты — точками (сколько скважин, столько точек), числа в таблице под графиком.'),
             Param('class_mode', 'Границы классов', 'choice', default='manual', section='Вид', options=CLASS_MODES,
                   help='Общие для классов отбора (табл. 1.5) и закачки (табл. 2.3) и их графиков. «Вручную» — границы из поля ниже. '
                        '«Автоматически» — подсказка по фонду выбранных сезонов, границы кратны 5; её можно перенести в ручной режим и поправить.'),
@@ -703,10 +703,10 @@ class AuthorReportModule(Module):
                 result.charts.append(chart)
         if kind == 'withdrawal':
             classes.append(an_wells.class_table(wells, scopes, edges).assign(season=period))      # закачка: классы — табл. 2.3 (injection_class_table)
-        if class_chart != 'none':
+        if class_chart != 'none':       # старое значение 'box' (график без таблицы) убрано: везде график с таблицей
             by_class = an_wells.class_counts(wells, scopes, edges)
             counts.append(by_class.assign(season=period))
-            for chart in (an_charts.class_share_chart(kind, period, by_class, class_chart, edges),
+            for chart in (an_charts.class_share_chart(kind, period, by_class, edges),
                           an_charts.class_total_chart(kind, period, by_class, edges)):
                 if chart is not None:
                     result.charts.append(chart)
@@ -740,8 +740,7 @@ class AuthorReportModule(Module):
                 parts.append(an_wells.class_counts(wells, well_scopes(data.mapping, ordered(wells.well)), edges).assign(season=season))
         if not parts:
             return
-        callouts = 'dot' if params.get('class_chart') == 'dot' else 'box'
-        chart = an_charts.class_seasons_chart(kind, pd.concat(parts, ignore_index=True), seasons, callouts, edges)
+        chart = an_charts.class_seasons_chart(kind, pd.concat(parts, ignore_index=True), seasons, edges)
         if chart is not None:
             result.charts.append(chart)
 

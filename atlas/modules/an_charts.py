@@ -278,11 +278,11 @@ def fund_chart(kind: str, period: str, fund: pd.DataFrame) -> Chart | None:
     return chart
 
 
-def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: str = 'box',
+def class_share_chart(kind: str, period: str, counts: pd.DataFrame,
                       edges: Sequence[int] = an_wells.DEFAULT_EDGES) -> Chart | None:
     """Классы производительности по группам (табл. 1.5): высота сегмента — число скважин класса в группе (абсолютное), число — внутри сегмента; группы идут по возрастанию номера.
 
-    Узкие сегменты: ``callouts='box'`` — выноска в рамке цвета класса, ``'dot'`` — точка, а числа в таблице под графиком. ``edges`` — границы, по которым посчитаны ``counts``."""
+    Узкие сегменты: точки (сколько скважин — столько точек), числа в таблице под графиком. ``edges`` — границы, по которым посчитаны ``counts``."""
     part = counts[~counts.group.eq(an_wells.TOTAL)]       # «Всего» — отдельным графиком (``class_total_chart``)
     if part.empty:
         return None
@@ -290,10 +290,9 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame, callouts: st
     cats = [str(g) for g in part.group]
     chart = Chart(f'an-class-share-{kind}-{period}', f'Классы производительности скважин по группам · {period}',
                   Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
-    chart.callouts = 'dot' if callouts == 'dot' else 'box'
+    chart.callouts = 'dot'
     _class_bars(chart, part, cats, keys, labels)
-    if chart.callouts == 'dot':
-        chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in keys])
+    chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in keys])
     return chart
 
 
@@ -307,7 +306,7 @@ def _class_bars(chart: Chart, part: pd.DataFrame, cats: list[str], keys: Sequenc
                                    segments=[str(v) if v else '' for v in n], labels=[f'{v} из {int(t)} скв., {v / t * 100:.0f} %' if t else f'{v} скв.' for v, t in zip(n, size)]))
 
 
-def class_seasons_chart(kind: str, counts: pd.DataFrame, seasons: Sequence[str], callouts: str = 'box',
+def class_seasons_chart(kind: str, counts: pd.DataFrame, seasons: Sequence[str],
                         edges: Sequence[int] = an_wells.DEFAULT_EDGES) -> Chart | None:
     """Классы производительности по группам сквозь несколько сезонов: столбик на пару «группа · сезон». Группы по возрастанию номера, внутри группы сезоны по порядку ``seasons``.
 
@@ -324,10 +323,9 @@ def class_seasons_chart(kind: str, counts: pd.DataFrame, seasons: Sequence[str],
     cats = [f'{g} · {s}' for g, s in pairs]
     chart = Chart(f'an-class-seasons-{kind}', f'Классы производительности по группам за сезоны · {", ".join(seasons)}',
                   Axis('Группа · сезон', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
-    chart.callouts = 'dot' if callouts == 'dot' else 'box'
+    chart.callouts = 'dot'
     _class_bars(chart, rows, cats, keys, labels)
-    if chart.callouts == 'dot':
-        chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in rows[k].to_numpy(int)] for k in keys])
+    chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in rows[k].to_numpy(int)] for k in keys])
     return chart
 
 

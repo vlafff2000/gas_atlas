@@ -202,7 +202,7 @@ def segment_marks(fig, chart: Chart, palette: dict) -> None:
             if not text or y / top >= NARROW / 100:
                 continue
             if chart.callouts == 'dot':
-                fig.add_annotation(x=x, y=middle, text='●', showarrow=False, font={'size': 9, 'color': '#111'})
+                fig.add_annotation(x=x, y=middle, text='●' * int(text) if text.isdigit() else '●', showarrow=False, font={'size': 9, 'color': '#111'})
                 continue
             side = 1 if used[j] % 2 == 0 else -1
             used[j] += 1

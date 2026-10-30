@@ -411,7 +411,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
             const text = s.segments?.[j] ?? '', v = Number(s.y[j])
             if (!text || !Number.isFinite(v)) return { value: row, label: { show: false } }
             if (v / stackTop >= NARROW / 100) return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 14, color: onColor(c, tk.ink), formatter: text } }
-            if (chart.callouts === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 9, color: onColor(c, tk.ink), formatter: '●' } }
+            if (chart.callouts === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 9, color: onColor(c, tk.ink), formatter: /^\d+$/.test(text) ? '●'.repeat(Number(text)) : '●' } }
             const side = sides.get(`${si}:${j}`) ?? 'right'
             const label = { show: true, position: side, distance: 1, fontFamily, fontSize: 13,
               formatter: side === 'right' ? `{ln|─}{bx|${text}}` : `{bx|${text}}{ln|─}`,

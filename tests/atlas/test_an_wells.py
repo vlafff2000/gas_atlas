@@ -117,7 +117,7 @@ def test_class_counts_seven_classes_boundary_goes_up():
 def test_class_share_chart_absolute_height_and_counts_inside():
     from atlas.modules import an_charts
     counts = an_wells.class_counts(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES)
-    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'dot')
+    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts)
     assert an_wells.TOTAL not in chart.x.categories and chart.callouts == 'dot'     # «Всего» — отдельным графиком
     assert [sum(s.y[j] for s in chart.series) for j in range(len(chart.x.categories))] == pytest.approx([2.0, 2.0])     # высота — число скважин группы, не проценты
     assert chart.y.unit == 'скв.' and chart.y.maximum is None
@@ -125,7 +125,7 @@ def test_class_share_chart_absolute_height_and_counts_inside():
     total = an_charts.class_total_chart('withdrawal', '2023-2024', counts)
     assert [sum(s.y[j] for s in total.series) for j in range(7)] == [2, 1, 0, 0, 1, 0, 0]     # строка «Всего»: 2 нулевых, 1 менее 100, 1 от 200 до 250
     assert total.series[0].segments[0] == '2' and total.series[1].segments[1] == '1'
-    assert an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'box').table is None
+    assert an_charts.class_share_chart('withdrawal', '2023-2024', counts).table is not None     # график только с таблицей под ним
 
 
 def test_class_share_chart_exports_with_callouts_and_table():
@@ -133,10 +133,8 @@ def test_class_share_chart_exports_with_callouts_and_table():
     from atlas.modules import an_charts
     counts = pd.DataFrame({'group': ['ГСП 1', an_wells.TOTAL], 'zero_numbers': ['0', '0'],
                            **{k: v for k, v in zip(an_wells.CLASS_KEYS, ([0, 0], [1, 1], [0, 0], [3, 3], [0, 0], [0, 0], [40, 40]))}})
-    box = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'box'))
-    assert [a.text for a in box.layout.annotations if a.bordercolor] == ['1']      # узкий сегмент (1 из 44) — выноска в рамке
-    dot = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'dot'))
-    assert any(t.type == 'table' for t in dot.data) and [a.text for a in dot.layout.annotations] == ['●']
+    dot = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts))
+    assert any(t.type == 'table' for t in dot.data) and [a.text for a in dot.layout.annotations] == ['●']     # узкий сегмент (1 из 44): одна точка, число — в таблице
 
 
 def test_month_working_counts_wells_with_flow_in_each_month():
@@ -166,9 +164,8 @@ def test_special_charts_export_to_png_pdf_svg_not_as_grouped_bars():
     from atlas.modules import an_charts
     counts = pd.DataFrame({'group': ['ГСП 1', an_wells.TOTAL], 'zero_numbers': ['0', '0'],
                            **{k: v for k, v in zip(an_wells.CLASS_KEYS, ([0, 0], [1, 1], [0, 0], [3, 3], [0, 0], [0, 0], [40, 40]))}})
-    for mode in ('box', 'dot'):
-        chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, mode)
-        assert render.chart_file(chart, 'png', 150)[0][:8] == b'\x89PNG\r\n\x1a\n'
+    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts)
+    assert render.chart_file(chart, 'png', 150)[0][:8] == b'\x89PNG\r\n\x1a\n'
     frame, labels = an_wells.month_working(PROD, 'withdrawal', '2023-2024', SCOPES)
     chart = an_charts.month_working_chart('withdrawal', '2023-2024', frame, labels)
     assert render.chart_file(chart, 'svg', 150)[0].lstrip().startswith(b'<?xml') and render.chart_file(chart, 'pdf', 150)[0][:4] == b'%PDF'
@@ -228,5 +225,32 @@ def test_class_counts_with_custom_edges_keeps_boundary_in_upper_class():
 def test_class_share_chart_uses_custom_labels():
     from atlas.modules import an_charts
     counts = an_wells.class_counts(an_wells.season_wells(PROD, 'withdrawal', '2023-2024'), SCOPES, (20, 75))
-    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, 'box', (20, 75))
+    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts, edges=(20, 75))
     assert [s.name for s in chart.series] == ['0', 'Менее 20 тыс. м³/сут', 'От 20 до 75 тыс. м³/сут', 'Более 75 тыс. м³/сут']
+
+
+def test_narrow_segment_dots_equal_the_number():
+    from atlas import render
+    from atlas.modules import an_charts
+    counts = pd.DataFrame({'group': ['ГСП 1'], 'zero_numbers': ['0'],
+                           **{k: [v] for k, v in zip(an_wells.CLASS_KEYS, (0, 1, 0, 3, 0, 0, 60))}})
+    fig = render.to_plotly(an_charts.class_share_chart('withdrawal', '2023-2024', counts))
+    assert sorted(a.text for a in fig.layout.annotations) == ['●', '●●●']
+
+
+def test_title_align_does_not_duplicate_title():
+    from atlas import chart_special
+    from atlas.modules import an_charts
+    counts = pd.DataFrame({'group': ['ГСП 1'], 'zero_numbers': ['0'],
+                           **{k: [v] for k, v in zip(an_wells.CLASS_KEYS, (0, 1, 0, 3, 0, 0, 60))}})
+    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts)
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from atlas import render
+    for align in ('left', 'right'):
+        fig = chart_special._stack_figure(plt, chart, render.group_colors(chart), render.series_color)
+        chart_special._dress(fig, chart, {'style': {'title_align': align}})
+        ax = fig.axes[0]
+        assert [t.get_text() for t in (ax._left_title, ax.title, ax._right_title) if t.get_text()] == [chart.title]
+        plt.close('all')
