@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # Модули Атласа (registry.modules()). Удалённые намеренно — в REMOVED_ON_PURPOSE.
 MODULES = [
-    'an_report', 'an_revision', 'an_wf_table', 'builder', 'exclusions', 'filter_history', 'fund', 'gdi', 'gdi_trend', 'ggh',
+    'an_report', 'an_revision', 'an_wf_table', 'builder', 'exclusions', 'filter_history', 'fund', 'gdi', 'gdi_trend', 'ggh', 'krs_status',
     'elpro_compare', 'gas_accounting', 'seasonal', 'seasonal_groups', 'injection-decline', 'groups', 'histograms', 'overview', 'plan_fact', 'pressure', 'production', 'quality', 'response',
     'water', 'wells', 'gis',
 ]
