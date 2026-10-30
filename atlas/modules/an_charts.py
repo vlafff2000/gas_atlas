@@ -289,7 +289,7 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame,
     keys, labels = an_wells.class_keys(edges), an_wells.class_labels(edges)
     cats = [str(g) for g in part.group]
     chart = Chart(f'an-class-share-{kind}-{period}', f'Классы производительности скважин по группам · {period}',
-                  Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
+                  Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'ед.', from_zero=True))
     chart.callouts = 'dot'
     _class_bars(chart, part, cats, keys, labels)
     chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in keys])
@@ -322,7 +322,7 @@ def class_seasons_chart(kind: str, counts: pd.DataFrame, seasons: Sequence[str],
     keys, labels = an_wells.class_keys(edges), an_wells.class_labels(edges)
     cats = [f'{g} · {s}' for g, s in pairs]
     chart = Chart(f'an-class-seasons-{kind}', f'Классы производительности по группам за сезоны · {", ".join(seasons)}',
-                  Axis('Группа · сезон', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
+                  Axis('Группа · сезон', scale='category', categories=cats), Axis('Скважин', 'ед.', from_zero=True))
     chart.callouts = 'dot'
     _class_bars(chart, rows, cats, keys, labels)
     chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in rows[k].to_numpy(int)] for k in keys])
@@ -337,7 +337,7 @@ def class_total_chart(kind: str, period: str, counts: pd.DataFrame, edges: Seque
     keys, labels = an_wells.class_keys(edges), an_wells.class_labels(edges)
     names = [n if n == '0' else n.replace('Менее', '<').replace('От ', '').replace(' до ', '–').replace('Более', '>') for n in labels]
     chart = Chart(f'an-class-total-{kind}-{period}', f'Классы производительности скважин, всего по объекту · {period}',
-                  Axis('Производительность, тыс. м³/сут', scale='category', categories=names), Axis('Скважин', 'скв.', from_zero=True))
+                  Axis('Производительность, тыс. м³/сут', scale='category', categories=names), Axis('Скважин', 'ед.', from_zero=True))
     for i, (key, name) in enumerate(zip(keys, labels)):
         n = int(total[key].iloc[0])
         values = [float(n) if j == i else 0.0 for j in range(len(names))]

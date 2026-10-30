@@ -85,10 +85,45 @@ def _dress(fig: Any, chart: Chart, o: dict[str, Any]) -> None:
             ax.set_title('', loc=place)
         ax.set_title(chart.title, loc=align, fontsize=float(st.get('title_size') or base + 1), color=st.get('title_color') or st.get('text_color') or 'black',
                      fontweight='bold' if st.get('title_bold') else 'normal', y=ax.title.get_position()[1])
+    _axes(fig, chart, o, base)
     grid = st.get('grid')
     if grid in ('both', 'h', 'v') and chart.heat is None and chart.strips is None:
         ax.grid(True, axis={'both': 'both', 'h': 'y', 'v': 'x'}[grid], color=st.get('grid_color') or '#d0d7da', lw=float(st.get('grid_width') or 0.7))
         ax.set_axisbelow(True)
+
+
+def _axes(fig: Any, chart: Chart, o: dict[str, Any], base: float) -> None:
+    """Названия осей и их оформление, как в ручных настройках обычных графиков: ``o['labels']`` — новые названия, ``o['axes']`` — размер,
+    жирность и курсив названий и делений, ``o['angle']`` — поворот подписей оси X. Пустое — как задал график."""
+    ax = fig.axes[0]
+    if o.get('labels', {}).get('x'):
+        if chart.table is not None and o.get('table_show') is not False:
+            ax.text(0.5, -0.01, o['labels']['x'], transform=ax.transAxes, ha='center', va='top', fontsize=base)     # у оси место занято таблицей: название — в зазоре над ней
+        else:
+            ax.set_xlabel(o['labels']['x'], fontsize=base)
+    if o.get('labels', {}).get('y'):
+        ax.set_ylabel(o['labels']['y'], fontsize=base)
+    for name, axis, label in (('x', ax.xaxis, ax.xaxis.label), ('y', ax.yaxis, ax.yaxis.label)):
+        spec = (o.get('axes') or {}).get(name) or {}
+        if spec.get('title_size'):
+            label.set_fontsize(float(spec['title_size']))
+        if spec.get('title_bold'):
+            label.set_fontweight('bold')
+        if spec.get('title_italic'):
+            label.set_fontstyle('italic')
+        ticks = axis.get_ticklabels()
+        if spec.get('tick_size'):
+            ax.tick_params(axis=name, labelsize=float(spec['tick_size']))
+        for t in ticks:
+            if spec.get('tick_bold'):
+                t.set_fontweight('bold')
+            if spec.get('tick_italic'):
+                t.set_fontstyle('italic')
+    if o.get('angle'):
+        angle = float(o['angle'])
+        ax.tick_params(axis='x', labelrotation=angle)
+        for t in ax.get_xticklabels():
+            t.set_ha('right' if 0 < angle < 90 else 'center')
 
 
 def _dots(text: str) -> str:
@@ -141,10 +176,12 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     ax.set_xticks(range(len(cats)))
     ax.set_xticklabels([] if table else cats)
     ax.set_xlim(-0.6, len(cats) - 0.4 + 0.2)
-    if chart.y.unit == 'скв.':
+    if chart.y.unit in ('скв.', 'ед.'):
         from matplotlib.ticker import MaxNLocator
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_ylabel(f'{chart.y.label}, {chart.y.unit}' if chart.y.unit else chart.y.label, fontsize=base)
+    if chart.x.label and not table:     # под столбцами с таблицей место занято названиями групп таблицы
+        ax.set_xlabel(f'{chart.x.label}, {chart.x.unit}' if chart.x.unit else chart.x.label, fontsize=base)
     if chart.y.maximum is not None:
         ax.set_ylim(chart.y.minimum or 0, chart.y.maximum)
     from atlas.engine.core.export import sort_legend

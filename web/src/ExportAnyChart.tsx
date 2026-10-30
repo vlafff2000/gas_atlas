@@ -168,7 +168,7 @@ export function ExportAnyChart({ project }: { project: Project }) {
   const format = (settings.format as string | undefined) ?? 'png'
   // Общие поля — те же компоненты и подписи, что у «Производительность скважин»; значения берутся из настроек выгрузки.
   const form: Form = { format, dpi: settings.dpi, look: settings.look, width: settings.width, height: settings.height, font: settings.font,
-    font_size: settings.font_size, legend: chartStyle.legend, title: chartStyle.title, title_align: chartStyle.title_align, grid: chartStyle.grid,
+    font_size: settings.font_size, angle: settings.angle, legend: chartStyle.legend, title: chartStyle.title, title_align: chartStyle.title_align, grid: chartStyle.grid,
     grid_width: chartStyle.grid_width, minor_grid: chartStyle.minor_grid, minor_grid_width: chartStyle.minor_grid_width,
     table_show: (settings.table as Dict | undefined)?.show !== false }
   const setField = (field: string, value: unknown) => {
@@ -177,6 +177,7 @@ export function ExportAnyChart({ project }: { project: Project }) {
     else if (field === 'look' || field === 'font') set(field, value === 'default' ? '' : value)
     else if (field === 'legend') sub('chart', 'legend', value === 'auto' ? '' : value)
     else if (['title', 'title_align', 'grid', 'grid_width', 'minor_grid', 'minor_grid_width'].includes(field)) sub('chart', field, value === 'auto' ? '' : value)
+    else if (field === 'angle') set('angle', value === 'auto' ? '' : value)
     else if (field === 'table_show') sub('table', 'show', value ? '' : false)
     else set(field, value)
   }
@@ -248,6 +249,8 @@ export function ExportAnyChart({ project }: { project: Project }) {
                 options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as Opt)]} />
               <Select {...F} field="legend" label="Легенда" def="auto" options={LEGENDS} />
               <Text {...F} field="title" label="Заголовок графика" def="" wide />
+              <Select {...F} field="angle" label="Подписи оси X" def="auto"
+                options={[['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]} />
               <Field label="Имя файла (без расширения)" wide value={settings.filename} placeholder="по заголовку графика" onChange={v => set('filename', v)} />
               {(chart.kind === 'heat' || chart.kind === 'strips') && (
                 <Field label="Текст в ячейках, пт (4–30)" type="number" value={settings.cell_size} onChange={v => set('cell_size', v === '' ? '' : Number(v))} />
@@ -256,6 +259,25 @@ export function ExportAnyChart({ project }: { project: Project }) {
                 <Tick key={String(f[0])} label={'Сохранить также: ' + f[1]} value={extraFormats.includes(f[0] as string)}
                   onChange={on => setExtraFormats(l => on ? [...l, f[0] as string] : l.filter(x => x !== f[0]))} />
               ))}
+            </Section>
+            <Section title="Названия осей">
+              {['x', ...chart.axes].map(name => (
+                <Field key={name} label={AXIS_NAME[name] ?? name} wide value={labels[name]} placeholder={chart.labels?.[name] || 'как в программе'}
+                  onChange={v => sub('labels', name, v)} />
+              ))}
+              {['x', 'y'].map(name => {
+                const a = (axes[name] as Dict | undefined) ?? {}
+                return (
+                  <div key={name} className="field wide">
+                    <Field label={`${AXIS_NAME[name]}: размер названия, пт`} type="number" value={a.title_size} onChange={v => axis(name, 'title_size', v === '' ? '' : Number(v))} />
+                    <Tick label={`${AXIS_NAME[name]}: название жирным`} value={!!a.title_bold} onChange={v => axis(name, 'title_bold', v ? true : '')} />
+                    <Tick label={`${AXIS_NAME[name]}: название курсивом`} value={!!a.title_italic} onChange={v => axis(name, 'title_italic', v ? true : '')} />
+                    <Field label={`${AXIS_NAME[name]}: размер делений, пт`} type="number" value={a.tick_size} onChange={v => axis(name, 'tick_size', v === '' ? '' : Number(v))} />
+                    <Tick label={`${AXIS_NAME[name]}: деления жирным`} value={!!a.tick_bold} onChange={v => axis(name, 'tick_bold', v ? true : '')} />
+                    <Tick label={`${AXIS_NAME[name]}: деления курсивом`} value={!!a.tick_italic} onChange={v => axis(name, 'tick_italic', v ? true : '')} />
+                  </div>
+                )
+              })}
             </Section>
             <Section title="Оформление графика">
               <Field label="Размер заголовка, пт" type="number" value={chartStyle.title_size} onChange={v => sub('chart', 'title_size', v === '' ? '' : Number(v))} />
@@ -290,22 +312,16 @@ export function ExportAnyChart({ project }: { project: Project }) {
           )}
           {!special && (
             <details className="table-block">
-              <summary className="block-head"><h3>Оси</h3></summary>
+              <summary className="block-head"><h3>Границы и деления осей</h3></summary>
               <div className="param-bar flat">
                 {['x', ...chart.axes].map(name => {
                   const a = (axes[name] as Dict | undefined) ?? {}
                   return (
                     <Box key={name} title={AXIS_NAME[name] ?? name}>
-                      <Field label="Подпись" wide value={labels[name]} placeholder="как в программе" onChange={v => sub('labels', name, v)} />
                       <Field label="Минимум" value={a.min} onChange={v => axis(name, 'min', v)} />
                       <Field label="Максимум" value={a.max} onChange={v => axis(name, 'max', v)} />
                       <Field label="Шаг делений" value={a.step} onChange={v => axis(name, 'step', v)} />
                       <Field label="Знаков после запятой" type="number" value={a.decimals} onChange={v => axis(name, 'decimals', v === '' ? '' : Number(v))} />
-                      <Field label="Размер подписей, пт" type="number" value={a.tick_size} onChange={v => axis(name, 'tick_size', v === '' ? '' : Number(v))} />
-                      <Tick label="Название оси жирным" value={!!a.title_bold} onChange={v => axis(name, 'title_bold', v ? true : '')} />
-                      <Tick label="Название оси курсивом" value={!!a.title_italic} onChange={v => axis(name, 'title_italic', v ? true : '')} />
-                      <Tick label="Деления жирным" value={!!a.tick_bold} onChange={v => axis(name, 'tick_bold', v ? true : '')} />
-                      <Tick label="Деления курсивом" value={!!a.tick_italic} onChange={v => axis(name, 'tick_italic', v ? true : '')} />
                       <Tick label="Обратное направление" value={!!a.inverse} onChange={v => axis(name, 'inverse', v ? true : '')} />
                       <Tick label="Логарифмическая шкала" value={!!a.log} onChange={v => axis(name, 'log', v ? true : '')} />
                       <Tick label="От нуля" value={!!a.from_zero} onChange={v => axis(name, 'from_zero', v ? true : '')} />

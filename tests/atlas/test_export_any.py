@@ -236,3 +236,19 @@ def test_all_views_in_one_flat_list_and_each_exports(env):
         r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'histograms', 'params': params, 'chart': chart['id'],
                                                                       'settings': {'dpi': 150}})
         assert r.status_code == 200 and r.content[:4] == b'\x89PNG', chart['id']
+
+
+def test_special_chart_axis_labels_and_style():
+    """Стопка с таблицей: названия осей и оформление применяются так же, как у обычных графиков (PNG рисуется без ошибок)."""
+    import pandas as pd
+    from atlas import export_any
+    from atlas.modules import an_charts, an_wells
+    counts = pd.DataFrame({'group': ['ГСП-1', an_wells.TOTAL]})
+    for i, k in enumerate(an_wells.class_keys(an_wells.DEFAULT_EDGES)):
+        counts[k] = [i + 1, i + 1]
+    chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts)
+    assert export_any.describe(chart)['labels']['y'] == 'Скважин, ед.'
+    s = export_any.settings_of({'labels': {'y': 'Число, ед.'}, 'axes': {'y': {'title_bold': True}}, 'angle': '45'})
+    assert s['angle'] == '45' and s['labels'] == {'y': 'Число, ед.'}
+    content, *_ = export_any.export(chart, {'labels': {'x': 'Группы', 'y': 'Число, ед.'}, 'angle': '45'})
+    assert content[:4] == b'\x89PNG'

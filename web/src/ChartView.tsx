@@ -286,7 +286,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       min: a.scale === 'category' ? undefined : a.minimum ?? (zero ? 0 : undefined),
       max: a.scale === 'category' ? undefined : a.maximum ?? undefined,
       interval: a.step && a.scale === 'value' ? a.step : undefined,
-      minInterval: a.unit === 'скв.' && a.scale === 'value' ? 1 : undefined,      // скважин — целое число, делений по 0,5 не бывает
+      minInterval: (a.unit === 'скв.' || a.unit === 'ед.') && a.scale === 'value' ? 1 : undefined,      // скважин — целое число, делений по 0,5 не бывает
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
       name: narrow ? narrow.text : nameRich.text,
       // подпись шкалы Y — горизонтально над осью, читается без наклона головы
