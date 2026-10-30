@@ -107,13 +107,17 @@ class Passport:
     def mapping(self) -> dict[str, dict[str, str]]:
         return self.projects.data(self.pid).mapping
 
-    def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str):
+    def card(self, well: str, krs_book: str = '') -> dict[str, Any]:
+        from atlas import passport_card
+        return passport_card.build(self.frames, self.settings, self.mapping(), well, krs_book)
+
+    def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting
         from atlas.engine.core.documents import passport_pdf
         from atlas.engine.core.export import safe_name
         options = self.options(well, sections, periods)
         figures, tables = reporting.build(self.frames, self.mapping(), self.settings, options, self.raw)
-        content = passport_pdf(self.manifest['name'], well, figures, tables, self.settings, comment)
+        content = passport_pdf(self.manifest['name'], well, figures, tables, self.settings, comment, card=card)
         path = self.projects.store.save_export(self.pid, 'Паспорт_скважины_' + safe_name(well) + '.pdf', content,
                                                options)
         return content, path
@@ -157,6 +161,11 @@ def routes(projects: Projects) -> list[Route]:
             'revision': passport.manifest.get('revision'),
         }
 
+    def card(request, body):
+        passport = Passport(projects, request.path_params['pid'])
+        well = passport.well(request.query_params.get('well'))
+        return passport.card(well, request.query_params.get('krs') or '')
+
     def comment(request, body):
         pid = request.path_params['pid']
         passport = Passport(projects, pid)
@@ -172,7 +181,8 @@ def routes(projects: Projects) -> list[Route]:
         well = passport.well(body.get('well'))
         available = passport.sections()
         sections = body.get('sections', available)
-        if not isinstance(sections, list) or not sections:
+        with_card = body.get('card') is True              # по умолчанию паспорт как в 5.8; карточку включает страница
+        if not isinstance(sections, list) or (not sections and not with_card):
             raise ParamError('Выберите хотя бы один раздел паспорта.')
         bad = [str(s) for s in sections if s not in available]
         if bad:
@@ -181,13 +191,15 @@ def routes(projects: Projects) -> list[Route]:
         text = body.get('comment')
         if text is None:
             text = passport.settings.get('well_comments', {}).get(well, '')
-        content, path = passport.build(well, [str(s) for s in sections], periods, str(text)[:COMMENT_LIMIT])
+        card = passport.card(well, str(body.get('krs') or '')) if with_card else None
+        content, path = passport.build(well, [str(s) for s in sections], periods, str(text)[:COMMENT_LIMIT], card)
         return Response(content, media_type='application/pdf',
                         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(path.name)}"})
 
     E = _endpoint
     return [
         Route('/api/projects/{pid}/passport', E(info)),
+        Route('/api/projects/{pid}/passport/card', E(card)),
         Route('/api/projects/{pid}/passport/comment', E(comment), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),
     ]

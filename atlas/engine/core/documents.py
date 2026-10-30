@@ -91,7 +91,7 @@ def report_docx(figures,project,caption_config=None,progress=None,errors=None,co
     return buf.getvalue() if buf is not None else target
 
 
-def passport_pdf(project,well,figures,tables,settings,comment='',progress=None):
+def passport_pdf(project,well,figures,tables,settings,comment='',progress=None,card=None):
     import matplotlib
     matplotlib.use('Agg')
     from matplotlib import pyplot as plt
@@ -123,6 +123,9 @@ def passport_pdf(project,well,figures,tables,settings,comment='',progress=None):
     buf=io.BytesIO()
     with LOCK,plt.rc_context({'font.family':'DejaVu Sans','pdf.fonttype':42}):
         with PdfPages(buf,metadata={'Title':'Паспорт скважины №'+str(well),'Author':'Газовый атлас'}) as pdf:
+            if card:
+                from atlas.passport_card_pdf import draw_pages
+                draw_pages(card,project,pdf)
             for offset in range(0,len(lines),46):
                 fig=plt.figure(figsize=(8.27,11.69))
                 try:

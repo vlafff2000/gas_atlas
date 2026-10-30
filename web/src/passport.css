@@ -1,0 +1,36 @@
+/* Дашборд «Паспорта скважины»: карточки показателей, схема забоя, таблицы. */
+.passport-tabs { display: flex; gap: 6px; margin: 4px 0 12px; }
+.passport-tabs button { border-radius: 999px; }
+.passport-tabs button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.passport-dash { display: flex; flex-direction: column; gap: 14px; }
+.kpi-grid { align-items: start; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.kpi-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; border-top: 3px solid var(--accent); }
+.kpi-card.kpi-none { border-top-color: var(--line-strong); }
+.kpi-label { font-size: 12px; color: var(--muted); }
+.kpi-value { font-size: 24px; font-weight: 700; line-height: 1.2; }
+.kpi-value small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.kpi-card.kpi-none .kpi-value { color: var(--muted); }
+.kpi-hint { font-size: 12px; color: var(--muted); }
+.dash-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; align-items: start; }
+.dash-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; overflow-x: auto; }
+.dash-panel h2 { font-size: 16px; margin: 0 0 8px; }
+.dash-panel h3 { font-size: 13px; color: var(--muted); margin: 8px 0 2px; font-weight: 600; }
+.small { font-size: 12.5px; }
+.well-schematic { width: 100%; max-width: 720px; height: auto; display: block; }
+.schematic-bg { fill: #ffffff; stroke: var(--line); }
+.schematic-tick { stroke: #6b7280; stroke-width: .8; }
+.schematic-tick-text { font-size: 14px; fill: #6b7280; }
+.schematic-label { font-size: 16px; font-weight: 600; }
+.season-bars { max-width: 100%; height: 170px; display: block; }
+.bar-withdrawal { fill: var(--accent); }
+.bar-injection { fill: #6a7fdb; }
+.bar-value { font-size: 11px; fill: var(--ink); font-weight: 600; }
+.bar-axis { font-size: 10px; fill: var(--muted); }
+.passport-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.passport-table th { background: var(--head-bg); text-align: left; font-weight: 600; color: var(--muted); }
+.passport-table th, .passport-table td { border-bottom: 1px solid var(--line-soft); padding: 5px 8px; }
+.passport-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.passport-table tbody tr:hover { background: var(--row-hover); }
+.passport-table tr.unreliable td { color: var(--muted); font-style: italic; }
+.krs-book { display: inline-flex; align-items: center; gap: 8px; }
+@media print { .passport-tabs, .toolbar { display: none; } }
