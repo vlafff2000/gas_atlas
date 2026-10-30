@@ -87,10 +87,11 @@ export function ExportAnyChart({ project }: { project: Project }) {
     return [...by.entries()]
   }, [specs, ready])
   const chart = charts.find(c => c.id === chartId)
-  // переключатели вида графиков раздела (у обычного раздела они в верхней панели, а не в ParamBar): без них часть графиков не выбрать
-  const kinds = (spec?.params ?? []).filter(p => p.chart_kind && p.options.length > 1
-    && (!p.show_if || Object.entries(p.show_if).every(([k, v]) => params[k] === v)))
-
+  const chartGroups = useMemo(() => {
+    const by = new Map<string, AnyChartInfo[]>()
+    for (const c of charts) by.set(c.group || 'Графики', [...(by.get(c.group || 'Графики') ?? []), c])
+    return [...by.entries()]
+  }, [charts])
   const pickModule = (id: string) => {
     const s = specs.find(x => x.id === id)
     setExtraFormats([])
@@ -196,7 +197,7 @@ export function ExportAnyChart({ project }: { project: Project }) {
 
   return (
     <>
-      <p className="lede">Любой график любого раздела: выберите раздел и его параметры, затем график — и настройте выгрузку именно этого графика. Пустое поле — как задал раздел.</p>
+      <p className="lede">Любой график любого раздела: выберите раздел, сезон и график из общего списка — и настройте выгрузку именно этого графика. Пустое поле — как задал раздел.</p>
       <div className="param-bar flat">
         <Box title="Раздел">
           <label className="field wide">
@@ -211,25 +212,25 @@ export function ExportAnyChart({ project }: { project: Project }) {
               ))}
             </select>
           </label>
-          {charts.length > 0 && (
-            <label className="field wide">
-              <span className="field-label">График ({charts.length})</span>
-              <select value={chartId} onChange={e => setChartId(e.target.value)}>
-                {charts.map(c => <option key={c.id} value={c.id}>{c.title || c.id}{c.table ? ' · с таблицей' : ''}</option>)}
-              </select>
-            </label>
-          )}
-          {kinds.map(p => (
-            <label key={p.name} className="field wide">
-              <span className="field-label">{p.label}</span>
-              <select value={String(params[p.name] ?? '')} onChange={e => setParams({ ...params, [p.name]: e.target.value })}>
-                {p.options.map(o => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
-              </select>
-            </label>
-          ))}
         </Box>
       </div>
       {spec && <ParamBar key={spec.id} spec={spec} project={project.id} panel={0} values={params} onChange={setParams} />}
+      {charts.length > 0 && (
+        <div className="param-bar flat">
+          <Box title="График">
+            <label className="field wide">
+              <span className="field-label">Все графики раздела ({charts.length})</span>
+              <select value={chartId} onChange={e => setChartId(e.target.value)}>
+                {chartGroups.map(([group, items]) => (
+                  <optgroup key={group} label={group}>
+                    {items.map(c => <option key={c.id} value={c.id}>{c.title || c.id}{c.table ? ' · с таблицей' : ''}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          </Box>
+        </div>
+      )}
       {error && <div className="note warning" role="alert">{error}</div>}
       {moduleId && !busy && charts.length === 0 && !error && <div className="note info">{note || 'Графиков нет.'}</div>}
 

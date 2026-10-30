@@ -213,8 +213,8 @@ def test_special_chart_legend_position_applies(env):
     client, pid = env
     params = {'kind': 'withdrawal', 'periods': ['2025-2026'], 'class_chart': 'box'}
     found = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'an_report', 'params': params}).json()['charts']
-    assert any(c['id'].startswith('an-class-share') for c in found)       # график классов доступен при выбранном виде «Классы производительности»
-    chart = next(c['id'] for c in found if c['id'].startswith('an-class-share'))
+    assert any('::an-class-share' in c['id'] for c in found)       # график классов есть в общем списке, без выбора вида
+    chart = next(c['id'] for c in found if '::an-class-share' in c['id'])
     sizes = {}
     for place in ('bottom', 'top', 'right'):
         r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'an_report', 'params': params, 'chart': chart,
@@ -222,3 +222,17 @@ def test_special_chart_legend_position_applies(env):
         assert r.status_code == 200, r.text
         sizes[place] = r.content
     assert len(set(sizes.values())) == 3
+
+
+def test_all_views_in_one_flat_list_and_each_exports(env):
+    """Виды графиков раздела (переключатели chart_kind) не прячут графики: все они в одном списке, и каждый выгружается."""
+    client, pid = env
+    params = {'wells': ['31', '70'], 'periods': ['2025-2026'], 'groups': ['ГСП 2']}
+    found = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'histograms', 'params': {**params, 'axis': 'well'}}).json()['charts']
+    assert {c['group'] for c in found} == {'Основные', 'Ось гистограммы: Периоды'}
+    again = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'histograms', 'params': {**params, 'axis': 'period'}}).json()['charts']
+    assert {c['id'] for c in found} == {c['id'] for c in again}      # выбранный вид не меняет состав списка
+    for chart in found:
+        r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'histograms', 'params': params, 'chart': chart['id'],
+                                                                      'settings': {'dpi': 150}})
+        assert r.status_code == 200 and r.content[:4] == b'\x89PNG', chart['id']
