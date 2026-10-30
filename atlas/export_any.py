@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 from typing import Any, Mapping
 
 from . import chart_special, chart_view, render
@@ -182,12 +183,63 @@ def routes(projects, E, compute) -> list:
             notes += extra
         return out, notes
 
-    def charts_of(module_id, pid, params):
-        """Графики раздела (или сохранённых макетов конструктора) при выбранных параметрах и заметки расчёта."""
+    SEP = '::'      # id графика в списке: «вид=значение&вид=значение::id» (пусто до «::» — виды по умолчанию)
+
+    def variants_of(spec, params):
+        """Все виды графиков раздела одним списком. Переключатели вида (chart_kind) идут по очереди во все свои значения; если они
+        видны только в одном из режимов раздела (параметр, на который ссылается show_if), то так же обходится каждый режим.
+        Возвращает [(переопределения параметров, подпись вида)]; первый — как задано по умолчанию."""
+        base = spec.coerce(params)
+        kinds = [p for p in spec.params if p.chart_kind and len(p.options) > 1]
+        modes = []
+        for name in dict.fromkeys(k for p in kinds for k in (p.show_if or {})):
+            mode = next((p for p in spec.params if p.name == name and not p.chart_kind and p.kind == 'choice' and p.options), None)
+            if mode is not None:
+                modes.append(mode)
+        combos = [({}, '')]
+        for mode in modes:
+            combos = [(over | {mode.name: o.value}, (label + ' · ' if label else '') + f'{mode.label}: {o.label}' if i else label)
+                      for over, label in combos for i, o in enumerate(sorted(mode.options, key=lambda o: o.value != base.get(mode.name)))]
+        out = []
+        for over, label in combos:
+            now = {**base, **over}
+            out.append((over, label))
+            for p in kinds:
+                if p.show_if and any(now.get(k) != v for k, v in p.show_if.items()):
+                    continue
+                for o in p.options:
+                    if o.value != now.get(p.name):
+                        out.append(({**over, p.name: o.value}, (label + ' · ' if label else '') + f'{p.label}: {o.label}'))
+        return out
+
+    def charts_of(module_id, pid, params, only=None):
+        """Графики раздела (или сохранённых макетов конструктора) при выбранных параметрах: один плоский список по всем видам.
+        Каждый элемент — (график с id вида, подпись группы вида); ``only`` — ключ вида, если нужен один."""
         if module_id == SAVED:
-            return saved_charts(pid, params)
-        (result, _), _, _ = compute(registry.get(module_id), pid, params, True)
-        return list(result.charts), []
+            found, notes = saved_charts(pid, params)
+            return [(c, '') for c in found], notes
+        module = registry.get(module_id)
+        kinds = {p.name for p in module.spec.params if p.chart_kind}
+        clean = {k: v for k, v in dict(params or {}).items() if k not in kinds}
+        out, seen = [], set()
+        for over, label in variants_of(module.spec, clean):
+            key = '&'.join(f'{k}={v}' for k, v in over.items())
+            if only is not None and key != only:
+                continue
+            try:
+                (result, _), _, _ = compute(module, pid, {**clean, **over}, True)
+            except Exception:
+                if not key:
+                    raise
+                logging.getLogger(__name__).warning('Любой график: вид «%s» раздела %s не посчитался', label, module_id, exc_info=True)
+                continue            # вид, который при этих данных не считается, в списке просто отсутствует
+            for c in result.charts:
+                sig = (c.id, c.title, tuple((x.name, len(x.x), str(list(x.x)[:3]), str(list(x.y)[:3])) for x in c.series))
+                if only is None and key and sig in seen:
+                    continue            # тот же график уже есть в другом виде
+                seen.add(sig)
+                out.append((dataclasses.replace(c, id=key + SEP + c.id), label or 'Основные'))
+        return out, []
 
     def modules(request, body):
         """Все разделы, у которых могут быть графики, и готовы ли для них данные проекта."""
@@ -208,12 +260,14 @@ def routes(projects, E, compute) -> list:
             found, notes = charts_of(str(body.get('module') or ''), request.path_params['pid'], body.get('params'))
         except MissingData as e:
             return {'charts': [], 'note': str(e)}
-        return {'charts': [describe(c) for c in found],
+        return {'charts': [dict(describe(c), group=g) for c, g in found],
                 'note': ' '.join(notes) if notes else '' if found else 'В этом разделе при выбранных параметрах графиков нет.'}
 
     def file(request, body):
-        found, _ = charts_of(str(body.get('module') or ''), request.path_params['pid'], body.get('params'))
-        chart = next((c for c in found if c.id == body.get('chart')), None)
+        wanted = str(body.get('chart') or '')
+        found, _ = charts_of(str(body.get('module') or ''), request.path_params['pid'], body.get('params'),
+                             only=wanted.split(SEP, 1)[0] if SEP in wanted else None)
+        chart = next((c for c, _ in found if c.id == wanted), None)
         if chart is None:
             return Response(json.dumps({'error': 'График не найден. Обновите список.'}, ensure_ascii=False), status_code=404,
                             media_type='application/json')
