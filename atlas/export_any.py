@@ -144,7 +144,7 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
     if chart_special.is_special(out):
         legend = out.style.get('legend')
         opts = {'width_mm': s['width'] if s['sized'] else None, 'height_mm': s['height'] if s['sized'] else None,
-                'font': s['font'], 'font_size': s['font_size'], 'legend': legend if legend in ('top', 'hide') else 'right' if legend else None,
+                'font': s['font'], 'font_size': s['font_size'], 'legend': legend if legend in ('top', 'bottom', 'hide') else 'right' if legend else None,
                 'table_show': s['table']['show'], 'table_font_size': s['table']['font_size'], 'table_row': s['table']['row'],
                 'segment_size': s['segment_size'], 'cell_size': s['cell_size'], 'style': out.style}
         content = chart_special.figure_file(out, s['format'], s['dpi'], opts)

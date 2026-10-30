@@ -206,3 +206,19 @@ def test_facets_listed_and_special_style_applied():
     plain = shot({})
     painted = shot({'cell_size': 20, 'chart': {'background': '#ffeecc'}})
     assert plain.getpixel((2, 2)) == (255, 255, 255) and painted.getpixel((2, 2)) == (255, 238, 204)
+
+
+def test_special_chart_legend_position_applies(env):
+    """Положение легенды у столбцов с сегментами (АН): «снизу», «сверху», «справа» дают разные картинки, а не всегда «справа»."""
+    client, pid = env
+    params = {'kind': 'withdrawal', 'periods': ['2025-2026'], 'class_chart': 'box'}
+    found = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'an_report', 'params': params}).json()['charts']
+    assert any(c['id'].startswith('an-class-share') for c in found)       # график классов доступен при выбранном виде «Классы производительности»
+    chart = next(c['id'] for c in found if c['id'].startswith('an-class-share'))
+    sizes = {}
+    for place in ('bottom', 'top', 'right'):
+        r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'an_report', 'params': params, 'chart': chart,
+                                                                      'settings': {'dpi': 150, 'chart': {'legend': place}}})
+        assert r.status_code == 200, r.text
+        sizes[place] = r.content
+    assert len(set(sizes.values())) == 3
