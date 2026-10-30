@@ -81,12 +81,19 @@ def _dress(fig: Any, chart: Chart, o: dict[str, Any]) -> None:
                 t.set_color(st['text_color'])
     if chart.title:
         align = {'left': 'left', 'right': 'right'}.get(st.get('title_align') or '', 'center')
+        for place in ('left', 'center', 'right'):        # у matplotlib три независимых заголовка: старый стирать, иначе названия двоятся
+            ax.set_title('', loc=place)
         ax.set_title(chart.title, loc=align, fontsize=float(st.get('title_size') or base + 1), color=st.get('title_color') or st.get('text_color') or 'black',
                      fontweight='bold' if st.get('title_bold') else 'normal', y=ax.title.get_position()[1])
     grid = st.get('grid')
     if grid in ('both', 'h', 'v') and chart.heat is None and chart.strips is None:
         ax.grid(True, axis={'both': 'both', 'h': 'y', 'v': 'x'}[grid], color=st.get('grid_color') or '#d0d7da', lw=float(st.get('grid_width') or 0.7))
         ax.set_axisbelow(True)
+
+
+def _dots(text: str) -> str:
+    """Подпись узкого сегмента точками: «3» — три точки (число, не влезшее в подпись, читается по количеству)."""
+    return '●' * int(text) if text.isdigit() else '●'
 
 
 def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color: Any, o: dict[str, Any] | None = None):
@@ -117,7 +124,7 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
             if text and v / top >= NARROW / 100:
                 ax.text(j, middle, text, ha='center', va='center', fontsize=float(o.get('segment_size') or base - 1), color='white' if _luma(color) < 140 else '#111')
             elif text and chart.callouts == 'dot':
-                ax.text(j, middle, '●', ha='center', va='center', fontsize=7, color='white' if _luma(color) < 140 else '#111')
+                ax.text(j, middle, _dots(text), ha='center', va='center', fontsize=9, color='white' if _luma(color) < 140 else '#111')
             elif text:
                 marks.append((j, middle, text, color))
         below += values

@@ -65,6 +65,7 @@ class Param:
     requires_dataset: str = ''        # параметр скрыт, пока в проекте нет этого набора данных, напр. 'elpro'
     empty: str = 'все'                # что значит пустой выбор в списке: 'все' или 'ничего'
     show_if: dict[str, Any] | None = None   # показывать, только если параметры равны этим значениям
+    aliases: Mapping[str, Any] = field(default_factory=dict)   # старое значение choice → нынешнее (сохранённые виды и проекты открываются)
     chart_kind: bool = False          # переключатель вида графиков: выводится в верхнем тулбаре раздела
     extensions: str = ''              # для file: расширения в проводнике, через пробел: 'xlsx docx'
     wells_picker: bool = False        # список скважин: пресеты (группы, фонды, сетка), вставка из буфера обмена
@@ -104,6 +105,7 @@ class Param:
         if self.kind == 'file':    # путь к файлу, выбранному общим проводником; существование проверяет модуль
             return str(value).strip().strip('"').strip()[:1000]
         if self.kind == 'choice':
+            value = self.aliases.get(value, value) if isinstance(value, str) else value
             if self.options and value not in {o.value for o in self.options}:
                 raise ParamError(f'«{self.label}»: недопустимое значение {value!r}')
             return value

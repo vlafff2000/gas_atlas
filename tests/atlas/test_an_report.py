@@ -348,14 +348,14 @@ def test_class_seasons_chart_compares_groups_across_seasons():
     prod = pd.concat([first, second], ignore_index=True)
     counts = pd.concat([an_wells.class_counts(an_wells.season_wells(prod, 'withdrawal', s), an_report.well_scopes(MAPPING, ['1', '2', '3']))
                         .assign(season=s) for s in ('2023-2024', '2024-2025')], ignore_index=True)
-    chart = an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024', '2024-2025'], 'box')
+    chart = an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024', '2024-2025'])
     cats = chart.x.categories
     assert [c.split(' · ')[1] for c in cats] == ['2023-2024', '2024-2025'] * 2           # внутри группы сезоны по порядку
     assert cats[0].split(' · ')[0] == cats[1].split(' · ')[0] and cats[0] != cats[2]       # пара группа · сезон
     assert [sum(s.y[j] for s in chart.series) for j in range(len(cats))] == [2, 1, 1, 1]   # скважин в группе сезона, «Всего» не попадает
     assert an_wells.TOTAL not in ' '.join(cats)
-    assert an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024'], 'box') is None     # меньше двух сезонов — графика нет
-    dot = an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024', '2024-2025'], 'dot')
+    assert an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024']) is None     # меньше двух сезонов — графика нет
+    dot = an_charts.class_seasons_chart('withdrawal', counts, ['2023-2024', '2024-2025'])
     assert dot.callouts == 'dot' and dot.table is not None
 
 
