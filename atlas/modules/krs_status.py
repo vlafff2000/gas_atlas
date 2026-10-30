@@ -1,7 +1,7 @@
 """КРС: техническое состояние скважин, приоритет капремонта и динамика ГДИ.
 
-Вход — книга ``КРС_для_Атласа.xlsx``, которую делает модуль «Состояние скважин и приоритет КР» программы «Работа с исходными данными»
-(листы «Приоритет», «Ремонты», «Потребность по годам», «КР по годам», «Очередь КР (подсказка)»). Приоритет там — подсказка
+Вход — таблицы проекта ``krs_works`` и ``krs_priority``: книгу ``КРС_для_Атласа.xlsx`` (модуль «Состояние скважин и приоритет КР»
+программы «Работа с исходными данными») загружают один раз во вкладке «Импорт», выбирать файл здесь не нужно. Приоритет там — подсказка
 (1 — срочно) по ревизиям КРУ с видимой причиной; ручное значение главнее расчёта. Здесь к нему добавлена динамика ГДИ:
 ухудшение отдачи (расчёт ``gdi_trend``) — признак для ремонта. Приоритет по ГДИ не пересчитывается, показывается подсказка рядом:
 решает инженер.
@@ -17,12 +17,14 @@ from atlas.engine.core.config import COLORS
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Stat, Table
 from ..domain import DatasetKind
+from atlas.engine.core.krs_import import PRIORITY_SOURCE
 from .gdi import select, well_key
 from .gdi_trend import VERDICTS, histories, rating
 
 GDI = DatasetKind.GDI
+WORKS_K, PRIORITY_K = DatasetKind.KRS_WORKS, DatasetKind.KRS_PRIORITY
 SECTION = 'Выбор данных'
-REQUIRED = ('Приоритет', 'Ремонты')
+EMPTY_HINT = 'Данных КРС в проекте нет: импортируйте книгу КРС_для_Атласа.xlsx во вкладке «Импорт».'
 TYPE_COLORS = {'Замена фильтра': '#d9822b', 'Колтюбинг без СКО': '#3a9ad9', 'Колтюбинг с СКО / СКО': '#e0c341',
                'Армирование ПЗП': '#2f4f9f', 'Тип не определён': '#999999'}
 HINT_BOTH = 'Песок и ухудшение ГДИ: основание повысить приоритет'
@@ -33,12 +35,20 @@ NOTE = ('Приоритет КР (1 — срочно) — подсказка п�
         'Ухудшение ГДИ — признак для ремонта, сам приоритет оно не меняет: решение за инженером.')
 
 
-def read_book(path: str) -> dict[str, pd.DataFrame]:
-    sheets = pd.read_excel(path, sheet_name=None)
-    missing = [s for s in REQUIRED if s not in sheets]
-    if missing:
-        raise ValueError(f'В книге нет листов: {", ".join(missing)}. Нужен файл КРС_для_Атласа.xlsx из модуля «Состояние скважин и приоритет КР».')
-    return sheets
+def from_project(data: Data) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+    """Таблицы проекта в привычных названиях столбцов книги: (приоритет, ремонты); нет обеих — None."""
+    prio, works = data.get(PRIORITY_K), data.get(WORKS_K)
+    if (prio is None or prio.empty) and (works is None or works.empty):
+        return None
+    if prio is None or prio.empty:
+        prio = pd.DataFrame(columns=list(PRIORITY_SOURCE.values()))
+    prio = prio.rename(columns={v: k for k, v in PRIORITY_SOURCE.items()})
+    prio['Скважина'] = prio['Скважина'].astype(str)
+    if works is None or works.empty:
+        works = pd.DataFrame(columns=['well', 'year', 'work_type', 'detail'])
+    works = works.rename(columns={'well': 'Скважина', 'year': 'Год', 'work_type': 'Тип ремонта', 'detail': 'Подробности'})
+    works = works.dropna(subset=['Год']).assign(Год=lambda d: d['Год'].astype(int))
+    return prio.reset_index(drop=True), works.reset_index(drop=True)
 
 
 def gdi_flags(gdi: pd.DataFrame, threshold: float, change: float, last_n: int) -> pd.DataFrame:
@@ -54,7 +64,7 @@ def gdi_flags(gdi: pd.DataFrame, threshold: float, change: float, last_n: int) -
 
 def combine(priority: pd.DataFrame, flags: pd.DataFrame) -> pd.DataFrame:
     out = priority.copy()
-    out['well'] = out['Скважина'].astype(int).astype(str)
+    out['well'] = out['Скважина'].astype(str)
     flags = flags.assign(well=flags.well.astype(str))
     out = out.merge(flags, on='well', how='left')
     down = out.verdict.eq(VERDICTS['down'])
@@ -78,21 +88,6 @@ def works_chart(works: pd.DataFrame) -> Chart | None:
     return chart
 
 
-def need_chart(need: pd.DataFrame) -> Chart | None:
-    cols = [c for c in need.columns if str(c).startswith('Приоритет ')]
-    if need.empty or not cols:
-        return None
-    cats = [str(int(y)) for y in need['Год']]
-    chart = Chart('krs-need', 'Скважины, которым требуется КР, по годам (расчёт по ревизиям КРУ)', Axis('Конец года', scale='category', categories=cats),
-                  Axis('Скважин', 'скв.', from_zero=True))
-    shade = {'Приоритет 1': '#c0392b', 'Приоритет 2': '#e08a2b', 'Приоритет 3': '#e0c341'}
-    for c in sorted(cols):
-        vals = [float(v) for v in need[c]]
-        chart.series.append(Series(c, cats, vals, 'bar', stack='need', color=shade.get(c, COLORS[0]),
-                                   segments=[str(int(v)) if v else '' for v in vals], labels=[f'{int(v)} скв.' for v in vals]))
-    return chart
-
-
 class KrsStatusModule(Module):
     spec = ModuleSpec(
         id='krs_status',
@@ -100,11 +95,9 @@ class KrsStatusModule(Module):
         group='Авторский надзор',
         description='Проведённые КР, статистика, потребность в ремонте и приоритет скважин; ухудшение ГДИ как признак для ремонта.',
         needs=(),
-        optional=(GDI,),
+        optional=(GDI, WORKS_K, PRIORITY_K),
         order=118,
         params=(
-            Param('book', 'Книга КРС', 'file', default='', extensions='xlsx', section=SECTION,
-                  help='КРС_для_Атласа.xlsx из «Работы с исходными данными» → «Состояние скважин и приоритет КР».'),
             Param('gdi_last', 'Последние даты ГДИ', 'choice', default=6, section=SECTION,
                   options=(Option(3, '3'), Option(6, '6'), Option(10, '10'), Option(0, 'Все')),
                   help='Сколько последних дат исследований брать по скважине для динамики ГДИ.'),
@@ -117,16 +110,11 @@ class KrsStatusModule(Module):
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         result = Result()
-        if not params['book']:
-            result.notes.append(Note('Выберите книгу КРС (КРС_для_Атласа.xlsx).'))
+        book = from_project(data)
+        if book is None:
+            result.notes.append(Note(EMPTY_HINT))
             return result
-        try:
-            book = read_book(params['book'])
-        except (ValueError, OSError) as exc:
-            result.notes.append(Note(str(exc), 'warning'))
-            return result
-        priority = book['Приоритет']
-        works = book['Ремонты']
+        priority, works = book
         if GDI in data and not data[GDI].empty:
             flags = gdi_flags(data[GDI], params['threshold'], params['change'], int(params['gdi_last']))
         else:
@@ -142,7 +130,7 @@ class KrsStatusModule(Module):
             Stat('С ухудшением ГДИ', str(worse), f'Расход при общем ΔP² снизился на {params["change"]:g}% и более'),
             Stat('Проведено КР', str(len(works)))]
         result.notes.append(Note(NOTE))
-        for chart in (works_chart(works), need_chart(book.get('Потребность по годам', pd.DataFrame()))):
+        for chart in (works_chart(works),):
             if chart is not None:
                 result.charts.append(chart)
         result.tables.append(Table('krs-priority', 'Скважины: приоритет КР и динамика ГДИ', table, [
@@ -156,16 +144,9 @@ class KrsStatusModule(Module):
             Column('verdict', 'Вывод ГДИ'), Column('change', 'Изменение Q', '%', 1, 'number'),
             Column('hint', 'Подсказка по ГДИ'), Column('Причина', 'Причина приоритета')],
             note='Приоритет — подсказка по ревизиям КРУ, ручное значение главнее. Подсказка по ГДИ приоритет не меняет.'))
-        for name, tid, title in (('КР по годам', 'krs-by-year', 'Проведённые КР по годам и типам'),
-                                 ('КР по ГСП', 'krs-by-gsp', 'Проведённые КР по ГСП'),
-                                 ('Потребность по годам', 'krs-need-year', 'Потребность в КР по годам'),
-                                 ('Потребность по ГСП', 'krs-need-gsp', 'Потребность в КР по ГСП'),
-                                 ('Очередь КР (подсказка)', 'krs-queue', 'Очередь КР на ближайшие сезоны (подсказка)')):
-            frame = book.get(name)
-            if frame is not None and not frame.empty:
-                result.tables.append(Table(tid, title, frame, [Column(str(c), str(c)) for c in frame.columns], collapsed=name != 'КР по годам'))
+        if not works.empty:
+            by_year = works.pivot_table(index='Год', columns='Тип ремонта', values='Скважина', aggfunc='count', fill_value=0).reset_index()
+            result.tables.append(Table('krs-by-year', 'Проведённые КР по годам и типам', by_year,
+                                       [Column(str(c), str(c)) for c in by_year.columns]))
         result.tables.append(Table('krs-works', 'Все проведённые КР', works, [Column(str(c), str(c)) for c in works.columns], collapsed=True))
-        issues = book.get('Проверка')
-        if issues is not None and not issues.empty:
-            result.tables.append(Table('krs-issues', 'Замечания к таблице', issues, [Column(str(c), str(c)) for c in issues.columns], collapsed=True))
         return result
