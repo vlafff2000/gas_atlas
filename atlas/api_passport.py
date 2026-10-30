@@ -28,6 +28,9 @@ from .projects import Conflict, Projects
 log = logging.getLogger(__name__)
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 COMMENT_LIMIT = 20000
+# Разделы, которые 5.8 умеет строить по скважине. Остальные наборы проекта (ГГХ, ЭЛПРО, ГИС, межколонные и т. д.) без колонки «скважина»
+# или без отчёта по скважине: в паспорт не входят (раньше они ломали PDF: 'DataFrame' object has no attribute 'well').
+PASSPORT_SECTIONS = ('production', 'histograms', 'gdi', 'response', 'operations', 'water', 'bottom', 'construction', 'well_dashboard')
 
 
 def _error(status: int, message: str) -> JSONResponse:
@@ -75,7 +78,14 @@ class Passport:
         return ordered({w for d in self.raw.values() if 'well' in d for w in d.well.unique()})
 
     def sections(self) -> list[str]:
-        return [x for x in self.frames if x != 'object_pressure' and x in MODULES]
+        return [x for x in self.frames if x in PASSPORT_SECTIONS and x in MODULES and 'well' in self.frames[x].columns]
+
+    def scope(self, flt: Any) -> list[str]:
+        """Скважины проекта после фильтра (группы и скважины пересекаются, как во вкладках); без фильтра — все."""
+        from atlas import well_filter
+        wells = self.wells()
+        keep = well_filter.keep_set(self.projects.data(self.pid), well_filter.clean(flt))
+        return wells if keep is None else [w for w in wells if w in keep]
 
     def periods(self) -> dict[str, list[str]]:
         if 'production' not in self.frames:
@@ -124,6 +134,23 @@ class Passport:
                                                options)
         return content, path
 
+    def archive(self, wells: list[str], sections: list[str], periods: dict[str, list[str]], with_card: bool) -> Response:
+        """Паспорта нескольких скважин: PDF на каждую в одном ZIP; комментарий у каждой скважины свой, из проекта."""
+        import io
+        import zipfile
+        from atlas.engine.core.export import safe_name
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for well in wells:
+                text = str(self.settings.get('well_comments', {}).get(well, ''))[:COMMENT_LIMIT]
+                content, _path = self.build(well, sections, periods, text, self.card(well) if with_card else None)
+                zf.writestr('Паспорт_скважины_' + safe_name(well) + '.pdf', content)
+        data = buf.getvalue()
+        path = self.projects.store.save_export(self.pid, f'Паспорта_скважин_{len(wells)}.zip', data,
+                                               {'wells': wells, 'sections': sections, 'periods': periods})
+        return Response(data, media_type='application/zip',
+                        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(path.name)}"})
+
 
 def _periods(body_value: Any, available: dict[str, list[str]]) -> dict[str, list[str]]:
     """Периоды паспорта; не заданы — последние два, как по умолчанию в 5.8."""
@@ -151,11 +178,17 @@ def routes(projects: Projects) -> list[Route]:
         if not wells:
             return {'wells': [], 'well': None, 'sections': [], 'periods': {}, 'comment': '',
                     'revision': passport.manifest.get('revision'), 'note': 'Сначала загрузите данные скважин.'}
-        well = passport.well(request.query_params.get('well'))
+        try:
+            flt = json.loads(request.query_params.get('filter') or 'null')
+        except ValueError:
+            raise ParamError('Фильтр скважин: ожидаются списки групп и скважин') from None
+        shown = passport.scope(flt)
+        well = passport.well(request.query_params.get('well') or (shown[0] if shown else None))
         periods = passport.periods()
         sections = passport.sections()
+        mapping = passport.mapping()
         return {
-            'wells': wells, 'well': well,
+            'wells': wells, 'shown': shown, 'groups': {w: mapping.get(w, {}).get('group', '') for w in wells}, 'well': well,
             'sections': [{'value': s, 'label': MODULES.get(s, s)} for s in sections],
             'periods': {kind: {'label': label, 'options': periods[kind], 'default': periods[kind][-2:]}
                         for kind, label in KINDS if kind in periods},
@@ -181,6 +214,15 @@ def routes(projects: Projects) -> list[Route]:
     def pdf(request, body):
         passport = Passport(projects, request.path_params['pid'])
         well = passport.well(body.get('well'))
+        chosen = body.get('wells')
+        if chosen is not None:
+            if not isinstance(chosen, list) or not chosen:
+                raise ParamError('Список скважин для паспорта пуст.')
+            known = set(passport.wells())
+            bad = [str(w) for w in chosen if str(w) not in known]
+            if bad:
+                raise ParamError('Нет таких скважин в данных проекта: ' + ', '.join(bad[:5]))
+            chosen = list(dict.fromkeys(str(w) for w in chosen))
         available = passport.sections()
         sections = body.get('sections', available)
         with_card = body.get('card') is True              # по умолчанию паспорт как в 5.8; карточку включает страница
@@ -193,6 +235,12 @@ def routes(projects: Projects) -> list[Route]:
         text = body.get('comment')
         if text is None:
             text = passport.settings.get('well_comments', {}).get(well, '')
+        if chosen and len(chosen) > 1:
+            return passport.archive(chosen, [str(s) for s in sections], periods, with_card)
+        if chosen:
+            well = chosen[0]
+            if body.get('comment') is None:
+                text = passport.settings.get('well_comments', {}).get(well, '')
         card = passport.card(well) if with_card else None
         content, path = passport.build(well, [str(s) for s in sections], periods, str(text)[:COMMENT_LIMIT], card)
         return Response(content, media_type='application/pdf',

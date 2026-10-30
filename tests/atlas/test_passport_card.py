@@ -118,6 +118,6 @@ def test_pdf_starts_with_card_page(env):
     without = client.post(f'/api/projects/{pid}/passport/pdf', json={'well': WELL, 'sections': ['gdi']})
     assert with_card.status_code == 200 and without.status_code == 200, with_card.text
     pages = lambda b: len(re.findall(rb'/Type\s*/Page[^s]', b))
-    assert pages(with_card.content) == pages(without.content) + 1
+    assert pages(with_card.content) == pages(without.content) + 2        # страница карточки и страница графиков
     only = client.post(f'/api/projects/{pid}/passport/pdf', json={'well': WELL, 'sections': [], 'card': True})
     assert only.status_code == 200 and pages(only.content) >= 1

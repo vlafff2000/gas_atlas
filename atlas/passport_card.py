@@ -180,20 +180,31 @@ def seasons_table(daily: pd.DataFrame, stats: pd.DataFrame, kind: str) -> list[d
     """Сезоны: объём, отработанные дни, максимальный и средний суточный расход, часы и вода."""
     if stats.empty:
         return []
-    top = {}
+    top, last = {}, {}
     if not daily.empty:
-        g = daily[daily.gas_volume_m3.notna()]
+        # Qmax — только по отработанным дням (как «Qср» и «Отработано дней»): объём в день с нулём часов не рекорд работы.
+        g = daily[daily.gas_volume_m3.notna() & daily.active.fillna(False).astype(bool)]
         for period, part in g.groupby('period', sort=False):
             i = part.gas_volume_m3.idxmax()
             top[period] = (part.gas_volume_m3[i] / 1000, part.date[i])
+        for period, part in daily.groupby('period', sort=False):
+            last[period] = part.date.max()
     rows = []
     for _, s in stats.iterrows():
         peak = top.get(s.period)
         rows.append({'kind': kind, 'period': str(s.period), 'volume': _num(s.gas_volume), 'days': int(s.active_days),
                      'max_rate': _num(peak[0]) if peak else None, 'max_date': _date(peak[1]) if peak else '',
                      'mean_rate': _num(s.mean_active), 'hours': _num(s.hours), 'water': _num(s.water_volume),
-                     'coverage': _num(s.coverage)})
+                     'coverage': _num(s.coverage), 'end': _date(last.get(s.period))})
     return rows
+
+
+def chronological(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Сезоны одной таблицей по хронологии: сверху самый свежий, за ним предыдущий другого вида (закачка/отбор) и так далее."""
+    def key(r):
+        end = pd.to_datetime(r['end'], format='%d.%m.%Y', errors='coerce')
+        return (end if pd.notna(end) else pd.Timestamp.min, r['period'])
+    return sorted(rows, key=key, reverse=True)
 
 
 def gdi_table(history: pd.DataFrame) -> list[dict[str, Any]]:
@@ -206,6 +217,65 @@ def gdi_table(history: pd.DataFrame) -> list[dict[str, Any]]:
                      'q_max': _num(r.q_observed), 'q_free': _num(r.q_free), 'reliable': bool(r.reliable),
                      'note': str(r.note or '')})
     return rows
+
+
+def gdi_diagrams(raw: pd.DataFrame | None, history: pd.DataFrame, well: str) -> list[dict[str, Any]]:
+    """Индикаторные диаграммы: точки режимов (q, Δp²) каждого исследования и коэффициенты a, b его кривой Δp² = a·q + b·q²."""
+    if raw is None or raw.empty or history.empty:
+        return []
+    pts = raw[raw.well.astype(str).eq(str(well)) & raw.q.gt(0) & raw.dp2.notna()]
+    out = []
+    for _, h in history.sort_values('date', ascending=False).iterrows():
+        mine = pts[pts.date.eq(h.date) & pts.method.astype(str).eq(str(h.method)) & pts.study.astype(str).eq(str(h.study))]
+        if mine.empty:
+            continue
+        mine = mine.sort_values('q')
+        out.append({'date': _date(h.date), 'method': str(h.method or ''), 'a': _num(h.a), 'b': _num(h.b), 'r2': _num(h.r2),
+                    'reliable': bool(h.reliable), 'points': [[float(q), float(d)] for q, d in zip(mine.q, mine.dp2)]})
+    return out
+
+
+def daily_series(daily: pd.DataFrame, kind: str) -> dict[str, list]:
+    """Суточные расходы для графика: тыс. м³/сут (объём за календарные сутки) и часы; по дням, где есть газ."""
+    if daily.empty:
+        return {'date': [], 'volume': [], 'hours': [], 'period': []}
+    g = daily[daily.gas_volume_m3.notna()].sort_values('date')
+    # Между сезонами линия не тянется через паузу: в разрыв > 3 суток вставляется пустая точка (график рвёт линию).
+    gaps = g.date.diff().dt.days.gt(3)
+    if gaps.any():
+        rows = []
+        for i, (d, v, h, per, gap) in enumerate(zip(g.date, g.gas_volume_m3, g.work_hours, g.period, gaps)):
+            if gap:
+                rows.append((d - pd.Timedelta(days=1), np.nan, np.nan, per))
+            rows.append((d, v, h, per))
+        g = pd.DataFrame(rows, columns=['date', 'gas_volume_m3', 'work_hours', 'period'])
+    return {'date': [pd.Timestamp(d).strftime('%Y-%m-%d') for d in g.date], 'volume': [_num(v / 1000) for v in g.gas_volume_m3],
+            'hours': [_num(h) for h in g.work_hours], 'period': [str(p) for p in g.period]}
+
+
+def consistency(frames, settings, well: str, seasons: list[dict[str, Any]]) -> list[str]:
+    """Сверка с модулем «Производительность»: объём и дни сезона в паспорте должны сходиться с ним; расхождение — заметка."""
+    if 'production' not in frames:
+        return []
+    from atlas.engine.modules import production
+    d = production.periods(frames['production'], settings.get('season_start', 11), settings.get('season_end', 4))
+    notes = []
+    for kind, label in KINDS:
+        periods = [r['period'] for r in seasons if r['kind'] == kind]
+        if not periods:
+            continue
+        ref = production.averages(d, kind, periods, [well])
+        for _, r in ref.iterrows():
+            mine = next((x for x in seasons if x['kind'] == kind and x['period'] == str(r.period)), None)
+            if mine is None or mine['volume'] is None or pd.isna(r.volume):
+                continue
+            if abs(mine['volume'] - r.volume) > max(abs(r.volume) * .02, .01) or mine['days'] != int(r.active):
+                notes.append(f"{label} {r.period}: в «Производительности» {r.volume:.2f} млн м³ и {int(r.active)} дн., в паспорте "
+                             f"{mine['volume']:.2f} млн м³ и {mine['days']} дн..")
+    if not notes:
+        return []
+    head = f'Сверка с «Производительностью»: расхождение в {len(notes)} сезон(ах) (паспорт берёт суточную эксплуатацию, где она есть). '
+    return [head + ' '.join(notes[:2])]
 
 
 def krs_rows(works: pd.DataFrame | None, priority: pd.DataFrame | None, well: str) -> dict[str, Any]:
@@ -234,7 +304,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     for kind, _ in KINDS:
         by_kind[kind] = dict(well_analysis.analyze(frames, settings, mapping, well, kind))
     first = by_kind['withdrawal']
-    seasons = [row for kind, _ in KINDS for row in seasons_table(by_kind[kind]['daily'], by_kind[kind]['seasons'], kind)]
+    seasons = chronological([row for kind, _ in KINDS for row in seasons_table(by_kind[kind]['daily'], by_kind[kind]['seasons'], kind)])
     gdi_all = gdi_table(first['gdi_history'])
     bottom = first['bottom']
     bottom_m = _num(bottom.iloc[-1].bottom_m) if not bottom.empty else None
@@ -243,6 +313,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
         columns=['element', 'top_m', 'bottom_m']), bottom_m)
     krs = krs_rows(krs[0], krs[1], well)
     out_rows = [r for r in seasons if r['kind'] == 'withdrawal']
+    notes_check = consistency(frames, settings, well, seasons)
     peak = max((r for r in out_rows if r['max_rate'] is not None), key=lambda r: r['max_rate'], default=None)
     reliable = [g for g in gdi_all if g['reliable']]
     water = first['water']
@@ -262,14 +333,15 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
         {'label': 'Вода по последнему контролю', 'value': None, 'text': 'нет данных' if water.empty else str(water.iloc[-1]['Состояние']),
          'hint': '' if water.empty else _date(water.iloc[-1]['Дата'])},
     ]
-    notes = [s for s in cons['notes']]
+    notes = [s for s in cons['notes']] + notes_check
     if krs['note']:
         notes.append(krs['note'])
     if not seasons:
         notes.append('Нет данных по сезонам эксплуатации: загрузите динамику или суточную эксплуатацию.')
     return {'well': well, 'group': mapping.get(well, {}).get('group', ''),
             'construction_date': _date(construction.date.max()) if not construction.empty else '',
-            'kpi': kpi, 'seasons': seasons, 'gdi': gdi_all, 'krs': krs, 'schematic': cons, 'notes': notes}
+            'kpi': kpi, 'seasons': seasons, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
+            'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes}
 
 
 def _sum(rows: list[dict[str, Any]], key: str) -> float | None:

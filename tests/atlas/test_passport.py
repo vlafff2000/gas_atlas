@@ -11,6 +11,7 @@ from atlas.engine.core.documents import passport_pdf
 from atlas.engine.core.performance import Frames
 from atlas.engine.modules import production
 from atlas.api import create_app
+from atlas.api_passport import PASSPORT_SECTIONS, Passport
 from atlas.projects import Projects
 
 WELL = '31'
@@ -41,8 +42,9 @@ def test_info_matches_58(env):
     frames, raw, settings, _ = legacy_page(projects, pid)
     info = client.get(f'/api/projects/{pid}/passport').json()
     assert info['wells'] == ordered({w for d in raw.values() if 'well' in d for w in d.well.unique()})
-    assert [s['value'] for s in info['sections']] == [x for x in frames if x != 'object_pressure']
-    assert [s['label'] for s in info['sections']] == [MODULES[x] for x in frames if x != 'object_pressure']
+    expected = [x for x in frames if x in PASSPORT_SECTIONS and 'well' in frames[x].columns]
+    assert [s['value'] for s in info['sections']] == expected
+    assert [s['label'] for s in info['sections']] == [MODULES[x] for x in expected]
     d = production.periods(frames['production'], settings['season_start'], settings['season_end'])
     for kind in ('withdrawal', 'injection'):
         available = ordered(d.loc[d.kind.eq(kind), 'period'])
@@ -98,3 +100,48 @@ def test_pdf_validation(env):
     assert client.post(url, json={'well': WELL, 'sections': ['object_pressure']}).status_code == 400
     assert client.post(url, json={'well': WELL, 'sections': ['gdi'], 'periods': {'withdrawal': ['1900']}}).status_code == 400
     assert client.post(url, json={'well': 'нет', 'sections': ['gdi']}).status_code == 400
+
+
+def test_sections_skip_sets_without_well_column(env, monkeypatch):
+    """Журнал 30.10: PDF падал на наборе без колонки «скважина» (AttributeError ... 'well'); такие наборы в паспорт не входят."""
+    import pandas as pd
+    _, pid, projects = env
+    passport = Passport(projects, pid)
+    passport.frames = {'gdi': pd.DataFrame({'well': ['31']}), 'annulus': pd.DataFrame({'date': [], 'pressure': []}),
+                       'elpro': pd.DataFrame({'well': ['31']})}
+    assert passport.sections() == ['gdi']
+    assert 'annulus' not in passport.sections() and 'elpro' not in passport.sections()
+
+
+def test_info_filter_and_group_pdf(env):
+    client, pid, projects = env
+    url = f'/api/projects/{pid}/passport'
+    full = client.get(url).json()
+    assert full['shown'] == full['wells'] and set(full['groups']) == set(full['wells'])
+    group = full['groups'][WELL]
+    some = client.get(url, params={'filter': '{"groups": ["%s"]}' % group}).json()
+    assert WELL in some['shown'] and set(some['shown']) <= set(full['wells']) and some['well'] in some['shown']
+    two = [w for w in full['wells'] if w != WELL][:1] + [WELL]
+    r = client.post(url + '/pdf', json={'wells': two, 'sections': ['gdi'], 'card': True})
+    assert r.status_code == 200, r.text
+    import io, zipfile
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert len(names) == 2 and all(n.endswith('.pdf') for n in names)
+    assert client.post(url + '/pdf', json={'wells': [WELL, 'нет'], 'sections': ['gdi']}).status_code == 400
+    single = client.post(url + '/pdf', json={'wells': [WELL], 'sections': ['gdi']})
+    assert single.headers['content-type'] == 'application/pdf'
+
+
+def test_card_has_diagrams_daily_and_chronology(env):
+    client, pid, _ = env
+    card = client.get(f'/api/projects/{pid}/passport/card?well={WELL}').json()
+    ends = [pd_date(r['end']) for r in card['seasons']]
+    assert ends == sorted(ends, reverse=True)                        # свежий сезон сверху, виды чередуются по времени
+    assert [r['kind'] for r in card['seasons']][:2] == ['withdrawal', 'injection']
+    assert card['gdi_diagrams'] and card['gdi_diagrams'][0]['points']
+    assert len(card['daily']['withdrawal']['date']) == len(card['daily']['withdrawal']['volume']) > 0
+
+
+def pd_date(text):
+    import datetime
+    return datetime.datetime.strptime(text, '%d.%m.%Y')

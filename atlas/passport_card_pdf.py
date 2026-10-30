@@ -56,8 +56,53 @@ def _table(ax, header: list[str], rows: list[list[str]], widths: list[float], si
             cell.set_text_props(weight='bold', color=INK)
 
 
+def draw_charts_page(card: dict[str, Any], pdf) -> None:
+    """Страница графиков: индикаторные диаграммы ГДИ и суточные расходы отбора и закачки."""
+    import numpy as np
+    daily = card.get('daily') or {}
+    diagrams = card.get('gdi_diagrams') or []
+    if not diagrams and not any(v.get('date') for v in daily.values()):
+        return
+    fig = plt.figure(figsize=(8.27, 11.69))
+    try:
+        fig.text(.06, .965, f"Графики скважины № {card['well']}", fontsize=15, weight='bold', va='top', color=INK)
+        ax = fig.add_axes([.10, .60, .85, .30])
+        ax.set_title('Индикаторные диаграммы ГДИ (до пяти свежих исследований)', fontsize=9.5, loc='left', color=INK)
+        for n, g in enumerate(diagrams[:5]):
+            color = plt.cm.tab10(n)
+            q = [p[0] for p in g['points']]
+            ax.scatter(q, [p[1] for p in g['points']], s=14, color=color, label=g['date'] + ('' if g['reliable'] else ' (ненадёжное)'))
+            if g['a'] is not None and g['b'] is not None:
+                xs = np.linspace(0, max(q) * 1.05, 41)
+                ax.plot(xs, g['a'] * xs + g['b'] * xs ** 2, color=color, linewidth=1.1, linestyle='-' if g['reliable'] else '--')
+        ax.set_xlabel('Дебит q, тыс. м³/сут', fontsize=8)
+        ax.set_ylabel('Δp² = p_пл² − p_заб²', fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.grid(alpha=.3)
+        if diagrams:
+            ax.legend(fontsize=7)
+        else:
+            ax.text(.5, .5, 'нет режимов ГДИ', transform=ax.transAxes, ha='center', color=MUTED)
+        for n, (kind, title) in enumerate((('withdrawal', 'Суточный отбор'), ('injection', 'Суточная закачка'))):
+            series = daily.get(kind) or {}
+            ax = fig.add_axes([.10, .30 - n * .26, .85, .17])
+            ax.set_title(title + ', тыс. м³/сут', fontsize=9.5, loc='left', color=INK)
+            if series.get('date'):
+                import pandas as pd
+                ax.plot(pd.to_datetime(series['date']), [np.nan if v is None else v for v in series['volume']], linewidth=.8,
+                        color='#0f766e' if kind == 'withdrawal' else '#4f63c9')
+                ax.set_ylim(bottom=0)
+                ax.grid(alpha=.3)
+            else:
+                ax.text(.5, .5, 'нет данных', transform=ax.transAxes, ha='center', color=MUTED)
+            ax.tick_params(labelsize=7)
+        pdf.savefig(fig)
+    finally:
+        plt.close(fig)
+
+
 def draw_pages(card: dict[str, Any], project: str, pdf) -> None:
-    """Страницы 1–2: карточка скважины. ``pdf`` — PdfPages."""
+    """Страницы 1–2: карточка скважины и графики. ``pdf`` — PdfPages."""
     fig = plt.figure(figsize=(8.27, 11.69))
     try:
         fig.text(.06, .965, f"Паспорт скважины № {card['well']}", fontsize=19, weight='bold', va='top', color=INK)
@@ -83,7 +128,7 @@ def draw_pages(card: dict[str, Any], project: str, pdf) -> None:
             fig.text(.06, .69, sch['notes'][0], fontsize=8.5, color=MUTED, va='top')
         fig.text(.55, .715, 'Сезоны эксплуатации', fontsize=10.5, weight='bold', color=INK, va='top')
         rows = [[('О' if r['kind'] == 'withdrawal' else 'З') + ' ' + r['period'], _fmt(r['volume'], 2), str(r['days']),
-                 _fmt(r['max_rate'], 1), _fmt(r['mean_rate'], 1)] for r in card['seasons']][-16:]
+                 _fmt(r['max_rate'], 1), _fmt(r['mean_rate'], 1)] for r in card['seasons']][:16]     # таблица идёт от свежего сезона
         _table(fig.add_axes([.55, .395, .40, .30]), ['Сезон (О/З)', 'Объём,\nмлн м³', 'Дни', 'Qmax,\nтыс. м³/сут', 'Qср,\nтыс. м³/сут'],
                rows, [.27, .16, .12, .23, .22])
         fig.text(.06, .345, 'ГДИ за всё время', fontsize=10.5, weight='bold', color=INK, va='top')
@@ -103,3 +148,4 @@ def draw_pages(card: dict[str, Any], project: str, pdf) -> None:
         pdf.savefig(fig)
     finally:
         plt.close(fig)
+    draw_charts_page(card, pdf)
