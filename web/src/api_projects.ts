@@ -113,7 +113,7 @@ export interface WordPreview {
 
 export interface AnyModule { id: string; title: string; group: string; order: number; ready: boolean; missing: string[] }
 export interface AnySeriesItem { key: string; name: string; group: string; kind: 'points' | 'line' | 'bar' | 'box'; color: string }
-export interface AnyChartInfo { group?: string; items: AnySeriesItem[]; id: string; title: string; kind: 'chart' | 'heat' | 'strips' | 'stack'; table: boolean; series: number; axes: string[]; special: boolean; facets: { name: string; values: string[] }[] }
+export interface AnyChartInfo { group?: string; items: AnySeriesItem[]; id: string; title: string; kind: 'chart' | 'heat' | 'strips' | 'stack'; table: boolean; series: number; axes: string[]; special: boolean; facets: { name: string; values: string[] }[]; labels: Record<string, string> }
 export type AnySettings = Record<string, unknown>
 
 /** «Любой график»: реестр графиков всех разделов и выгрузка одного графика с ручными настройками (atlas/export_any.py). */

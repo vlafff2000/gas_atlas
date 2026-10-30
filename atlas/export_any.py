@@ -47,7 +47,9 @@ def series_items(chart: Chart) -> list[dict[str, Any]]:
 
 def describe(chart: Chart) -> dict[str, Any]:
     return {'items': series_items(chart), 'id': chart.id, 'title': chart.title, 'kind': kind_of(chart), 'table': chart.table is not None,
-            'series': len(chart.series), 'axes': chart.axis_names(), 'special': chart_special.is_special(chart), 'facets': facets_of(chart)}
+            'series': len(chart.series), 'axes': chart.axis_names(), 'special': chart_special.is_special(chart), 'facets': facets_of(chart),
+            'labels': {name: (a.label + (f', {a.unit}' if a.unit else '')) for name in ['x', *chart.axis_names()]
+                       for a in [chart.x if name == 'x' else chart.axis_at(name)] if a is not None}}
 
 
 def facets_of(chart: Chart) -> list[dict[str, Any]]:
@@ -101,12 +103,15 @@ def settings_of(raw: Any) -> dict[str, Any]:
     table = {'show': tsrc.get('show') is not False,
              'font_size': _number(tsrc.get('font_size'), 'Таблица, размер шрифта, пт', 5, 24),
              'row': _number(tsrc.get('row'), 'Таблица, высота строки (1 — как есть)', 0.5, 3)}
+    angle = str(src.get('angle') or '')
+    if angle and angle not in ('0', '30', '45', '60', '90'):
+        raise ParamError('Подписи оси X: 0, 30, 45, 60 или 90 градусов')
     segment = _number(src.get('segment_size'), 'Подписи в столбцах, пт', 5, 30)
     cell = _number(src.get('cell_size'), 'Текст в ячейках, пт', 4, 30)
     filename = render.safe_name(str(src.get('filename') or '').strip()[:120]) if str(src.get('filename') or '').strip() else ''
     labels = src.get('labels') if isinstance(src.get('labels'), Mapping) else {}
     return {'format': fmt, 'dpi': dpi, 'look': look, 'width': width, 'height': height, 'font': font, 'font_size': size,
-            'sized': bool(_number(src.get('width'), 'Ширина, мм', 80, 300) or preset[0]), 'table': table, 'segment_size': segment, 'cell_size': cell, 'filename': filename,
+            'sized': bool(_number(src.get('width'), 'Ширина, мм', 80, 300) or preset[0]), 'table': table, 'segment_size': segment, 'cell_size': cell, 'angle': angle, 'filename': filename,
             'view': dict(view), 'chart': clean_chart(chart), 'title': title, 'axes': clean_axes(src.get('axes')),
             'labels': {k: str(v).strip()[:200] for k, v in labels.items() if k in chart_view.AXES + ('x',) and str(v).strip()}}
 
@@ -147,10 +152,15 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
         opts = {'width_mm': s['width'] if s['sized'] else None, 'height_mm': s['height'] if s['sized'] else None,
                 'font': s['font'], 'font_size': s['font_size'], 'legend': legend if legend in ('top', 'bottom', 'hide') else 'right' if legend else None,
                 'table_show': s['table']['show'], 'table_font_size': s['table']['font_size'], 'table_row': s['table']['row'],
-                'segment_size': s['segment_size'], 'cell_size': s['cell_size'], 'style': out.style}
+                'segment_size': s['segment_size'], 'cell_size': s['cell_size'], 'style': out.style, 'axes': s['axes'], 'labels': s['labels'],
+                'angle': s['angle']}
         content = chart_special.figure_file(out, s['format'], s['dpi'], opts)
         return content, f'{s["filename"] or render.safe_name(out.title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
-    content = figure_bytes(render.to_plotly(out), s['format'], s['dpi'], s['width'], s['height'], font=s['font'],
+    fig = render.to_plotly(out)
+    if s['angle']:
+        meta = dict(fig.layout.meta or {})
+        fig.update_layout(meta={**meta, 'format': {**(meta.get('format') or {}), 'angle': s['angle']}})
+    content = figure_bytes(fig, s['format'], s['dpi'], s['width'], s['height'], font=s['font'],
                            font_size=s['font_size'], look=s['look'])
     return content, f'{s["filename"] or render.safe_name(out.title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
 

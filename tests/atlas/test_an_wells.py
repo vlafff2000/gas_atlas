@@ -120,7 +120,7 @@ def test_class_share_chart_absolute_height_and_counts_inside():
     chart = an_charts.class_share_chart('withdrawal', '2023-2024', counts)
     assert an_wells.TOTAL not in chart.x.categories and chart.callouts == 'dot'     # «Всего» — отдельным графиком
     assert [sum(s.y[j] for s in chart.series) for j in range(len(chart.x.categories))] == pytest.approx([2.0, 2.0])     # высота — число скважин группы, не проценты
-    assert chart.y.unit == 'скв.' and chart.y.maximum is None
+    assert chart.y.unit == 'ед.' and chart.y.maximum is None
     assert chart.table.cells[0] == ['0', '2'] and chart.series[0].segments == ['', '2']
     total = an_charts.class_total_chart('withdrawal', '2023-2024', counts)
     assert [sum(s.y[j] for s in total.series) for j in range(7)] == [2, 1, 0, 0, 1, 0, 0]     # строка «Всего»: 2 нулевых, 1 менее 100, 1 от 200 до 250

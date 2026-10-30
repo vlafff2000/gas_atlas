@@ -931,7 +931,7 @@ def _style_axis(axis: Axis, spec: dict[str, Any], title: str, values: list[pd.Se
     time = axis.scale == 'time'
     if 'color' in spec:
         axis.color = spec['color']
-    axis.style = {k: v for k, v in spec.items() if k in ('decimals', 'date_format', 'font', 'tick_size', 'title_size')}
+    axis.style = {k: v for k, v in spec.items() if k in ('decimals', 'date_format', 'font', 'tick_size', 'title_size', 'title_bold', 'title_italic', 'tick_bold', 'tick_italic')}
     if spec.get('inverse'):
         axis.inverse = True
     if spec.get('from_zero') and axis.scale == 'value':
