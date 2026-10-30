@@ -22,6 +22,8 @@ import { ImportPage } from './ImportPage'
 import { EmptyProjectSteps, hasData, NewProjectSteps } from './FirstSteps'
 import { HelpPage } from './HelpPage'
 import { SectionSearch, type Section } from './SectionSearch'
+import { WindowButtons } from './WindowButtons'
+import { useShared } from './windows'
 import { chartColumns, sidebarCollapsed, theme, thinCharts, usePref, type Theme } from './chartPrefs'
 
 const remembered = {
@@ -41,6 +43,7 @@ export function App() {
   const [projectId, setProjectId] = useState<string | null>(remembered.get('project', null))
   const [moduleId, setModuleId] = useState<string | null>(location.hash.slice(2) || remembered.get('module', null))
 
+  useShared('project', projectId, setProjectId)
   const loadProjects = useCallback(() => api.projects().then(setProjects), [])
   useEffect(() => {
     Promise.all([api.modules().then(setModules), loadProjects()]).catch(e => setFatal((e as Error).message))
@@ -161,6 +164,7 @@ export function App() {
             </section>
           )}
         </nav>
+        <WindowButtons page={moduleId ?? ''} />
         <div className="theme-switch segmented" role="radiogroup" aria-label="Тема">
           {([['light', 'Светлая'], ['dark', 'Тёмная'], ['system', 'Авто']] as [Theme, string][]).map(([t, label]) => (
             <button key={t} type="button" role="radio" aria-checked={currentTheme === t} onClick={() => theme.set(t)}

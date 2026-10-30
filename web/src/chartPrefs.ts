@@ -5,11 +5,27 @@ import type { Look } from './chartStyle'
 
 export interface Pref<T> { get: () => T; set: (next: T) => void; subscribe: (f: () => void) => () => void }
 
+/** Размеры панелей и свёрнутость меню у каждого окна свои; остальные настройки подхватываются из второго окна. */
+const PER_WINDOW = /(sidebar\.collapsed|layersBox|inspector)$/
+
 /** Значение в localStorage с подписчиками: меняется в одном месте — обновляются все графики и панели. */
 export function pref<T>(key: string, fallback: T, parse: (raw: string) => T = raw => JSON.parse(raw) as T): Pref<T> {
   const listeners = new Set<() => void>()
   let value = fallback
   try { const raw = key ? localStorage.getItem(key) : null; if (raw !== null) value = parse(raw) } catch { /* без хранилища — по умолчанию */ }
+  if (key && !PER_WINDOW.test(key)) {
+    try {
+      window.addEventListener('storage', e => {
+        if (e.key !== key || e.storageArea !== localStorage || e.newValue === null) return
+        try {
+          const next = parse(e.newValue)
+          if (JSON.stringify(next) === JSON.stringify(value)) return
+          value = next
+          listeners.forEach(f => f())
+        } catch { /* повреждённое значение */ }
+      })
+    } catch { /* нет window */ }
+  }
   return {
     get: () => value,
     set: next => {
