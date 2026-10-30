@@ -437,6 +437,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             else:
                 df=pd.DataFrame({k:raw[i] for k,i in mapping.items()}); df['_row']=raw.index+row_offset
                 if detected=='annulus': df=df.rename(columns={'annulus_q':'q','annulus_p':'p'})
+                if detected=='gdi' and header>=0: df=gdi_method(df,raw,head[header],set(mapping.values()))
             if 'status' in df:      # в колонке «Состояние» бывают и числа, и слова: паркет не пишет смесь типов
                 df['status']=df.status.map(lambda v:v if pd.isna(v) else str(int(v)) if isinstance(v,float) and v==int(v) else str(v).strip())
             reasons=pd.Series('',index=df.index)
@@ -593,6 +594,28 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
     return result
 
 DUPLICATE_RULES={'flow':'оставлена строка с расходом, нулевая не затирает замер','first':'оставлена первая строка','last':'оставлена последняя строка'}
+
+IN_FLOWLINE,IN_ATMOSPHERE='в шлейф','в атмосферу'
+
+def gdi_method(df,raw,labels,mapped):
+    """Метод ГДИ (в атмосферу / в шлейф), если в файле нет столбца «метод»: ДИКТ в «способ исслед.» или «метод исслед.» — в атмосферу
+    (в «% КРУ» у таких исследований бывают диаметры шайбы), иначе есть «% КРУ» — в шлейф. Признак берётся по исследованию (скважина и дата)
+    целиком; без признаков метод пуст, решает инженер."""
+    names=[norm(v) for v in labels]
+    text=[i for i,n in enumerate(names) if i not in mapped and n.startswith(('способисслед','методисслед'))]
+    kru=[i for i,n in enumerate(names) if n=='кру']
+    if not text and not kru: return df
+    if 'method' in df and df['method'].fillna('').astype(str).str.strip().ne('').any(): return df
+    dikt=pd.Series(False,index=df.index)
+    for i in text: dikt|=raw.loc[df.index,i].fillna('').astype(str).str.contains('дикт',case=False)
+    has_kru=pd.Series(False,index=df.index)
+    for i in kru: has_kru|=numeric(raw.loc[df.index,i]).notna()
+    key=df.well.astype(str)+'|'+df.date.astype(str)
+    dikt=dikt.groupby(key,dropna=False).transform('any').fillna(False).astype(bool); has_kru=has_kru.groupby(key,dropna=False).transform('any').fillna(False).astype(bool)
+    df=df.copy(); df['method']=''
+    df.loc[has_kru,'method']=IN_FLOWLINE
+    df.loc[dikt,'method']=IN_ATMOSPHERE
+    return df
 
 def prefer_flow(frame,rule='flow'):
     """Дубли суток одной скважины внутри загрузки. Правило выбирает инженер в окне импорта.
