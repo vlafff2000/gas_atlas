@@ -21,7 +21,7 @@ const DPIS = [150, 200, 250, 300, 600, 1200]
 const KIND_NOTE: Record<string, string> = {
   heat: 'Тепловая карта: действуют размер рисунка, шрифты, текст в ячейках, заголовок и фон.',
   strips: 'Матрица скважин × сезонов: действуют размер рисунка, шрифты, текст в ячейках, заголовок и фон.',
-  stack: 'Столбцы с подписями в сегментах: действуют размер, шрифт, легенда (справа, сверху или скрыть), заголовок, подписи в столбцах и таблица под графиком.',
+  stack: 'Столбцы с подписями в сегментах: действуют размер, шрифт, легенда (справа, сверху, снизу или скрыть), заголовок, подписи в столбцах и таблица под графиком.',
 }
 
 type Dict = Record<string, unknown>
@@ -87,6 +87,9 @@ export function ExportAnyChart({ project }: { project: Project }) {
     return [...by.entries()]
   }, [specs, ready])
   const chart = charts.find(c => c.id === chartId)
+  // переключатели вида графиков раздела (у обычного раздела они в верхней панели, а не в ParamBar): без них часть графиков не выбрать
+  const kinds = (spec?.params ?? []).filter(p => p.chart_kind && p.options.length > 1
+    && (!p.show_if || Object.entries(p.show_if).every(([k, v]) => params[k] === v)))
 
   const pickModule = (id: string) => {
     const s = specs.find(x => x.id === id)
@@ -216,6 +219,14 @@ export function ExportAnyChart({ project }: { project: Project }) {
               </select>
             </label>
           )}
+          {kinds.map(p => (
+            <label key={p.name} className="field wide">
+              <span className="field-label">{p.label}</span>
+              <select value={String(params[p.name] ?? '')} onChange={e => setParams({ ...params, [p.name]: e.target.value })}>
+                {p.options.map(o => <option key={String(o.value)} value={String(o.value)}>{o.label}</option>)}
+              </select>
+            </label>
+          ))}
         </Box>
       </div>
       {spec && <ParamBar key={spec.id} spec={spec} project={project.id} panel={0} values={params} onChange={setParams} />}

@@ -99,7 +99,8 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     table = None if o.get('table_show') is False else chart.table
     legend = o.get('legend') or 'right'
     fig = plt.figure(figsize=(max(7.5, 0.9 * len(cats) + 4), 6.2 + (0.26 * row_k * (len(table.rows) + 1) if table else 0)))
-    ax = fig.add_axes([0.08, 0.08 + (0.04 * row_k * len(table.rows) if table else 0.0), 0.72 if legend == 'right' else 0.9, 0.8 if legend != 'top' else 0.74])
+    ax = fig.add_axes([0.08, 0.08 + (0.04 * row_k * len(table.rows) if table else 0.0) + (0.07 if legend == 'bottom' else 0.0),
+                       0.72 if legend == 'right' else 0.9, 0.74 if legend == 'top' else 0.73 if legend == 'bottom' else 0.8])
     below = np.zeros(len(cats))
     top = max(1e-9, sum(np.array([0.0 if v is None else float(v) for v in s.y]) for s in bars if s.segments is not None).max()) \
         if any(s.segments is not None for s in bars) else 1.0
@@ -145,6 +146,8 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
         ax.legend(handles, labels, bbox_to_anchor=(1.01, 1), loc='upper left', frameon=False, fontsize=base - 1)
     elif legend == 'top':
         ax.legend(handles, labels, bbox_to_anchor=(0, 1.02), loc='lower left', frameon=False, fontsize=base - 1, ncol=max(1, len(bars)))
+    elif legend == 'bottom':
+        fig.legend(handles, labels, loc='lower center', frameon=False, fontsize=base - 1, ncol=max(1, min(len(labels), 6)))
     ax.tick_params(labelsize=base - 1)
     ax.set_title(chart.title, fontsize=base + 1, y=1.0 if legend != 'top' else 1.08)
     if table and table.aligned:
