@@ -3,6 +3,8 @@ import type { Project } from './api'
 import { passportApi, type PassportCard, type PassportInfo } from './api_passport'
 import { MultiSelect } from './MultiSelect'
 import { PassportDashboard } from './PassportCard'
+import { WellFilter } from './WellFilter'
+import type { WellFilter as WellFilterValue } from './api_wells'
 
 /** «Паспорт скважины»: дашборд (показатели, схема забоя, сезоны, ГДИ, КРС) и PDF из выбранных разделов с комментарием инженера. */
 export function PassportPage({ project, onProject }: { project: Project; onProject: (p: Project) => void }) {
@@ -19,6 +21,8 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
   const [card, setCard] = useState<PassportCard | null>(null)
   const [cardError, setCardError] = useState('')
   const [withCard, setWithCard] = useState(true)
+  const [filter, setFilter] = useState<WellFilterValue | null>(null)   // фильтр этой вкладки, как в других модулях
+  const [batch, setBatch] = useState<string[]>([])                      // скважины для PDF; пусто — только выбранная
 
   useEffect(() => {
     if (!well) return
@@ -32,7 +36,7 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
 
   useEffect(() => {
     const ctrl = new AbortController()
-    passportApi.info(project.id, well, ctrl.signal).then(next => {
+    passportApi.info(project.id, well, filter, ctrl.signal).then(next => {
       // Разделы и периоды остаются при смене скважины; комментарий — свой у каждой скважины.
       if (!started.current) {
         started.current = true
@@ -41,12 +45,13 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
       }
       setInfo(next)
       setComment(next.comment); setSaved(next.comment)
-      if (!well && next.well) setWell(next.well)
+      if (next.well && (!well || (next.shown.length && !next.shown.includes(well)))) setWell(next.shown[0] ?? next.well)
+      setBatch(old => old.filter(w => next.shown.includes(w)))
     }).catch(e => {
       if ((e as Error).name !== 'AbortError') setMessage({ text: (e as Error).message, level: 'warning' })
     })
     return () => ctrl.abort()
-  }, [project.id, project.revision, well])
+  }, [project.id, project.revision, well, JSON.stringify(filter)])
 
   const saveComment = async () => {
     if (!well) return
@@ -61,8 +66,9 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
     if (!well) return
     setBusy('pdf'); setMessage(null)
     try {
-      const name = await passportApi.pdf(project.id, well, sections, periods, comment, withCard)
-      setMessage({ text: `Паспорт создан и сохранен в выгрузках проекта: ${name}`, level: 'info' })
+      const many = batch.length > 1 || (batch.length === 1 && batch[0] !== well)
+      const name = await passportApi.pdf(project.id, many ? batch[0] : well, sections, periods, comment, withCard, many ? batch : undefined)
+      setMessage({ text: `${many ? `Паспорта ${batch.length} скважин (отдельный PDF на каждую, в одном архиве)` : 'Паспорт'} создан и сохранен в выгрузках проекта: ${name}`, level: 'info' })
     } catch (e) { setMessage({ text: 'Не удалось создать паспорт: ' + (e as Error).message, level: 'warning' }) } finally { setBusy('') }
   }
 
@@ -82,12 +88,17 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
           <label className="field">
             <span className="field-label">Скважина</span>
             <select value={well ?? ''} onChange={e => setWell(e.target.value)}>
-              {info.wells.map(w => <option key={w} value={w}>№ {w}</option>)}
+              {info.shown.map(w => <option key={w} value={w}>№ {w}{info.groups[w] ? ` · ${info.groups[w]}` : ''}</option>)}
             </select>
           </label>
+          <WellFilter project={project.id} revision={project.revision} value={filter} onChange={setFilter} />
+          <MultiSelect label="Скважины для PDF" options={info.shown} value={batch} onChange={setBatch} emptyMeaning="только выбранная"
+            prefix="№ " picker={project.id} />
+          <button type="button" className="quiet" disabled={info.shown.length === 0}
+            onClick={() => setBatch(info.shown)} title="Все скважины, оставшиеся после фильтра">Выбрать все по фильтру ({info.shown.length})</button>
           <span className="spacer" />
           <button type="button" className="primary" disabled={busy !== ''} onClick={createPdf}>
-            {busy === 'pdf' ? 'Формирование паспорта…' : 'Скачать PDF'}
+            {busy === 'pdf' ? 'Формирование паспорта…' : batch.length > 1 ? `Скачать PDF (${batch.length} скв.)` : 'Скачать PDF'}
           </button>
         </div>
         <div className="passport-tabs" role="tablist">

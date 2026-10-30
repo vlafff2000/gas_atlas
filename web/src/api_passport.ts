@@ -3,6 +3,8 @@ import { ApiError, type Project } from './api'
 
 export interface PassportInfo {
   wells: string[]
+  shown: string[]                         // скважины после фильтра вкладки
+  groups: Record<string, string>          // скважина → группа
   well: string | null
   sections: { value: string; label: string }[]
   periods: Record<string, { label: string; options: string[]; default: string[] }>
@@ -20,13 +22,15 @@ export interface Schematic {
 }
 export interface Kpi { label: string; value: number | null; text?: string; unit?: string; digits?: number; hint?: string; extra?: string }
 export interface SeasonRow { kind: 'withdrawal' | 'injection'; period: string; volume: number | null; days: number; max_rate: number | null
-  max_date: string; mean_rate: number | null; hours: number | null; water: number | null; coverage: number | null }
+  max_date: string; mean_rate: number | null; hours: number | null; water: number | null; coverage: number | null; end: string }
 export interface GdiRow { date: string; method: string; a: number | null; b: number | null; r2: number | null; q_max: number | null
   q_free: number | null; reliable: boolean; note: string }
+export interface GdiDiagram { date: string; method: string; a: number | null; b: number | null; r2: number | null; reliable: boolean; points: number[][] }
+export interface DailySeries { date: string[]; volume: (number | null)[]; hours: (number | null)[]; period: string[] }
 export interface KrsInfo { works: { year: number | null; type: string; detail: string }[]; loaded: boolean; note: string
   priority: { value: number | null; reason: string; sand: string } | null }
 export interface PassportCard {
-  well: string; group: string; construction_date: string; kpi: Kpi[]; seasons: SeasonRow[]; gdi: GdiRow[]; krs: KrsInfo
+  well: string; group: string; construction_date: string; kpi: Kpi[]; seasons: SeasonRow[]; gdi: GdiRow[]; gdi_diagrams: GdiDiagram[]; daily: Record<'withdrawal' | 'injection', DailySeries>; krs: KrsInfo
   schematic: Schematic; notes: string[]
 }
 
@@ -49,8 +53,8 @@ const post = (body: unknown): RequestInit =>
   ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 export const passportApi = {
-  info: async (project: string, well?: string, signal?: AbortSignal) =>
-    (await send(`/api/projects/${project}/passport` + (well ? `?well=${encodeURIComponent(well)}` : ''), { signal }))
+  info: async (project: string, well?: string, filter?: unknown, signal?: AbortSignal) =>
+    (await send(`/api/projects/${project}/passport?well=${encodeURIComponent(well ?? '')}&filter=${encodeURIComponent(JSON.stringify(filter ?? null))}`, { signal }))
       .json() as Promise<PassportInfo>,
   card: async (project: string, well: string, signal?: AbortSignal) =>
     (await send(`/api/projects/${project}/passport/card?well=${encodeURIComponent(well)}`, { signal }))
@@ -59,10 +63,10 @@ export const passportApi = {
     (await send(`/api/projects/${project}/passport/comment`, post({ well, comment, revision })))
       .json() as Promise<Project & { comment: string }>,
   /** Формирует PDF (сохраняется и в выгрузках проекта) и отдаёт его браузеру. */
-  pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true) => {
-    const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, sections, periods, comment, card }))
+  pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true, wells?: string[]) => {
+    const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, wells, sections, periods, comment, card }))
     const match = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') ?? '')
-    const name = match ? decodeURIComponent(match[1]) : `Паспорт_скважины_${well}.pdf`
+    const name = match ? decodeURIComponent(match[1]) : (wells && wells.length > 1 ? `Паспорта_скважин_${wells.length}.zip` : `Паспорт_скважины_${well}.pdf`)
     const url = URL.createObjectURL(await response.blob())
     const a = document.createElement('a')
     a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove()

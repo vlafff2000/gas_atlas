@@ -27,9 +27,16 @@
 .bar-value { font-size: 11px; fill: var(--ink); font-weight: 600; }
 .bar-axis { font-size: 10px; fill: var(--muted); }
 .passport-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-.passport-table th { background: var(--head-bg); text-align: left; font-weight: 600; color: var(--muted); }
+.passport-table th { background: var(--head-bg); text-align: left; vertical-align: bottom; font-weight: 600; color: var(--muted); }
 .passport-table th, .passport-table td { border-bottom: 1px solid var(--line-soft); padding: 5px 8px; }
 .passport-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .passport-table tbody tr:hover { background: var(--row-hover); }
 .passport-table tr.unreliable td { color: var(--muted); font-style: italic; }
 @media print { .passport-tabs, .toolbar { display: none; } }
+/* Шапка стоит над своими числами: заголовки числовых столбцов справа, числа не переносятся и не «уезжают» */
+.passport-table th.num { text-align: right; }
+.passport-table td.num { white-space: nowrap; }
+.passport-table th { white-space: normal; }
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.passport-chart { width: 100%; min-width: 320px; }
+.gdi-picks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 6px; }

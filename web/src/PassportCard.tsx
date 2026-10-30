@@ -1,3 +1,4 @@
+import { DailyChart, GdiDiagrams } from './PassportCharts'
 import type { Kpi, PassportCard as Card, SeasonRow, Schematic } from './api_passport'
 
 const fmt = (v: number | null | undefined, digits = 1) =>
@@ -56,7 +57,7 @@ function KpiCard({ k }: { k: Kpi }) {
 
 /** Объём по сезонам: столбики, высота — объём; подпись — Qmax сезона. */
 function SeasonBars({ rows, kind }: { rows: SeasonRow[]; kind: 'withdrawal' | 'injection' }) {
-  const part = rows.filter(r => r.kind === kind && r.volume !== null)
+  const part = rows.filter(r => r.kind === kind && r.volume !== null).reverse()   // таблица идёт от свежего сезона, столбики — слева направо по времени
   if (part.length === 0) return null
   const top = Math.max(...part.map(r => r.volume!)) || 1
   const W = Math.max(280, part.length * 74), H = 150
@@ -80,8 +81,8 @@ function SeasonsTable({ rows }: { rows: SeasonRow[] }) {
   const label = (k: string) => (k === 'withdrawal' ? 'Отбор' : 'Закачка')
   return (
     <table className="passport-table">
-      <thead><tr><th>Вид</th><th>Сезон</th><th>Объём, млн м³</th><th>Отработано дней</th><th>Qmax, тыс. м³/сут</th><th>Дата Qmax</th>
-        <th>Qср, тыс. м³/сут</th><th>Часы</th><th>Вода, м³</th></tr></thead>
+      <thead><tr><th>Вид</th><th>Сезон</th><th className="num">Объём, млн м³</th><th className="num">Отработано дней</th><th className="num">Qmax, тыс. м³/сут</th><th>Дата Qmax</th>
+        <th className="num">Qср, тыс. м³/сут</th><th className="num">Часы</th><th className="num">Вода, м³</th></tr></thead>
       <tbody>{rows.map(r => (
         <tr key={r.kind + r.period}><td>{label(r.kind)}</td><td>{r.period}</td><td className="num">{fmt(r.volume, 2)}</td>
           <td className="num">{r.days}</td><td className="num"><b>{fmt(r.max_rate, 1)}</b></td><td>{r.max_date}</td>
@@ -109,18 +110,24 @@ export function PassportDashboard({ card }: { card: Card }) {
           {card.seasons.length === 0 && <p className="muted">Нет данных по сезонам.</p>}
         </section>
       </div>
-      <section className="dash-panel"><h2>Сезоны эксплуатации</h2><SeasonsTable rows={card.seasons} /></section>
+      <section className="dash-panel"><h2>Сезоны эксплуатации</h2>
+        <p className="muted small">Сверху самый свежий сезон, затем предыдущий другого вида (отбор / закачка) и так далее.</p>
+        <div className="table-scroll"><SeasonsTable rows={card.seasons} /></div></section>
+      <section className="dash-panel"><h2>Суточные расходы</h2><DailyChart daily={card.daily} /></section>
+      <section className="dash-panel"><h2>Индикаторные диаграммы ГДИ</h2><GdiDiagrams items={card.gdi_diagrams} /></section>
       <div className="dash-row">
         <section className="dash-panel">
           <h2>ГДИ за всё время</h2>
+          <div className="table-scroll">
           {card.gdi.length === 0 ? <p className="muted">ГДИ по скважине нет.</p> : (
             <table className="passport-table">
-              <thead><tr><th>Дата</th><th>Метод</th><th>a</th><th>b</th><th>R²</th><th>Qmax</th><th>Qсв</th><th>Надёжно</th></tr></thead>
+              <thead><tr><th>Дата</th><th>Метод</th><th className="num">a</th><th className="num">b</th><th className="num">R²</th><th className="num">Qmax</th><th className="num">Qсв</th><th>Надёжно</th></tr></thead>
               <tbody>{card.gdi.map((g, i) => (
-                <tr key={i} className={g.reliable ? '' : 'unreliable'} title={g.note}><td>{g.date}</td><td>{g.method}</td>
+                <tr key={i} className={g.reliable ? '' : 'unreliable'} title={g.note}><td>{g.date}</td><td>{g.method || '—'}</td>
                   <td className="num">{fmt(g.a, 3)}</td><td className="num">{fmt(g.b, 4)}</td><td className="num">{fmt(g.r2, 3)}</td>
                   <td className="num">{fmt(g.q_max, 0)}</td><td className="num">{fmt(g.q_free, 0)}</td><td>{g.reliable ? 'да' : 'нет'}</td></tr>))}</tbody>
             </table>)}
+          </div>
         </section>
         <section className="dash-panel">
           <h2>Проведённые КРС</h2>
