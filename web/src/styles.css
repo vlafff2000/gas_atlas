@@ -491,3 +491,7 @@ thead tr.header-group th.group-label { border-left: 1px solid var(--line); borde
 tr.is-synced td { background: var(--accent-soft); }
 tr.is-synced td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 table.frozen tbody tr.is-synced td:first-child { background: var(--accent-soft); }
+
+.window-buttons { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.window-buttons .quiet[aria-pressed='true'] { color: var(--ink); border-color: var(--accent); background: var(--accent-soft); }
+.collapsed .window-buttons { display: none; }

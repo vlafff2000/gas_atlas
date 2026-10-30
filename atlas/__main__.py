@@ -16,6 +16,7 @@ import webbrowser
 import uvicorn
 
 from . import VERSION
+from . import second_window
 from .api import create_app
 
 
@@ -76,11 +77,13 @@ def main(argv=None) -> None:
             pass
         try:
             webview.create_window('Газовый атлас', url, width=1440, height=900, min_size=(1024, 680))
+            second_window.set_opener(lambda h: webview.create_window('Газовый атлас — окно 2', url + h, width=1440, height=900, min_size=(1024, 680)))
             webview.start()
             server.should_exit = True
             return
         except Exception as error:  # напр. нет WebView2 на Windows или GTK/Qt на Linux
             print(f'Окно приложения не открылось ({error}) — открываю в браузере')
+    second_window.set_opener(lambda h: webbrowser.open(url + h))
     webbrowser.open(url)
     print(f'Газовый атлас {VERSION}: {url}  (остановка — Ctrl+C)')
     try:

@@ -22,6 +22,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import VERSION, api_exclusions, chart_view, legend_order, registry, render, season_format, thinning, well_filter
+from . import second_window
 from . import api_builder, api_corrected, api_export, api_projects, export_any, export_charts, group_colors
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
@@ -349,6 +350,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
 
     E = endpoint
     routes = [
+        second_window.route(),
         Route('/api/health', E(health)),
         Route('/api/modules', E(list_modules)),
         Route('/api/modules/{mid}/run', E(run), methods=['POST']),
