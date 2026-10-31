@@ -98,7 +98,7 @@ def test_store_keeps_templates_but_does_not_apply_them():
     store = {'templates': {' Для отчёта ': {'chart': {'legend': 'top'}, 'series': {'№ 1|line': {'color': '#ff0000'}}}, 'пустой': {}}}
     assert clean_store(store) == {'templates': {'Для отчёта': {'chart': {'legend': 'top'}, 'series': {'№ 1|line': {'color': '#ff0000'}}}}}
     result = Result(charts=[chart()])
-    assert apply_store(result, {'chart_formats': clean_store(store)}, 'gdi').charts[0].style == {}
+    assert apply_store(result, {'chart_formats': clean_store(store), 'chart_font': 'base'}, 'gdi').charts[0].style == {}
     with pytest.raises(ParamError):
         clean_store({'templates': {'плохой': {'chart': {'legend': 'внизу'}}}})
     with pytest.raises(ParamError):
@@ -115,6 +115,19 @@ def test_store_applies_theme_then_type():
     assert gdi.charts[0].style == {'legend': 'right', 'font': 'times'} and gdi.charts[0].series[0].look == {'color': '#ff0000'}
     other = apply_store(result, settings, 'production')
     assert other.charts[0].style == {'legend': 'top', 'font': 'times'}
-    assert apply_store(result, {}, 'gdi') is result and result.charts[0].style == {}
+    assert apply_store(result, {'chart_font': 'base'}, 'gdi') is result and result.charts[0].style == {}
     bad = apply_store(result, {'chart_formats': {'theme': {'axes': {'y': {'min': '50', 'max': '10'}}}}}, 'gdi')
     assert bad.charts[0].y.minimum is None and 'не применено' in bad.notes[-1].text and bad.notes[0].text == 'из модуля'
+
+
+def test_project_chart_font_is_the_lowest_level():
+    from atlas.chart_style import apply_store
+    from atlas.contract import Result
+    result = Result(charts=[chart()])
+    fonts = lambda settings: apply_store(result, settings, 'gdi').charts[0].style.get('font')   # noqa: E731
+    assert fonts({}) == 'times'                                             # по умолчанию Times New Roman
+    assert fonts({'chart_font': 'arial_narrow'}) == 'arial_narrow'
+    assert fonts({'chart_font': 'base'}) is None                            # базовый: свой шрифт не задаётся
+    assert fonts({'chart_font': 'comic'}) == 'times'
+    own = {'chart_font': 'arial_narrow', 'chart_formats': {'theme': {'chart': {'font': 'calibri'}}}}
+    assert fonts(own) == 'calibri'                                          # шрифт темы главнее общего

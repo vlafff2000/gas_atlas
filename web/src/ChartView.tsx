@@ -13,7 +13,7 @@ import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
-import { seriesLooks, projectFormats, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { applyFormat, mergeFormats, type ChartFormat } from './chartFormat'
 import { FormatPane, type FormatElement } from './FormatPane'
@@ -625,9 +625,11 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
   const looksAll = usePref(seriesLooks)
   const looks = useMemo(() => looksOf(given, looksAll), [given, looksAll])
   const store = usePref(projectFormats)
-  // оформление проекта: тема (стиль, оси, вид рядов из «Настройки») → тип графика; на экране сразу, без пересчёта
-  const chart = useMemo(() => format ? applyFormat(windowed, format.doc) : applyFormat(windowed, mergeFormats({ chart: store.theme?.chart, axes: store.theme?.axes, series: looks },
-    module ? store.types?.[module] : undefined)), [windowed, looks, store, module, format])
+  const baseFont = usePref(chartFont)
+  const general = useMemo<ChartFormat | undefined>(() => baseFont === 'base' ? undefined : { chart: { font: baseFont } }, [baseFont])
+  // оформление проекта: общий шрифт → тема (стиль, оси, вид рядов из «Настройки») → тип графика; на экране сразу, без пересчёта
+  const chart = useMemo(() => format ? applyFormat(windowed, mergeFormats(general, format.doc)) : applyFormat(windowed, mergeFormats(general, { chart: store.theme?.chart, axes: store.theme?.axes, series: looks },
+    module ? store.types?.[module] : undefined)), [windowed, looks, store, module, format, general])
   const [settings, setSettings] = useState(false)
   const [element, setElement] = useState<FormatElement>('chart')
   const scope = usePref(formatScope)
