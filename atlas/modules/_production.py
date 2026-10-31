@@ -149,7 +149,7 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
         labels = (g.date.dt.strftime('%d.%m.%Y') + ' · накопленный ' + g.cumulative.map('{:.2f}'.format) + ' млн м³ · '
                   + status + ' · ' + g.file.astype(str) + ' / ' + g.sheet.astype(str) + ' / строка ' + g['_row'].astype(str))
         chart.series.append(Series(
-            str(period) if len(ws) == 1 else f'№ {well} · {period}',
+            well_label(well, period, len(ws), len(sel.periods)),
             g.cumulative.to_numpy() if by_cumulative else g.date.to_numpy(), g.q.to_numpy(), 'line',
             color=palette[well] if single or by_well else colors[period],
             dash='solid' if single or not by_well else DASH[sel.periods.index(period) % len(DASH)], width=2.0,
@@ -177,6 +177,7 @@ def elpro_series(sel: Selection, groups, extras: list[str], by_cumulative: bool)
     Сутки без записи ЭЛПРО — разрыв линии; часы берутся из БД расходов."""
     daily: dict[str, pd.DataFrame] = {}
     single = len(sel.periods) == 1
+    many_wells = len({w for w, _ in groups.groups}) > 1
     out: list[Series] = []
     for (well, period), g in groups:
         if well not in daily:
@@ -185,10 +186,18 @@ def elpro_series(sel: Selection, groups, extras: list[str], by_cumulative: bool)
                 daily[well] = daily[well].join(daily_values(sel.elpro, sel.kind, well), how='outer')
         x = g.cumulative.to_numpy() if by_cumulative else g.date.to_numpy()
         for n, key in enumerate(extras, start=2):
-            name = f'{LABEL[key]}, № {well}' + ('' if single else f' · {period}')
+            name = LABEL[key] + (f', № {well}' if many_wells else '') + ('' if single else f' · {period}')
             values = daily[well][key].reindex(g.date.to_numpy()).to_numpy() if key in daily[well] else np.full(len(g), np.nan)
             out.append(Series(name, x, values, 'line', axis=f'y{n}', color=COLOR[key], width=2))
     return out
+
+
+def well_label(well: Any, period: Any, wells: int, periods: int) -> str:
+    """Подпись кривой скважины в легенде: номер — только если скважин несколько, период — только если периодов несколько.
+    Одна скважина и один период: остаётся период (кривая одна, подпись нужна для названия)."""
+    if wells > 1:
+        return f'№ {well} · {period}' if periods > 1 else f'№ {well}'
+    return str(period)
 
 
 def ordered_periods(sel: Selection) -> list[str]:
@@ -366,7 +375,7 @@ def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: st
     chart = Chart(f'production-group-{group}', f'Группа {group}', _x_axis(xmode), Axis(*GROUP_AXES[metric], from_zero=True))
     colors, palette = legacy.period_colors(sel.df, sel.kind), well_colors(wells)
     for period, g in group_curves(sel, daily, metric, xmode, objects):
-        chart.series.append(Series('Сумма · ' + period, g.x.to_numpy(), g.value.to_numpy(), 'line',
+        chart.series.append(Series('Сумма' if len(sel.periods) == 1 else 'Сумма · ' + period, g.x.to_numpy(), g.value.to_numpy(), 'line',
                                    color=colors.get(period), width=3.0, labels=g.label.tolist(),
                                    facets={'Кривая': 'Сумма', 'Период': str(period)}))
     if metric in ('daily', 'cumulative'):
@@ -386,7 +395,7 @@ def group_chart(sel: Selection, daily: pd.DataFrame, wells: list[str], group: st
             else:
                 g['x'] = g.date
             g = screen_decimate(g[g.x.notna()], 'value')
-            chart.series.append(Series(f'№ {well} · {period}', g.x.to_numpy(), g.value.to_numpy(), 'line',
+            chart.series.append(Series(f'№ {well}' if len(sel.periods) == 1 else f'№ {well} · {period}', g.x.to_numpy(), g.value.to_numpy(), 'line',
                                        color=palette[well], width=1.4,
                                        facets={'Кривая': f'№ {well}', 'Период': str(period)}))
     if not daily.empty and xmode == 'date':
