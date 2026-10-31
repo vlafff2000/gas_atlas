@@ -2,7 +2,7 @@
 import type { Chart, Series } from './api'
 
 export type MarkerShape = 'circle' | 'square' | 'diamond' | 'triangle' | 'plus' | 'x' | 'star'
-export type LineStyleName = 'solid' | 'dash' | 'dot'
+export type LineStyleName = 'solid' | 'dash' | 'dot' | 'dashdot' | 'longdash'
 
 /** Поля, которые пользователь задал вручную; не заданное берётся по умолчанию из модуля. */
 export interface Look {
@@ -16,6 +16,10 @@ export interface Look {
   markerColor?: string    // цвет отметок линии, если отличается от линии
   opacity?: number        // прозрачность линии и отметок: 1 — непрозрачно
   valueLabels?: boolean   // подписи значений над столбцами (целые, Times New Roman)
+  // модель v2 (atlas/chart_style.py): граница маркера, полый маркер, подписи данных, имя в легенде
+  marker_border?: string; marker_border_width?: number; hollow?: boolean
+  label_position?: 'top' | 'bottom' | 'left' | 'right' | 'inside' | 'center'; label_decimals?: number; label_size?: number
+  legend_name?: string
 }
 
 export const MARKER_SHAPES: { value: MarkerShape; label: string }[] = [

@@ -21,7 +21,7 @@ from atlas.engine.core.config import NODATA, natural_key
 from atlas.engine.core.import_rules import FIELDS as IMPORT_FIELDS
 from atlas.engine.core.loader import group_key
 
-from ..chart_style import bound, clean_axes, clean_chart, clean_look
+from ..chart_style import clean_axes, clean_chart, clean_look, style_axis as _style_axis
 from ..contract import Axis, Chart, Data, Module, ModuleSpec, Note, Param, ParamError, Result, Series, Stat
 from . import builder_calc as calc
 from ._production import NEUTRAL_PREFIXES
@@ -924,38 +924,6 @@ def _style_series(s: Series, look: dict[str, Any], view: str = 'line') -> None:
         s.opacity = look['opacity']
     if s.kind == 'line' and 'marker' in look and view != 'line_points':
         s.markers = look['marker']
-
-
-def _style_axis(axis: Axis, spec: dict[str, Any], title: str, values: list[pd.Series], notes: list[Note]) -> None:
-    """Ручные границы, шаг, логарифм, направление и оформление оси; то, что к оси не подходит, пропускается с заметкой."""
-    time = axis.scale == 'time'
-    if 'color' in spec:
-        axis.color = spec['color']
-    axis.style = {k: v for k, v in spec.items() if k in ('decimals', 'date_format', 'font', 'tick_size', 'title_size', 'title_bold', 'title_italic', 'tick_bold', 'tick_italic')}
-    if spec.get('inverse'):
-        axis.inverse = True
-    if spec.get('from_zero') and axis.scale == 'value':
-        axis.from_zero = True
-    low = bound(spec['min'], f'Ось {title}, минимум', time) if 'min' in spec else None
-    high = bound(spec['max'], f'Ось {title}, максимум', time) if 'max' in spec else None
-    if low is not None and high is not None and low >= high:
-        raise ParamError(f'Ось {title}: минимум должен быть меньше максимума')
-    if spec.get('log'):
-        positive = all((v.dropna() > 0).all() for v in values if not pd.api.types.is_datetime64_any_dtype(v))
-        if time:
-            notes.append(Note(f'Ось {title}: логарифмическая шкала не применяется к датам.'))
-        elif not positive or (low is not None and low <= 0):
-            notes.append(Note(f'Ось {title}: логарифмическая шкала возможна только для положительных значений — оставлена линейная.'))
-        else:
-            axis.scale = 'log'
-    axis.minimum, axis.maximum = low, high
-    if 'step' in spec:
-        if axis.scale not in ('value', 'log'):
-            notes.append(Note(f'Ось {title}: шаг делений задаётся для чисел; у дат деления подбираются сами.'))
-        else:
-            axis.step = bound(spec['step'], f'Ось {title}, шаг', False)
-            if axis.step <= 0:
-                raise ParamError(f'Ось {title}, шаг: больше нуля')
 
 
 BROKEN = ('line', 'line_points', 'area', 'step')      # виды с линией: по датам рвётся на перерывах
