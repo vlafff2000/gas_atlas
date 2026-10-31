@@ -32,6 +32,7 @@ DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
 TICKS = ('out', 'in', 'cross', 'none')                       # деления оси: наружу, внутрь, пересекают, нет (как в Excel)
 UNITS = ('thousands', 'millions', 'billions')               # единицы отображения: подписи делятся на 10³, 10⁶, 10⁹
 TITLE_PLACES = ('end', 'middle')                            # название оси Y: над осью или вдоль оси
+TRENDS = ('linear', 'poly', 'log', 'power', 'exp', 'moving')   # вид линии тренда
 LABEL_PLACES = ('top', 'bottom', 'left', 'right', 'inside', 'center')
 HEX = re.compile(r'^#[0-9a-fA-F]{6}$')
 
@@ -112,7 +113,10 @@ LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DAS
         'size': ('num', 2, 24), 'markerColor': 'color', 'opacity': ('num', 0.05, 1), 'valueLabels': 'bool',
         # модель v2: граница маркера, полый маркер, подписи данных, имя в легенде
         'marker_border': 'color', 'marker_border_width': ('num', 0, 6), 'hollow': 'bool',
-        'label_position': LABEL_PLACES, 'label_decimals': ('int', 0, 8), 'label_size': ('num', 5, 30), 'legend_name': 'text'}
+        'label_position': LABEL_PLACES, 'label_decimals': ('int', 0, 8), 'label_size': ('num', 5, 30), 'legend_name': 'text',
+        # линия тренда ряда (atlas/trend.py): вид, степень полинома, окно скользящего, подпись с уравнением и R², цвет и толщина
+        'trend': TRENDS, 'trend_order': ('int', 2, 6), 'trend_period': ('int', 2, 60), 'trend_label': 'bool', 'trend_color': 'color',
+        'trend_width': ('num', 0.5, 12)}
 AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FORMATS, 'font': FONTS, 'tick_size': ('num', 5, 30),
             'title_size': ('num', 5, 30), 'title_bold': 'bool', 'title_italic': 'bool', 'tick_bold': 'bool', 'tick_italic': 'bool',
             # модель v2: деления, линия оси, поворот подписей, единицы отображения, положение названия
@@ -292,7 +296,26 @@ def apply_format(chart: Chart, doc: Mapping[str, Any] | None, notes: list[Note] 
                 look = {**(s.look or {}), **own}
                 s = dataclasses.replace(s, look=look, **({'opacity': look['opacity']} if 'opacity' in look else {}))
             series.append(s)
-        out = dataclasses.replace(out, series=series)
+        out = dataclasses.replace(out, series=series + _trends(series, notes))
+    return out
+
+
+def _trends(series: list[Series], notes: list[Note]) -> list[Series]:
+    """Линии тренда рядов, у которых в виде задан ``trend``; ряд без подходящих точек пропускается с пометкой."""
+    from . import trend as trendlib
+    out = []
+    for s in series:
+        look = s.look or {}
+        kind = look.get('trend')
+        if not kind or s.kind not in ('points', 'line') or s.name.startswith('Тренд: ') or any(t.name.startswith('Тренд: ' + s.name) for t in series):
+            continue
+        got = trendlib.fit(kind, s.x, s.y, int(look.get('trend_order', 2)), int(look.get('trend_period', 5)))
+        if got is None:
+            notes.append(Note(f'Тренд ряда «{s.name}» не построен: мало точек или вид не подходит к значениям (логарифм — x > 0, степень и экспонента — x и y > 0).'))
+            continue
+        out.append(Series(name=trendlib.label(s.name, got, bool(look.get('trend_label'))), x=got['x'], y=got['y'], kind='line', group=s.group or s.name,
+                          dash='dash', width=float(look.get('trend_width', 0)) or max(s.width, 1.5), legend=False, axis=s.axis,
+                          color=look.get('trend_color') or s.color, tooltip=trendlib.label(s.name, got, True)))
     return out
 
 
