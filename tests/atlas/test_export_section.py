@@ -630,3 +630,17 @@ def test_word_headers_footers_and_properties():
         assert not {'word/header1.xml', 'word/footer1.xml', 'docProps/core.xml'} & set(z.namelist())
     png2, pages = word_export.preview_png(layout, items, 1, {}, project='Объект')
     assert pages >= 1 and png2[:4] == b'\x89PNG'
+
+
+def test_long_chart_title_wraps_instead_of_being_cut():
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from atlas.engine.core.export import fit_title
+    f = plt.figure(figsize=(170 / 25.4, 116 / 25.4))
+    long = 'Производительность скважины № 31 в сезоны отбора 2023-2024, 2024-2025, 2025-2026'
+    wrapped = fit_title(f, long, 12)
+    assert '\n' in wrapped and wrapped.replace('\n', ' ') == long      # перенос по словам, текст не меняется
+    assert fit_title(f, 'Скважина № 31', 12) == 'Скважина № 31'          # короткое название не трогаем
+    assert fit_title(f, 'Две\nстроки', 12) == 'Две\nстроки'              # своё разбиение сохраняется
+    plt.close(f)
