@@ -208,6 +208,17 @@ export function SettingsPage({ project, onProject, onOpen }: PageProps) {
       </section>
 
       <section className="form-block">
+        <h2>Шрифт графиков</h2>
+        <div className="segmented" role="radiogroup" aria-label="Шрифт графиков">
+          {([['times', 'Times New Roman'], ['base', 'Базовый'], ['arial_narrow', 'Arial Narrow']] as [string, string][]).map(([v, label]) => (
+            <button key={v} type="button" role="radio" aria-checked={((s.chart_font as string | undefined) ?? 'times') === v}
+              onClick={() => save({ chart_font: v }, 'Шрифт графиков сохранён.')}>{label}</button>
+          ))}
+        </div>
+        <p className="muted small-text">Действует на все графики проекта на экране и в файлах (PNG, PDF, SVG, XLSX). Свой шрифт, заданный в «Формат» графика, главнее. «Базовый» — шрифт программы без замены.</p>
+      </section>
+
+      <section className="form-block">
         <h2>Большие данные на графиках</h2>
         <label className="toggle">
           <input type="checkbox" checked={thin} onChange={e => thinCharts.set(e.target.checked)} />
