@@ -1168,8 +1168,11 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
     }
     zr.on('dblclick', (e: { offsetX: number; offsetY: number }) => {
       if (zone(e.offsetX, e.offsetY)) return
-      const under = st.chart.id.startsWith('builder') ? null : seriesUnder()
-      if (under !== null) { st.openFormat('series:' + under); return }
+      if (!st.chart.id.startsWith('builder')) {      // как в Excel: ряд — формат ряда, пустое поле — формат области построения; масштаб сбрасывает кнопка ↺
+        const under = seriesUnder()
+        st.openFormat(under !== null ? 'series:' + under : 'chart')
+        return
+      }
       st.setRanges(NO_RANGES)
       ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
     })
@@ -1518,7 +1521,7 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
                 title="Те же границы оси Y — на все графики раздела с такой же осью">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></svg>
               </button>}
-              <button type="button" className="icon" onClick={resetZoom} title="Сбросить масштаб и границы осей (или двойной щелчок по графику). Двойной щелчок по оси — ввести границы, колесо над осью — масштаб оси, перетаскивание оси — сдвиг">
+              <button type="button" className="icon" onClick={resetZoom} title="Сбросить масштаб и границы осей. Двойной щелчок по оси — ввести границы, колесо над осью — масштаб оси, перетаскивание оси — сдвиг">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7" /><path d="M3 2.5v3h3" /></svg>
               </button>
             </span>
