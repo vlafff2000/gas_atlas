@@ -962,6 +962,18 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
             <Num {...F} field="word_margin_left" label="Поле слева, мм" def={25} min={0} max={80} />
             <Num {...F} field="word_margin_right" label="Поле справа, мм" def={15} min={0} max={80} />
             <Check {...F} field="word_page_numbers" label="Номера страниц" def={false} />
+            {Boolean(form.word_page_numbers) && <>
+              <Select {...F} field="word_page_number_pos" label="Положение номера" def="footer-center" options={[['footer-center', 'Внизу по центру'], ['footer-left', 'Внизу слева'], ['footer-right', 'Внизу справа'], ['header-center', 'Вверху по центру'], ['header-left', 'Вверху слева'], ['header-right', 'Вверху справа']]} />
+              <Select {...F} field="word_page_number_format" label="Вид номера" def="n" options={[['n', '3'], ['page', 'Страница 3'], ['of', '3 из 12'], ['page_of', 'Страница 3 из 12']]} />
+              <Num {...F} field="word_page_start" label="Первый номер страницы" def={1} min={1} max={9999} />
+            </>}
+          </Section>
+          <Section title="Колонтитулы">
+            <Text {...F} field="word_header_text" label="Верхний колонтитул" def="" wide />
+            <Text {...F} field="word_footer_text" label="Нижний колонтитул" def="" wide />
+            <Select {...F} field="word_hf_align" label="Выравнивание текста" def="center" options={[['left', 'Влево'], ['center', 'По центру'], ['right', 'Вправо']]} />
+            <Num {...F} field="word_hf_size" label="Размер, пт" def={9} min={6} max={20} />
+            <p className="muted small-text">Поля: {'{страница}, {страниц}, {проект}, {дата}'} — страница и число страниц обновляются в самом Word.</p>
           </Section>
           <Section title="Графики на листе">
             <Num {...F} field="word_columns" label="Колонок" def={1} min={1} max={3} />
@@ -992,6 +1004,15 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
             <Check {...F} field="word_title" label="Заголовок в начале" def={false} />
             {Boolean(form.word_title) && <Text {...F} field="word_title_text" label="Текст заголовка" def="" wide />}
             <Check {...F} field="word_list_of_figures" label="Список рисунков с гиперссылками" def={false} />
+            {Boolean(form.word_title) && <>
+              <Num {...F} field="word_title_size" label="Размер заголовка, пт (0 — авто)" def={0} min={0} max={48} />
+              <Select {...F} field="word_title_align" label="Выравнивание заголовка" def="left" options={[['left', 'Влево'], ['center', 'По центру'], ['right', 'Вправо']]} />
+            </>}
+            <Select {...F} field="word_figure_align" label="Выравнивание рисунка" def="center" options={[['center', 'По центру'], ['left', 'Влево'], ['right', 'Вправо']]} />
+            <Select {...F} field="word_text_font" label="Шрифт текста и колонтитулов" def="" options={[['', 'Как у подписи'], ...FONT_LIST]} />
+            <Num {...F} field="word_text_size" label="Размер текста, пт (0 — как у подписи)" def={0} min={0} max={28} />
+            <Text {...F} field="word_doc_title" label="Свойства файла: название" def="" wide />
+            <Text {...F} field="word_doc_author" label="Свойства файла: автор" def="" wide />
           </Section>
         </div>
         <div className="word-shot">
