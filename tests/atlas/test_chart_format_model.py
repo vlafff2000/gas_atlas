@@ -92,6 +92,19 @@ def test_store_validated_and_cleaned():
             clean_store(bad)
 
 
+def test_store_keeps_templates_but_does_not_apply_them():
+    from atlas.chart_style import apply_store, clean_store
+    from atlas.contract import Result
+    store = {'templates': {' Для отчёта ': {'chart': {'legend': 'top'}, 'series': {'№ 1|line': {'color': '#ff0000'}}}, 'пустой': {}}}
+    assert clean_store(store) == {'templates': {'Для отчёта': {'chart': {'legend': 'top'}, 'series': {'№ 1|line': {'color': '#ff0000'}}}}}
+    result = Result(charts=[chart()])
+    assert apply_store(result, {'chart_formats': clean_store(store)}, 'gdi').charts[0].style == {}
+    with pytest.raises(ParamError):
+        clean_store({'templates': {'плохой': {'chart': {'legend': 'внизу'}}}})
+    with pytest.raises(ParamError):
+        clean_store({'templates': []})
+
+
 def test_store_applies_theme_then_type():
     from atlas.chart_style import apply_store
     from atlas.contract import Note, Result

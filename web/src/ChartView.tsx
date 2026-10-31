@@ -1548,12 +1548,14 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       {settings && createPortal(format ? (
         <FormatPane chart={chart} element={element} onElement={setElement} scope="project" onScope={() => {}} scopeLabel={format.label}
           doc={format.doc} onDoc={format.onDoc} colorOf={colorOf(chart)} looks={format.doc.series ?? {}}
-          onLooks={series => format.onDoc({ ...format.doc, series: Object.keys(series).length ? series : undefined })} onClose={() => setSettings(false)} />
+          onLooks={series => format.onDoc({ ...format.doc, series: Object.keys(series).length ? series : undefined })}
+          onReplace={format.onDoc} onClose={() => setSettings(false)} />
       ) : (
         <FormatPane chart={chart} element={element} onElement={setElement} scope={module ? scope : 'project'}
           onScope={module ? setScope : () => {}} doc={formatDoc(store, module ? scope : 'project', module ?? '')}
           onDoc={doc => setFormatDoc(module ? scope : 'project', module ?? '', doc)} colorOf={colorOf(chart)} looks={looks ?? {}}
-          onLooks={setLooks} onClose={() => setSettings(false)} />), document.body)}
+          onLooks={setLooks} onReplace={d => { setFormatDoc(module ? scope : 'project', module ?? '', d); setLooks(d.series ?? {}) }}
+          onClose={() => setSettings(false)} />), document.body)}
       {thinned.length > 0 && <ThinNote chart={chart} thinned={thinned.map(([, i]) => i)} windowed={!!patch && patch.base === given} patch={patch} />}
       {chart.style?.subtitle && <p className="chart-subtitle" style={chart.style.subtitle_size ? { fontSize: chart.style.subtitle_size } : undefined}>{chart.style.subtitle}</p>}
       {legendEl && chart.style?.legend === 'top' && legendEl}

@@ -237,3 +237,10 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .chart-legend.cols .legend-title { grid-column: 1 / -1; }
 .chart-legend.boxed { background: var(--legend-bg, transparent); border: 1px solid var(--chart-axis); border-radius: 4px; padding: 2px 6px; }
 .chart-legend { background: var(--legend-bg, transparent); }
+.cs-templates { padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.cs-templates summary { cursor: pointer; color: var(--muted); }
+.cs-tpl-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cs-tpl-row select, .cs-tpl-row input { flex: 1 1 140px; min-width: 0; font: inherit; padding: 2px 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+.cs-tpl-row button { font: inherit; font-size: 12px; padding: 3px 8px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.cs-tpl-row button:disabled { color: var(--muted); cursor: default; opacity: .6; }
+.cs-tpl-json { width: 100%; box-sizing: border-box; margin-top: 6px; font: 11px/1.3 monospace; }
