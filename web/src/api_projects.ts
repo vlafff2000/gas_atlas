@@ -123,6 +123,9 @@ export const anyApi = {
   modules: (pid: string) => request<{ modules: AnyModule[] }>(`${P(pid)}/export/any/modules`),
   charts: (pid: string, module: string, params: unknown) =>
     request<{ charts: AnyChartInfo[]; note: string }>(`${P(pid)}/export/any/charts`, json('POST', { module, params })),
+  /** График для живого вида: оформление проекта и настройки формы на нём, оформление самого графика (settings.doc) накладывает экран. */
+  chart: (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) =>
+    request<Chart>(`${P(pid)}/export/any/chart`, json('POST', { module, params, chart, settings })),
   file: async (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) => {
     const response = await send(`${P(pid)}/export/any/file`, json('POST', { module, params, chart, settings }))
     const name = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') ?? '')

@@ -14,7 +14,7 @@ import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type H
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, projectFormats, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
-import { applyFormat, mergeFormats } from './chartFormat'
+import { applyFormat, mergeFormats, type ChartFormat } from './chartFormat'
 import { FormatPane, type FormatElement } from './FormatPane'
 import { formatDoc, setFormatDoc, type FormatScope } from './projectLooks'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
@@ -54,6 +54,9 @@ const eventColor = (kind: ChartEvent['kind'], tk: ChartTokens) =>
 
 interface Props {
   chart: Chart
+  /** Оформление одного графика (страница выгрузки): вместо оформления проекта на график ложится этот документ, панель «Формат» правит его.
+   *  Оформление проекта на графике уже есть (его наложил сервер). */
+  format?: { doc: ChartFormat; onDoc: (doc: ChartFormat) => void; label: string }
   /** Тип графика — id модуля: оформление проекта для этого типа (settings.chart_formats.types) ложится поверх темы. */
   module?: string
   /** Мини-вариант (подсказка на карте, карточка): без заголовка, кнопок, легенды и навигатора; высота — переменная --chart-h (104px по умолчанию). Подсказка, перекрестие и зум остаются теми же. */
@@ -558,7 +561,7 @@ function suspectClick(st: { pending: null | { id: string; dataset: string; timer
   st.pending = { id, dataset, timer }
 }
 
-export function ChartView({ chart: given, module, compact, excludeMode, onExclude, onConfirm, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
+export function ChartView({ chart: given, module, format, compact, excludeMode, onExclude, onConfirm, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -573,8 +576,8 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
   const looks = useMemo(() => looksOf(given, looksAll), [given, looksAll])
   const store = usePref(projectFormats)
   // оформление проекта: тема (стиль, оси, вид рядов из «Настройки») → тип графика; на экране сразу, без пересчёта
-  const chart = useMemo(() => applyFormat(windowed, mergeFormats({ chart: store.theme?.chart, axes: store.theme?.axes, series: looks },
-    module ? store.types?.[module] : undefined)), [windowed, looks, store, module])
+  const chart = useMemo(() => format ? applyFormat(windowed, format.doc) : applyFormat(windowed, mergeFormats({ chart: store.theme?.chart, axes: store.theme?.axes, series: looks },
+    module ? store.types?.[module] : undefined)), [windowed, looks, store, module, format])
   const [settings, setSettings] = useState(false)
   const [element, setElement] = useState<FormatElement>('chart')
   const scope = usePref(formatScope)
@@ -1542,10 +1545,15 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
           <DownloadMenu onDownload={(format, dpi) => onDownload(format, dpi, screenView())} />
         </span>
       </figcaption>
-      {settings && createPortal(<FormatPane chart={chart} element={element} onElement={setElement} scope={module ? scope : 'project'}
-        onScope={module ? setScope : () => {}} doc={formatDoc(store, module ? scope : 'project', module ?? '')}
-        onDoc={doc => setFormatDoc(module ? scope : 'project', module ?? '', doc)} colorOf={colorOf(chart)} looks={looks ?? {}}
-        onLooks={setLooks} onClose={() => setSettings(false)} />, document.body)}
+      {settings && createPortal(format ? (
+        <FormatPane chart={chart} element={element} onElement={setElement} scope="project" onScope={() => {}} scopeLabel={format.label}
+          doc={format.doc} onDoc={format.onDoc} colorOf={colorOf(chart)} looks={format.doc.series ?? {}}
+          onLooks={series => format.onDoc({ ...format.doc, series: Object.keys(series).length ? series : undefined })} onClose={() => setSettings(false)} />
+      ) : (
+        <FormatPane chart={chart} element={element} onElement={setElement} scope={module ? scope : 'project'}
+          onScope={module ? setScope : () => {}} doc={formatDoc(store, module ? scope : 'project', module ?? '')}
+          onDoc={doc => setFormatDoc(module ? scope : 'project', module ?? '', doc)} colorOf={colorOf(chart)} looks={looks ?? {}}
+          onLooks={setLooks} onClose={() => setSettings(false)} />), document.body)}
       {thinned.length > 0 && <ThinNote chart={chart} thinned={thinned.map(([, i]) => i)} windowed={!!patch && patch.base === given} patch={patch} />}
       {chart.style?.subtitle && <p className="chart-subtitle" style={chart.style.subtitle_size ? { fontSize: chart.style.subtitle_size } : undefined}>{chart.style.subtitle}</p>}
       {legendEl && chart.style?.legend === 'top' && legendEl}
