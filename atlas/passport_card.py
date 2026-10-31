@@ -16,11 +16,11 @@ import pandas as pd
 
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 # Какие элементы шаблона конструкции попадают на схему забойной части; кондуктор и прочие колонны — нет.
-RULES = (('reaming', r'расшир|подзабой|каверн'), ('filter', r'фильтр'), ('perf', r'перфор'), ('packer', r'пакер'),
+RULES = (('reaming', r'расшир|подзабой|каверн'), ('filter', r'фильтр'), ('perf', r'перфор'), ('packer', r'пакер'), ('bridge', r'мост'),
          ('tubing', r'нкт|лифт|насосно'), ('pay', r'пласт|коллектор|продуктив'),
          ('casing', r'эксплуатационн|э/?к\b'))
 KIND_LABELS = {'casing': 'Эксплуатационная колонна', 'tubing': 'НКТ', 'filter': 'Фильтр', 'perf': 'Перфорация',
-               'reaming': 'Расширка', 'packer': 'Пакер', 'pay': 'Пласт', 'bottom': 'Забой'}
+               'reaming': 'Расширка', 'packer': 'Пакер', 'bridge': 'Цементный мост', 'pay': 'Пласт', 'bottom': 'Забой'}
 SKIPPED = r'кондуктор|направлени|потайн|хвостовик|техническ'
 
 
@@ -72,7 +72,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None) -> dict[str, A
     if not kinds & {'filter', 'perf'}:
         notes.append('Не указан фильтр или интервал перфорации.')
     # Окно: от точки чуть выше самого верхнего элемента забойной части до забоя; колонна и НКТ идут сверху, их верх не берём.
-    tops = [i['top'] for i in items if i['kind'] in ('filter', 'perf', 'reaming', 'packer', 'pay')]
+    tops = [i['top'] for i in items if i['kind'] in ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge')]
     tubing = [i['bottom'] for i in items if i['kind'] == 'tubing']
     ends = [i['bottom'] for i in items]
     top_depth = min(tops + tubing) if tops or tubing else min(i['top'] for i in items)
@@ -136,10 +136,12 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
     for i in by['perf']:
         a, b = max(i['top'], top), min(i['bottom'], low)
         if b >= a:
-            count = max(2, min(9, int((b - a) / max((low - top) / 40, .5)) + 1))
-            for y in np.linspace(a, b, count):
-                for sign in (-1, 1):
-                    out.append({'t': 'line', 'x0': sign * .9, 'x1': sign * 1.55, 'y0': float(y), 'y1': float(y), 'stroke': '#e11d48', 'width': 1.6, 'name': 'perf'})
+            # Условное обозначение: перфорация — «пила» вдоль стенки колонны с обеих сторон; зубцов тем больше, чем длиннее интервал.
+            teeth = max(3, min(24, int((b - a) / max((low - top) / 48, .5)) + 1))
+            ys = np.linspace(a, b, teeth * 2 + 1)
+            for sign in (-1, 1):
+                pts = [[sign * (1.12 if k % 2 == 0 else 1.6), float(y)] for k, y in enumerate(ys)]
+                out.append({'t': 'poly', 'pts': pts, 'stroke': '#e11d48', 'width': 1.6, 'name': 'perf'})
             tag((a + b) / 2, f"Перфорация {i['top']:g}–{i['bottom']:g} м", '#be123c')
     for i in by['tubing']:
         rect(-.45, .45, i['top'], i['bottom'], '#dbeafe', name='bore')
@@ -155,6 +157,9 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
             x0, x1 = sorted((sign * .53, sign * 1.0))
             rect(x0, x1, min(i['top'], mid - pack_h / 2), max(i['bottom'], mid + pack_h / 2), '#111827', name='packer')
         tag(mid, f"Пакер {mid:g} м", '#111827')
+    for i in by['bridge']:
+        rect(-1.0, 1.0, i['top'], i['bottom'], '#9ca3af', 'cement', 'bridge')
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"Цементный мост {i['top']:g}–{i['bottom']:g} м", '#4b5563')
     cover, bottom_m = sch.get('covered_m'), sch.get('bottom_m')
     if cover and bottom_m:
         rect(-.95, .95, bottom_m, bottom_m + cover, '#e8c987', 'sand', 'fill')
@@ -297,14 +302,29 @@ def krs_rows(works: pd.DataFrame | None, priority: pd.DataFrame | None, well: st
     return {'works': rows, 'priority': info, 'loaded': True, 'note': '' if rows else 'По этой скважине КР в загруженных данных нет.'}
 
 
-def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None)) -> dict[str, Any]:
-    """Всё для карточки одной скважины. Пустые разделы — заметка, не ошибка."""
+def season_label(kind: str, period: str) -> str:
+    return f'{dict(KINDS)[kind]} {period}'
+
+
+def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None),
+          only: list[str] | None = None) -> dict[str, Any]:
+    """Всё для карточки одной скважины. Пустые разделы — заметка, не ошибка.
+
+    ``only`` — подписи сезонов («Отбор 2025-2026»), которые показывать: показатели, таблица сезонов, графики и PDF считаются
+    только по ним; пусто или None — все. ГДИ, КРС и конструкция от выбора не зависят."""
     from atlas.engine.modules import well_analysis
     by_kind: dict[str, dict[str, Any]] = {}
     for kind, _ in KINDS:
         by_kind[kind] = dict(well_analysis.analyze(frames, settings, mapping, well, kind))
     first = by_kind['withdrawal']
     seasons = chronological([row for kind, _ in KINDS for row in seasons_table(by_kind[kind]['daily'], by_kind[kind]['seasons'], kind)])
+    season_options = [season_label(r['kind'], r['period']) for r in seasons]
+    keep = set(only or season_options)
+    seasons = [r for r in seasons if season_label(r['kind'], r['period']) in keep]
+    for kind, _ in KINDS:       # суточные ряды — только выбранные сезоны
+        d = by_kind[kind]['daily']
+        if only and not d.empty:
+            by_kind[kind]['daily'] = d[d.period.astype(str).map(lambda p, k=kind: season_label(k, p) in keep)]
     gdi_all = gdi_table(first['gdi_history'])
     bottom = first['bottom']
     bottom_m = _num(bottom.iloc[-1].bottom_m) if not bottom.empty else None
@@ -333,14 +353,12 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
         {'label': 'Вода по последнему контролю', 'value': None, 'text': 'нет данных' if water.empty else str(water.iloc[-1]['Состояние']),
          'hint': '' if water.empty else _date(water.iloc[-1]['Дата'])},
     ]
-    notes = [s for s in cons['notes']] + notes_check
-    if krs['note']:
-        notes.append(krs['note'])
+    notes = list(notes_check)         # пояснения по конструкции и КРС показываются в своих блоках, здесь не повторяются
     if not seasons:
         notes.append('Нет данных по сезонам эксплуатации: загрузите динамику или суточную эксплуатацию.')
     return {'well': well, 'group': mapping.get(well, {}).get('group', ''),
             'construction_date': _date(construction.date.max()) if not construction.empty else '',
-            'kpi': kpi, 'seasons': seasons, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
+            'kpi': kpi, 'seasons': seasons, 'season_options': season_options, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
             'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes}
 
 

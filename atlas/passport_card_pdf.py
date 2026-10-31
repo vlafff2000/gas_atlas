@@ -22,9 +22,11 @@ def draw_schematic(ax, sch: dict[str, Any]) -> None:
     ax.axis('off')
     for s in sch['shapes']:
         if s['t'] == 'rect':
-            hatch = {'slots': '////', 'sand': '....'}.get(s['pattern'])
+            hatch = {'slots': '////', 'sand': '....', 'cement': 'xxxx'}.get(s['pattern'])
             ax.add_patch(Rectangle((s['x0'], s['y0']), s['x1'] - s['x0'], s['y1'] - s['y0'], facecolor=s['fill'],
                                    edgecolor='#0f766e' if hatch == '////' else 'none', hatch=hatch, linewidth=0))
+        elif s['t'] == 'poly':
+            ax.plot([q[0] for q in s['pts']], [q[1] for q in s['pts']], color=s['stroke'], linewidth=s['width'] * .75, solid_joinstyle='miter')
         else:
             ax.plot([s['x0'], s['x1']], [s['y0'], s['y1']], color=s['stroke'], linewidth=s['width'] * .75, solid_capstyle='butt')
     for label in sch['labels']:

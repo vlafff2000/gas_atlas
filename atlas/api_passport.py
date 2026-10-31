@@ -21,7 +21,8 @@ from starlette.routing import Route
 
 from atlas.engine.core.config import DEFAULT_SETTINGS, MODULES, ordered
 
-from .contract import MissingData, ParamError
+from . import chart_view, passport_blocks, render
+from .contract import MissingData, ParamError, _chart_json, _table_json
 from .api_projects import internal_error_text
 from .projects import Conflict, Projects
 
@@ -117,11 +118,11 @@ class Passport:
     def mapping(self) -> dict[str, dict[str, str]]:
         return self.projects.data(self.pid).mapping
 
-    def card(self, well: str) -> dict[str, Any]:
+    def card(self, well: str, seasons: list[str] | None = None) -> dict[str, Any]:
         from atlas import passport_card
         names = self.manifest.get('tables', {})
         krs = tuple(self.raw[n] if n in names else None for n in ('krs_works', 'krs_priority'))
-        return passport_card.build(self.frames, self.settings, self.mapping(), well, krs)
+        return passport_card.build(self.frames, self.settings, self.mapping(), well, krs, seasons)
 
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting
@@ -134,7 +135,8 @@ class Passport:
                                                options)
         return content, path
 
-    def archive(self, wells: list[str], sections: list[str], periods: dict[str, list[str]], with_card: bool) -> Response:
+    def archive(self, wells: list[str], sections: list[str], periods: dict[str, list[str]], with_card: bool,
+                seasons: list[str] | None = None) -> Response:
         """Паспорта нескольких скважин: PDF на каждую в одном ZIP; комментарий у каждой скважины свой, из проекта."""
         import io
         import zipfile
@@ -143,13 +145,22 @@ class Passport:
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
             for well in wells:
                 text = str(self.settings.get('well_comments', {}).get(well, ''))[:COMMENT_LIMIT]
-                content, _path = self.build(well, sections, periods, text, self.card(well) if with_card else None)
+                content, _path = self.build(well, sections, periods, text, self.card(well, seasons) if with_card else None)
                 zf.writestr('Паспорт_скважины_' + safe_name(well) + '.pdf', content)
         data = buf.getvalue()
         path = self.projects.store.save_export(self.pid, f'Паспорта_скважин_{len(wells)}.zip', data,
-                                               {'wells': wells, 'sections': sections, 'periods': periods})
+                                               {'wells': wells, 'sections': sections, 'periods': periods, 'seasons': seasons})
         return Response(data, media_type='application/zip',
                         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(path.name)}"})
+
+
+def _seasons(value: Any) -> list[str] | None:
+    """Выбранные сезоны паспорта (подписи); пусто — все."""
+    if value in (None, '', []):
+        return None
+    if not isinstance(value, list):
+        raise ParamError('Сезоны паспорта: ожидается список подписей.')
+    return [str(v) for v in value]
 
 
 def _periods(body_value: Any, available: dict[str, list[str]]) -> dict[str, list[str]]:
@@ -199,7 +210,35 @@ def routes(projects: Projects) -> list[Route]:
     def card(request, body):
         passport = Passport(projects, request.path_params['pid'])
         well = passport.well(request.query_params.get('well'))
-        return passport.card(well)
+        try:
+            seasons = _seasons(json.loads(request.query_params.get('seasons') or 'null'))
+        except ValueError:
+            raise ParamError('Сезоны паспорта: ожидается список подписей.') from None
+        card = passport.card(well, seasons)
+        charts, tables = passport_blocks.blocks(card)       # графики и таблицы — в общем контракте, экран рисует их общим ядром
+        return {**card, 'charts': [_chart_json(c, thin=False) for c in charts], 'tables': [_table_json(t) for t in tables]}
+
+    def export(request, body):
+        """Выгрузка графика или таблицы паспорта тем же кодом, что у модулей (PNG/SVG/PDF/XLSX/CSV)."""
+        passport = Passport(projects, request.path_params['pid'])
+        charts, tables = passport_blocks.blocks(passport.card(passport.well(body.get('well')), _seasons(body.get('seasons'))))
+        fmt = str(body.get('format', 'png'))
+        try:
+            if body.get('target') == 'table':
+                found = next((t for t in tables if t.id == body.get('id')), None)
+                if found is None:
+                    raise ParamError('Таблица не найдена. Обновите паспорт.')
+                content, name, mime = render.table_csv(found) if fmt == 'csv' else render.tables_file([found], found.title)
+            else:
+                found = next((c for c in charts if c.id == body.get('id')), None)
+                if found is None:
+                    raise ParamError('График не найден. Обновите паспорт.')
+                if fmt != 'csv':
+                    found = chart_view.apply_view(found, body.get('view'))
+                content, name, mime = render.chart_file(found, fmt, int(body.get('dpi', 300)), body.get('font'), body.get('font_size'))
+        except ValueError as e:
+            raise ParamError(str(e)) from None
+        return Response(content, media_type=mime, headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(name)}"})
 
     def comment(request, body):
         pid = request.path_params['pid']
@@ -236,12 +275,12 @@ def routes(projects: Projects) -> list[Route]:
         if text is None:
             text = passport.settings.get('well_comments', {}).get(well, '')
         if chosen and len(chosen) > 1:
-            return passport.archive(chosen, [str(s) for s in sections], periods, with_card)
+            return passport.archive(chosen, [str(s) for s in sections], periods, with_card, _seasons(body.get('seasons')))
         if chosen:
             well = chosen[0]
             if body.get('comment') is None:
                 text = passport.settings.get('well_comments', {}).get(well, '')
-        card = passport.card(well) if with_card else None
+        card = passport.card(well, _seasons(body.get('seasons'))) if with_card else None
         content, path = passport.build(well, [str(s) for s in sections], periods, str(text)[:COMMENT_LIMIT], card)
         return Response(content, media_type='application/pdf',
                         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(path.name)}"})
@@ -250,6 +289,7 @@ def routes(projects: Projects) -> list[Route]:
     return [
         Route('/api/projects/{pid}/passport', E(info)),
         Route('/api/projects/{pid}/passport/card', E(card)),
+        Route('/api/projects/{pid}/passport/export', E(export), methods=['POST']),
         Route('/api/projects/{pid}/passport/comment', E(comment), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),
     ]

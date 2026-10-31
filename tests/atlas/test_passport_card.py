@@ -108,7 +108,7 @@ def test_card_without_krs_tells_where_to_import(tmp_path):
     projects = Projects(tmp_path)
     client, pid = TestClient(create_app(projects)), make_project(projects)
     card = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
-    assert card['krs']['works'] == [] and any('«Импорт»' in n for n in card['notes'])
+    assert card['krs']['works'] == [] and '«Импорт»' in card['krs']['note'] and not any('«Импорт»' in n or 'конструкции' in n for n in card['notes'])
     assert next(k for k in card['kpi'] if k['label'] == 'Проведено КР')['value'] is None
 
 
@@ -121,3 +121,43 @@ def test_pdf_starts_with_card_page(env):
     assert pages(with_card.content) == pages(without.content) + 2        # страница карточки и страница графиков
     only = client.post(f'/api/projects/{pid}/passport/pdf', json={'well': WELL, 'sections': [], 'card': True})
     assert only.status_code == 200 and pages(only.content) >= 1
+
+
+def test_card_blocks_use_shared_contract_and_export(env):
+    """Графики и таблицы паспорта — в общем контракте (рисует общее ядро) и выгружаются общим экспортом."""
+    client, pid, _ = env
+    card = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
+    assert {c['id'] for c in card['charts']} >= {'passport-seasons', 'passport-daily'}
+    assert {t['id'] for t in card['tables']} >= {'passport-seasons', 'passport-gdi'}
+    seasons = next(t for t in card['tables'] if t['id'] == 'passport-seasons')
+    assert [c['key'] for c in seasons['columns']][:3] == ['kind', 'period', 'volume']
+    png = client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'target': 'chart', 'id': 'passport-seasons', 'format': 'png'})
+    assert png.status_code == 200 and png.content[:4] == b'\x89PNG'
+    xlsx = client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'target': 'table', 'id': 'passport-gdi', 'format': 'xlsx'})
+    assert xlsx.status_code == 200 and xlsx.content[:2] == b'PK'
+    assert client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'target': 'chart', 'id': 'нет'}).status_code == 400
+
+
+def test_perforation_is_sawtooth_and_bridge_is_recognized():
+    assert pc.classify('Цементный мост') == 'bridge'
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None),
+                  ('Цементный мост', 1000, 1008, None, None)])
+    sch = pc.schematic(cons, None)
+    saw = [s for s in sch['shapes'] if s['t'] == 'poly' and s['name'] == 'perf']
+    assert len(saw) == 2 and all(len(s['pts']) >= 7 for s in saw)            # пила с каждой стороны колонны
+    assert {p[0] for p in saw[1]['pts']} == {1.12, 1.6}
+    assert any(s.get('pattern') == 'cement' for s in sch['shapes'])
+
+
+def test_season_choice_limits_card_and_exports(env):
+    client, pid, _ = env
+    full = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
+    pick = full['season_options'][:2]
+    import json
+    part = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL, 'seasons': json.dumps(pick)}).json()
+    assert part['season_options'] == full['season_options']                          # список вариантов не сужается
+    assert [f"{'Отбор' if s['kind'] == 'withdrawal' else 'Закачка'} {s['period']}" for s in part['seasons']] == pick
+    assert part['tables'][0]['count'] == 2
+    assert part['kpi'][0]['value'] != full['kpi'][0]['value'] or len(full['seasons']) == 2
+    pdf = client.post(f'/api/projects/{pid}/passport/pdf', json={'well': WELL, 'sections': [], 'card': True, 'seasons': pick})
+    assert pdf.status_code == 200 and pdf.content[:4] == b'%PDF'
