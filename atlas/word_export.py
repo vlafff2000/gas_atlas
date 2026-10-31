@@ -462,14 +462,21 @@ def build_docx(items: Sequence[Item], layout: Layout, project: str = '', errors:
 
 # ---------- предпросмотр ----------
 
-def _font(size_px: int):
+# шрифт подписи → (Linux-аналог, метрически совместимый; запасной): лист предпросмотра должен ложиться как в Word
+_PREVIEW_FONTS = {'Times New Roman': 'Liberation Serif', 'Arial': 'Liberation Sans', 'Calibri': 'Carlito', 'Cambria': 'DejaVu Serif',
+                  'Verdana': 'DejaVu Sans', 'Tahoma': 'DejaVu Sans', 'Georgia': 'DejaVu Serif'}
+
+
+def _font(size_px: int, family: str = 'Times New Roman', bold: bool = False, italic: bool = False):
     from PIL import ImageFont
-    import matplotlib
-    from pathlib import Path
-    path = Path(matplotlib.get_data_path()) / 'fonts' / 'ttf' / 'DejaVuSerif.ttf'
+    from matplotlib import font_manager
+    from .engine.core import fonts
+    fonts.register()
     try:
-        return ImageFont.truetype(str(path), size_px)
-    except OSError:
+        props = font_manager.FontProperties(family=[family, _PREVIEW_FONTS.get(family, 'DejaVu Serif'), 'DejaVu Serif'],
+                                            weight='bold' if bold else 'normal', style='italic' if italic else 'normal')
+        return ImageFont.truetype(font_manager.findfont(props), size_px)
+    except (OSError, ValueError):
         return ImageFont.load_default()
 
 
@@ -496,7 +503,7 @@ def preview_png(layout: Layout, items: Sequence[Item], page: int, images: Mappin
     sheet = Image.new('RGB', (px(pw), px(ph)), 'white')
     draw = ImageDraw.Draw(sheet)
     draw.rectangle([px(layout.margin_left), px(layout.margin_top), px(pw - layout.margin_right), px(ph - layout.margin_bottom)], outline='#dfe3ea')
-    cap_font = _font(max(7, int(layout.caption_size * PT_MM * scale)))
+    cap_font = _font(max(7, int(layout.caption_size * PT_MM * scale)), layout.caption_font, layout.caption_bold, layout.caption_italic)
     cell_w = layout.content()[0] / layout.columns
     inner = layout.cell()
     y = layout.margin_top
