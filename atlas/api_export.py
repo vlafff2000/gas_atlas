@@ -919,7 +919,8 @@ def routes(projects: Projects) -> list[Route]:
             cap_h = word_export.caption_height(lay150, items[k].text, lay150.cell())
             items[k].png, items[k].w, items[k].h = word_export.render_png(jobs[k].render(), lay150, cap_h, font, font_size, look)
         image, pages = word_export.preview_png(layout, items, page, {i: items[i].png for i in shown if items[i].png},
-                                           scale=min(max(float(body.get('scale') or 3.0), 2.0), 9.0))
+                                           scale=min(max(float(body.get('scale') or 3.0), 2.0), 9.0),
+                                           project=projects.manifest(pid)['name'] + ' · ' + label)
         pw, ph = layout.page()
         return {'documents': [{'id': m, 'label': lb, 'charts': len(js)} for m, lb, js in groups], 'doc': doc, 'page': min(page, pages), 'pages': pages,
                 'exact': bool(layout.per_page), 'page_mm': [pw, ph], 'image_mm': [round(items[shown[0]].w), round(items[shown[0]].h)] if shown else [0, 0],
