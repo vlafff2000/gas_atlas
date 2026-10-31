@@ -270,12 +270,17 @@ export function AxisStyleFields({ value: f, set, time }: Setter<Omit<AxisStyle, 
 }
 
 /** Дополнения к виду ряда (модель v2): граница маркера, полый маркер, подписи данных, имя в легенде. */
+const HATCHES: { value: NonNullable<Look['hatch']>; label: string }[] = [
+  { value: 'diag', label: 'Диагональная ///' }, { value: 'back', label: 'Обратная \\\\' }, { value: 'cross', label: 'Косая сетка' },
+  { value: 'grid', label: 'Клетка' }, { value: 'dots', label: 'Точки' }, { value: 'horizontal', label: 'Горизонтальная' }, { value: 'vertical', label: 'Вертикальная' },
+]
+
 const TRENDS: { value: NonNullable<Look['trend']>; label: string }[] = [
   { value: 'linear', label: 'Линейная' }, { value: 'poly', label: 'Полиномиальная' }, { value: 'log', label: 'Логарифмическая' },
   { value: 'power', label: 'Степенная' }, { value: 'exp', label: 'Экспоненциальная' }, { value: 'moving', label: 'Скользящее среднее' },
 ]
 
-export function SeriesExtraFields({ value: look, set, marker, labels, trend = false }: Setter<Look> & { marker: boolean; labels: boolean; trend?: boolean }) {
+export function SeriesExtraFields({ value: look, set, marker, labels, trend = false, hatch = false }: Setter<Look> & { marker: boolean; labels: boolean; trend?: boolean; hatch?: boolean }) {
   return (
     <>
       {marker && <fieldset>
@@ -296,6 +301,12 @@ export function SeriesExtraFields({ value: look, set, marker, labels, trend = fa
             <Num label="Размер" value={look.label_size} min={5} max={30} onChange={v => set({ label_size: v })} />
           </div>
         </>}
+      </fieldset>}
+      {hatch && <fieldset>
+        <legend>Штриховка</legend>
+        <Choice label="Рисунок" value={look.hatch} options={HATCHES} auto="нет" onChange={v => set({ hatch: v })} />
+        {look.hatch && <Color label="Цвет штриха" value={look.hatch_color} onChange={v => set({ hatch_color: v })} />}
+        <p className="cs-hint">Столбцы различаются рисунком, а не только цветом: график читается на чёрно-белой печати.</p>
       </fieldset>}
       {trend && <fieldset>
         <legend>Линия тренда</legend>

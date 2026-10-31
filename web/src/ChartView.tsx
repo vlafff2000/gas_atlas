@@ -121,6 +121,18 @@ function colorOf(chart: Chart) {
   return (s: Series) => s.look?.color ? s.look.color : s.color ? seriesColor(s.color) : p[(yearOfKey(key(s)) ?? groups.indexOf(key(s))) % p.length]
 }
 
+/** Штриховка столбцов (decal ECharts): диагональ, обратная, сетки, точки, горизонталь, вертикаль. */
+function decalOf(kind: NonNullable<Look['hatch']>, color = '#000000') {
+  const line = (rotation: number) => ({ symbol: 'rect', dashArrayX: [1, 0], dashArrayY: [2, 3], rotation, color })
+  if (kind === 'diag') return line(Math.PI / 4)
+  if (kind === 'back') return line(-Math.PI / 4)
+  if (kind === 'horizontal') return line(0)
+  if (kind === 'vertical') return line(Math.PI / 2)
+  if (kind === 'cross') return [line(Math.PI / 4), line(-Math.PI / 4)]
+  if (kind === 'grid') return [line(0), line(Math.PI / 2)]
+  return { symbol: 'circle', symbolSize: 0.6, dashArrayX: [3, 3], dashArrayY: [3, 3], color }
+}
+
 const NARROW = 5     // сегмент стопки уже 5 % высоты: число не помещается внутрь — выноска или точка
 
 /** Высота самой высокой стопки с подписями сегментов: узкий сегмент — меньше NARROW % от неё. */
@@ -464,7 +476,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           return { ...common, data: items, type: 'bar', barMaxWidth: 64, barGap: '12%', barCategoryGap: '55%', itemStyle: { color: c, borderColor: tk.ink, borderWidth: 0.4 }, emphasis: { focus: 'none', itemStyle: { color: c } } }
         }
         return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : { barMaxWidth: 24 }), barGap: '12%',
-          itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
+          itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.hatch ? { decal: decalOf(L.hatch, L.hatch_color) } : {}), ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
           // подписи значений: целые, над столбиком; при тесноте ECharts прячет лишние, чтобы соседние не налезали
           ...(L.valueLabels ? { label: dataLabel('top', 0), labelLayout: { hideOverlap: true } } : {}),
           emphasis: { focus: 'none', itemStyle: { color: c } } }
