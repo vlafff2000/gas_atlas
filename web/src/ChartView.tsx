@@ -683,22 +683,45 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
     seriesLooks.set({ ...rest, ...next })
   }
   /** Что видит инженер: личный вид рядов, ручные границы Y, текущее окно по X, скрытые пункты легенды. */
-  /** Пилот «Скачать как на экране»: поле графика рисует сам ECharts (то, что в canvas; легенда и подзаголовок — разметка страницы, в файл не входят). */
+  /** «Скачать как на экране»: поле графика рисует сам ECharts, легенду (она на странице — разметка) добавляем его же компонентом, чтобы она попала в файл. */
   const screenFile = async (kind: 'png' | 'svg', dpi: number): Promise<Blob> => {
     const ch = instance.current
     if (!ch) throw new Error('График ещё не нарисован')
-    if (kind === 'png') {
-      const url = ch.getDataURL({ type: 'png', pixelRatio: Math.max(1, dpi / 96), backgroundColor: chart.style?.background ?? '#ffffff', excludeComponents: ['dataZoom', 'toolbox'] })
-      return (await fetch(url)).blob()
+    const shown = ch.getOption() as { dataZoom?: { type?: string }[]; grid?: { left?: number; right?: number; top?: number; bottom?: number }[] }
+    const st = chart.style, pos = st?.legend ?? 'bottom'
+    const items = legendModel(chart, excludeMode, mode).items
+    let w = ch.getWidth(), h = ch.getHeight()
+    let grid = shown.grid
+    let legendOpt: Record<string, unknown> = { show: false }
+    if (pos !== 'hide' && items.length) {
+      const side = pos === 'left' || pos === 'right'
+      const size = st?.legend_size ?? 12
+      // высота/ширина под легенду: число строк оцениваем по длине подписей (ECharts переносит пункты сам)
+      const each = items.map(i => 36 + i.label.length * size * 0.5)
+      const rows = side ? items.length : Math.max(1, Math.ceil(each.reduce((a, b) => a + b, 0) / Math.max(200, w - 20)))
+      const room = side ? Math.round(Math.max(...each) + 20) : 14 + rows * (size + 7)
+      if (side) w += room; else h += room
+      grid = (shown.grid ?? []).map(g => ({ ...g,
+        left: (g.left ?? 0) + (pos === 'left' ? room : 0), right: (g.right ?? 0) + (pos === 'right' ? room : 0),
+        top: (g.top ?? 0) + (pos === 'top' ? room : 0), bottom: (g.bottom ?? 0) + (pos === 'bottom' ? room : 0) }))
+      const label = new Map(items.map(i => [i.name, i.label]))
+      legendOpt = { show: true, type: 'plain', data: items.map(i => i.name), orient: side ? 'vertical' : 'horizontal',
+        [pos === 'left' ? 'left' : pos === 'right' ? 'right' : 'left']: pos === 'top' || pos === 'bottom' ? 'center' : 6,
+        ...(pos === 'top' ? { top: 6 } : pos === 'bottom' ? { bottom: 6 } : { top: 'middle' }),
+        selected: Object.fromEntries(items.map(i => [i.name, !hidden.has(i.name)])), selectedMode: false,
+        formatter: (n: string) => label.get(n) ?? n, itemWidth: 22, itemHeight: 10,
+        textStyle: { fontSize: size, color: st?.text_color ?? '#1f2933', ...((st?.legend_font ?? st?.font) ? { fontFamily: fontCss(st?.legend_font ?? st?.font) } : {}) } }
     }
     const host = document.createElement('div')
-    const copy = echarts.init(host, undefined, { renderer: 'svg', ssr: true, width: ch.getWidth(), height: ch.getHeight() })
+    const ratio = kind === 'png' ? Math.max(1, dpi / 96) : 1
+    const copy = echarts.init(host, undefined, { renderer: kind === 'png' ? 'canvas' : 'svg', ssr: kind === 'svg', width: w, height: h, devicePixelRatio: ratio })
     try {
-      const shown = ch.getOption() as { dataZoom?: { type?: string }[]; toolbox?: unknown }
-      const option = { ...shown, animation: false, toolbox: undefined, dataZoom: (shown.dataZoom ?? []).filter(z => z.type !== 'slider'),
-        backgroundColor: chart.style?.background ?? '#ffffff' }
+      const option = { ...shown, animation: false, toolbox: undefined, grid, legend: legendOpt, dataZoom: (shown.dataZoom ?? []).filter(z => z.type !== 'slider'),
+        backgroundColor: st?.background ?? '#ffffff' }
       copy.setOption(option as echarts.EChartsCoreOption, { notMerge: true })
-      return new Blob([copy.renderToSVGString()], { type: 'image/svg+xml' })
+      if (kind === 'svg') return new Blob([copy.renderToSVGString()], { type: 'image/svg+xml' })
+      const url = copy.getDataURL({ type: 'png', pixelRatio: ratio, backgroundColor: st?.background ?? '#ffffff' })
+      return (await fetch(url)).blob()
     } finally { copy.dispose() }
   }
 
@@ -1963,7 +1986,7 @@ export function DownloadMenu({ onDownload, screen }: {
           <label className="inline-field">Формат
             <select value={format} onChange={e => setFormat(e.target.value)}>
               <option value="svg">SVG</option><option value="pdf">PDF</option><option value="png">PNG</option><option value="xlsx">XLSX (график и данные)</option>
-              {screen && <optgroup label="Пилот: как на экране"><option value="screen-svg">SVG как на экране</option><option value="screen-png">PNG как на экране</option></optgroup>}
+              {screen && <optgroup label="Как на экране (ECharts)"><option value="screen-svg">SVG как на экране</option><option value="screen-png">PNG как на экране</option></optgroup>}
             </select>
           </label>
           {format !== 'xlsx' && format !== 'screen-svg' && <label className="inline-field">DPI
