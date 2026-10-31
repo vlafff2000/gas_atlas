@@ -149,7 +149,10 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
         content, name, mime = render.chart_file(out, s['format'], s['dpi'])
         if s['filename']:
             name = f'{s["filename"]}.{s["format"]}'
-        return content, name, mime, [n.text for n in notes]
+        texts = [n.text for n in notes]
+        if s['format'] == 'xlsx' and any('break_lo' in (a.style or {}) for a in [out.x, *[axis for _, axis in [('y', out.y), *out.right_axes()]]]):
+            texts.append('Разрыв оси в Excel не поддерживается: диаграмма XLSX показывает ось целиком; разрыв есть в PNG, PDF и SVG.')
+        return content, name, mime, texts
     if chart_special.is_special(out):
         legend = out.style.get('legend')
         opts = {'width_mm': s['width'] if s['sized'] else None, 'height_mm': s['height'] if s['sized'] else None,

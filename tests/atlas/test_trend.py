@@ -164,3 +164,24 @@ def test_error_interval_screen_matches_server():
     for key, (style, mode) in {'barspercent': ('bars', 'percent'), 'bandpercent': ('band', 'percent'), 'barsabs': ('bars', 'abs')}.items():
         _, out = _err(style, mode)
         assert screen[key] == [{'name': s.name, 'x': list(s.x), 'y': list(s.y)} for s in out.series[1:]], key
+
+
+def test_axis_break_validated_and_drawn():
+    from atlas.contract import ParamError
+    from atlas.render import to_plotly
+    from atlas.engine.core.export import figure_bytes
+    big = Chart(id='c', title='T', x=Axis(label='x'), y=Axis(label='y'),
+                series=[Series(name='Р', x=[1, 2, 3, 4], y=[10, 20, 900, 950], group='Г', kind='line')])
+    plain = figure_bytes(to_plotly(big), 'png', 150, 150)
+    for name in ('y', 'x'):
+        lo, hi = ('100', '800') if name == 'y' else ('1.5', '3')
+        doc = clean_format({'axes': {name: {'break_from': lo, 'break_to': hi}}})
+        out = apply_format(big, doc)
+        axis = out.y if name == 'y' else out.x
+        assert axis.style['break_lo'] < axis.style['break_hi'] and figure_bytes(to_plotly(out), 'png', 150, 150) != plain
+    assert clean_format({'axes': {'y': {'break_from': '100'}}}) == {}          # недописанный разрыв не сохраняется и не мешает
+    with pytest.raises(ParamError):
+        apply_format(big, clean_format({'axes': {'y': {'break_from': '800', 'break_to': '100'}}}))
+    notes = []
+    apply_format(big, clean_format({'axes': {'y': {'log': True, 'break_from': '100', 'break_to': '800'}}}), notes)
+    assert any('разрыв' in n.text for n in notes)

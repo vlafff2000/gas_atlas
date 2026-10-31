@@ -315,3 +315,15 @@ def test_live_chart_and_chart_doc(env):
     file = client.post(f'/api/projects/{pid}/export/any/file', json={'module': MODULE, 'params': PARAMS, 'chart': chart['id'], 'settings': {'doc': doc, 'format': 'csv'}})
     assert file.status_code == 200
     assert client.post(f'/api/projects/{pid}/export/any/chart', json={'module': MODULE, 'params': PARAMS, 'chart': 'нет'}).status_code == 404
+
+
+def test_xlsx_notes_that_axis_break_is_not_supported(env):
+    from atlas.export_any import export
+    from atlas.chart_style import clean_format
+    from atlas.contract import Axis, Chart, Series
+    chart = Chart(id='c', title='T', x=Axis(label='x'), y=Axis(label='y'), series=[Series(name='Р', x=[1, 2, 3], y=[1, 2, 900], group='Г', kind='line')])
+    doc = clean_format({'axes': {'y': {'break_from': '10', 'break_to': '800'}}})
+    _, _, _, notes = export(chart, {'format': 'xlsx', 'doc': doc})
+    assert any('Разрыв оси в Excel' in n for n in notes)
+    _, _, _, plain = export(chart, {'format': 'xlsx'})
+    assert not any('Разрыв оси' in n for n in plain)

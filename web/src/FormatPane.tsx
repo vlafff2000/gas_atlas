@@ -8,7 +8,7 @@ import { SeriesLookFields } from './ChartSettings'
 import { projectFormats, usePref } from './chartPrefs'
 import type { AxisFormat, AxisName, ChartFormat } from './chartFormat'
 import { seriesLookKey, type Look } from './chartStyle'
-import { AxisStyleFields, ChartStyleFields, SeriesExtraFields, compact } from './FormatFields'
+import { AxisStyleFields, ChartStyleFields, Commit, SeriesExtraFields, compact } from './FormatFields'
 import type { FormatScope } from './projectLooks'
 
 const KIND: Record<Series['kind'], string> = { line: 'линия', points: 'точки', bar: 'столбцы', box: 'ящики' }
@@ -151,6 +151,14 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           {kind === 'axis' && <>
             <h3>{AXIS_TITLE[axisName]}{axis?.label ? <small> {axis.label}</small> : null}</h3>
             <AxisStyleFields value={doc.axes?.[axisName] ?? {}} set={setAxis} time={axis?.scale === 'time'} />
+            {(axis?.scale === 'value' || axis?.scale === 'time') && <fieldset>
+              <legend>Разрыв оси</legend>
+              <div className="cs-row">
+                <Commit label="Вырезать от" value={doc.axes?.[axisName]?.break_from} placeholder={axis.scale === 'time' ? 'дд.мм.гггг' : 'число'} onChange={v => setAxis({ break_from: v || undefined })} />
+                <Commit label="до" value={doc.axes?.[axisName]?.break_to} placeholder={axis.scale === 'time' ? 'дд.мм.гггг' : 'число'} onChange={v => setAxis({ break_to: v || undefined })} />
+              </div>
+              <p className="cs-hint">Диапазон между значениями не показывается, на оси ставится знак разрыва. Применяется, когда заполнены оба поля (Enter или выход из поля).</p>
+            </fieldset>}
             <p className="cs-hint">Границы и шаг осей Y задаются на самом графике: двойной щелчок по оси.</p>
             <div className="cs-actions">
               <Brush kind="axis" value={doc.axes?.[axisName]} paste={v => setAxis(v as Partial<AxisFormat>)} />

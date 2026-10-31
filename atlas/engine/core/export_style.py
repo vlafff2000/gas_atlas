@@ -59,6 +59,68 @@ def _set_limits(target, name: str, spec: Mapping[str, Any], date: bool) -> None:
 HATCH_MPL = {'diag': '///', 'back': '\\\\\\', 'cross': 'xxx', 'grid': '+++', 'dots': '...', 'horizontal': '---', 'vertical': '|||'}
 
 
+def _locator_base():
+    from matplotlib.ticker import Locator
+    return Locator
+
+
+class BreakLocator(_locator_base()):
+    """Обёртка над локатором делений: деления внутри разрыва ``(lo, hi)`` убираются."""
+
+    def __init__(self, inner, lo: float, hi: float):
+        self.inner, self.lo, self.hi = inner, lo, hi
+
+    def set_axis(self, axis):
+        super().set_axis(axis)
+        self.inner.set_axis(axis)
+
+    def _keep(self, ticks):
+        return [t for t in ticks if not (self.lo < t < self.hi)]
+
+    def __call__(self):
+        return self._keep(self.inner())
+
+    def tick_values(self, vmin, vmax):
+        return self._keep(self.inner.tick_values(vmin, vmax))
+
+
+def apply_break(target, horizontal: bool, name: str, lo: float, hi: float, date: bool) -> None:
+    """Разрыв оси: диапазон ``lo…hi`` вырезается (кусочно-линейная шкала), на оси рисуются две косые черты.
+    Подписи и значения остаются в единицах данных; то же рисует экран (ECharts, ось ``breaks``)."""
+    import numpy as np
+    if date:
+        lo, hi = lo / 86_400_000.0, hi / 86_400_000.0      # мс → сутки matplotlib (эпоха 1970-01-01)
+    shift = hi - lo
+
+    def forward(v):
+        v = np.asarray(v, dtype=float)
+        return np.where(v <= lo, v, np.where(v >= hi, v - shift, lo))
+
+    def inverse(p):
+        p = np.asarray(p, dtype=float)
+        return np.where(p <= lo, p, p + shift)
+
+    limits = target.get_xlim() if horizontal else target.get_ylim()
+    (target.set_xscale if horizontal else target.set_yscale)('function', functions=(forward, inverse))
+    axis = target.xaxis if horizontal else target.yaxis
+    axis.set_major_locator(BreakLocator(axis.get_major_locator(), lo, hi))
+    (target.set_xlim if horizontal else target.set_ylim)(*limits)
+    # знак разрыва: две косые черты на линии оси в месте разрыва
+    mark = dict(marker=[(-1, -0.6), (1, 0.6)], markersize=11, linestyle='none', color='#475467', clip_on=False, zorder=6)
+    if horizontal:
+        for dx in (-2, 2):
+            target.plot([lo], [0], transform=target.get_xaxis_transform() + _offset(target, dx, 0), **mark)
+    else:
+        x = 1 if name != 'y' else 0
+        for dy in (-2, 2):
+            target.plot([x], [lo], transform=target.get_yaxis_transform() + _offset(target, 0, dy), **mark)
+
+
+def _offset(ax, dx_points: float, dy_points: float):
+    from matplotlib.transforms import ScaledTranslation
+    return ScaledTranslation(dx_points / 72, dy_points / 72, ax.figure.dpi_scale_trans)
+
+
 def _bound(text, time: bool):
     """Число (запятая допустима) или дата дд.мм.гггг / гггг-мм-дд; не разобрать — None."""
     from matplotlib.dates import date2num
@@ -198,6 +260,8 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
             params['labelrotation'] = spec['label_rotate']
         if params:
             axis.set_tick_params(**params)
+        if spec.get('break_lo') is not None and spec.get('scale') != 'log':
+            apply_break(target, horizontal, name, spec['break_lo'], spec['break_hi'], date)
         if spec.get('tick_bold') or spec.get('tick_italic'):
             for tick in axis.get_ticklabels():
                 tick.set_fontweight('bold' if spec.get('tick_bold') else 'normal')
