@@ -103,3 +103,34 @@ def test_special_charts_read_v2_fields():
     assert fig.patch.get_edgecolor()[0] > 0.6 and ax.spines['left'].get_visible() is False
     assert ax.yaxis.get_gridlines()[0].get_linestyle() == '--'
     plt.close('all')
+
+
+def _xlsx_chart_xml(chart_):
+    import io
+    import zipfile
+    from atlas.render import chart_xlsx
+    data = chart_xlsx(chart_)[0]
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        return z.read('xl/charts/chart1.xml').decode()
+
+
+def test_xlsx_chart_gets_model_v2():
+    """Диаграмма Excel остаётся настоящей и получает оформление: штрих, маркер, деления, единицы, шаги, легенда, подписи, рамки."""
+    s = Series(name='ряд', kind='line', x=[0, 1, 2, 3], y=[1000.5, 2500, 3100, 2000], markers=True,
+               look={'width': 3, 'dash': 'dashdot', 'marker': True, 'shape': 'square', 'size': 9, 'hollow': True, 'marker_border': '#cc0000',
+                     'valueLabels': True, 'label_decimals': 1, 'label_position': 'bottom', 'legend_name': 'Мой ряд'})
+    c = Chart(id='x-1', title='Заголовок', series=[s],
+              x=Axis(label='X', unit='', scale='value', style={'ticks': 'in', 'line_color': '#cc0000', 'label_rotate': 30}),
+              y=Axis(label='Y', unit='т', scale='value', step=500, inverse=True,
+                     style={'units': 'thousands', 'decimals': 1, 'minor_step': 250, 'minor_ticks': 'out', 'title_bold': True}),
+              style={'subtitle': 'Подзаг', 'legend': 'left', 'grid': 'both', 'grid_dash': 'dash', 'border_color': '#336699', 'plot_background': '#f4f8ff'})
+    xml = _xlsx_chart_xml(c)
+    for mark in ('dashDot', '<legendPos val="l"', 'majorTickMark val="in"', 'minorTickMark val="out"', '<dispUnits>', '<minorUnit val="250',
+                 'orientation val="maxMin"', 'Мой ряд', 'Подзаг', 'showVal val="1"', '<dLblPos val="b"'):
+        assert mark in xml, mark
+    assert _xlsx_chart_xml(chart({'dash': 'longdash'})).count('lgDash') >= 1
+
+
+def test_xlsx_without_style_keeps_default_chart():
+    xml = _xlsx_chart_xml(chart({}))
+    assert 'dispUnits' not in xml and 'legendPos val="l"' not in xml
