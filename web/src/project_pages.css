@@ -6,7 +6,7 @@
 .form-block h2 { font-size: 16px; }
 .form-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .field.wide { min-width: min(420px, 100%); flex: 1 1 320px; }
-.field.wide input { width: 100%; font-weight: 400; }
+.field.wide input:where(:not([type=checkbox]):not([type=radio])) { width: 100%; font-weight: 400; }
 .field input[type='file'] { font-weight: 400; }
 .small-text { font-size: 13px; }
 .pad { padding: 0 14px 14px; }

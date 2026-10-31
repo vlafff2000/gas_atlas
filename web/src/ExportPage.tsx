@@ -430,7 +430,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         {readyPlan && <button type="button" role="tab" aria-selected={current === 'custom'} onClick={() => setTab('custom')}>Отдельные графики</button>}
       </div>
   )
-  if (current === 'any') return <><Title />{tabsRow}<TabWellFilter tab={current} choices={choices} form={form} projectId={project.id} onChange={() => undefined} /><ExportAnyChart project={project} /></>
+  if (current === 'any') return <><Title />{tabsRow}<TabWellFilter tab={current} choices={choices} form={form} projectId={project.id} onChange={() => undefined} /><ExportAnyChart project={project} onProject={onProject} /></>
 
   return (
     <>

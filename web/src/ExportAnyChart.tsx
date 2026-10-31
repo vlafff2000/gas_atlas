@@ -1,5 +1,6 @@
 // Экспорт → «Любой график»: выбрать график любого раздела и выгрузить его с полной ручной настройкой (atlas/export_any.py).
 // Пустое поле — «авто» (как задал модуль): всё, что поменял инженер, главнее.
+// Выбор и настройки каждого графика хранятся в проекте (``settings.export_any``); график без своих настроек берёт вид с экрана.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { saveFileWithPicker } from './desktopDownload'
 import { api, defaults, type ModuleSpec, type Params, type Project } from './api'
@@ -7,7 +8,8 @@ import { ParamBar } from './ParamBar'
 import { SeriesLookFields } from './ChartSettings'
 import { Check, Color, GRID_OPTIONS as GRIDS, MINOR_GRID_OPTIONS as MINOR_GRIDS, Num, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import type { Look } from './chartStyle'
-import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type Form } from './api_projects'
+import { savedRanges, seriesLooks } from './chartPrefs'
+import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type AnyStore, type Form } from './api_projects'
 
 const FORMATS: Opt[] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
 const FONTS: Opt[] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]
@@ -52,12 +54,24 @@ function Field({ label, value, onChange, placeholder, wide, type = 'text' }:
   )
 }
 
+/** Вид графика на экране: личный вид рядов («Настройка») и ручные границы осей Y (двойной щелчок по оси). */
+function screenView(chart: AnyChartInfo): Dict {
+  const all = seriesLooks.get()
+  const looks = Object.fromEntries(chart.items.filter(it => all[it.key]).map(it => [it.key, all[it.key]]))
+  const saved = chart.range_key !== undefined ? savedRanges.get()[chart.range_key] ?? {} : {}
+  const ranges = Object.fromEntries(Object.entries(saved).filter(([, r]) => Array.isArray(r)))
+  return { ...(Object.keys(looks).length ? { looks } : {}), ...(Object.keys(ranges).length ? { ranges } : {}) }
+}
+
+const SAVE_DELAY = 800      // мс: настройки пишутся в проект с паузой, а не на каждое нажатие
+const MAX_CHARTS = 300      // графиков со своими настройками в проекте (то же число в atlas/projects.py)
+
 function Tick({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
   return <label className="toggle"><input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} /><span>{label}</span></label>
 }
 
 
-export function ExportAnyChart({ project }: { project: Project }) {
+export function ExportAnyChart({ project, onProject }: { project: Project; onProject: (p: Project) => void }) {
   const [specs, setSpecs] = useState<ModuleSpec[]>([])
   const [ready, setReady] = useState<Record<string, AnyModule>>({})
   const [moduleId, setModuleId] = useState('')
@@ -71,12 +85,33 @@ export function ExportAnyChart({ project }: { project: Project }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [extraFormats, setExtraFormats] = useState<string[]>([])
-  const seq = useRef(0)
+  const seq = useRef(0)                   // запросы перечня графиков: ответ на устаревший отбрасывается
+  const previewSeq = useRef(0)            // запросы предпросмотра — свой счётчик, чтобы не гасить перечень
+  // Ревизия данных: своё же сохранение настроек тоже меняет ревизию проекта, но перечень и предпросмотр от него не пересчитываются.
+  const ownRevision = useRef<number | null>(null)
+  const [dataRevision, setDataRevision] = useState(project.revision)
+  useEffect(() => { if (project.revision !== ownRevision.current) setDataRevision(project.revision) }, [project.revision])
+  const store = (project.settings.export_any ?? {}) as AnyStore
+  const storeRef = useRef(store)
+  storeRef.current = store
+  const restored = useRef(false)          // последний выбор из проекта уже восстановлен
+  const loadedKey = useRef('')            // для какого графика сейчас в форме настройки
+  const edited = useRef(false)            // настройки этого графика менял инженер: их надо сохранить
 
   useEffect(() => {
     api.modules().then(setSpecs).catch(e => setError((e as Error).message))
     anyApi.modules(project.id).then(r => setReady(Object.fromEntries(r.modules.map(m => [m.id, m])))).catch(() => undefined)
-  }, [project.id, project.revision])
+  }, [project.id, dataRevision])
+
+  // Последний выбор (раздел, параметры, график) — из проекта, один раз после загрузки списка разделов.
+  useEffect(() => {
+    if (restored.current || !specs.length) return
+    restored.current = true
+    const last = storeRef.current.last
+    const s = last && specs.find(x => x.id === last.module)
+    if (!last || !s) return
+    setModuleId(s.id); setParams({ ...defaults(s), ...last.params }); setChartId(last.chart)
+  }, [specs])
 
   const spec = specs.find(s => s.id === moduleId)
   const groups = useMemo(() => {
@@ -93,6 +128,7 @@ export function ExportAnyChart({ project }: { project: Project }) {
     return [...by.entries()]
   }, [charts])
   const pickModule = (id: string) => {
+    restored.current = true
     const s = specs.find(x => x.id === id)
     setExtraFormats([])
     setModuleId(id); setChartId(''); setCharts([]); setNote(''); setImage(null)
@@ -115,38 +151,90 @@ export function ExportAnyChart({ project }: { project: Project }) {
     }, 400)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moduleId, paramsKey, project.id, project.revision])
+  }, [moduleId, paramsKey, project.id, dataRevision])
+
+  // Настройки выбранного графика: сохранённые в проекте, иначе — вид с экрана (не сохраняется, пока его не поменяют).
+  const chartKey = moduleId && chartId ? `${moduleId}::${chartId}` : ''
+  useEffect(() => {
+    if (!chart || !chartKey || loadedKey.current === chartKey) return
+    loadedKey.current = chartKey
+    edited.current = false
+    const own = storeRef.current.charts?.[chartKey]
+    if (own) { setSettings(own); return }
+    const view = screenView(chart)
+    setSettings(Object.keys(view).length ? { view } : {})
+  }, [chart, chartKey])
+
+  // Сохранение в проект: последний выбор и изменённые инженером настройки графиков; одинаковое повторно не пишется.
+  // Изменённое запоминается сразу (pending), а пишется с паузой: переход к другому графику или уход со вкладки его не теряет.
+  const settingsKey = JSON.stringify(settings)
+  const pending = useRef<Record<string, AnySettings>>({})
+  const selection = useRef<AnyStore['last']>(undefined)
+  const saving = useRef(false)
+  const again = useRef(false)
+  const flush = useRef(() => undefined as void)
+  flush.current = () => {
+    if (saving.current) { again.current = true; return }
+    const old = storeRef.current
+    const charts = { ...(old.charts ?? {}) }
+    for (const [k, v] of Object.entries(pending.current)) {
+      delete charts[k]
+      if (Object.keys(v).length) charts[k] = v          // последний изменённый — в конце: при переполнении вытесняются самые старые
+    }
+    pending.current = {}
+    const keys = Object.keys(charts)
+    for (const k of keys.slice(0, Math.max(0, keys.length - MAX_CHARTS))) delete charts[k]
+    const last = selection.current ?? old.last
+    const next: AnyStore = { ...(last ? { last } : {}), ...(Object.keys(charts).length ? { charts } : {}) }
+    if (JSON.stringify(next) === JSON.stringify(old)) return
+    saving.current = true
+    api.saveSettings(project.id, { export_any: next })
+      .then(p => { storeRef.current = (p.settings.export_any ?? {}) as AnyStore; ownRevision.current = p.revision; onProject(p) })
+      .catch(e => setError((e as Error).message))
+      .finally(() => { saving.current = false; if (again.current) { again.current = false; flush.current() } })
+  }
+  useEffect(() => {
+    if (!restored.current || !moduleId || !chartId || loadedKey.current !== chartKey) return
+    selection.current = { module: moduleId, chart: chartId, params }
+    if (edited.current) pending.current[chartKey] = settings
+    const timer = window.setTimeout(() => flush.current(), SAVE_DELAY)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsKey, moduleId, chartId, paramsKey, chartKey])
+  useEffect(() => () => flush.current(), [])     // уход со вкладки: несохранённое пишется сразу
 
   // Предпросмотр: тот же файл, что уйдёт на выгрузку, PNG 150 DPI.
-  const settingsKey = JSON.stringify(settings)
+  const shownId = chart?.id ?? ''         // предпросмотр — только у графика, который есть в перечне
   useEffect(() => {
-    if (!moduleId || !chartId) return
-    const mine = ++seq.current
+    if (!moduleId || !shownId) return
+    const mine = ++previewSeq.current
     const timer = setTimeout(() => {
       setBusy('preview')
-      anyApi.file(project.id, moduleId, params, chartId, { ...settings, format: 'png', dpi: 150 }).then(r => {
-        if (mine !== seq.current) return
+      anyApi.file(project.id, moduleId, params, shownId, { ...settings, format: 'png', dpi: 150 }).then(r => {
+        if (mine !== previewSeq.current) return
         setImage(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(r.blob) })
         setNotes(r.notes); setError(null)
-      }).catch(e => { if (mine === seq.current) { setError((e as Error).message); setImage(null) } })
-        .finally(() => { if (mine === seq.current) setBusy(null) })
+      }).catch(e => { if (mine === previewSeq.current) { setError((e as Error).message); setImage(null) } })
+        .finally(() => { if (mine === previewSeq.current) setBusy(null) })
     }, 500)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moduleId, chartId, settingsKey, paramsKey, project.id])
+  }, [moduleId, shownId, settingsKey, paramsKey, project.id, dataRevision])
 
-  const set = (key: string, value: unknown) => setSettings(s => put(s, key, value))
-  const sub = (group: 'chart' | 'axes' | 'labels' | 'table', key: string, value: unknown) => setSettings(s => {
+  // Любое изменение инженером — через change: настройки графика после этого сохраняются в проекте.
+  const change = (fn: (s: AnySettings) => AnySettings) => { edited.current = true; setSettings(fn) }
+  const set = (key: string, value: unknown) => change(s => put(s, key, value))
+  const sub = (group: 'chart' | 'axes' | 'labels' | 'table', key: string, value: unknown) => change(s => {
     const next = put((s[group] as Dict | undefined) ?? {}, key, value)
     return put(s, group, Object.keys(next).length ? next : '')
   })
-  const axis = (name: string, key: string, value: unknown) => setSettings(s => {
+  const axis = (name: string, key: string, value: unknown) => change(s => {
     const all = (s.axes as Dict | undefined) ?? {}
     const one = put((all[name] as Dict | undefined) ?? {}, key, value)
     const next = put(all, name, Object.keys(one).length ? one : '')
     return put(s, 'axes', Object.keys(next).length ? next : '')
   })
-  const setView = (fn: (v: Dict) => Dict) => setSettings(s => {
+  const setView = (fn: (v: Dict) => Dict) => change(s => {
     const next = fn((s.view as Dict | undefined) ?? {})
     return put(s, 'view', Object.keys(next).length ? next : '')
   })
@@ -161,6 +249,10 @@ export function ExportAnyChart({ project }: { project: Project }) {
     const list = ((v.hidden as string[] | undefined) ?? []).filter(g => g !== group)
     return put(v, 'hidden', hide ? [...list, group] : list.length ? list : '')
   })
+  const fromScreen = chart ? screenView(chart) : {}
+  // рядам с экрана — их вид поверх уже заданного здесь; границы осей — как на экране
+  const takeScreen = () => setView(v => ({ ...v, ...fromScreen,
+    ...(fromScreen.looks ? { looks: { ...(v.looks as Dict | undefined), ...(fromScreen.looks as Dict) } } : {}) }))
   const chartStyle = (settings.chart as Dict | undefined) ?? {}
   const axes = (settings.axes as Dict | undefined) ?? {}
   const labels = (settings.labels as Dict | undefined) ?? {}
@@ -375,7 +467,9 @@ export function ExportAnyChart({ project }: { project: Project }) {
             </details>
           )}
           <div className="toolbar">
-            <button type="button" className="quiet" disabled={!Object.keys(settings).length} onClick={() => setSettings({})}>Сбросить настройки</button>
+            <button type="button" className="quiet" disabled={!Object.keys(settings).length} onClick={() => change(() => ({}))}>Сбросить настройки</button>
+            <button type="button" className="quiet" title="Вид рядов из окна «Настройка» и границы осей Y, заданные на экране, — поверх настроек этого графика"
+              disabled={!Object.keys(fromScreen).length} onClick={takeScreen}>Взять вид с экрана</button>
             <span className="spacer" />
             {busy === 'preview' && <span className="pulse">Обновление предпросмотра…</span>}
             {busy === 'download' && <span className="pulse">Подготовка файла…</span>}
