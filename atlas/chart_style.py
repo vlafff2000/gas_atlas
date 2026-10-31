@@ -322,3 +322,62 @@ def format_from_any(settings: Mapping[str, Any] | None) -> dict[str, Any]:
     src = settings if isinstance(settings, Mapping) else {}
     chart = {k: v for k, v in (src.get('chart') or {}).items() if k != 'title'} if isinstance(src.get('chart'), Mapping) else {}
     return merge_formats(clean_format({'chart': chart, 'axes': src.get('axes')}), format_from_view(src.get('view')))
+
+
+# --- Оформление в проекте: тема и типы графиков (настройка ``chart_formats``) ------------------------------------------
+
+STORE_SERIES = 3000            # рядов со своим видом в теме проекта
+STORE_TYPES = 200              # разделов (типов графиков) со своим оформлением
+
+
+def clean_store(raw: Any) -> dict[str, Any]:
+    """Настройка проекта ``chart_formats = {'theme': документ, 'types': {раздел: документ}}``: тема действует на все графики,
+    тип — на графики одного раздела (идёт после темы, главнее её). Ошибка поля — ``ParamError`` с понятным текстом."""
+    if not isinstance(raw, Mapping) or set(raw) - {'theme', 'types'}:
+        raise ParamError('Оформление графиков: нужен словарь {theme, types}')
+    out: dict[str, Any] = {}
+    theme = clean_format(raw.get('theme'))
+    if len(theme.get('series', {})) > STORE_SERIES:
+        raise ParamError(f'Оформление графиков: не больше {STORE_SERIES} рядов в теме проекта')
+    if theme:
+        out['theme'] = theme
+    types = raw.get('types', {})
+    if types is None:
+        types = {}
+    if not isinstance(types, Mapping) or len(types) > STORE_TYPES:
+        raise ParamError(f'Оформление графиков: типы — словарь, не больше {STORE_TYPES}')
+    kinds = {str(k)[:80]: d for k, v in types.items() for d in [clean_format(v)] if d}
+    if kinds:
+        out['types'] = kinds
+    return out
+
+
+def format_of(settings: Mapping[str, Any] | None, module: str) -> dict[str, Any]:
+    """Оформление графиков раздела по настройкам проекта: тема, затем тип (раздел)."""
+    store = (settings or {}).get('chart_formats') or {}
+    if not isinstance(store, Mapping):
+        return {}
+    return merge_formats(store.get('theme'), (store.get('types') or {}).get(module))
+
+
+def apply_store(result: Any, settings: Mapping[str, Any] | None, module: str) -> Any:
+    """Копия результата раздела с оформлением проекта на каждом графике; без оформления — тот же объект.
+    Заметки о том, что не применилось (логарифм у неположительных и т. п.), добавляются один раз."""
+    doc = format_of(settings, module)
+    if not doc or not getattr(result, 'charts', None):
+        return result
+    notes: list[Note] = []
+    charts = []
+    for c in result.charts:
+        try:
+            charts.append(apply_format(c, doc, notes))
+        except ParamError as e:       # граница не подошла к оси этого графика: график остаётся как есть
+            notes.append(Note(f'Оформление проекта не применено к «{c.title}»: {e}'))
+            charts.append(c)
+    seen = {n.text for n in result.notes}
+    extra = []
+    for n in notes:
+        if n.text not in seen:
+            seen.add(n.text)
+            extra.append(n)
+    return dataclasses.replace(result, charts=charts, notes=[*result.notes, *extra])

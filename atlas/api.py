@@ -21,7 +21,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainT
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import VERSION, api_exclusions, chart_view, legend_order, registry, render, season_format, thinning, well_filter
+from . import VERSION, api_exclusions, chart_style, chart_view, legend_order, registry, render, season_format, thinning, well_filter
 from . import second_window
 from . import api_builder, api_corrected, api_export, api_projects, export_any, export_charts, group_colors, group_paint
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
@@ -113,8 +113,10 @@ def create_app(projects: Projects | None = None) -> Starlette:
     def module_of(request):
         return registry.get(request.path_params['mid'])
 
-    def compute(module, pid, raw_params, full=False):
-        """``full`` — результат без прореживания самого модуля (выгрузка графика, окно увеличения); кэшируется отдельно."""
+    def compute(module, pid, raw_params, full=False, styled=False):
+        """``full`` — результат без прореживания самого модуля (выгрузка графика, окно увеличения); кэшируется отдельно.
+        ``styled`` — с оформлением проекта (тема и тип графика) для файлов; на экране его накладывает интерфейс, чтобы правка
+        вида сразу была видна без пересчёта."""
         flt, raw_params = well_filter.split(raw_params)       # фильтр скважин вкладки приходит среди её параметров
         params = module.spec.coerce(raw_params)
         data = projects.select(pid, module.spec.needs, module.spec.optional, flt)
@@ -126,7 +128,10 @@ def create_app(projects: Projects | None = None) -> Starlette:
                 result: Result = group_paint.paint(season_format.relabel(module.run(data, params), season_format.format_of(data.settings)))
             cached = (result, round((time.perf_counter() - started) * 1000, 1))
             results.put(key, cached)
-        return (legend_order.apply(cached[0], legend_order.mode_of(data.settings)), cached[1]), params, data
+        shown = legend_order.apply(cached[0], legend_order.mode_of(data.settings))
+        if styled:
+            shown = chart_style.apply_store(shown, data.settings, module.spec.id)      # оформление проекта: тема и тип графика
+        return (shown, cached[1]), params, data
 
     # --- справочные ---
     def health(request, body):
@@ -257,18 +262,18 @@ def create_app(projects: Projects | None = None) -> Starlette:
         (result, elapsed), _, data = compute(module, body.get('project'), body.get('params'), full=not thin)
         return {**result.to_json(thin=thin, defer=True), 'elapsed_ms': elapsed, 'revision': data.revision}
 
-    def chart_of(module, body, full):
-        (result, _), _, data = compute(module, body.get('project'), body.get('params'), full)
+    def chart_of(module, body, full, styled=False):
+        (result, _), _, data = compute(module, body.get('project'), body.get('params'), full, styled)
         chart = next((c for c in result.charts if c.id == body.get('chart', body.get('id'))), None)
         if chart is None:
             raise Failure(404, 'График не найден. Обновите расчет.')
         return chart, data
 
-    def full_chart(module, body):
+    def full_chart(module, body, styled=False):
         """График со всеми точками: если модуль сам прореживал серии для экрана, расчёт повторяется без прореживания."""
-        chart, data = chart_of(module, body, False)
+        chart, data = chart_of(module, body, False, styled)
         if any(s.total > len(s.x) for s in chart.series):
-            chart, data = chart_of(module, body, True)
+            chart, data = chart_of(module, body, True, styled)
         return chart, data
 
     def window(request, body):
@@ -300,7 +305,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         if target == 'tables':
             (result, _), _, _ = compute(module, body.get('project'), body.get('params'))
         if target == 'charts':      # все графики результата: ZIP из PNG или лист-плитка
-            (result, _), _, _ = compute(module, body.get('project'), body.get('params'), True)
+            (result, _), _, _ = compute(module, body.get('project'), body.get('params'), True, styled=True)
             if not result.charts:
                 raise Failure(404, 'Графиков нет. Обновите расчет.')
             try:
@@ -311,7 +316,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
             except ValueError as e:
                 raise Failure(400, str(e)) from None
         elif target == 'chart':
-            chart, _ = full_chart(module, body)
+            chart, _ = full_chart(module, body, styled=True)
             if body.get('format') != 'csv':
                 chart = chart_view.apply_view(chart, body.get('view'))     # вид с экрана: оформление рядов, границы осей, масштаб, легенда
             try:

@@ -282,3 +282,18 @@ def test_settings_store_validated(env, bad):
     client, pid = env
     r = client.patch(f'/api/projects/{pid}/settings', json={'values': {'export_any': bad}})
     assert r.status_code == 400 and 'Любого графика' in r.json()['error']
+
+
+def test_project_theme_reaches_files_not_screen(env):
+    """Оформление проекта (тема): в выгрузку его кладёт сервер, на экран — интерфейс (расчёт для экрана без него)."""
+    client, pid = env
+    chart = first_chart(client, pid)
+    key = chart['items'][0]['key']
+    r = client.patch(f'/api/projects/{pid}/settings', json={'values': {'chart_formats': {'theme': {'series': {key: {'color': '#ff0000'}}}}}})
+    assert r.status_code == 200, r.text
+    again = first_chart(client, pid)
+    assert again['items'][0]['color'] == '#ff0000'
+    screen = client.post(f'/api/modules/{MODULE}/run', json={'project': pid, 'params': PARAMS}).json()
+    assert all((s.get('look') or {}).get('color') != '#ff0000' for c in screen['charts'] for s in c['series'])
+    bad = client.patch(f'/api/projects/{pid}/settings', json={'values': {'chart_formats': {'theme': {'chart': {'legend': 'внизу'}}}}})
+    assert bad.status_code == 400 and 'легенда' in bad.json()['error']

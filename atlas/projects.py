@@ -40,6 +40,12 @@ KNOWN = {k.value: k for k in DatasetKind}
 # Настройки, которые интерфейс 6 может менять напрямую, с проверкой значения (как поля «Настроек» 5.8).
 _month = lambda v: not isinstance(v, bool) and float(v) == int(v) and 1 <= int(v) <= 12   # noqa: E731
 _names = lambda v: isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, (str, int)) for x in v))  # noqa: E731
+def _chart_formats(v: Any) -> bool:
+    from .chart_style import clean_store      # ParamError с понятным текстом уходит пользователю как есть
+    clean_store(v)
+    return len(json.dumps(v, ensure_ascii=False)) <= 1_000_000
+
+
 EXPORT_ANY_CHARTS = 300            # «Любой график»: сколько графиков помнят свои настройки
 EXPORT_ANY_BYTES = 512_000
 
@@ -90,6 +96,8 @@ EDITABLE_SETTINGS = {
     'export_filters': well_filter.valid_tabs,
     # Экспорт → «Любой график»: последний выбор и настройки выгрузки каждого графика; хранится в проекте.
     'export_any': _export_any,
+    # Оформление графиков проекта: тема (все графики) и типы (разделы); проверка — ``chart_style.clean_store``.
+    'chart_formats': _chart_formats,
     'an_colors': lambda v: isinstance(v, dict) and all(isinstance(k, str) and len(k) <= 40 and isinstance(x, str)
                                                        and re.fullmatch(r'#?[0-9A-Fa-f]{6}', x) for k, x in v.items()),
 }
@@ -100,7 +108,7 @@ SETTING_LABELS = {'season_format': 'Вид названий сезонов', 'le
                   'auto_peaks': 'Искать пиковые режимы по расходу', 'peak_factor': 'Пик: во сколько раз выше медианы сезона',
                   'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков',
                   'well_filter': 'Фильтр скважин', 'export_filters': 'Фильтры вкладок экспорта',
-                  'export_any': 'Настройки «Любого графика»'}
+                  'export_any': 'Настройки «Любого графика»', 'chart_formats': 'Оформление графиков проекта'}
 
 
 def _setting_value(name: str, value: Any) -> Any:
@@ -121,6 +129,9 @@ def _setting_value(name: str, value: Any) -> Any:
         return well_filter.clean(value)
     if name == 'export_filters':
         return well_filter.clean_tabs(value)
+    if name == 'chart_formats':
+        from .chart_style import clean_store
+        return clean_store(value)
     if name == 'visible_pages':
         return list(navigation.DEFAULT) if value is None else [navigation.ALIASES.get(x, x) for x in value]
     return value
@@ -329,6 +340,8 @@ class Projects:
                 ok = check is not None and check(value)
             except (TypeError, ValueError) as e:
                 ok = False
+                if name == 'chart_formats' and isinstance(e, ParamError):
+                    raise                     # у оформления своя понятная ошибка: какое поле и что не так
                 if name == 'season_schedule' and isinstance(e, ValueError) and e.args:
                     raise ParamError(f'Расписание периодов: {e.args[0]}') from None
             if not ok:
@@ -351,6 +364,8 @@ class Projects:
             action = 'Фильтр скважин'
         elif set(values) == {'export_filters'}:
             action = 'Фильтры экспорта'
+        elif set(values) == {'chart_formats'}:
+            action = 'Оформление графиков проекта'
         elif set(values) == {'export_any'}:
             action = 'Настройки «Любого графика»'
         return self.summary(self._commit(pid, cfg, expected, action, {'changed': dict(values)}))

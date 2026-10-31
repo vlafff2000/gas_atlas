@@ -238,7 +238,7 @@ def routes(projects, E, compute) -> list:
             if only is not None and key != only:
                 continue
             try:
-                (result, _), _, _ = compute(module, pid, {**clean, **over}, True)
+                (result, _), _, _ = compute(module, pid, {**clean, **over}, True, styled=True)
             except Exception:
                 if not key:
                     raise
