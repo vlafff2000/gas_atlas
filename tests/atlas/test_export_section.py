@@ -593,3 +593,40 @@ def test_word_preview_sheet_scale_and_caption_font():
         png, pages = word_export.preview_png(layout, items, 1, {}, scale=scale)
         assert pages == 1 and Image.open(io.BytesIO(png)).size == (round(210 * scale), round(297 * scale))   # A4 в заданном масштабе
     assert word_export._font(40, 'Times New Roman', True, False).getname()[0] != word_export._font(40, 'Verdana').getname()[0]
+
+
+def test_word_headers_footers_and_properties():
+    import io
+    import zipfile
+    from xml.dom import minidom
+    from PIL import Image
+    from atlas import word_export
+    png = io.BytesIO()
+    Image.new('RGB', (40, 20), 'white').save(png, 'PNG')
+    items = [word_export.Item(name='Г', before='Рисунок ', number=i, after=' – п', png=png.getvalue(), w=100.0, h=50.0) for i in (1, 2)]
+    form = {'word_page_numbers': True, 'word_page_number_pos': 'header-right', 'word_page_number_format': 'page', 'word_page_start': 5,
+            'word_header_text': 'Отчёт {проект}', 'word_footer_text': '{дата} · стр. {страница}', 'word_hf_align': 'left',
+            'word_figure_align': 'left', 'word_text_font': 'Arial', 'word_text_size': 11, 'word_title': True, 'word_title_align': 'center',
+            'word_doc_title': 'Заголовок файла', 'word_doc_author': 'Автор'}
+    layout = word_export.layout_from(form)
+    with zipfile.ZipFile(io.BytesIO(word_export.build_docx(items, layout, 'Объект'))) as z:
+        names = set(z.namelist())
+        assert {'word/header1.xml', 'word/footer1.xml', 'docProps/core.xml'} <= names
+        for name in names:
+            if name.endswith(('.xml', '.rels')):
+                minidom.parseString(z.read(name))                     # каждая часть — корректный XML
+        header, footer = z.read('word/header1.xml').decode(), z.read('word/footer1.xml').decode()
+        assert 'Отчёт ' in header and 'Объект' in header and 'PAGE' in header and 'w:val="right"' in header      # номер вверху справа
+        assert 'PAGE' in footer
+        document = z.read('word/document.xml').decode()
+        assert '<w:pgNumType w:start="5"/>' in document and 'rIdHeader' in document and '<w:jc w:val="left"/>' in document
+        assert 'Arial' in z.read('word/styles.xml').decode() and 'Заголовок файла' in z.read('docProps/core.xml').decode()
+    for bad in ({'word_page_number_pos': 'middle'}, {'word_text_font': 'Comic'}, {'word_page_start': 0}, {'word_page_start': 3, 'word_footer_text': 'из {страниц}'},
+                {'word_page_start': 3, 'word_page_numbers': True, 'word_page_number_format': 'of'}):
+        with pytest.raises(word_export.LayoutError):
+            word_export.layout_from(bad)
+    # без колонтитулов лишних частей нет
+    with zipfile.ZipFile(io.BytesIO(word_export.build_docx(items, word_export.layout_from({}), 'Объект'))) as z:
+        assert not {'word/header1.xml', 'word/footer1.xml', 'docProps/core.xml'} & set(z.namelist())
+    png2, pages = word_export.preview_png(layout, items, 1, {}, project='Объект')
+    assert pages >= 1 and png2[:4] == b'\x89PNG'

@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import io
+import datetime
 import math
+import re
 import struct
 import zipfile
 from dataclasses import dataclass
@@ -22,6 +24,7 @@ PAPERS = {'A4': (210.0, 297.0), 'A3': (297.0, 420.0), 'A5': (148.0, 210.0), 'Let
 FONTS = ('Times New Roman', 'Arial', 'Calibri', 'Cambria', 'Verdana', 'Tahoma', 'Georgia')
 ALIGNS = {'center': 'center', 'left': 'left', 'right': 'right', 'justify': 'both'}
 DPIS = (150, 200, 250, 300, 600)
+PAGE_NUMBER_POS = ('footer-center', 'footer-left', 'footer-right', 'header-center', 'header-left', 'header-right')
 PT_MM = 25.4 / 72
 NUMBER_MARK = '\x00'           # на этом месте в подписи стоит поле SEQ
 
@@ -63,6 +66,20 @@ class Layout:
     list_of_figures: bool = False
     list_title: str = 'Список рисунков'
     page_numbers: bool = False
+    page_number_pos: str = 'footer-center'     # footer|header-left|center|right
+    page_number_format: str = 'n'              # n — «3»; page — «Страница 3»; of — «3 из 12»; page_of — «Страница 3 из 12»
+    page_start: int = 1                        # с какого номера начинается нумерация
+    header_text: str = ''                      # колонтитулы: поля {страница}, {страниц}, {проект}, {дата}
+    footer_text: str = ''
+    hf_align: str = 'center'
+    hf_size: float = 9.0
+    text_font: str = ''                        # шрифт и размер основного текста и заголовка; пусто — как у подписи
+    text_size: float = 0.0
+    title_size: float = 0.0                    # 0 — 1,4 от размера текста
+    title_align: str = 'left'
+    figure_align: str = 'center'
+    doc_title: str = ''                        # свойства файла
+    doc_author: str = ''
     merge: bool = False              # все модули в одном документе
 
     # --- геометрия, мм ---
@@ -146,8 +163,24 @@ def layout_from(form: Mapping[str, Any]) -> Layout:
         list_of_figures=bool(f.get('word_list_of_figures', d.list_of_figures)) and bool(f.get('word_caption_show', d.caption_show)),   # список без подписей пуст
         list_title=str(f.get('word_list_title', d.list_title))[:100] or d.list_title,
         page_numbers=bool(f.get('word_page_numbers', d.page_numbers)),
+        page_number_pos=_choice(f, 'page_number_pos', d.page_number_pos, PAGE_NUMBER_POS, 'Положение номера страницы'),
+        page_number_format=_choice(f, 'page_number_format', d.page_number_format, ('n', 'page', 'of', 'page_of'), 'Вид номера страницы'),
+        page_start=int(_num(f, 'page_start', d.page_start, 1, 9999, 'Первый номер страницы')),
+        header_text=str(f.get('word_header_text', d.header_text))[:300],
+        footer_text=str(f.get('word_footer_text', d.footer_text))[:300],
+        hf_align=_choice(f, 'hf_align', d.hf_align, ('left', 'center', 'right'), 'Выравнивание колонтитулов'),
+        hf_size=_num(f, 'hf_size', d.hf_size, 6, 20, 'Размер колонтитулов, пт'),
+        text_font=_choice(f, 'text_font', d.text_font, ('',) + FONTS, 'Шрифт текста'),
+        text_size=_num(f, 'text_size', d.text_size, 0, 28, 'Размер текста, пт'),
+        title_size=_num(f, 'title_size', d.title_size, 0, 48, 'Размер заголовка, пт'),
+        title_align=_choice(f, 'title_align', d.title_align, ('left', 'center', 'right'), 'Выравнивание заголовка'),
+        figure_align=_choice(f, 'figure_align', d.figure_align, ('left', 'center', 'right'), 'Выравнивание рисунка'),
+        doc_title=str(f.get('word_doc_title', d.doc_title))[:200],
+        doc_author=str(f.get('word_doc_author', d.doc_author))[:200],
         merge=bool(f.get('word_merge', d.merge)),
     )
+    if out.page_start != 1 and (('of' in out.page_number_format and out.page_numbers) or '{страниц}' in out.header_text + out.footer_text):
+        raise LayoutError('«из N» и {страниц} считают страницы документа: при нумерации не с 1 выберите вид без «из» и уберите {страниц}')
     content_w, content_h = out.content()
     if content_w < 60 or content_h < 60:
         raise LayoutError('Поля слишком большие: на листе не остаётся места под график')
@@ -272,6 +305,43 @@ def _field(instruction: str, cached: str) -> str:
             % (instruction, _text(cached)))
 
 
+_FIELDS = re.compile(r'\{(страница|страниц|проект|дата)\}')
+
+
+def hf_runs(text: str, project: str, date: str) -> str:
+    """Текст колонтитула: {страница} и {страниц} — настоящие поля Word, {проект} и {дата} — текст."""
+    out, pos = '', 0
+    for m in _FIELDS.finditer(text):
+        out += _run(text[pos:m.start()])
+        key = m.group(1)
+        out += _field('PAGE', '1') if key == 'страница' else _field('NUMPAGES', '1') if key == 'страниц' else _run(project if key == 'проект' else date)
+        pos = m.end()
+    return out + _run(text[pos:])
+
+
+def number_runs(fmt: str) -> str:
+    """Номер страницы в выбранном виде: «3», «Страница 3», «3 из 12», «Страница 3 из 12»."""
+    page = _field('PAGE', '1')
+    return {'n': page, 'page': _run('Страница ') + page, 'of': page + _run(' из ') + _field('NUMPAGES', '1'),
+            'page_of': _run('Страница ') + page + _run(' из ') + _field('NUMPAGES', '1')}[fmt]
+
+
+def number_text(fmt: str, n: int, total: int) -> str:
+    return {'n': str(n), 'page': 'Страница %d' % n, 'of': '%d из %d' % (n, total), 'page_of': 'Страница %d из %d' % (n, total)}[fmt]
+
+
+def hf_text(text: str, project: str, date: str, n: int, total: int) -> str:
+    """Тот же колонтитул обычной строкой (для предпросмотра)."""
+    return _FIELDS.sub(lambda m: {'страница': str(n), 'страниц': str(total), 'проект': project, 'дата': date}[m.group(1)], text)
+
+
+def hf_parts(l: 'Layout') -> Tuple[bool, bool]:
+    """Нужны ли верхний и нижний колонтитулы."""
+    top = bool(l.header_text) or (l.page_numbers and l.page_number_pos.startswith('header'))
+    bottom = bool(l.footer_text) or (l.page_numbers and l.page_number_pos.startswith('footer'))
+    return top, bottom
+
+
 class Builder:
     """Собирает XML документа: ``add_item`` на каждый график, ``finish`` — готовый zip."""
 
@@ -311,14 +381,14 @@ class Builder:
         cx, cy = emu(item.w), emu(item.h)
         line = ('<a:ln w="6350"><a:solidFill><a:srgbClr val="999999"/></a:solidFill></a:ln>' if l.frame else '')
         props = ('<w:keepNext/>' if keep_next else '') + ('<w:pageBreakBefore/>' if page_break else '')
-        return ('<w:p><w:pPr>%s<w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr><w:r><w:drawing>'
+        return ('<w:p><w:pPr>%s<w:spacing w:before="0" w:after="0"/><w:jc w:val="%s"/></w:pPr><w:r><w:drawing>'
                 '<wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="%d" cy="%d"/>'
                 '<wp:docPr id="%d" name="Chart %d" descr="%s"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
                 '<pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="chart%d.png"/><pic:cNvPicPr/></pic:nvPicPr>'
                 '<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
                 '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>%s</pic:spPr>'
                 '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'
-                % (props, cx, cy, self.n, index, escape(item.text, {'"': '&quot;'}), index, rid, cx, cy, line))
+                % (props, l.figure_align, cx, cy, self.n, index, escape(item.text, {'"': '&quot;'}), index, rid, cx, cy, line))
 
     def figure_xml(self, item: Item, index: int, break_first: bool = False) -> str:
         """Рисунок и подпись; подпись сверху — перед рисунком, ``keepNext`` держит их вместе."""
@@ -368,7 +438,7 @@ def build_docx(items: Sequence[Item], layout: Layout, project: str = '', errors:
         entries = []
         for i, it in enumerate(items):
             anchor = '_Ref%09d' % (700000000 + i)
-            tab = '<w:r><w:tab/></w:r>' + _field('PAGEREF %s \\h' % anchor, str(page_of[i] + (1 if front else 0)))
+            tab = '<w:r><w:tab/></w:r>' + _field('PAGEREF %s \\h' % anchor, str(page_of[i] + (1 if front else 0) + l.page_start - 1))
             link = '<w:hyperlink w:anchor="%s" w:history="1"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r>%s</w:hyperlink>' % (anchor, _text(it.text), tab)
             entries.append(link)
         start = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\h \\z \\c "Рисунок" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
@@ -404,17 +474,23 @@ def build_docx(items: Sequence[Item], layout: Layout, project: str = '', errors:
           'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
           'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"')
     pw, ph = l.page()
-    footer_ref = '<w:footerReference w:type="default" r:id="rIdFooter"/>' if l.page_numbers else ''
-    sect = ('<w:sectPr>%s<w:pgSz w:w="%d" w:h="%d"%s/><w:pgMar w:top="%d" w:right="%d" w:bottom="%d" w:left="%d" w:header="%d" w:footer="%d" w:gutter="0"/></w:sectPr>'
-            % (footer_ref, twips(pw), twips(ph), ' w:orient="landscape"' if l.orientation == 'landscape' else '',
+    top, bottom = hf_parts(l)
+    refs = ('<w:headerReference w:type="default" r:id="rIdHeader"/>' if top else '') + ('<w:footerReference w:type="default" r:id="rIdFooter"/>' if bottom else '')
+    sect = ('<w:sectPr>%s<w:pgSz w:w="%d" w:h="%d"%s/><w:pgMar w:top="%d" w:right="%d" w:bottom="%d" w:left="%d" w:header="%d" w:footer="%d" w:gutter="0"/>%s</w:sectPr>'
+            % (refs, twips(pw), twips(ph), ' w:orient="landscape"' if l.orientation == 'landscape' else '',
                twips(l.margin_top), twips(l.margin_right), twips(l.margin_bottom), twips(l.margin_left),
-               twips(min(10, l.margin_top / 2)), twips(min(10, l.margin_bottom / 2))))
+               twips(min(10, l.margin_top / 2)), twips(min(10, l.margin_bottom / 2)),
+               '<w:pgNumType w:start="%d"/>' % l.page_start if l.page_start != 1 else ''))
     document = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document %s><w:body>%s%s</w:body></w:document>' % (ns, ''.join(b.body), sect)
 
     jc = ALIGNS[l.caption_align]
     font = l.caption_font
     sz = int(round(l.caption_size * 2))
-    rfonts = '<w:rFonts w:ascii="{0}" w:hAnsi="{0}" w:eastAsia="{0}" w:cs="{0}"/>'.format(font)
+    base_font = l.text_font or font                       # основной текст и колонтитулы; пусто — как у подписи
+    base_sz = int(round(l.text_size * 2)) if l.text_size else sz
+    title_sz = int(round(l.title_size * 2)) if l.title_size else int(base_sz * 1.4)
+    hf_sz = int(round(l.hf_size * 2))
+    fonts = lambda f: '<w:rFonts w:ascii="{0}" w:hAnsi="{0}" w:eastAsia="{0}" w:cs="{0}"/>'.format(f)
     styles = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
               '<w:docDefaults><w:rPrDefault><w:rPr>%s<w:sz w:val="%d"/><w:szCs w:val="%d"/><w:lang w:val="ru-RU"/></w:rPr></w:rPrDefault>'
               '<w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
@@ -422,39 +498,67 @@ def build_docx(items: Sequence[Item], layout: Layout, project: str = '', errors:
               '<w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>'
               '<w:pPr><w:jc w:val="%s"/></w:pPr><w:rPr>%s%s%s<w:sz w:val="%d"/><w:szCs w:val="%d"/></w:rPr></w:style>'
               '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:qFormat/>'
-              '<w:pPr><w:spacing w:after="240"/></w:pPr><w:rPr><w:b/><w:sz w:val="%d"/></w:rPr></w:style>'
+              '<w:pPr><w:spacing w:after="240"/><w:jc w:val="%s"/></w:pPr><w:rPr><w:b/><w:sz w:val="%d"/><w:szCs w:val="%d"/></w:rPr></w:style>'
               '<w:style w:type="paragraph" w:styleId="ListHeading"><w:name w:val="List Heading"/><w:basedOn w:val="Normal"/>'
               '<w:pPr><w:spacing w:before="120" w:after="160"/></w:pPr><w:rPr><w:b/><w:sz w:val="%d"/></w:rPr></w:style>'
               '<w:style w:type="paragraph" w:styleId="TableofFigures"><w:name w:val="table of figures"/><w:basedOn w:val="Normal"/>'
               '<w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="%d"/></w:tabs><w:spacing w:after="60"/></w:pPr></w:style>'
               '<w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/><w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr></w:style>'
-              '<w:style w:type="paragraph" w:styleId="Footer"><w:name w:val="footer"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/></w:pPr></w:style>'
-              '</w:styles>') % (rfonts, sz, sz, jc, rfonts, '<w:b/>' if l.caption_bold else '', '<w:i/>' if l.caption_italic else '', sz, sz,
-                                 int(sz * 1.4), int(sz * 1.2), twips(l.content()[0]))
+              '<w:style w:type="paragraph" w:styleId="Footer"><w:name w:val="footer"/><w:basedOn w:val="Normal"/><w:rPr><w:sz w:val="%d"/><w:szCs w:val="%d"/></w:rPr></w:style>'
+              '<w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:basedOn w:val="Normal"/><w:rPr><w:sz w:val="%d"/><w:szCs w:val="%d"/></w:rPr></w:style>'
+              '</w:styles>') % (fonts(base_font), base_sz, base_sz, jc, fonts(font), '<w:b/>' if l.caption_bold else '', '<w:i/>' if l.caption_italic else '', sz, sz,
+                                 l.title_align, title_sz, title_sz, int(base_sz * 1.2), twips(l.content()[0]), hf_sz, hf_sz, hf_sz, hf_sz)
+    ns_w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    today = datetime.date.today().strftime('%d.%m.%Y')
+    def hf_part(tag: str, text: str, where: str) -> str:
+        """Верхний или нижний колонтитул: строка текста и (если выбран этот колонтитул) номер страницы со своим выравниванием."""
+        style = 'Header' if tag == 'hdr' else 'Footer'
+        paras = ''
+        if text:
+            paras += '<w:p><w:pPr><w:pStyle w:val="%s"/><w:jc w:val="%s"/></w:pPr>%s</w:p>' % (style, l.hf_align, hf_runs(text, project, today))
+        if l.page_numbers and l.page_number_pos.startswith(where):
+            paras += '<w:p><w:pPr><w:pStyle w:val="%s"/><w:jc w:val="%s"/></w:pPr>%s</w:p>' % (style, l.page_number_pos.split('-')[1], number_runs(l.page_number_format))
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:%s %s>%s</w:%s>' % (tag, ns_w, paras, tag)
+    parts = {}
+    if top:
+        parts['header1.xml'] = hf_part('hdr', l.header_text, 'header')
+    if bottom:
+        parts['footer1.xml'] = hf_part('ftr', l.footer_text, 'footer')
+    core = ''
+    if l.doc_title or l.doc_author:
+        core = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+                'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+                '<dc:title>%s</dc:title><dc:creator>%s</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">%s</dcterms:created></cp:coreProperties>'
+                % (_text(l.doc_title), _text(l.doc_author), datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')))
     types = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
              '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
              '<Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>'
              '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
              '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
-             + ('<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' if l.page_numbers else '')
+             + ('<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' if top else '')
+             + ('<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' if bottom else '')
+             + ('<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' if core else '')
              + '</Types>')
     rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             + ''.join(b.rels)
             + '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-            + ('<Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>' if l.page_numbers else '')
+            + ('<Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>' if top else '')
+            + ('<Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>' if bottom else '')
             + '</Relationships>')
-    footer = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-              '<w:p><w:pPr><w:pStyle w:val="Footer"/></w:pPr>%s</w:p></w:ftr>' % _field('PAGE', '1'))
     out = io.BytesIO() if target is None else target
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('[Content_Types].xml', types)
         z.writestr('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+                   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+                   + ('<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>' if core else '')
+                   + '</Relationships>')
         z.writestr('word/document.xml', document)
         z.writestr('word/styles.xml', styles)
         z.writestr('word/_rels/document.xml.rels', rels)
-        if l.page_numbers:
-            z.writestr('word/footer1.xml', footer)
+        for name, xml in parts.items():
+            z.writestr('word/' + name, xml)
+        if core:
+            z.writestr('docProps/core.xml', core)
         for member, png in b.media:
             z.writestr('word/' + member, png)
     return out.getvalue() if target is None else target
@@ -492,7 +596,7 @@ def _wrap(draw, text: str, font, width: int) -> List[str]:
     return lines + ([line] if line else [])
 
 
-def preview_png(layout: Layout, items: Sequence[Item], page: int, images: Mapping[int, bytes], scale: float = 3.0) -> Tuple[bytes, int]:
+def preview_png(layout: Layout, items: Sequence[Item], page: int, images: Mapping[int, bytes], scale: float = 3.0, project: str = '') -> Tuple[bytes, int]:
     """Лист ``page`` (с 1) как картинка: поля, графики из ``images`` (индекс → PNG) и подписи в тех же местах, что в Word.
     Возвращает PNG и число листов."""
     from PIL import Image, ImageDraw
@@ -517,7 +621,8 @@ def preview_png(layout: Layout, items: Sequence[Item], page: int, images: Mappin
             line_h = int(layout.caption_size * 1.2 * PT_MM * scale)
             above = layout.caption_pos == 'above'
             top = y + (cap_h if above else 0)
-            box = (px(x + (inner - it.w) / 2), px(top), px(x + (inner + it.w) / 2), px(top + it.h))
+            dx = {'left': 0.0, 'right': inner - it.w}.get(layout.figure_align, (inner - it.w) / 2)
+            box = (px(x + dx), px(top), px(x + dx + it.w), px(top + it.h))
             data = images.get(i)
             if data:
                 with Image.open(io.BytesIO(data)) as picture:
@@ -537,9 +642,35 @@ def preview_png(layout: Layout, items: Sequence[Item], page: int, images: Mappin
             if layout.borders == 'thin':
                 draw.rectangle([px(layout.margin_left + k * cell_w), px(y - layout.row_gap / 2), px(layout.margin_left + (k + 1) * cell_w), px(y + height + layout.row_gap / 2)], outline='#bfbfbf')
         y += height + layout.row_gap
+    # колонтитулы и номер страницы, как их выведет Word (поля заменены текущими значениями)
+    small = _font(max(6, int(layout.hf_size * PT_MM * scale)), layout.text_font or layout.caption_font)
+    today = datetime.date.today().strftime('%d.%m.%Y')
+    number = page + layout.page_start - 1
+    last = len(pages) + layout.page_start - 1
+
+    def put(text: str, align: str, y_mm: float) -> None:
+        width = draw.textlength(text, font=small)
+        left, right = px(layout.margin_left), px(pw - layout.margin_right)
+        x = left if align == 'left' else right - width if align == 'right' else (left + right - width) / 2
+        draw.text((x, px(y_mm)), text, fill='#444444', font=small)
+
+    line = layout.hf_size * 1.25 * PT_MM
+    head, foot = [], []
+    if layout.header_text:
+        head.append((hf_text(layout.header_text, project, today, number, last), layout.hf_align))
+    if layout.footer_text:
+        foot.append((hf_text(layout.footer_text, project, today, number, last), layout.hf_align))
     if layout.page_numbers:
-        label = str(page)
-        draw.text((px(pw / 2) - 4, px(ph - layout.margin_bottom / 2)), label, fill='#555555', font=cap_font)
+        (head if layout.page_number_pos.startswith('header') else foot).append(
+            (number_text(layout.page_number_format, number, last), layout.page_number_pos.split('-')[1]))
+    y = min(10.0, layout.margin_top / 2)
+    for text, align in head:
+        put(text, align, y)
+        y += line
+    y = ph - min(10.0, layout.margin_bottom / 2) - line * len(foot)
+    for text, align in foot:
+        put(text, align, y)
+        y += line
     out = io.BytesIO()
     sheet.save(out, 'PNG', optimize=True)
     return out.getvalue(), len(pages)
