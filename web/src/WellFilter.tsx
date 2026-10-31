@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import { MultiSelect } from './MultiSelect'
-import { wellFilterApi, wellPresetApi, type WellFilter as Filter, type WellFilterStatus, type WellPreset } from './api_wells'
+import { wellFilterApi, wellPresetApi, wellPresets, type WellFilter as Filter, type WellFilterStatus, type WellPreset } from './api_wells'
 import './wellfilter.css'
 
 interface Props {
@@ -89,7 +89,7 @@ export function WellFilter({ project, revision, value, onChange }: Props) {
           </p>
           <div className="well-filter-fields">
             <MultiSelect label="Группы" options={allGroups} value={groups} onChange={setGroups} emptyMeaning="все" />
-            <MultiSelect label="Скважины" options={allWells} value={wells} onChange={setWells} emptyMeaning="все" picker={project} />
+            <MultiSelect label="Скважины" options={allWells} value={wells} onChange={setWells} emptyMeaning="все" presets={wellPresets(project)} />
           </div>
           <label className="field well-filter-preset">
             <span className="field-label">Применить пресет</span>
