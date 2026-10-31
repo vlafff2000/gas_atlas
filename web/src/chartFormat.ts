@@ -1,5 +1,6 @@
 // Единая модель оформления графика (как в atlas/chart_style.py): документ {chart, axes, series}.
 // Уровни (тема проекта → тип графика → график) складываются mergeFormats: поле более позднего уровня главнее.
+import { trendSeries } from './trend'
 import type { Axis, AxisStyle, Chart, ChartStyle } from './api'
 import { applyLooks, type Look } from './chartStyle'
 
@@ -90,5 +91,8 @@ export function applyFormat(chart: Chart, doc: ChartFormat | null | undefined): 
       .flatMap(s => s.y.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)))
     out = { ...out, [name]: formatAxis(axis, spec, values) }
   }
-  return doc.series ? applyLooks(out, doc.series) : out
+  if (!doc.series) return out
+  const looked = applyLooks(out, doc.series)
+  const trends = trendSeries(looked.series)
+  return trends.length ? { ...looked, series: [...looked.series, ...trends] } : looked
 }

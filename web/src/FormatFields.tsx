@@ -219,7 +219,12 @@ export function AxisStyleFields({ value: f, set, time }: Setter<Omit<AxisStyle, 
 }
 
 /** Дополнения к виду ряда (модель v2): граница маркера, полый маркер, подписи данных, имя в легенде. */
-export function SeriesExtraFields({ value: look, set, marker, labels }: Setter<Look> & { marker: boolean; labels: boolean }) {
+const TRENDS: { value: NonNullable<Look['trend']>; label: string }[] = [
+  { value: 'linear', label: 'Линейная' }, { value: 'poly', label: 'Полиномиальная' }, { value: 'log', label: 'Логарифмическая' },
+  { value: 'power', label: 'Степенная' }, { value: 'exp', label: 'Экспоненциальная' }, { value: 'moving', label: 'Скользящее среднее' },
+]
+
+export function SeriesExtraFields({ value: look, set, marker, labels, trend = false }: Setter<Look> & { marker: boolean; labels: boolean; trend?: boolean }) {
   return (
     <>
       {marker && <fieldset>
@@ -239,6 +244,20 @@ export function SeriesExtraFields({ value: look, set, marker, labels }: Setter<L
             <Num label="Знаков" value={look.label_decimals} min={0} max={8} onChange={v => set({ label_decimals: v })} />
             <Num label="Размер" value={look.label_size} min={5} max={30} onChange={v => set({ label_size: v })} />
           </div>
+        </>}
+      </fieldset>}
+      {trend && <fieldset>
+        <legend>Линия тренда</legend>
+        <Choice label="Вид" value={look.trend} options={TRENDS} auto="нет" onChange={v => set({ trend: v })} />
+        {look.trend === 'poly' && <Num label="Степень" value={look.trend_order} min={2} max={6} onChange={v => set({ trend_order: v })} />}
+        {look.trend === 'moving' && <Num label="Период, точек" value={look.trend_period} min={2} max={60} onChange={v => set({ trend_period: v })} />}
+        {look.trend && <>
+          <div className="cs-row">
+            <Color label="Цвет" value={look.trend_color} onChange={v => set({ trend_color: v })} />
+            <Num label="Толщина" value={look.trend_width} min={0.5} max={12} step={0.5} onChange={v => set({ trend_width: v })} />
+          </div>
+          <Flag label="Уравнение и R² в подписи" value={look.trend_label} onChange={v => set({ trend_label: v })} />
+          <p className="cs-hint">R² считается по самому ряду. Логарифм требует x &gt; 0, степень и экспонента — x и y &gt; 0.</p>
         </>}
       </fieldset>}
       <fieldset>

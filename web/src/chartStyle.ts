@@ -20,6 +20,9 @@ export interface Look {
   marker_border?: string; marker_border_width?: number; hollow?: boolean
   label_position?: 'top' | 'bottom' | 'left' | 'right' | 'inside' | 'center'; label_decimals?: number; label_size?: number
   legend_name?: string
+  // линия тренда ряда (web/src/trend.ts, atlas/trend.py)
+  trend?: 'linear' | 'poly' | 'log' | 'power' | 'exp' | 'moving'; trend_order?: number; trend_period?: number
+  trend_label?: boolean; trend_color?: string; trend_width?: number
 }
 
 export const MARKER_SHAPES: { value: MarkerShape; label: string }[] = [
