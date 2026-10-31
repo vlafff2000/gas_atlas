@@ -114,3 +114,17 @@ def test_annotations_validated_and_reach_the_file():
     for bad in ([{'kind': 'hline'}], [{'value': '1'}], [{'kind': 'band', 'value': '1'}], [{'kind': 'vband', 'value': '1'}], [{'kind': 'text', 'text': 'x'}], 'строка', [{'kind': 'hline', 'value': '1'}] * 31):
         with pytest.raises(ParamError):
             clean_format({'chart': {'annotations': bad}})
+
+
+def test_hatch_for_bars_reaches_the_file():
+    from atlas.contract import ParamError
+    from atlas.render import to_plotly
+    from atlas.engine.core.export import figure_bytes
+    bars = Chart(id='b', title='T', x=Axis(label='x', scale='category'), y=Axis(label='y'),
+                 series=[Series(name='Ряд', x=['а', 'б', 'в'], y=[3, 5, 4], kind='bar', group='Г')])
+    plain = figure_bytes(to_plotly(bars), 'png', 150, 150)
+    hatched = apply_format(bars, clean_format({'series': {'Г|bar': {'hatch': 'diag', 'hatch_color': '#333333'}}}))
+    fig = to_plotly(hatched)
+    assert fig.data[0].meta['hatch'] == 'diag' and figure_bytes(fig, 'png', 150, 150) != plain
+    with pytest.raises(ParamError):
+        clean_format({'series': {'Г|bar': {'hatch': 'волны'}}})

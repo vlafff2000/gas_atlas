@@ -160,7 +160,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           {s && <>
             <h3>{s.name} <small>{KIND[s.kind]}</small></h3>
             <SeriesLookFields s={s} color={colorOf(s)} look={look} onChange={setLook} />
-            <SeriesExtraFields value={look} set={setLook} marker={s.kind === 'points' || (s.kind === 'line' && !s.fill)} labels={s.kind !== 'box'} trend={s.kind === 'points' || s.kind === 'line'} />
+            <SeriesExtraFields value={look} set={setLook} marker={s.kind === 'points' || (s.kind === 'line' && !s.fill)} labels={s.kind !== 'box'} trend={s.kind === 'points' || s.kind === 'line'} hatch={s.kind === 'bar'} />
             <p className="cs-hint">Вид ряда общий для проекта: тот же год, сезон или группа выглядит так же на всех графиках.</p>
             <div className="cs-actions">
               <Brush kind="series" value={looks[seriesLookKey(s)]} paste={v => setLook(v as Partial<Look>)} />

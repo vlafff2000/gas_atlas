@@ -302,6 +302,9 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                         for p,v in zip(pos,top):base[p]=base.get(p,0.0)+v
                     else:drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
                     for bar in drawn:bar._own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set()     # ручной цвет столбцов: вид Excel его не перекрашивает
+                    if isinstance(t.meta,dict) and t.meta.get('hatch'):
+                        from .export_style import HATCH_MPL
+                        for bar in drawn:bar.set_hatch(HATCH_MPL.get(t.meta['hatch'],'//'));bar.set_edgecolor(t.meta.get('hatch_color') or '#000000');bar.set_linewidth(0)     # штриховка для чёрно-белой печати
                     if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y,t.meta))
                 else:
                     # Plotly JSON serializes dates to strings. Preserve calendar spacing.

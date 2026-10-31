@@ -56,6 +56,9 @@ def _set_limits(target, name: str, spec: Mapping[str, Any], date: bool) -> None:
     (target.set_xlim if horizontal else target.set_ylim)(*pair)
 
 
+HATCH_MPL = {'diag': '///', 'back': '\\\\\\', 'cross': 'xxx', 'grid': '+++', 'dots': '...', 'horizontal': '---', 'vertical': '|||'}
+
+
 def _bound(text, time: bool):
     """Число (запятая допустима) или дата дд.мм.гггг / гггг-мм-дд; не разобрать — None."""
     from matplotlib.dates import date2num

@@ -23,6 +23,8 @@ export interface Look {
   // линия тренда ряда (web/src/trend.ts, atlas/trend.py)
   trend?: 'linear' | 'poly' | 'log' | 'power' | 'exp' | 'moving'; trend_order?: number; trend_period?: number
   trend_label?: boolean; trend_color?: string; trend_width?: number
+  // штриховка столбцов для чёрно-белой печати
+  hatch?: 'diag' | 'back' | 'cross' | 'grid' | 'dots' | 'horizontal' | 'vertical'; hatch_color?: string
 }
 
 export const MARKER_SHAPES: { value: MarkerShape; label: string }[] = [
