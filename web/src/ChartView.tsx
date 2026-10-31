@@ -579,9 +579,20 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
   const [element, setElement] = useState<FormatElement>('chart')
   const scope = usePref(formatScope)
   const setScope = (v: FormatScope) => formatScope.set(v)
+  const over = useRef(false)                            // указатель над этим графиком: Ctrl+1 открывает формат именно его
+  /** Формат выбранного элемента (двойной щелчок, правая кнопка, Ctrl+1): панель открывается на нём, график остаётся виден. */
+  const openFormat = (el: FormatElement) => { setElement(el); setSettings(true) }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!over.current || !(e.ctrlKey || e.metaKey) || e.key !== '1' || compact) return
+      e.preventDefault(); setSettings(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [compact])
   const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
   const state = useRef({
-    ranges: NO_RANGES as Manual, steps: NO_STEPS as Steps, setSteps: (() => {}) as (s: Steps) => void, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
+    ranges: NO_RANGES as Manual, steps: NO_STEPS as Steps, setSteps: (() => {}) as (s: Steps) => void, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, openFormat: (() => {}) as (e: FormatElement) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
     applyZoom: (() => {}) as () => void,
@@ -591,6 +602,7 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
     renderPins: (() => {}) as () => void, reconcile: (() => {}) as () => void,
   })
+  state.current.openFormat = openFormat
   const mode = useHoverMode()
   const smooth = usePref(smoothLines)
   const theme = useAppliedTheme()
@@ -1148,8 +1160,19 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
       if (a === 'x') ch.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: next[0], endValue: next[1] })
       else st.setRanges({ ...st.ranges, [a]: next })
     }
+    /** Ряд под указателем: отметка точки или кривая не дальше 10 px. */
+    const seriesUnder = (): number | null => {
+      const h = st.current
+      const t = h?.point?.track ?? (h?.focus && h.focus.distance < 10 ? h.focus.track : null)
+      return t ? t.index : null
+    }
     zr.on('dblclick', (e: { offsetX: number; offsetY: number }) => {
       if (zone(e.offsetX, e.offsetY)) return
+      if (!st.chart.id.startsWith('builder')) {      // как в Excel: ряд — формат ряда, пустое поле — формат области построения; масштаб сбрасывает кнопка ↺
+        const under = seriesUnder()
+        st.openFormat(under !== null ? 'series:' + under : 'chart')
+        return
+      }
       st.setRanges(NO_RANGES)
       ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
     })
@@ -1217,6 +1240,16 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
     }
     host.addEventListener('wheel', onAxisWheel, { passive: false, capture: true })
     host.addEventListener('dblclick', onAxisDblclick)
+    // правая кнопка: формат элемента под указателем — ось, ряд или график (вместо меню браузера)
+    const onContext = (e: MouseEvent) => {
+      if (st.chart.id.startsWith('builder')) return
+      const box = host.getBoundingClientRect()
+      const a = zone(e.clientX - box.left, e.clientY - box.top)
+      e.preventDefault()
+      const under = a ? null : seriesUnder()
+      st.openFormat(a ? 'axis:' + a : under !== null ? 'series:' + under : 'chart')
+    }
+    host.addEventListener('contextmenu', onContext)
     host.addEventListener('pointerdown', onAxisDown)
     host.addEventListener('pointermove', onAxisMove)
     host.addEventListener('pointerup', onAxisUp)
@@ -1350,7 +1383,7 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
       window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin); host.removeEventListener('click', onOpen)
       host.removeEventListener('pointerdown', onGrab); host.removeEventListener('pointermove', onDrag)
       host.removeEventListener('pointerup', onDrop); host.removeEventListener('pointercancel', onDrop)
-      host.removeEventListener('wheel', onAxisWheel, { capture: true }); host.removeEventListener('dblclick', onAxisDblclick)
+      host.removeEventListener('wheel', onAxisWheel, { capture: true }); host.removeEventListener('dblclick', onAxisDblclick); host.removeEventListener('contextmenu', onContext)
       host.removeEventListener('pointerdown', onAxisDown); host.removeEventListener('pointermove', onAxisMove)
       host.removeEventListener('pointerup', onAxisUp); host.removeEventListener('pointercancel', onAxisUp)
       if (st.frame) cancelAnimationFrame(st.frame)
@@ -1429,6 +1462,10 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
   const legendEl = chart.style?.legend === 'hide' || compact ? null : (
     <ChartLegend model={legend} position={chart.style?.legend} fmt={chart.style} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
         offEvents={offEvents} onHighlight={highlight}
+        onFormat={chart.id.startsWith('builder') ? undefined : hit => {
+          const i = !hit ? -1 : hit.facet ? chart.series.findIndex(s => s.facets?.[hit.facet!] === hit.value) : chart.series.findIndex(s => key(s) === hit.name)
+          openFormat(i >= 0 ? 'series:' + i : 'chart')
+        }}
         onToggle={(name, only) => setHidden(h => {
           if (only) {
             const others = legend.items.map(i => i.name).filter(n => n !== name)
@@ -1453,9 +1490,12 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
   )
 
   return (
-    <figure className={'chart' + (excludeMode ? ' exclude-mode' : '') + (compact ? ' compact' : '')} style={frameStyle(chart.style)}>
+    <figure className={'chart' + (excludeMode ? ' exclude-mode' : '') + (compact ? ' compact' : '')} style={frameStyle(chart.style)}
+      onMouseEnter={() => { over.current = true }} onMouseLeave={() => { over.current = false }}>
       <figcaption>
-        <RichText value={chart.title} style={titleStyle(chart.style)} />
+        <span onDoubleClick={() => !compact && !chart.id.startsWith('builder') && openFormat('chart')} title="Двойной щелчок — формат заголовка">
+          <RichText value={chart.title} style={titleStyle(chart.style)} />
+        </span>
         <span className="chart-actions">
           {chart.x.scale !== 'category' && <>
             <span className="chart-tools">
@@ -1481,7 +1521,7 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
                 title="Те же границы оси Y — на все графики раздела с такой же осью">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></svg>
               </button>}
-              <button type="button" className="icon" onClick={resetZoom} title="Сбросить масштаб и границы осей (или двойной щелчок по графику). Двойной щелчок по оси — ввести границы, колесо над осью — масштаб оси, перетаскивание оси — сдвиг">
+              <button type="button" className="icon" onClick={resetZoom} title="Сбросить масштаб и границы осей. Двойной щелчок по оси — ввести границы, колесо над осью — масштаб оси, перетаскивание оси — сдвиг">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7" /><path d="M3 2.5v3h3" /></svg>
               </button>
             </span>
@@ -1537,6 +1577,7 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
           <span className="axis-buttons">
             <button type="submit" className="primary">Применить</button>
             <button type="button" onClick={() => commitEditor(true)}>Авто</button>
+            {!chart.id.startsWith('builder') && <button type="button" onClick={() => { openFormat('axis:' + editor.axis); setEditor(null) }}>Формат оси…</button>}
             <button type="button" onClick={() => setEditor(null)}>Закрыть</button>
           </span>
         </form>}
@@ -1672,10 +1713,11 @@ interface LegendProps {
   model: LegendModel; hidden: Set<string>; facetOff: Set<string>; events: ChartEvent[]; offEvents: string[]
   onToggle: (name: string, only: boolean) => void; onFacet: (facet: string, value: string, only: boolean) => void
   onEvent: (kind: string) => void; onHighlight: (name: string | null) => void
+  onFormat?: (hit: DOMStringMap | null) => void      // правая кнопка: формат ряда под указателем или графика
   position?: ChartStyle['legend']; fmt?: ChartStyle      // ручное оформление: положение, шрифт, размер
 }
 
-function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onFacet, onEvent, onHighlight, position, fmt }: LegendProps) {
+function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onFacet, onEvent, onHighlight, onFormat, position, fmt }: LegendProps) {
   const [open, setOpen] = useState(false)
   const [overflow, setOverflow] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -1688,13 +1730,14 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
   if (model.items.length < 2 && !kinds.length) return null
   const hint = 'Щелчок — скрыть или показать, двойной щелчок — только этот'
   return (
-    <div className={'chart-legend-wrap' + (position === 'right' || position === 'left' ? ' side' : '')} style={legendStyle(fmt)}>
+    <div className={'chart-legend-wrap' + (position === 'right' || position === 'left' ? ' side' : '')} style={legendStyle(fmt)}
+      onContextMenu={onFormat ? e => { e.preventDefault(); onFormat((e.target as HTMLElement).closest<HTMLElement>('.legend-item')?.dataset ?? null) } : undefined}>
       <div ref={root} className={'chart-legend' + (open ? ' open' : '') + (fmt?.legend_columns ? ' cols' : '') + (fmt?.legend_border ? ' boxed' : '')}>
         {model.facets.map(f => (
           <div key={f.name} className="legend-row">
             <span className="legend-title">{f.name}</span>
             {f.values.map(v => (
-              <button key={v.value} type="button" className="legend-item" aria-pressed={!facetOff.has(f.name + '\u0001' + v.value)} title={hint}
+              <button key={v.value} type="button" className="legend-item" data-facet={f.name} data-value={v.value} aria-pressed={!facetOff.has(f.name + '\u0001' + v.value)} title={hint}
                 onClick={e => onFacet(f.name, v.value, e.detail > 1)}>
                 {(v.color || v.dash) && <Swatch color={v.color ?? 'var(--chart-ink)'} dash={v.dash} line />}
                 <span>{v.value}</span>
@@ -1706,7 +1749,7 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
           <div className="legend-row">
             {model.facets.length > 0 && <span className="legend-title">Кривые</span>}
             {model.plain.map(i => (
-              <button key={i.name} type="button" className="legend-item" aria-pressed={!hidden.has(i.name)} title={hint}
+              <button key={i.name} type="button" className="legend-item" data-name={i.name} aria-pressed={!hidden.has(i.name)} title={hint}
                 onClick={e => onToggle(i.name, e.detail > 1)}
                 onMouseEnter={() => onHighlight(i.name)} onMouseLeave={() => onHighlight(null)}>
                 <Swatch color={i.color} dash={i.dash} line={i.line} symbol={i.symbol} hollow={i.hollow} />
