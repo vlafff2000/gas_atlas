@@ -131,3 +131,11 @@ def test_project_chart_font_is_the_lowest_level():
     assert fonts({'chart_font': 'comic'}) == 'times'
     own = {'chart_font': 'arial_narrow', 'chart_formats': {'theme': {'chart': {'font': 'calibri'}}}}
     assert fonts(own) == 'calibri'                                          # шрифт темы главнее общего
+
+
+def test_legend_label_drops_what_does_not_vary():
+    from atlas.modules._production import well_label
+    assert well_label('31', '2023-2024', 3, 2) == '№ 31 · 2023-2024'
+    assert well_label('31', '2023-2024', 3, 1) == '№ 31'          # один сезон: сезон не пишем
+    assert well_label('31', '2023-2024', 1, 2) == '2023-2024'     # одна скважина: номер не пишем
+    assert well_label('31', '2023-2024', 1, 1) == '2023-2024'
