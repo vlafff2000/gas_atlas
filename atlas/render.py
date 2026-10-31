@@ -21,7 +21,7 @@ from .contract import Chart, Series, Table
 from .rich_text import plain
 
 SYMBOLS = {'circle': 'circle', 'square': 'square', 'diamond': 'diamond', 'triangle': 'triangle-up', 'plus': 'cross', 'x': 'x', 'star': 'star'}
-LOOK_DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'dot'}
+LOOK_DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'dot', 'dashdot': 'dashdot', 'longdash': 'longdash'}
 FILL_ALPHA = 0.6        # прозрачность заливки области, если не задана вручную
 WIDTH_PT = 0.6          # px на экране → пт в выгрузке (2 px по умолчанию = 1,2 пт)
 STYLE_AXES = ('x', 'y', 'y2', 'y3', 'y4', 'y5')
@@ -149,7 +149,14 @@ def rgba(color: str, alpha: float) -> str:
 def look_meta(look: dict) -> dict:
     """Что задано вручную (``Series.look``): статический рендер берёт эти значения вместо своих по умолчанию (``own``)."""
     own = [name for name, key in (('color', 'color'), ('width', 'width'), ('size', 'size'), ('alpha', 'opacity')) if key in look]
-    return {'own': own}
+    return {'own': own, **labels_meta(look)}
+
+
+def labels_meta(look: dict) -> dict:
+    """Подписи данных (``valueLabels``, ``label_*``): положение, знаки и размер — рисует ``atlas/engine/core/export.py``."""
+    if not look.get('valueLabels'):
+        return {}
+    return {'value_labels': True, **{k: look[k] for k in ('label_position', 'label_decimals', 'label_size') if k in look}}
 
 
 def style_meta(chart: Chart) -> dict:
@@ -253,7 +260,9 @@ def to_plotly(chart: Chart):
     stacked_bars = any(s.kind == 'bar' and s.stack for s in chart.series)
     combo = chart.id.startswith('builder')      # виды конструктора: область, ступенчатая, стопка (atlas/engine/core/export.py читает meta['combo'])
     scale_title: str | None = None
+    spans: list[int] = []        # с какой трассы начинается каждый ряд
     for n, s in enumerate(chart.series):
+        spans.append(len(fig.data))
         look = s.look or {}
         color = look.get('color') or (series_color(s.color) if s.color else palette[s.group or s.name])
         if s.kind == 'box':
@@ -266,7 +275,7 @@ def to_plotly(chart: Chart):
                                      showlegend=s.legend and first, marker_color=color, boxpoints=False))
                 first = False
         elif s.kind == 'bar':
-            bar_meta = {**({'own': ['color']} if 'color' in look else {}), **({'value_labels': True} if look.get('valueLabels') else {})}     # own — ручной цвет: вид Excel его не меняет
+            bar_meta = {**({'own': ['color']} if 'color' in look else {}), **labels_meta(look)}     # own — ручной цвет: вид Excel его не меняет
             extra = {'meta': bar_meta} if bar_meta else {}     # подписи значений: рисует atlas/engine/core/export.py
             if s.stack and not s.segments and chart.id.startswith('gis-tile'):      # столбцы стопкой по категориям: в файле друг на друге, а не рядом
                 extra.setdefault('meta', {})['cat_stack'] = s.stack
@@ -296,11 +305,13 @@ def to_plotly(chart: Chart):
                     extra['fillcolor'] = rgba(color, alpha)
                     extra['meta']['alpha'] = alpha
                     extra['fill'] = 'tonexty' if s.stack else 'tozeroy'
+            hollow = look.get('hollow', s.hollow)
             if markers:
                 shape = SYMBOLS[look.get('shape', s.symbol)]
                 mcolor = look.get('markerColor') or color
-                extra['marker'] = {'color': 'white' if s.hollow else mcolor, 'symbol': shape, 'size': look.get('size', 6),
-                                   'line': {'color': mcolor, 'width': 1.8 if s.hollow or shape in ('cross', 'x') else 0}}
+                extra['marker'] = {'color': 'white' if hollow else mcolor, 'symbol': shape, 'size': look.get('size', 6),
+                                   'line': {'color': look.get('marker_border') or mcolor,
+                                            'width': look.get('marker_border_width', 1.8 if hollow or shape in ('cross', 'x') else 0)}}
             if s.stack:      # линии одной стопки складываются по значению X (дате), как на экране
                 extra['stackgroup'] = s.stack
             if not shown and not markers and not s.fill:
@@ -316,10 +327,12 @@ def to_plotly(chart: Chart):
                                      **extra))
         else:
             shape = SYMBOLS[look.get('shape', s.symbol)]
-            symbol = shape + ('-open' if s.hollow else '')
+            hollow = look.get('hollow', s.hollow)
+            symbol = shape + ('-open' if hollow else '')
             marker = {'color': look.get('markerColor') or color, 'symbol': symbol, 'size': look.get('size', 9),
                       'opacity': s.opacity,
-                      'line': {'color': look.get('markerColor') or color, 'width': 2 if s.hollow or shape in ('cross', 'x') else 0}}
+                      'line': {'color': look.get('marker_border') or look.get('markerColor') or color,
+                               'width': look.get('marker_border_width', 2 if hollow or shape in ('cross', 'x') else 0)}}
             if s.values is not None:         # точки окрашены третьим значением: общая шкала цвета на весь график
                 marker.update(color=[float('nan') if v is None or v != v else float(v) for v in s.values], coloraxis='coloraxis')
                 marker['line'] = {'width': 0}
@@ -327,6 +340,11 @@ def to_plotly(chart: Chart):
             fig.add_trace(go.Scatter(x=list(s.x), y=list(s.y), mode='markers', name=s.name, showlegend=s.legend,
                                      yaxis=s.axis, meta=look_meta(look), opacity=s.opacity, marker=marker))
     segment_marks(fig, chart, palette)
+    spans.append(len(fig.data))
+    for s, first, last in zip(chart.series, spans, spans[1:]):      # имя в легенде из оформления: у всех трасс ряда
+        if (s.look or {}).get('legend_name'):
+            for trace in fig.data[first:last]:
+                trace.name = s.look['legend_name']
     module = chart.id.split('-', 1)[0]
     meta: dict = {'module': module}
     if chart.id.startswith('builder') or chart.style or any(a.style for a in (chart.x, chart.y, *(a for _, a in chart.right_axes()))):

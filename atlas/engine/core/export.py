@@ -174,12 +174,24 @@ def manual_axes(ax,secondary,axes,date_axis,categorical):
     if secondary is not None and 'minor' in axes.get('y2',{}):secondary.tick_params(which='minor',length=2)
 
 
-def value_labels(ax,bars,values,family,size):
+def point_labels(ax,x,y,family,size,opts):
+    """Подписи значений у точек линии и облака (оформление ряда: положение, знаки, размер)."""
+    place=opts.get('label_position','top');size=opts.get('label_size',size);decimals=opts.get('label_decimals')
+    offset={'top':(0,4),'bottom':(0,-4),'left':(-4,0),'right':(4,0),'inside':(0,0),'center':(0,0)}.get(place,(0,4))
+    ha={'left':'right','right':'left'}.get(place,'center');va={'top':'bottom','bottom':'top'}.get(place,'center')
+    for xi,v in zip(x,y):
+        if v is None or not np.isfinite(v):continue
+        text=f'{v:.{decimals if decimals is not None else 1}f}'.replace('.',',') if decimals is not None else f'{v:g}'.replace('.',',')
+        ax.annotate(text,(xi,v),xytext=offset,textcoords='offset points',ha=ha,va=va,fontsize=size,family=family)
+
+
+def value_labels(ax,bars,values,family,size,opts=None):
     """Подписи значений над столбцами: целые числа, строго над столбиком. Если текст шире столбца, он ставится вертикально, чтобы соседние подписи не налезали."""
+    opts=opts or {};size=opts.get('label_size',size);decimals=opts.get('label_decimals',0)
     pts=ax.get_position().width*ax.figure.get_figwidth()*72/(abs(np.diff(ax.get_xlim())[0]) or 1)
     for rect,v in zip(bars,values):
         if v is None or not np.isfinite(v):continue
-        text=f'{v:.0f}';wide=len(text)*size*.5>rect.get_width()*pts
+        text=f'{v:.{decimals}f}'.replace('.',',') if decimals else f'{v:.0f}';wide=len(text)*size*.5>rect.get_width()*pts
         up=v>=0;edge=rect.get_y()+rect.get_height() if up else rect.get_y()
         ax.annotate(text,(rect.get_x()+rect.get_width()/2,edge),xytext=(0,2 if up else -2),textcoords='offset points',
                     ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=90 if wide else 0)
@@ -290,7 +302,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                         for p,v in zip(pos,top):base[p]=base.get(p,0.0)+v
                     else:drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
                     for bar in drawn:bar._own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set()     # ручной цвет столбцов: вид Excel его не перекрашивает
-                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y))
+                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y,t.meta))
                 else:
                     # Plotly JSON serializes dates to strings. Preserve calendar spacing.
                     if x and (date_axis or isinstance(x[0],(pd.Timestamp,np.datetime64,datetime.datetime,datetime.date)) or isinstance(x[0],str) and re.match(r'^\d{4}-\d{2}-\d{2}',x[0])):
@@ -315,8 +327,9 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                         markersize=msize/2 if msize and 'size' in own else 3,linewidth=twidth if twidth and 'width' in own else 1.2,
                         alpha=t.opacity if 'alpha' in own and isinstance(t.opacity,(int,float)) else None)
                     ln._own=own
+                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):point_labels(target,x,np.asarray(y,dtype=float),family_for('times'),max(5,base*.85),t.meta)
                     if target is not base_axes:ghost(base_axes,x,y)
-            for target,drawn,y in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85))
+            for target,drawn,y,opts in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85),opts)
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
             title=mpl_text(fig.layout.title.text or '')
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}
@@ -365,8 +378,9 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 handles,labels=sort_legend(handles,labels)
                 if not compact:labels=['\n'.join(textwrap.wrap(str(v),width=wrap_at)) for v in labels]
                 if handles:
-                    where={'top':'outside upper center','right':'outside center right'}.get(fo.get('legend'),'outside lower center')
-                    f.legend(handles,labels,loc=where,ncol=1 if where.endswith('right') else ncols,fontsize=(9 if excel else 6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6,labelcolor=XL_TEXT if excel else None)
+                    columns=((fig.layout.meta or {}).get('style') or {}).get('chart',{}).get('legend_columns') if isinstance(fig.layout.meta,dict) else None
+                    where={'top':'outside upper center','right':'outside center right','left':'outside center left'}.get(fo.get('legend'),'outside lower center')
+                    f.legend(handles,labels,loc=where,ncol=1 if where.endswith(('right','left')) else int(columns) if columns else ncols,fontsize=(9 if excel else 6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6,labelcolor=XL_TEXT if excel else None)
             if compact:
                 from matplotlib.ticker import MaxNLocator
                 for axis in (ax.xaxis,ax.yaxis)+tuple(twin.yaxis for twin in rights.values()):
