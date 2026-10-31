@@ -101,9 +101,13 @@ def apply_break(target, horizontal: bool, name: str, lo: float, hi: float, date:
         return np.where(p <= lo, p, p + shift)
 
     limits = target.get_xlim() if horizontal else target.get_ylim()
-    (target.set_xscale if horizontal else target.set_yscale)('function', functions=(forward, inverse))
     axis = target.xaxis if horizontal else target.yaxis
-    axis.set_major_locator(BreakLocator(axis.get_major_locator(), lo, hi))
+    major_loc, major_fmt, minor_loc, minor_fmt = axis.get_major_locator(), axis.get_major_formatter(), axis.get_minor_locator(), axis.get_minor_formatter()
+    (target.set_xscale if horizontal else target.set_yscale)('function', functions=(forward, inverse))      # смена шкалы сбрасывает деления и подписи
+    axis.set_major_locator(BreakLocator(major_loc, lo, hi))
+    axis.set_major_formatter(major_fmt)
+    axis.set_minor_locator(BreakLocator(minor_loc, lo, hi))
+    axis.set_minor_formatter(minor_fmt)
     (target.set_xlim if horizontal else target.set_ylim)(*limits)
     # знак разрыва: две косые черты на линии оси в месте разрыва
     mark = dict(marker=[(-1, -0.6), (1, 0.6)], markersize=11, linestyle='none', color='#475467', clip_on=False, zorder=6)
