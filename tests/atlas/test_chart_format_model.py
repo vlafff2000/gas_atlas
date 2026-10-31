@@ -81,3 +81,27 @@ def test_legacy_sources_convert():
     any_settings = {'format': 'png', 'chart': {'title': 'Свой', 'grid': 'h'}, 'axes': {'x': {'min': '1'}},
                     'view': {'looks': {'№ 2|points': {'size': 10}}, 'hidden': ['№ 1']}}
     assert format_from_any(any_settings) == {'chart': {'grid': 'h'}, 'axes': {'x': {'min': '1'}}, 'series': {'№ 2|points': {'size': 10.0}}}
+
+
+def test_store_validated_and_cleaned():
+    from atlas.chart_style import clean_store
+    assert clean_store({'theme': {'chart': {'legend': 'top'}, 'series': {}}, 'types': {'gdi': {'axes': {'y': {'decimals': 1}}}, 'пусто': {}}}) == \
+        {'theme': {'chart': {'legend': 'top'}}, 'types': {'gdi': {'axes': {'y': {'decimals': 1}}}}}
+    for bad in ([], {'other': {}}, {'types': []}, {'theme': {'chart': {'legend': 'внизу'}}}):
+        with pytest.raises(ParamError):
+            clean_store(bad)
+
+
+def test_store_applies_theme_then_type():
+    from atlas.chart_style import apply_store
+    from atlas.contract import Note, Result
+    settings = {'chart_formats': {'theme': {'chart': {'legend': 'top', 'font': 'times'}, 'series': {'№ 1|line': {'color': '#ff0000'}}},
+                                  'types': {'gdi': {'chart': {'legend': 'right'}}}}}
+    result = Result(charts=[chart()], notes=[Note('из модуля')])
+    gdi = apply_store(result, settings, 'gdi')
+    assert gdi.charts[0].style == {'legend': 'right', 'font': 'times'} and gdi.charts[0].series[0].look == {'color': '#ff0000'}
+    other = apply_store(result, settings, 'production')
+    assert other.charts[0].style == {'legend': 'top', 'font': 'times'}
+    assert apply_store(result, {}, 'gdi') is result and result.charts[0].style == {}
+    bad = apply_store(result, {'chart_formats': {'theme': {'axes': {'y': {'min': '50', 'max': '10'}}}}}, 'gdi')
+    assert bad.charts[0].y.minimum is None and 'не применено' in bad.notes[-1].text and bad.notes[0].text == 'из модуля'

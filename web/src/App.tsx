@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './Icon'
+import { useProjectLooks } from './projectLooks'
 import { GroupColorsButton } from './GroupColorsButton'
 import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
@@ -57,6 +58,7 @@ export function App() {
     setProjects(list => list?.map(p => (p.id === next.id ? next : p)) ?? list), [])
 
   useEffect(() => { if (project) remembered.set('project', project.id) }, [project])
+  useProjectLooks(project)          // вид рядов («Настройка») — из оформления проекта
   useEffect(() => {
     if (!spec || page) return
     remembered.set('module', spec.id)
