@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Icon } from './Icon'
 import { GroupColorsButton } from './GroupColorsButton'
 import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params, type Project, type Result, type SavedState } from './api'
 import { ChartView } from './ChartView'
@@ -112,15 +113,15 @@ export function App() {
           <span className="brand-name">Газовый атлас</span>
           <button type="button" className="side-toggle" onClick={() => sidebarCollapsed.set(!collapsed)}
             aria-expanded={!collapsed} title={collapsed ? 'Показать меню' : 'Свернуть меню'}>
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d={collapsed ? 'M6 3.5 10.5 8 6 12.5' : 'M10 3.5 5.5 8 10 12.5'} /></svg>
+            <Icon name={collapsed ? 'chevron-right' : 'chevron-left'} />
           </button>
         </div>
         <button type="button" className="side-search" onClick={() => setSearch(true)} title="Найти раздел (Ctrl+K)">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+          <Icon name="search" />
           <span className="side-label">Найти раздел</span><kbd className="side-label">Ctrl K</kbd>
         </button>
         <button type="button" className="side-menu" onClick={() => setMenuOpen(true)} title="Какие разделы и группы показывать в меню">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" /></svg>
+          <Icon name="menu" />
           <span className="side-label">Разделы меню</span>
         </button>
         <div className="project-picker">
@@ -169,9 +170,7 @@ export function App() {
           {([['light', 'Светлая'], ['dark', 'Тёмная'], ['system', 'Авто']] as [Theme, string][]).map(([t, label]) => (
             <button key={t} type="button" role="radio" aria-checked={currentTheme === t} onClick={() => theme.set(t)}
               title={t === 'system' ? 'Как в системе' : label + ' тема'}>
-              {t === 'light' ? <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3" /><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" /></svg>
-                : t === 'dark' ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" /></svg>
-                : <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="8" rx="1" /><path d="M6 13.5h4" /></svg>}
+              <Icon name={t === 'light' ? 'sun' : t === 'dark' ? 'moon' : 'screen'} />
               <span className="side-label">{label}</span>
             </button>
           ))}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Icon } from './Icon'
 import type { ModuleSpec, Project } from './api'
 import { alwaysInMenu, hiddenPages, PROJECT_PAGES } from './api_projects'
 import { menuPrefs, PAGES_GROUP } from './menuPrefs'
@@ -59,7 +60,7 @@ export function MenuWindow({ groups, project, onClose }: Props) {
                 <div className="menu-group-head">
                   <button type="button" className="menu-expand" aria-expanded={isOpen} aria-label={isOpen ? 'Свернуть' : 'Раскрыть'}
                           onClick={() => toggleOpen(sec.title)}>
-                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d={isOpen ? 'M3.5 6 8 10.5 12.5 6' : 'M6 3.5 10.5 8 6 12.5'} /></svg>
+                    <Icon name={isOpen ? 'chevron-down' : 'chevron-right'} />
                   </button>
                   <label className="menu-group-name">
                     <input type="checkbox" checked={!groupOff} onChange={() => toggleGroup(sec.title)} />
