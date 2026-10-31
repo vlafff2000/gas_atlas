@@ -19,6 +19,7 @@ from atlas.engine.core.export import csv_bytes, figure_bytes, safe_name, xlsx_by
 
 from .contract import Chart, Series, Table
 from .rich_text import plain
+from .xlsx_style import style_axis, style_chart, style_series
 
 SYMBOLS = {'circle': 'circle', 'square': 'square', 'diamond': 'diamond', 'triangle': 'triangle-up', 'plus': 'cross', 'x': 'x', 'star': 'star'}
 LOOK_DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'dot', 'dashdot': 'dashdot', 'longdash': 'longdash'}
@@ -492,6 +493,7 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
                     one.marker.graphicalProperties = GraphicalProperties(solidFill=color)
                 else:
                     one.graphicalProperties.line.solidFill = color
+            style_series(one, s.look or {}, category, s.kind, color)
             part.series.append(one)
         if category:                                       # подписи оси X — названия категорий из первого столбца, не номера строк
             part.set_categories(Reference(data, min_col=1, min_row=2, max_row=items[0][4]))
@@ -515,6 +517,17 @@ def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
             secondary.y_axis.crosses = 'max'
             secondary.y_axis.delete = False
             main += secondary
+        base = dict(chart.style or {})
+        if base or any(a.style for a in (chart.x, chart.y, *(a for _, a in right))):      # оформление графика и осей по модели v2
+            mode, minor = base.get('grid'), base.get('minor_grid') == 'show'
+            styled_grid = any(k in base for k in ('grid', 'grid_color', 'grid_width', 'grid_dash', 'minor_grid', 'minor_grid_color', 'minor_grid_width', 'minor_grid_dash'))
+            def grid_of(horizontal: bool):
+                return None if not styled_grid else ((mode in (None, 'both', 'h' if horizontal else 'v')) and mode != 'none', minor and mode != 'none')
+            style_axis(main.x_axis, chart.x.style, chart.x, base, xl, grid_of(False))
+            style_axis(main.y_axis, chart.y.style, chart.y, base, yl, grid_of(True))
+            if second:
+                style_axis(secondary.y_axis, right[0][1].style, right[0][1], base, ' · '.join(title_of[name] for name, _ in right), None)
+            style_chart(main, base, plain(chart.title))
         sheet = wb.create_sheet('График')
         sheet.add_chart(main, 'A1')
     return_name = f'{safe_name(plain(chart.title))}.xlsx'
