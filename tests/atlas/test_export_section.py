@@ -581,3 +581,15 @@ def test_fund_pack_own_well_filter(env):
     picked = options_from(pack_options({'pack_wells': one}, data), data)[0]['wells']
     assert picked == one
     assert options_from(pack_options({'pack_wells': []}, data), data)[0]['wells'] == []
+
+
+def test_word_preview_sheet_scale_and_caption_font():
+    import io
+    from PIL import Image
+    from atlas import word_export
+    layout = word_export.Layout(caption_font='Times New Roman', caption_bold=True)
+    items = [word_export.Item(name='График', before='Рисунок ', number=1, after=' – Подпись', w=100.0, h=60.0)]
+    for scale in (3.0, 6.0):
+        png, pages = word_export.preview_png(layout, items, 1, {}, scale=scale)
+        assert pages == 1 and Image.open(io.BytesIO(png)).size == (round(210 * scale), round(297 * scale))   # A4 в заданном масштабе
+    assert word_export._font(40, 'Times New Roman', True, False).getname()[0] != word_export._font(40, 'Verdana').getname()[0]

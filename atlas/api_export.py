@@ -910,7 +910,7 @@ def routes(projects: Projects) -> list[Route]:
         module, label, jobs = groups[doc]
         # размеры по первому графику, затем уточняются для графиков показанного листа
         from dataclasses import replace
-        lay150, look = replace(layout, dpi=150), look_from(form)
+        lay150, look = replace(layout, dpi=200), look_from(form)      # переменная историческая: предпросмотр строится в 200 DPI, чтобы лист был чёток при 100 % и выше
         items = word_sizes(jobs, lay150, captions, font, font_size, look)
         page = max(1, int(body.get('page') or 1))
         rows = word_export.paginate(layout, items)
@@ -918,7 +918,8 @@ def routes(projects: Projects) -> list[Route]:
         for k in shown:         # рисуются только графики показанного листа; подписи и размеры остальных уже известны
             cap_h = word_export.caption_height(lay150, items[k].text, lay150.cell())
             items[k].png, items[k].w, items[k].h = word_export.render_png(jobs[k].render(), lay150, cap_h, font, font_size, look)
-        image, pages = word_export.preview_png(layout, items, page, {i: items[i].png for i in shown if items[i].png})
+        image, pages = word_export.preview_png(layout, items, page, {i: items[i].png for i in shown if items[i].png},
+                                           scale=min(max(float(body.get('scale') or 3.0), 2.0), 9.0))
         pw, ph = layout.page()
         return {'documents': [{'id': m, 'label': lb, 'charts': len(js)} for m, lb, js in groups], 'doc': doc, 'page': min(page, pages), 'pages': pages,
                 'exact': bool(layout.per_page), 'page_mm': [pw, ph], 'image_mm': [round(items[shown[0]].w), round(items[shown[0]].h)] if shown else [0, 0],

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { MultiSelect } from './MultiSelect'
 import { ChartView } from './ChartView'
 import { api, type Chart } from './api'
+import { WordViewerPane } from './WordViewer'
 import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type WordPreview } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
 import { wellPresetApi, type WellPreset } from './api_wells'
@@ -995,29 +996,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
         </div>
         <div className="word-shot">
           {!ready ? <p className="muted">Включите хотя бы один модуль.</p> : (
-            <>
-              <div className="toolbar">
-                {shot && shot.documents.length > 1 && (
-                  <label className="field"><span className="field-label">Документ</span>
-                    <select value={doc} onChange={e => { setDoc(Number(e.target.value)); setPage(1) }}>
-                      {shot.documents.map((d, i) => <option key={d.id} value={i}>{d.label} ({d.charts})</option>)}
-                    </select>
-                  </label>
-                )}
-                <button type="button" className="quiet" disabled={!shot || page <= 1} onClick={() => setPage(p => p - 1)}>← Лист</button>
-                <span>{shot ? `Лист ${shot.page} из ${shot.exact ? '' : '≈'}${shot.pages}` : '…'}</span>
-                <button type="button" className="quiet" disabled={!shot || page >= shot.pages} onClick={() => setPage(p => p + 1)}>Лист →</button>
-                {busy && <span className="pulse">Строим лист…</span>}
-              </div>
-              {error && <div className="note warning" role="alert">{error}</div>}
-              {shot && (
-                <>
-                  <img className="word-sheet" src={shot.png} alt={`Предпросмотр листа ${shot.page}`} />
-                  <p className="muted">Лист {Math.round(shot.page_mm[0])}×{Math.round(shot.page_mm[1])} мм; график {shot.image_mm[0]}×{shot.image_mm[1]} мм
-                    {per ? `; ${per} на листе` : '; число листов приблизительное — точное решит Word'}.</p>
-                </>
-              )}
-            </>
+            <WordViewerPane shot={shot} busy={busy} error={error} page={page} setPage={f => setPage(f(page))} doc={doc} setDoc={setDoc} per={per} />
           )}
         </div>
       </div>
