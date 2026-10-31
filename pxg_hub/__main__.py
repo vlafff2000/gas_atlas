@@ -127,6 +127,15 @@ def main(argv=None) -> None:
                 window = True  # окно открылось и было закрыто пользователем
             except Exception as error:  # нет WebView2/библиотеки окна: меню откроется в браузере, а не молча закроется
                 print('Окно приложения недоступно (%s) — открываю в браузере' % error)
+        if not window and not args.browser:  # окно приложения через Яндекс/Chromium/Chrome (--app)
+            from atlas.app_window import open_app_window, wait_closed
+            proc = open_app_window(url, 'ПХГ меню')
+            if proc is not None:
+                if wait_closed(proc):
+                    return
+                window = True
+                print('Остановка — кнопка «Закрыть все» в меню или Ctrl+C')
+                quit_event.wait()
         if not window:
             webbrowser.open(url)
             print('Остановка — кнопка «Закрыть все» в меню или Ctrl+C')
