@@ -85,7 +85,7 @@ def hybrid_chart(sel, d: pd.DataFrame, daily: pd.DataFrame, group: str) -> Chart
                                    stack='month', labels=labels, facets={'Скважина': f'№ {well}'}))
     for period, g in daily.groupby('period', sort=False) if not daily.empty else []:
         part = screen_decimate(g.assign(value=g.total / 1000), 'value')
-        chart.series.append(Series(f'Суточный расход · {period}', part.date.to_numpy(), part.value.to_numpy(), 'line',
+        chart.series.append(Series('Суточный расход' if daily.period.nunique() == 1 else f'Суточный расход · {period}', part.date.to_numpy(), part.value.to_numpy(), 'line',
                                    width=2.4, axis='y2', facets={'Кривая': 'Суточный расход', 'Период': str(period)}))
     return chart
 
@@ -118,7 +118,7 @@ def vs_object_chart(sel, daily: pd.DataFrame, obj: pd.DataFrame, group: str) -> 
         for name, col, axis, width in (('Группа', 'value', 'y', 2.6), ('Объект', 'obj', 'y', 1.6),
                                        ('Доля группы', 'share', 'y2', 1.4)):
             part = screen_decimate(m[['date', col]].rename(columns={col: 'value'}), 'value')
-            chart.series.append(Series(f'{name} · {period}', part.date.to_numpy(), part.value.to_numpy(), 'line',
+            chart.series.append(Series(name if daily.period.nunique() == 1 else f'{name} · {period}', part.date.to_numpy(), part.value.to_numpy(), 'line',
                                        axis=axis, width=width, dashed=name == 'Доля группы',
                                        facets={'Кривая': name, 'Период': str(period)}))
     return chart
