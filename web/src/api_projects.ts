@@ -146,8 +146,8 @@ export const exportApi = {
   series: (pid: string, form: Form, chart?: string) => request<{ series: Record<string, string[]>; labels: Record<string, Record<string, string>>; chart: string[] }>(`${P(pid)}/export/series`, json('POST', { form, chart })),
   archive: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/archive`, json('POST', { form })),
   word: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/word`, json('POST', { form })),
-  wordPreview: (pid: string, form: Form, doc: number, page: number) =>
-    request<WordPreview>(`${P(pid)}/export/word-preview`, json('POST', { form, doc, page })),
+  wordPreview: (pid: string, form: Form, doc: number, page: number, scale = 6) =>
+    request<WordPreview>(`${P(pid)}/export/word-preview`, json('POST', { form, doc, page, scale })),
   pack: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/pack`, json('POST', { form })),
   ggh: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/ggh`, json('POST', { form })),
   gis: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/gis`, json('POST', { form })),
