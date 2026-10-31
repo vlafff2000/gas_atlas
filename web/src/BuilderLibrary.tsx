@@ -98,7 +98,7 @@ export function BuilderLibrary({ project, layout, onOpen }:
       )}
       <div className="lib-row wrap">
         <button type="button" className="quiet" disabled={!filled || busy} title="Файл JSON: макет можно открыть в другом проекте и на другом компьютере"
-          onClick={() => run(() => builderApi.exportFile(project, item?.name ?? (layout.title || 'Макет'), layout))}>Экспорт макета</button>
+          onClick={() => run(() => builderApi.exportFile(project, item?.name ?? (layout.title || 'Макет'), layout))}>Скачать макет</button>
         <button type="button" className="quiet" disabled={busy} onClick={() => file.current?.click()}>Импорт макета</button>
         <input ref={file} type="file" accept=".json,application/json" hidden onChange={e => importFile(e.target.files?.[0])} />
       </div>

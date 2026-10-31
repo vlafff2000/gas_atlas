@@ -293,7 +293,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       <p className="lede">Word: страница на скважину — рисунок (ГВК, hг эф и Кг ср.взв по пачкам), таблица изменения ГВК и подпись. А4 альбомная. Скважины без замеров ГВК пропускаются.</p>
       <div className="param-bar flat">
         <Section title="Выгрузка">
-          <Check {...F} field="gis_enabled" label="Включить ГИС и ГВК (Word и Excel) в «Выгрузить всё»" def={false} />
+          <Check {...F} field="gis_enabled" label="Включить ГИС и ГВК (Word и Excel) в «Скачать всё»" def={false} />
         </Section>
         {(choices.gis!.seasons ?? []).length > 0 && (
           <Section title="Сезоны">
@@ -550,7 +550,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         {busy && <span className="pulse">{{ all: 'Создание всех файлов выгрузки и общего ZIP…', preview: 'Подготовка перечня графиков и расчетных таблиц…', archive: 'Создание архива…', word: 'Создание Word-отчета…', pack: 'Построение графиков всех скважин, это может занять несколько минут…', ggh: 'Построение графиков и страниц ГГХ…', bundle: 'Объединение созданных файлов…' }[busy] ?? 'Выполняется…'}</span>}
         <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={preview}>Предпросмотр</button>
         <button type="button" className="primary" disabled={busy !== null || packNoSeasons} onClick={exportAll}
-          title="Все включённые вкладки (модули, пакет, ГГХ, ГИС при включении) одним ZIP">Выгрузить всё</button>
+          title="Все включённые вкладки (модули, пакет, ГГХ, ГИС при включении) одним ZIP">Скачать всё</button>
         <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={makeArchive}>Сформировать архив</button>
         <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={makeWord}>Создать отчет Word</button>
       </div>
@@ -812,7 +812,7 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
           <label className="toggle" title="В разделе можно открыть две независимые панели с разными фильтрами. Включите, чтобы выгрузить графики обеих панелей, а не только выбранное здесь.">
             <input type="checkbox" checked={form[module + '_panels'] === true}
               onChange={async e => { const on = e.target.checked; F.set(module + '_panels', on && (await adoptPanels(module))) }} />
-            <span>Экспортировать обе панели · {label}</span>
+            <span>Скачать обе панели · {label}</span>
           </label>
           {split === 'group_total' && <>
             <Select {...F} field="production_metric" label="Суммарный показатель" def="daily"
