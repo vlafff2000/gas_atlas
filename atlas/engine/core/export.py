@@ -68,6 +68,14 @@ def decode_arrays(value):
 XL_PALETTE=['#4472C4','#ED7D31','#A5A5A5','#FFC000','#5B9BD5','#70AD47','#264478','#9E480E','#636363','#997300','#255E91','#43682B']
 XL_TEXT='#595959';XL_GRID='#D9D9D9'
 
+def fit_title(f,title,size):
+    """Длинное название переносится на вторую строку: иначе оно выходит за край рисунка и обрезается (в Word и PDF)."""
+    import textwrap
+    if not title or '\n' in title:return title
+    chars=max(20,int(f.get_figwidth()*72*0.86/(size*0.56)))     # средняя ширина буквы ≈ 0,56 кегля
+    return '\n'.join(textwrap.wrap(title,chars)) if len(title)>chars else title
+
+
 def excel_finish(f,ax,secondary,title,k,date_axis,categorical):
     """Вид стандартной диаграммы Excel (Office 2013+): палитра по порядку рядов, линии 2,25 пт, серый текст,
     только горизонтальные линии сетки (у точечной — и вертикальные), без рамки осей, рамка диаграммы #D9D9D9."""
@@ -104,7 +112,7 @@ def excel_finish(f,ax,secondary,title,k,date_axis,categorical):
     if not date_axis and not categorical:ax.grid(True,axis='x',color=XL_GRID,linewidth=.75,linestyle='-')
     if secondary is not None:secondary.grid(False)
     ax.set_title('',loc='left');ax.set_title('',loc='right')
-    ax.set_title(title,loc='center',fontsize=14*k,fontweight='normal',color=XL_TEXT,pad=10)
+    ax.set_title(fit_title(f,title,14*k),loc='center',fontsize=14*k,fontweight='normal',color=XL_TEXT,pad=10)
     f.patch.set_facecolor('white');f.patch.set_edgecolor(XL_GRID);f.patch.set_linewidth(1.0)
 
 def x_labels(ax,angle,width_mm,font_pt,date_axis,auto,categorical):
@@ -338,7 +346,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}
             if fo.get('title')=='hide':title=''
             if compact:ax.set_title(title,loc='center',fontsize=8.5*k,fontweight='bold',pad=5)
-            else:ax.set_title(title,loc='left',fontsize=12*k,pad=14)
+            else:ax.set_title(fit_title(f,title,12*k),loc='left',fontsize=12*k,pad=14)
             ax.set_xlabel(mpl_text(fig.layout.xaxis.title.text));ax.set_ylabel(mpl_text(fig.layout.yaxis.title.text))
             if fig.layout.xaxis.autorange=='reversed' and not date_axis:ax.invert_xaxis()
             if fig.layout.yaxis.autorange=='reversed':ax.invert_yaxis()
