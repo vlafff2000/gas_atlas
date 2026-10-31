@@ -54,7 +54,7 @@ function Viewer({ shot, busy, error, page, setPage, doc, setDoc, per, zoom, setZ
 
 /** Предпросмотр с кнопками «На весь экран» и «В отдельное окно»: окно живое, обновляется вместе с настройками. */
 export function WordViewerPane(props: Props) {
-  const [zoom, setZoom] = useState('fit')
+  const [zoom, setZoom] = useState('1')
   const [big, setBig] = useState(false)
   const [popup, setPopup] = useState<{ win: Window; host: HTMLElement } | null>(null)
   const [popupZoom, setPopupZoom] = useState('1')
@@ -118,7 +118,7 @@ export function WordViewerPane(props: Props) {
       {note && <div className="note warning" role="status">{note}</div>}
       {big && (
         <div className="word-overlay" role="dialog" aria-label="Предпросмотр Word">
-          <Viewer {...props} zoom={zoom === 'fit' ? '1' : zoom} setZoom={setZoom}
+          <Viewer {...props} zoom={zoom} setZoom={setZoom}
             extra={<button type="button" className="primary" onClick={() => setBig(false)}>Закрыть (Esc)</button>} />
         </div>
       )}

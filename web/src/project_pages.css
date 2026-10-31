@@ -74,7 +74,8 @@ details.table-block > summary.block-head { cursor: pointer; list-style: none; }
 .page-item.locked { opacity: .7; }
 .page-item input { accent-color: var(--accent-strong); width: 16px; height: 16px; }
 /* Предпросмотр Word: лист в натуральную величину (масштаб задаётся шириной в CSS-пикселях), прокрутка, весь экран, отдельное окно */
-.word-layout { grid-template-columns: minmax(0, 1fr) minmax(420px, 1.25fr); }
+.word-layout { grid-template-columns: 1fr; }      /* лист 1:1 (A4 = 794 точки) не умещается рядом с настройками на узком экране: тогда он под ними */
+@media (min-width: 1500px) { .word-layout { grid-template-columns: minmax(320px, 1fr) 860px; } }
 .word-shot { top: 8px; }
 .word-scroll { overflow: auto; max-height: calc(100vh - 150px); padding: 6px; background: var(--bg-soft, #eef1f5); border: 1px solid var(--line); border-radius: 6px; }
 .word-scroll .word-sheet { margin: 0 auto; border: none; box-shadow: 0 2px 12px rgba(0, 0, 0, .25); }
@@ -84,4 +85,3 @@ details.table-block > summary.block-head { cursor: pointer; list-style: none; }
 .word-overlay .word-scroll { max-height: none; flex: 1; min-height: 0; }
 .word-popup { margin: 0; padding: 10px 14px; background: var(--surface, #fff); }
 .word-popup .word-scroll { max-height: calc(100vh - 110px); }
-@media (max-width: 1100px) { .word-layout { grid-template-columns: 1fr; } }
