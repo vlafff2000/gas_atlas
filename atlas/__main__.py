@@ -84,6 +84,19 @@ def main(argv=None) -> None:
         except Exception as error:  # напр. нет WebView2 на Windows или GTK/Qt на Linux
             print(f'Окно приложения не открылось ({error}) — открываю в браузере')
     second_window.set_opener(lambda h: webbrowser.open(url + h))
+    if not args.browser:  # РЕД ОС: окно приложения через Яндекс/Chromium/Chrome (--app), закрыли окно — сервер остановился
+        from .app_window import open_app_window, wait_closed
+        proc = open_app_window(url, 'Газовый атлас')
+        if proc is not None:
+            if wait_closed(proc):
+                server.should_exit = True
+                return
+            print(f'Газовый атлас {VERSION}: {url}  (окно открыто в уже запущенном браузере, остановка — Ctrl+C)')
+            try:
+                thread.join()
+            except KeyboardInterrupt:
+                server.should_exit = True
+            return
     webbrowser.open(url)
     print(f'Газовый атлас {VERSION}: {url}  (остановка — Ctrl+C)')
     try:
