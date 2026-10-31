@@ -108,7 +108,7 @@ def test_card_without_krs_tells_where_to_import(tmp_path):
     projects = Projects(tmp_path)
     client, pid = TestClient(create_app(projects)), make_project(projects)
     card = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
-    assert card['krs']['works'] == [] and any('«Импорт»' in n for n in card['notes'])
+    assert card['krs']['works'] == [] and '«Импорт»' in card['krs']['note'] and not any('«Импорт»' in n or 'конструкции' in n for n in card['notes'])
     assert next(k for k in card['kpi'] if k['label'] == 'Проведено КР')['value'] is None
 
 
@@ -121,3 +121,18 @@ def test_pdf_starts_with_card_page(env):
     assert pages(with_card.content) == pages(without.content) + 2        # страница карточки и страница графиков
     only = client.post(f'/api/projects/{pid}/passport/pdf', json={'well': WELL, 'sections': [], 'card': True})
     assert only.status_code == 200 and pages(only.content) >= 1
+
+
+def test_card_blocks_use_shared_contract_and_export(env):
+    """Графики и таблицы паспорта — в общем контракте (рисует общее ядро) и выгружаются общим экспортом."""
+    client, pid, _ = env
+    card = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
+    assert {c['id'] for c in card['charts']} >= {'passport-seasons', 'passport-daily'}
+    assert {t['id'] for t in card['tables']} >= {'passport-seasons', 'passport-gdi'}
+    seasons = next(t for t in card['tables'] if t['id'] == 'passport-seasons')
+    assert [c['key'] for c in seasons['columns']][:3] == ['kind', 'period', 'volume']
+    png = client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'target': 'chart', 'id': 'passport-seasons', 'format': 'png'})
+    assert png.status_code == 200 and png.content[:4] == b'\x89PNG'
+    xlsx = client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'target': 'table', 'id': 'passport-gdi', 'format': 'xlsx'})
+    assert xlsx.status_code == 200 and xlsx.content[:2] == b'PK'
+    assert client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'target': 'chart', 'id': 'нет'}).status_code == 400

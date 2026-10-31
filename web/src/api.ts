@@ -177,7 +177,7 @@ async function downloadNotes(path: string, body: unknown): Promise<string> {
   return decodeURIComponent(response.headers.get('X-Atlas-Notes') ?? '')
 }
 
-async function download(path: string, body: unknown): Promise<void> {
+export async function download(path: string, body: unknown): Promise<void> {
   await downloadNotes(path, body)
 }
 
@@ -191,7 +191,7 @@ export interface ChartExportView {
 }
 
 /** PNG графика для буфера обмена: тот же рисунок, что и «Скачать» (цвета, легенда, подписи), без сохранения файла. */
-async function chartPng(path: string, body: unknown): Promise<Blob> {
+export async function chartPng(path: string, body: unknown): Promise<Blob> {
   return (await send(path, json('POST', body))).blob()
 }
 

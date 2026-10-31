@@ -21,7 +21,8 @@ from starlette.routing import Route
 
 from atlas.engine.core.config import DEFAULT_SETTINGS, MODULES, ordered
 
-from .contract import MissingData, ParamError
+from . import chart_view, passport_blocks, render
+from .contract import MissingData, ParamError, _chart_json, _table_json
 from .api_projects import internal_error_text
 from .projects import Conflict, Projects
 
@@ -199,7 +200,31 @@ def routes(projects: Projects) -> list[Route]:
     def card(request, body):
         passport = Passport(projects, request.path_params['pid'])
         well = passport.well(request.query_params.get('well'))
-        return passport.card(well)
+        card = passport.card(well)
+        charts, tables = passport_blocks.blocks(card)       # графики и таблицы — в общем контракте, экран рисует их общим ядром
+        return {**card, 'charts': [_chart_json(c, thin=False) for c in charts], 'tables': [_table_json(t) for t in tables]}
+
+    def export(request, body):
+        """Выгрузка графика или таблицы паспорта тем же кодом, что у модулей (PNG/SVG/PDF/XLSX/CSV)."""
+        passport = Passport(projects, request.path_params['pid'])
+        charts, tables = passport_blocks.blocks(passport.card(passport.well(body.get('well'))))
+        fmt = str(body.get('format', 'png'))
+        try:
+            if body.get('target') == 'table':
+                found = next((t for t in tables if t.id == body.get('id')), None)
+                if found is None:
+                    raise ParamError('Таблица не найдена. Обновите паспорт.')
+                content, name, mime = render.table_csv(found) if fmt == 'csv' else render.tables_file([found], found.title)
+            else:
+                found = next((c for c in charts if c.id == body.get('id')), None)
+                if found is None:
+                    raise ParamError('График не найден. Обновите паспорт.')
+                if fmt != 'csv':
+                    found = chart_view.apply_view(found, body.get('view'))
+                content, name, mime = render.chart_file(found, fmt, int(body.get('dpi', 300)), body.get('font'), body.get('font_size'))
+        except ValueError as e:
+            raise ParamError(str(e)) from None
+        return Response(content, media_type=mime, headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(name)}"})
 
     def comment(request, body):
         pid = request.path_params['pid']
@@ -250,6 +275,7 @@ def routes(projects: Projects) -> list[Route]:
     return [
         Route('/api/projects/{pid}/passport', E(info)),
         Route('/api/projects/{pid}/passport/card', E(card)),
+        Route('/api/projects/{pid}/passport/export', E(export), methods=['POST']),
         Route('/api/projects/{pid}/passport/comment', E(comment), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),
     ]

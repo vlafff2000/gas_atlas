@@ -101,14 +101,14 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
             {busy === 'pdf' ? 'Формирование паспорта…' : batch.length > 1 ? `Скачать PDF (${batch.length} скв.)` : 'Скачать PDF'}
           </button>
         </div>
-        <div className="passport-tabs" role="tablist">
-          <button type="button" aria-pressed={tab === 'dash'} onClick={() => setTab('dash')}>Дашборд</button>
-          <button type="button" aria-pressed={tab === 'pdf'} onClick={() => setTab('pdf')}>Состав PDF и комментарий</button>
+        <div className="tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'dash'} onClick={() => setTab('dash')}>Дашборд</button>
+          <button type="button" role="tab" aria-selected={tab === 'pdf'} onClick={() => setTab('pdf')}>Состав PDF и комментарий</button>
         </div>
         {message && <div className={'note ' + message.level} role="status">{message.text}</div>}
         {tab === 'dash' ? (
           cardError ? <div className="note warning">{cardError}</div>
-            : !card ? <p className="muted loading-line">Собираю паспорт…</p> : <PassportDashboard card={card} />
+            : !card ? <p className="muted loading-line">Собираю паспорт…</p> : <PassportDashboard card={card} project={project.id} />
         ) : (
         <section className="panel">
           <div className="param-bar">

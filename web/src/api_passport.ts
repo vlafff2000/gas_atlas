@@ -1,5 +1,5 @@
 // «Паспорт скважины»: atlas/api_passport.py.
-import { ApiError, type Project } from './api'
+import { ApiError, chartPng, download, type Chart, type ChartExportView, type Project, type Table } from './api'
 
 export interface PassportInfo {
   wells: string[]
@@ -31,7 +31,7 @@ export interface KrsInfo { works: { year: number | null; type: string; detail: s
   priority: { value: number | null; reason: string; sand: string } | null }
 export interface PassportCard {
   well: string; group: string; construction_date: string; kpi: Kpi[]; seasons: SeasonRow[]; gdi: GdiRow[]; gdi_diagrams: GdiDiagram[]; daily: Record<'withdrawal' | 'injection', DailySeries>; krs: KrsInfo
-  schematic: Schematic; notes: string[]
+  schematic: Schematic; notes: string[]; charts: Chart[]; tables: Table[]
 }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
@@ -53,6 +53,11 @@ const post = (body: unknown): RequestInit =>
   ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 export const passportApi = {
+  /** Выгрузка графика или таблицы паспорта (общий экспорт ядра): файл через наш проводник, PNG — для буфера обмена. */
+  exportFile: (project: string, well: string, target: 'chart' | 'table', id: string, format: string, dpi = 300, view?: ChartExportView) =>
+    download(`/api/projects/${project}/passport/export`, { well, target, id, format, dpi, view }),
+  exportBlob: (project: string, well: string, target: 'chart' | 'table', id: string, format: string, dpi = 300, view?: ChartExportView) =>
+    chartPng(`/api/projects/${project}/passport/export`, { well, target, id, format, dpi, view }),
   info: async (project: string, well?: string, filter?: unknown, signal?: AbortSignal) =>
     (await send(`/api/projects/${project}/passport?well=${encodeURIComponent(well ?? '')}&filter=${encodeURIComponent(JSON.stringify(filter ?? null))}`, { signal }))
       .json() as Promise<PassportInfo>,

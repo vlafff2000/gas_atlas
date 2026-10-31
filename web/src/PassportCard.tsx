@@ -1,8 +1,7 @@
-import { DailyChart, GdiDiagrams } from './PassportCharts'
-import type { Kpi, PassportCard as Card, SeasonRow, Schematic } from './api_passport'
-
-const fmt = (v: number | null | undefined, digits = 1) =>
-  v === null || v === undefined ? '—' : v.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+import { ChartView } from './ChartView'
+import { TableDock } from './TableDock'
+import { TableView } from './TableView'
+import { passportApi, type PassportCard as Card, type Schematic } from './api_passport'
 
 /** Забойная часть: рисуется по фигурам ядра (те же, что на странице PDF), глубина вниз. */
 export function WellSchematic({ s }: { s: Schematic }) {
@@ -44,104 +43,39 @@ export function WellSchematic({ s }: { s: Schematic }) {
   )
 }
 
-function KpiCard({ k }: { k: Kpi }) {
-  const empty = k.value === null && !k.text
-  return (
-    <div className={'kpi-card' + (empty ? ' kpi-none' : '')}>
-      <span className="kpi-label">{k.label}</span>
-      <span className="kpi-value">{k.text ?? fmt(k.value, k.digits ?? 1)}{!empty && k.unit && k.value !== null ? <small> {k.unit}</small> : null}</span>
-      <span className="kpi-hint">{[k.hint, k.extra].filter(Boolean).join(' · ') || ' '}</span>
-    </div>
-  )
-}
-
-/** Объём по сезонам: столбики, высота — объём; подпись — Qmax сезона. */
-function SeasonBars({ rows, kind }: { rows: SeasonRow[]; kind: 'withdrawal' | 'injection' }) {
-  const part = rows.filter(r => r.kind === kind && r.volume !== null).reverse()   // таблица идёт от свежего сезона, столбики — слева направо по времени
-  if (part.length === 0) return null
-  const top = Math.max(...part.map(r => r.volume!)) || 1
-  const W = Math.max(280, part.length * 74), H = 150
-  return (
-    <svg className="season-bars" viewBox={`0 0 ${W} ${H}`} width={W} role="img" aria-label={kind === 'withdrawal' ? 'Отбор по сезонам' : 'Закачка по сезонам'}>
-      {part.map((r, i) => {
-        const h = (r.volume! / top) * (H - 56)
-        return (
-          <g key={r.period} transform={`translate(${i * 74 + 14},0)`}>
-            <rect x="0" y={H - 24 - h} width="46" height={h} rx="3" className={'bar-' + kind}><title>{`${r.period}: ${fmt(r.volume, 2)} млн м³`}</title></rect>
-            <text x="23" y={H - 28 - h} textAnchor="middle" className="bar-value">{fmt(r.volume, 2)}</text>
-            <text x="23" y={H - 8} textAnchor="middle" className="bar-axis">{r.period}</text>
-          </g>)
-      })}
-    </svg>
-  )
-}
-
-function SeasonsTable({ rows }: { rows: SeasonRow[] }) {
-  if (rows.length === 0) return <p className="muted">Нет данных по сезонам.</p>
-  const label = (k: string) => (k === 'withdrawal' ? 'Отбор' : 'Закачка')
-  return (
-    <table className="passport-table">
-      <thead><tr><th>Вид</th><th>Сезон</th><th className="num">Объём, млн м³</th><th className="num">Отработано дней</th><th className="num">Qmax, тыс. м³/сут</th><th>Дата Qmax</th>
-        <th className="num">Qср, тыс. м³/сут</th><th className="num">Часы</th><th className="num">Вода, м³</th></tr></thead>
-      <tbody>{rows.map(r => (
-        <tr key={r.kind + r.period}><td>{label(r.kind)}</td><td>{r.period}</td><td className="num">{fmt(r.volume, 2)}</td>
-          <td className="num">{r.days}</td><td className="num"><b>{fmt(r.max_rate, 1)}</b></td><td>{r.max_date}</td>
-          <td className="num">{fmt(r.mean_rate, 1)}</td><td className="num">{fmt(r.hours, 0)}</td><td className="num">{fmt(r.water, 1)}</td></tr>))}</tbody>
-    </table>
-  )
-}
-
-/** Дашборд паспорта: показатели, схема забоя, сезоны, ГДИ за всё время, КРС. */
-export function PassportDashboard({ card }: { card: Card }) {
+/** Дашборд паспорта: показатели, схема забоя, графики и таблицы — те же ChartView и TableView, что в остальных модулях. */
+export function PassportDashboard({ card, project }: { card: Card; project: string }) {
+  const none = (value: Card['kpi'][number]) => value.value === null && !value.text
+  const num = (v: number, digits: number) => v.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })
   return (
     <div className="passport-dash">
-      <div className="kpi-grid">{card.kpi.map(k => <KpiCard key={k.label} k={k} />)}</div>
-      <div className="dash-row">
-        <section className="dash-panel schematic-panel">
-          <h2>Забойная часть скважины № {card.well}</h2>
-          <WellSchematic s={card.schematic} />
-          <p className="muted small">Показаны эксплуатационная колонна, НКТ, фильтр, перфорация, расширка, пакер и забой; кондуктор и прочие колонны
-            скрыты. Ширина условная, диаметры — в подписях.{card.construction_date ? ` Конструкция на ${card.construction_date}.` : ''}</p>
-        </section>
-        <section className="dash-panel">
-          <h2>Объём по сезонам</h2>
-          <h3>Отбор</h3><SeasonBars rows={card.seasons} kind="withdrawal" />
-          <h3>Закачка</h3><SeasonBars rows={card.seasons} kind="injection" />
-          {card.seasons.length === 0 && <p className="muted">Нет данных по сезонам.</p>}
-        </section>
-      </div>
-      <section className="dash-panel"><h2>Сезоны эксплуатации</h2>
-        <p className="muted small">Сверху самый свежий сезон, затем предыдущий другого вида (отбор / закачка) и так далее.</p>
-        <div className="table-scroll"><SeasonsTable rows={card.seasons} /></div></section>
-      <section className="dash-panel"><h2>Суточные расходы</h2><DailyChart daily={card.daily} /></section>
-      <section className="dash-panel"><h2>Индикаторные диаграммы ГДИ</h2><GdiDiagrams items={card.gdi_diagrams} /></section>
-      <div className="dash-row">
-        <section className="dash-panel">
-          <h2>ГДИ за всё время</h2>
-          <div className="table-scroll">
-          {card.gdi.length === 0 ? <p className="muted">ГДИ по скважине нет.</p> : (
-            <table className="passport-table">
-              <thead><tr><th>Дата</th><th>Метод</th><th className="num">a</th><th className="num">b</th><th className="num">R²</th><th className="num">Qmax</th><th className="num">Qсв</th><th>Надёжно</th></tr></thead>
-              <tbody>{card.gdi.map((g, i) => (
-                <tr key={i} className={g.reliable ? '' : 'unreliable'} title={g.note}><td>{g.date}</td><td>{g.method || '—'}</td>
-                  <td className="num">{fmt(g.a, 3)}</td><td className="num">{fmt(g.b, 4)}</td><td className="num">{fmt(g.r2, 3)}</td>
-                  <td className="num">{fmt(g.q_max, 0)}</td><td className="num">{fmt(g.q_free, 0)}</td><td>{g.reliable ? 'да' : 'нет'}</td></tr>))}</tbody>
-            </table>)}
-          </div>
-        </section>
-        <section className="dash-panel">
-          <h2>Проведённые КРС</h2>
-          {card.krs.works.length === 0 ? <p className="muted">{card.krs.note}</p> : (
-            <table className="passport-table">
-              <thead><tr><th>Год</th><th>Тип ремонта</th><th>Подробности</th></tr></thead>
-              <tbody>{card.krs.works.map((w, i) => <tr key={i}><td>{w.year ?? ''}</td><td>{w.type}</td><td>{w.detail}</td></tr>)}</tbody>
-            </table>)}
-          {card.krs.priority && card.krs.priority.value !== null && (
-            <p className="small">Приоритет КР (подсказка, решает инженер): <b>{card.krs.priority.value}</b>
-              {card.krs.priority.reason ? ` — ${card.krs.priority.reason}` : ''}</p>)}
-        </section>
-      </div>
+      <dl className="summary-strip" aria-label="Показатели скважины">
+        {card.kpi.map(k => (
+          <div key={k.label} title={[k.hint, k.extra].filter(Boolean).join(' · ') || undefined}>
+            <dt>{k.label}</dt>
+            <dd>{none(k) ? '—' : k.text ?? `${num(k.value!, k.digits ?? 1)}${k.unit ? ' ' + k.unit : ''}`}</dd>
+          </div>))}
+      </dl>
+      <section className="panel schematic-panel">
+        <h2>Забойная часть скважины № {card.well}</h2>
+        <WellSchematic s={card.schematic} />
+        {card.schematic.shapes && card.schematic.notes.map(n => <div key={n} className="note info">{n}</div>)}
+        <p className="muted small">Показаны эксплуатационная колонна, НКТ, фильтр, перфорация, расширка, пакер и забой; кондуктор и прочие колонны
+          скрыты. Ширина условная, диаметры — в подписях.{card.construction_date ? ` Конструкция на ${card.construction_date}.` : ''}</p>
+      </section>
       {card.notes.map(n => <div key={n} className="note info">{n}</div>)}
+      <div className="chart-grid">
+        {card.charts.map(c => (
+          <ChartView key={c.id} chart={c} excludeMode={false} onExclude={() => {}}
+            onCopy={view => passportApi.exportBlob(project, card.well, 'chart', c.id, 'png', 300, view)}
+            onDownload={(format, dpi, view) => passportApi.exportFile(project, card.well, 'chart', c.id, format, dpi, view)} />))}
+      </div>
+      <TableDock tables={card.tables} scope="passport" render={t => (
+        <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, 'table', t.id, format)} />)} />
+      {!card.tables.some(t => t.id === 'passport-krs') && card.krs.note && <div className="note info">{card.krs.note}</div>}
+      {card.krs.priority && card.krs.priority.value !== null && (
+        <div className="note info">Приоритет КР (подсказка, решает инженер): <b>{card.krs.priority.value}</b>
+          {card.krs.priority.reason ? ` — ${card.krs.priority.reason}` : ''}</div>)}
     </div>
   )
 }
