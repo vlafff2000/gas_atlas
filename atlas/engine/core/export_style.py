@@ -56,6 +56,65 @@ def _set_limits(target, name: str, spec: Mapping[str, Any], date: bool) -> None:
     (target.set_xlim if horizontal else target.set_ylim)(*pair)
 
 
+def _bound(text, time: bool):
+    """Число (запятая допустима) или дата дд.мм.гггг / гггг-мм-дд; не разобрать — None."""
+    from matplotlib.dates import date2num
+    import pandas as pd
+    t = str(text or '').strip()
+    if not t:
+        return None
+    if time:
+        for fmt in ('%Y-%m-%d', '%d.%m.%Y'):
+            try:
+                return float(date2num(pd.to_datetime(t, format=fmt).to_pydatetime()))
+            except ValueError:
+                pass
+        return None
+    try:
+        return float(t.replace(' ', '').replace(',', '.'))
+    except ValueError:
+        return None
+
+
+def draw_annotations(ax, items, date_axis: bool, family) -> None:
+    """Линии уровня, полосы и подписи в координатах данных (по основной оси Y); то же рисует экран (ChartView.withAnnotations)."""
+    for a in items:
+        color = a.get('color') or '#c0392b'
+        style = LINESTYLES.get(a.get('dash'), '-')
+        width = a.get('width', 1.5)
+        size = a.get('size', 9)
+        text = a.get('text')
+        kind = a['kind']
+        if kind == 'hline' and (v := _bound(a.get('value'), False)) is not None:
+            ax.axhline(v, color=color, linewidth=width, linestyle=style, zorder=3)
+            if text:
+                ax.annotate(text, (1, v), xycoords=('axes fraction', 'data'), xytext=(-3, 2), textcoords='offset points', ha='right', va='bottom',
+                            fontsize=size, color=color, fontfamily=family)
+        elif kind == 'vline' and (v := _bound(a.get('value'), date_axis)) is not None:
+            ax.axvline(v, color=color, linewidth=width, linestyle=style, zorder=3)
+            if text:
+                ax.annotate(text, (v, 1), xycoords=('data', 'axes fraction'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
+                            fontsize=size, color=color, fontfamily=family)
+        elif kind in ('hband', 'vband'):
+            time = kind == 'vband' and date_axis
+            lo, hi = _bound(a.get('value'), time), _bound(a.get('to'), time)
+            if lo is None or hi is None:
+                continue
+            lo, hi = min(lo, hi), max(lo, hi)
+            (ax.axhspan if kind == 'hband' else ax.axvspan)(lo, hi, color=color, alpha=.16, linewidth=0, zorder=1)
+            if text:
+                if kind == 'hband':
+                    ax.annotate(text, (0, hi), xycoords=('axes fraction', 'data'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
+                                fontsize=size, color=color, fontfamily=family)
+                else:
+                    ax.annotate(text, (lo, 1), xycoords=('data', 'axes fraction'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
+                                fontsize=size, color=color, fontfamily=family)
+        elif kind == 'text' and text:
+            x, y = _bound(a.get('x'), date_axis), _bound(a.get('y'), False)
+            if x is not None and y is not None:
+                ax.annotate(text, (x, y), ha='center', va='center', fontsize=size, color=color, fontfamily=family, zorder=4)
+
+
 def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], title: str, k: float, base: float, date_axis: bool) -> None:
     from matplotlib.dates import DateFormatter
     from matplotlib.ticker import AutoMinorLocator, MultipleLocator, NullLocator
@@ -190,6 +249,9 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
     if chart.get('subtitle'):
         ax.annotate(mpl_text(chart['subtitle']), (0, 1), xycoords='axes fraction', xytext=(0, 2), textcoords='offset points', va='bottom',
                     fontsize=chart.get('subtitle_size', 9 * k), color=text_color or '#667085', fontfamily=general)
+
+    if chart.get('annotations'):
+        draw_annotations(ax, chart['annotations'], date_axis, general)
 
     # легенда (положение и «скрыть» — в meta.format, см. render.to_plotly)
     legend_font = _family(chart.get('legend_font')) or general

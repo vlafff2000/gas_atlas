@@ -86,6 +86,12 @@ export interface AxisStyle {
   units?: 'thousands' | 'millions' | 'billions'; title_place?: 'end' | 'middle'; minor_step?: number; cross?: number
 }
 /** Ручное оформление графика: заголовок, шрифты, легенда, сетка, фон (atlas/chart_style.py). */
+/** Аннотация графика (atlas/chart_style.py): линия уровня, полоса или подпись в координатах данных; числа и даты — текстом, как границы осей. */
+export interface Annotation {
+  kind: 'hline' | 'vline' | 'hband' | 'vband' | 'text'
+  value?: string; to?: string; x?: string; y?: string; text?: string
+  color?: string; width?: number; dash?: string; size?: number
+}
 export interface ChartStyle {
   title_font?: string; title_size?: number; title_bold?: boolean; title_color?: string; title_align?: 'left' | 'center' | 'right'
   font?: string; text_color?: string; legend?: 'bottom' | 'top' | 'right' | 'left' | 'hide'; legend_font?: string; legend_size?: number
@@ -94,6 +100,7 @@ export interface ChartStyle {
   // модель v2: подзаголовок, легенда слева, колонки, рамка и фон легенды, штрих сетки, рамки рисунка и области построения
   subtitle?: string; subtitle_size?: number; legend_columns?: number; legend_border?: boolean; legend_background?: string
   grid_dash?: string; minor_grid_dash?: string; border_color?: string; border_width?: number; plot_border_color?: string; plot_border_width?: number
+  annotations?: Annotation[]
 }
 export interface Axis {
   color?: string                       // цвет правой шкалы под один ряд; пусто — по умолчанию

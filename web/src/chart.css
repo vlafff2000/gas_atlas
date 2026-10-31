@@ -244,3 +244,4 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .cs-tpl-row button { font: inherit; font-size: 12px; padding: 3px 8px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
 .cs-tpl-row button:disabled { color: var(--muted); cursor: default; opacity: .6; }
 .cs-tpl-json { width: 100%; box-sizing: border-box; margin-top: 6px; font: 11px/1.3 monospace; }
+.cs-annotation { display: grid; gap: 6px; padding: 8px 0; border-top: 1px dashed var(--line); }

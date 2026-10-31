@@ -96,3 +96,21 @@ def test_trend_reaches_the_file():
     fig = to_plotly(styled)
     assert len(fig.data) == 2
     assert figure_bytes(fig, 'png', 150, 150) != plain
+
+
+def test_annotations_validated_and_reach_the_file():
+    from atlas.contract import ParamError
+    from atlas.render import to_plotly
+    from atlas.engine.core.export import figure_bytes
+    note = [{'kind': 'hline', 'value': '8,5', 'text': 'Норма'}, {'kind': 'vband', 'value': '2', 'to': '4', 'text': 'Период', 'color': '#2a78d6'},
+            {'kind': 'vline', 'value': '5'}, {'kind': 'text', 'x': '3', 'y': '9', 'text': 'Пик'}, {'kind': 'hband', 'value': '3', 'to': '5'}]
+    doc = clean_format({'chart': {'annotations': note}})
+    assert doc['chart']['annotations'][0] == {'kind': 'hline', 'value': '8,5', 'text': 'Норма'}
+    plain = figure_bytes(to_plotly(chart()), 'png', 150, 150)
+    marked = apply_format(chart(), doc)
+    assert marked.style['annotations'] and figure_bytes(to_plotly(marked), 'png', 150, 150) != plain
+    unreadable = apply_format(chart(), clean_format({'chart': {'annotations': [{'kind': 'hline', 'value': 'много'}]}}))
+    assert figure_bytes(to_plotly(unreadable), 'png', 150, 150)          # не разобранное значение пропускается, файл строится
+    for bad in ([{'kind': 'hline'}], [{'value': '1'}], [{'kind': 'band', 'value': '1'}], [{'kind': 'vband', 'value': '1'}], [{'kind': 'text', 'text': 'x'}], 'строка', [{'kind': 'hline', 'value': '1'}] * 31):
+        with pytest.raises(ParamError):
+            clean_format({'chart': {'annotations': bad}})

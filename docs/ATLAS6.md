@@ -232,6 +232,8 @@ CI проверяет, что `atlas/web/dist` соответствует исх
   Линия тренда ряда — поле вида ряда `trend` (`linear/poly/log/power/exp/moving`, `trend_order`, `trend_period`, `trend_label`, `trend_color`, `trend_width`):
   `atlas/trend.py` считает, `chart_style.apply_format` добавляет ряд «Тренд: …» (в файлах), `web/src/trend.ts` — то же на экране; сверка — `tests/atlas/test_trend.py`
   (запускает `web/scripts/trend-check.mjs`). R² — по самому ряду; уравнение не показывается на оси времени.
+  Аннотации графика — `chart.annotations` в оформлении (`clean_annotations`): линия уровня, вертикальная линия, полосы по Y и X, подпись; значения — текстом
+  (число или дата дд.мм.гггг), по основной оси Y. Экран: `withAnnotations` (markLine/markArea/markPoint), файл: `export_style.draw_annotations`.
   прежних версий переносится в проект без своего оформления при первом открытии.
 
 ## Что дальше (по ADR)

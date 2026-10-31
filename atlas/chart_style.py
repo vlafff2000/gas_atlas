@@ -139,9 +139,41 @@ def clean_look(raw: Any, index: int) -> dict[str, Any]:
     return _fill(raw, f'Ряд {index}', LOOK)
 
 
+ANNOTATIONS = 30
+ANNOTATION_KINDS = ('hline', 'vline', 'hband', 'vband', 'text')
+ANNOTATION = {'kind': ANNOTATION_KINDS, 'value': 'text', 'to': 'text', 'x': 'text', 'y': 'text', 'text': 'text', 'color': 'color',
+              'width': ('num', 0.5, 8), 'dash': DASHES, 'size': ('num', 6, 36)}
+ANNOTATION_NEEDS = {'hline': ('value',), 'vline': ('value',), 'hband': ('value', 'to'), 'vband': ('value', 'to'), 'text': ('x', 'y', 'text')}
+ANNOTATION_TITLES = {'hline': 'линия уровня', 'vline': 'вертикальная линия', 'hband': 'горизонтальная полоса', 'vband': 'вертикальная полоса', 'text': 'подпись'}
+LABELS.update({'value': 'значение', 'to': 'до', 'x': 'X', 'y': 'Y', 'text': 'текст', 'kind': 'вид', 'size': 'размер'})
+
+
+def clean_annotations(raw: Any) -> list[dict[str, Any]]:
+    """Аннотации графика: линии уровня, полосы и подписи в координатах данных (по основной оси Y; X — число или дата).
+    Значения хранятся текстом, как границы осей; проверяются при рисовании (не разобранное пропускается)."""
+    if raw is None or raw == []:
+        return []
+    if not isinstance(raw, (list, tuple)) or len(raw) > ANNOTATIONS:
+        raise ParamError(f'Аннотации: список, не больше {ANNOTATIONS}')
+    out = []
+    for i, item in enumerate(raw, 1):
+        a = _fill(item, f'Аннотация {i}', ANNOTATION)
+        if 'kind' not in a:
+            raise ParamError(f'Аннотация {i}: не задан вид ({", ".join(ANNOTATION_KINDS)})')
+        missing = [LABELS.get(k, k) for k in ANNOTATION_NEEDS[a['kind']] if not a.get(k)]
+        if missing:
+            raise ParamError(f'Аннотация {i} ({ANNOTATION_TITLES[a["kind"]]}): не заполнено — {", ".join(missing)}')
+        out.append(a)
+    return out
+
+
 def clean_chart(raw: Any) -> dict[str, Any]:
-    """Настройки графика: заголовок, шрифты, легенда, сетка, фон."""
-    return _fill(raw, 'График', CHART_FMT)
+    """Настройки графика: заголовок, шрифты, легенда, сетка, фон, аннотации."""
+    out = _fill(raw, 'График', CHART_FMT)
+    notes = clean_annotations(raw.get('annotations')) if isinstance(raw, Mapping) else []
+    if notes:
+        out['annotations'] = notes
+    return out
 
 
 def clean_axis(raw: Any, name: str) -> dict[str, Any]:

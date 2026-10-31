@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
-import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent, VisualMapContinuousComponent } from 'echarts/components'
+import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent, MarkPointComponent, ToolboxComponent, TooltipComponent, VisualMapContinuousComponent } from 'echarts/components'
 import { CanvasRenderer, SVGRenderer } from 'echarts/renderers'
 import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
@@ -22,7 +22,7 @@ import { saveFileWithPicker } from './desktopDownload'
 import './chart.css'
 
 echarts.use([BarChart, BoxplotChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
-  DataZoomComponent, AxisPointerComponent, VisualMapContinuousComponent, CanvasRenderer, SVGRenderer])
+  DataZoomComponent, AxisPointerComponent, VisualMapContinuousComponent, MarkAreaComponent, MarkLineComponent, MarkPointComponent, CanvasRenderer, SVGRenderer])
 
 export { PALETTE }
 const SYMBOL = { circle: 'circle', square: 'rect', diamond: 'diamond', triangle: 'triangle' } as const
@@ -414,7 +414,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         restore: { title: 'Сбросить масштаб' },
       },
     },
-    series: withBands(chart.series.map(s => {
+    series: withAnnotations(withBands(chart.series.map(s => {
       const L: Look = s.look ?? {}
       const c = L.color ?? color(s)
       const hollow = L.hollow ?? s.hollow
@@ -501,8 +501,43 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
             ? { color: 'rgba(255,255,255,0)', ...edge(L.markerColor ?? c, 1.8) }
             : big ? { color: alpha(c, 0.55) } : { color: L.markerColor ?? c, ...edge(tk.surface, 1.5) }),
           ...(s.opacity < 1 ? { opacity: s.opacity } : {}) } }
-    }), chart, tk),
+    }), chart, tk), chart),
   }
+}
+
+/** Аннотации графика (style.annotations): линии уровня, полосы и подписи в координатах данных — markLine, markArea, markPoint на первом ряду основной оси. */
+function withAnnotations(series: Record<string, unknown>[], chart: Chart): Record<string, unknown>[] {
+  const list = chart.style?.annotations ?? []
+  if (!list.length || !series.length) return series
+  const timeX = chart.x.scale === 'time', numericX = chart.x.scale === 'value' || chart.x.scale === 'log' || timeX
+  const num = (t: string | undefined, time: boolean) => parseBound(t ?? '', time)
+  const lines: unknown[] = [], areas: unknown[] = [], points: unknown[] = []
+  for (const a of list) {
+    const color = a.color ?? '#c0392b', size = a.size ?? 12
+    const lineStyle = { color, width: a.width ?? 1.5, type: a.dash === 'dot' ? 'dotted' : !a.dash || a.dash === 'solid' ? 'solid' : 'dashed' }
+    const label = a.text ? { show: true, formatter: a.text, color, fontSize: size, position: 'insideEndTop' } : { show: false }
+    if (a.kind === 'hline') { const v = num(a.value, false); if (v !== null) lines.push({ yAxis: v, lineStyle, label }) }
+    else if (a.kind === 'vline') { const v = numericX ? num(a.value, timeX) : null; if (v !== null) lines.push({ xAxis: v, lineStyle, label }) }
+    else if (a.kind === 'hband') {
+      const lo = num(a.value, false), hi = num(a.to, false)
+      if (lo !== null && hi !== null) areas.push([{ yAxis: Math.min(lo, hi), name: a.text, itemStyle: { color, opacity: 0.16 }, label: { ...label, position: 'insideTop' } }, { yAxis: Math.max(lo, hi) }])
+    } else if (a.kind === 'vband') {
+      const lo = numericX ? num(a.value, timeX) : null, hi = numericX ? num(a.to, timeX) : null
+      if (lo !== null && hi !== null) areas.push([{ xAxis: Math.min(lo, hi), name: a.text, itemStyle: { color, opacity: 0.16 }, label: { ...label, position: 'insideTop' } }, { xAxis: Math.max(lo, hi) }])
+    } else if (a.kind === 'text') {
+      const x = numericX ? num(a.x, timeX) : null, y = num(a.y, false)
+      if (x !== null && y !== null && a.text) points.push({ coord: [x, y], symbol: 'none', label: { show: true, formatter: a.text, color, fontSize: size } })
+    }
+  }
+  if (!lines.length && !areas.length && !points.length) return series
+  const at = Math.max(0, chart.series.findIndex(s => (s.axis ?? 'y') === 'y'))
+  const head = series[at] ?? series[0]
+  const prev = (head.markArea as { data?: unknown[] } | undefined)?.data ?? []
+  const next = { ...head,
+    ...(lines.length ? { markLine: { silent: true, symbol: 'none', animation: false, data: lines } } : {}),
+    ...(areas.length || prev.length ? { markArea: { silent: true, z: 0, data: [...prev, ...areas] } } : {}),
+    ...(points.length ? { markPoint: { silent: true, animation: false, data: points } } : {}) }
+  return series.map(x => (x === head ? next : x))
 }
 
 /** Годы над столбцами: подложка и подпись полосой (markArea) на первом ряду. */
