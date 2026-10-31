@@ -225,3 +225,8 @@
 .strip-sub { font-weight: 600; margin: 0 0 4px; font-family: 'Times New Roman', 'Liberation Serif', serif; }
 .strip-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
 .strip-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 5px; border-radius: 2px; vertical-align: -2px; }
+
+/* Мини-вариант графика (compact): подсказки на карте и карточки — тот же ChartView без заголовка, кнопок, легенды и навигатора */
+figure.chart.compact { border: 0; padding: 0; background: transparent; }
+.chart.compact figcaption, .chart.compact .chart-thin, .chart.compact .chart-legend-wrap { display: none; }
+.chart.compact .chart-canvas { height: var(--chart-h, 104px); }
