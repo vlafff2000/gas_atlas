@@ -22,17 +22,21 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
   const [cardError, setCardError] = useState('')
   const [withCard, setWithCard] = useState(true)
   const [filter, setFilter] = useState<WellFilterValue | null>(null)   // фильтр этой вкладки, как в других модулях
+  const [seasonOptions, setSeasonOptions] = useState<string[]>([])
+  const [seasonPick, setSeasonPick] = useState<string[]>([])           // сезоны паспорта (дашборд, выгрузки, PDF); пусто — все
   const [batch, setBatch] = useState<string[]>([])                      // скважины для PDF; пусто — только выбранная
+
+  useEffect(() => { setCard(null); setSeasonPick([]) }, [well])    // у каждой скважины свои сезоны
 
   useEffect(() => {
     if (!well) return
     const ctrl = new AbortController()
-    setCard(null); setCardError('')
-    passportApi.card(project.id, well, ctrl.signal).then(setCard).catch(e => {
+    setCardError('')
+    passportApi.card(project.id, well, seasonPick, ctrl.signal).then(next => { setCard(next); setSeasonOptions(next.season_options) }).catch(e => {
       if ((e as Error).name !== 'AbortError') setCardError((e as Error).message)
     })
     return () => ctrl.abort()
-  }, [project.id, project.revision, well])
+  }, [project.id, project.revision, well, seasonPick.join('|')])
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -67,7 +71,7 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
     setBusy('pdf'); setMessage(null)
     try {
       const many = batch.length > 1 || (batch.length === 1 && batch[0] !== well)
-      const name = await passportApi.pdf(project.id, many ? batch[0] : well, sections, periods, comment, withCard, many ? batch : undefined)
+      const name = await passportApi.pdf(project.id, many ? batch[0] : well, sections, periods, comment, withCard, many ? batch : undefined, seasonPick)
       setMessage({ text: `${many ? `Паспорта ${batch.length} скважин (отдельный PDF на каждую, в одном архиве)` : 'Паспорт'} создан и сохранен в выгрузках проекта: ${name}`, level: 'info' })
     } catch (e) { setMessage({ text: 'Не удалось создать паспорт: ' + (e as Error).message, level: 'warning' }) } finally { setBusy('') }
   }
@@ -92,6 +96,8 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
             </select>
           </label>
           <WellFilter project={project.id} revision={project.revision} value={filter} onChange={setFilter} />
+          <MultiSelect label="Сезоны паспорта" options={seasonOptions} value={seasonPick}
+            onChange={setSeasonPick} emptyMeaning="все" />
           <MultiSelect label="Скважины для PDF" options={info.shown} value={batch} onChange={setBatch} emptyMeaning="только выбранная"
             prefix="№ " picker={project.id} />
           <button type="button" className="quiet" disabled={info.shown.length === 0}
@@ -108,7 +114,7 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
         {message && <div className={'note ' + message.level} role="status">{message.text}</div>}
         {tab === 'dash' ? (
           cardError ? <div className="note warning">{cardError}</div>
-            : !card ? <p className="muted loading-line">Собираю паспорт…</p> : <PassportDashboard card={card} project={project.id} />
+            : !card ? <p className="muted loading-line">Собираю паспорт…</p> : <PassportDashboard card={card} project={project.id} seasons={seasonPick} />
         ) : (
         <section className="panel">
           <div className="param-bar">

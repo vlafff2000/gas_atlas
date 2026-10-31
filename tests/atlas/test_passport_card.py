@@ -136,3 +136,28 @@ def test_card_blocks_use_shared_contract_and_export(env):
     xlsx = client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'target': 'table', 'id': 'passport-gdi', 'format': 'xlsx'})
     assert xlsx.status_code == 200 and xlsx.content[:2] == b'PK'
     assert client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'target': 'chart', 'id': 'нет'}).status_code == 400
+
+
+def test_perforation_is_sawtooth_and_bridge_is_recognized():
+    assert pc.classify('Цементный мост') == 'bridge'
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None),
+                  ('Цементный мост', 1000, 1008, None, None)])
+    sch = pc.schematic(cons, None)
+    saw = [s for s in sch['shapes'] if s['t'] == 'poly' and s['name'] == 'perf']
+    assert len(saw) == 2 and all(len(s['pts']) >= 7 for s in saw)            # пила с каждой стороны колонны
+    assert {p[0] for p in saw[1]['pts']} == {1.12, 1.6}
+    assert any(s.get('pattern') == 'cement' for s in sch['shapes'])
+
+
+def test_season_choice_limits_card_and_exports(env):
+    client, pid, _ = env
+    full = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
+    pick = full['season_options'][:2]
+    import json
+    part = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL, 'seasons': json.dumps(pick)}).json()
+    assert part['season_options'] == full['season_options']                          # список вариантов не сужается
+    assert [f"{'Отбор' if s['kind'] == 'withdrawal' else 'Закачка'} {s['period']}" for s in part['seasons']] == pick
+    assert part['tables'][0]['count'] == 2
+    assert part['kpi'][0]['value'] != full['kpi'][0]['value'] or len(full['seasons']) == 2
+    pdf = client.post(f'/api/projects/{pid}/passport/pdf', json={'well': WELL, 'sections': [], 'card': True, 'seasons': pick})
+    assert pdf.status_code == 200 and pdf.content[:4] == b'%PDF'
