@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react'
-import type { AxisStyle, ChartStyle } from './api'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { Annotation, AxisStyle, ChartStyle } from './api'
 import { LINE_STYLES, type Look } from './chartStyle'
 import { HEX } from './ChartSettings'
 import { FONT_CHOICES } from './chartTheme'
@@ -100,6 +100,56 @@ const boolOf = (v: string | undefined) => (v === undefined ? undefined : v === '
 interface Setter<T> { value: T; set: (patch: Partial<T>) => void }
 
 /** Заголовок, текст, легенда, сетка, рамки и фоны графика. `title` — поле текста заголовка (в конструкторе оно в макете). */
+const ANNOTATION_KINDS: { value: Annotation['kind']; label: string }[] = [
+  { value: 'hline', label: 'Линия уровня (Y)' }, { value: 'vline', label: 'Вертикальная линия (X)' },
+  { value: 'hband', label: 'Полоса по Y' }, { value: 'vband', label: 'Полоса по X' }, { value: 'text', label: 'Подпись' },
+]
+const NEEDS: Record<Annotation['kind'], (keyof Annotation)[]> = { hline: ['value'], vline: ['value'], hband: ['value', 'to'], vband: ['value', 'to'], text: ['x', 'y', 'text'] }
+const complete = (a: Partial<Annotation>) => !!a.kind && NEEDS[a.kind].every(k => String(a[k] ?? '').trim() !== '')
+
+/** Аннотации: линии уровня, полосы и подписи в координатах данных. Неполная строка живёт в панели и в график не попадает. */
+function AnnotationFields({ value, set }: { value: Annotation[] | undefined; set: (v: Annotation[] | undefined) => void }) {
+  const [rows, setRows] = useState<Partial<Annotation>[]>(value ?? [])
+  const sent = useRef(JSON.stringify(value ?? []))
+  useEffect(() => {      // изменили снаружи (шаблон, «Сбросить всё»): строки берутся из графика
+    if (JSON.stringify(value ?? []) !== sent.current) { sent.current = JSON.stringify(value ?? []); setRows(value ?? []) }
+  }, [value])
+  const commit = (next: Partial<Annotation>[]) => {
+    setRows(next)
+    const done = next.filter(complete) as Annotation[]
+    sent.current = JSON.stringify(done)
+    set(done.length ? done : undefined)
+  }
+  const edit = (i: number, patch: Partial<Annotation>) => commit(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  return (
+    <fieldset>
+      <legend>Аннотации</legend>
+      {rows.map((a, i) => (
+        <div key={i} className="cs-annotation">
+          <Choice label="Вид" value={a.kind} options={ANNOTATION_KINDS} auto="— выберите —" onChange={v => edit(i, { kind: v })} />
+          {a.kind && <>
+            {(a.kind === 'hline' || a.kind === 'vline' || a.kind === 'hband' || a.kind === 'vband') && (
+              <Text label={a.kind.endsWith('band') ? 'От' : 'Значение'} value={a.value} placeholder={a.kind[0] === 'v' ? 'число или дд.мм.гггг' : 'число'} onChange={v => edit(i, { value: v })} />)}
+            {(a.kind === 'hband' || a.kind === 'vband') && <Text label="До" value={a.to} placeholder={a.kind === 'vband' ? 'число или дд.мм.гггг' : 'число'} onChange={v => edit(i, { to: v })} />}
+            {a.kind === 'text' && <div className="cs-row">
+              <Text label="X" value={a.x} placeholder="число или дата" onChange={v => edit(i, { x: v })} />
+              <Text label="Y" value={a.y} placeholder="число" onChange={v => edit(i, { y: v })} />
+            </div>}
+            <Text label="Текст" value={a.text} placeholder={a.kind === 'text' ? 'обязательно' : 'нет'} onChange={v => edit(i, { text: v })} />
+            <div className="cs-row">
+              <Color label="Цвет" value={a.color} onChange={v => edit(i, { color: v })} />
+              {a.kind !== 'text' && !a.kind.endsWith('band') && <Num label="Толщина" value={a.width} min={0.5} max={8} step={0.5} onChange={v => edit(i, { width: v })} />}
+              {a.kind === 'text' && <Num label="Размер" value={a.size} min={6} max={36} onChange={v => edit(i, { size: v })} />}
+            </div>
+          </>}
+          <div className="cs-actions"><button type="button" onClick={() => commit(rows.filter((_, j) => j !== i))}>Удалить</button></div>
+        </div>))}
+      <div className="cs-actions"><button type="button" disabled={rows.length >= 30} onClick={() => setRows([...rows, {}])}>Добавить аннотацию</button></div>
+      <p className="cs-hint">Значения — в единицах осей: основная ось Y и ось X (число или дата дд.мм.гггг). Строка попадает на график, когда заполнена.</p>
+    </fieldset>
+  )
+}
+
 export function ChartStyleFields({ value: st, set, title }: Setter<ChartStyle> & { title?: ReactNode }) {
   return (
     <>
@@ -164,6 +214,7 @@ export function ChartStyleFields({ value: st, set, title }: Setter<ChartStyle> &
           <Num label="Толщина" value={st.plot_border_width} min={0.2} max={6} step={0.2} onChange={v => set({ plot_border_width: v })} />
         </div>
       </fieldset>
+      <AnnotationFields value={st.annotations} set={v => set({ annotations: v })} />
     </>
   )
 }
