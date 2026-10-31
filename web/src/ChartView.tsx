@@ -12,10 +12,11 @@ import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
-import { seriesLooks, projectFormats, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { seriesLooks, projectFormats, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { applyFormat, mergeFormats } from './chartFormat'
-import { ChartSettings } from './ChartSettings'
+import { FormatPane, type FormatElement } from './FormatPane'
+import { formatDoc, setFormatDoc, type FormatScope } from './projectLooks'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
 
@@ -575,6 +576,9 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
   const chart = useMemo(() => applyFormat(windowed, mergeFormats({ chart: store.theme?.chart, axes: store.theme?.axes, series: looks },
     module ? store.types?.[module] : undefined)), [windowed, looks, store, module])
   const [settings, setSettings] = useState(false)
+  const [element, setElement] = useState<FormatElement>('chart')
+  const scope = usePref(formatScope)
+  const setScope = (v: FormatScope) => formatScope.set(v)
   const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
   const state = useRef({
     ranges: NO_RANGES as Manual, steps: NO_STEPS as Steps, setSteps: (() => {}) as (s: Steps) => void, setRanges: (() => {}) as (r: Manual) => void, openEditor: (() => {}) as (a: AxisName) => void, fitY: (() => {}) as () => void, lastChart: null as Chart | null,
@@ -1490,7 +1494,7 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
           </>}
           {!chart.id.startsWith('builder') && <span className="chart-tools">
             <button type="button" className={'icon' + (settings ? ' on' : '')} aria-pressed={settings} onClick={() => setSettings(v => !v)}
-              title="Настройка графика: цвет, толщина и стиль линии, маркеры (форма, размер, цвет) для каждого ряда — как в Excel">
+              title="Формат графика: заголовок, легенда, сетка, оси, цвет и маркеры рядов — как в Excel">
               <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.9M8 12.3v1.9M1.8 8h1.9M12.3 8h1.9M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" /></svg>
             </button>
           </span>}
@@ -1498,8 +1502,10 @@ export function ChartView({ chart: given, module, compact, excludeMode, onExclud
           <DownloadMenu onDownload={(format, dpi) => onDownload(format, dpi, screenView())} />
         </span>
       </figcaption>
-      {settings && createPortal(<ChartSettings title={chart.title} series={chart.series} colorOf={colorOf(chart)} looks={looks ?? {}}
-        onChange={setLooks} onClose={() => setSettings(false)} />, document.body)}
+      {settings && createPortal(<FormatPane chart={chart} element={element} onElement={setElement} scope={module ? scope : 'project'}
+        onScope={module ? setScope : () => {}} doc={formatDoc(store, module ? scope : 'project', module ?? '')}
+        onDoc={doc => setFormatDoc(module ? scope : 'project', module ?? '', doc)} colorOf={colorOf(chart)} looks={looks ?? {}}
+        onLooks={setLooks} onClose={() => setSettings(false)} />, document.body)}
       {thinned.length > 0 && <ThinNote chart={chart} thinned={thinned.map(([, i]) => i)} windowed={!!patch && patch.base === given} patch={patch} />}
       {chart.style?.subtitle && <p className="chart-subtitle" style={chart.style.subtitle_size ? { fontSize: chart.style.subtitle_size } : undefined}>{chart.style.subtitle}</p>}
       {legendEl && chart.style?.legend === 'top' && legendEl}

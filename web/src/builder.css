@@ -173,3 +173,6 @@ details.builder-recipes > summary { cursor: pointer; font-weight: 700; font-size
 .rich-chars button { min-width: 28px; height: 28px; padding: 0 4px; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
 .rich-chars button:hover { border-color: var(--line); background: var(--accent-soft); }
 .rich-hint { margin: 0; font-size: 12px; color: var(--muted); }
+.chart-settings.builder-dialog.dock-right { left: auto; right: 24px; top: 72px; }
+.cs-scope { display: flex; gap: 6px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.cs-scope select { font: inherit; padding: 2px 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
