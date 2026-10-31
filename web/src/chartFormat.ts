@@ -28,7 +28,7 @@ export function mergeFormats(...docs: (ChartFormat | null | undefined)[]): Chart
 }
 
 /** Оформление проекта (settings.chart_formats): тема для всех графиков и свои настройки по типам графиков (id модуля). */
-export interface FormatStore { theme?: ChartFormat; types?: Record<string, ChartFormat> }
+export interface FormatStore { theme?: ChartFormat; types?: Record<string, ChartFormat>; templates?: Record<string, ChartFormat> }
 
 /** Документ для графика модуля: тема проекта → тип графика (как atlas/chart_style.format_of). */
 export const formatOf = (store: FormatStore | null | undefined, module?: string): ChartFormat =>

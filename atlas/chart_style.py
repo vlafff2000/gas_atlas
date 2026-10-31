@@ -328,13 +328,14 @@ def format_from_any(settings: Mapping[str, Any] | None) -> dict[str, Any]:
 
 STORE_SERIES = 3000            # рядов со своим видом в теме проекта
 STORE_TYPES = 200              # разделов (типов графиков) со своим оформлением
+STORE_TEMPLATES = 100          # шаблонов оформления в проекте
 
 
 def clean_store(raw: Any) -> dict[str, Any]:
     """Настройка проекта ``chart_formats = {'theme': документ, 'types': {раздел: документ}}``: тема действует на все графики,
     тип — на графики одного раздела (идёт после темы, главнее её). Ошибка поля — ``ParamError`` с понятным текстом."""
-    if not isinstance(raw, Mapping) or set(raw) - {'theme', 'types'}:
-        raise ParamError('Оформление графиков: нужен словарь {theme, types}')
+    if not isinstance(raw, Mapping) or set(raw) - {'theme', 'types', 'templates'}:
+        raise ParamError('Оформление графиков: нужен словарь {theme, types, templates}')
     out: dict[str, Any] = {}
     theme = clean_format(raw.get('theme'))
     if len(theme.get('series', {})) > STORE_SERIES:
@@ -349,6 +350,13 @@ def clean_store(raw: Any) -> dict[str, Any]:
     kinds = {str(k)[:80]: d for k, v in types.items() for d in [clean_format(v)] if d}
     if kinds:
         out['types'] = kinds
+    templates = raw.get('templates')
+    templates = {} if templates is None else templates
+    if not isinstance(templates, Mapping) or len(templates) > STORE_TEMPLATES:
+        raise ParamError(f'Оформление графиков: шаблонов не больше {STORE_TEMPLATES}')
+    named = {name: d for k, v in templates.items() for name in [str(k).strip()[:60]] for d in [clean_format(v)] if name and d}
+    if named:
+        out['templates'] = named        # шаблоны оформления: {имя: документ}; на графики сами не действуют, только переносятся на них
     return out
 
 
