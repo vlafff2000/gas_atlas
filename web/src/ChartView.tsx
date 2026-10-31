@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
 import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent, VisualMapContinuousComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { CanvasRenderer, SVGRenderer } from 'echarts/renderers'
 import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { echartsRich, plainRich, richHtml } from './richText'
@@ -18,10 +18,11 @@ import { applyFormat, mergeFormats, type ChartFormat } from './chartFormat'
 import { FormatPane, type FormatElement } from './FormatPane'
 import { formatDoc, setFormatDoc, type FormatScope } from './projectLooks'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
+import { saveFileWithPicker } from './desktopDownload'
 import './chart.css'
 
 echarts.use([BarChart, BoxplotChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
-  DataZoomComponent, AxisPointerComponent, VisualMapContinuousComponent, CanvasRenderer])
+  DataZoomComponent, AxisPointerComponent, VisualMapContinuousComponent, CanvasRenderer, SVGRenderer])
 
 export { PALETTE }
 const SYMBOL = { circle: 'circle', square: 'rect', diamond: 'diamond', triangle: 'triangle' } as const
@@ -633,6 +634,25 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
     seriesLooks.set({ ...rest, ...next })
   }
   /** Что видит инженер: личный вид рядов, ручные границы Y, текущее окно по X, скрытые пункты легенды. */
+  /** Пилот «Скачать как на экране»: поле графика рисует сам ECharts (то, что в canvas; легенда и подзаголовок — разметка страницы, в файл не входят). */
+  const screenFile = async (kind: 'png' | 'svg', dpi: number): Promise<Blob> => {
+    const ch = instance.current
+    if (!ch) throw new Error('График ещё не нарисован')
+    if (kind === 'png') {
+      const url = ch.getDataURL({ type: 'png', pixelRatio: Math.max(1, dpi / 96), backgroundColor: chart.style?.background ?? '#ffffff', excludeComponents: ['dataZoom', 'toolbox'] })
+      return (await fetch(url)).blob()
+    }
+    const host = document.createElement('div')
+    const copy = echarts.init(host, undefined, { renderer: 'svg', ssr: true, width: ch.getWidth(), height: ch.getHeight() })
+    try {
+      const shown = ch.getOption() as { dataZoom?: { type?: string }[]; toolbox?: unknown }
+      const option = { ...shown, animation: false, toolbox: undefined, dataZoom: (shown.dataZoom ?? []).filter(z => z.type !== 'slider'),
+        backgroundColor: chart.style?.background ?? '#ffffff' }
+      copy.setOption(option as echarts.EChartsCoreOption, { notMerge: true })
+      return new Blob([copy.renderToSVGString()], { type: 'image/svg+xml' })
+    } finally { copy.dispose() }
+  }
+
   const screenView = (): ChartExportView => {
     const st = state.current, view: ChartExportView = {}
     if (looks && Object.keys(looks).length) view.looks = looks
@@ -1542,7 +1562,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
             </button>
           </span>}
           {onCopy && <CopyButton onCopy={() => onCopy(screenView())} />}
-          <DownloadMenu onDownload={(format, dpi) => onDownload(format, dpi, screenView())} />
+          <DownloadMenu onDownload={(format, dpi) => onDownload(format, dpi, screenView())} screen={{ name: chart.title, file: screenFile }} />
         </span>
       </figcaption>
       {settings && createPortal(format ? (
@@ -1859,7 +1879,11 @@ export function CopyButton({ onCopy }: { onCopy: () => Promise<Blob> }) {
   )
 }
 
-export function DownloadMenu({ onDownload }: { onDownload: (format: string, dpi: number) => Promise<void> }) {
+export function DownloadMenu({ onDownload, screen }: {
+  onDownload: (format: string, dpi: number) => Promise<void>
+  /** Пилот: файл, который рисует сам экранный график (ECharts), без Matplotlib. */
+  screen?: { name: string; file: (kind: 'png' | 'svg', dpi: number) => Promise<Blob> }
+}) {
   const [open, setOpen] = useState(false)
   const [format, setFormat] = useState('svg')
   const [dpi, setDpi] = useState(300)
@@ -1874,7 +1898,13 @@ export function DownloadMenu({ onDownload }: { onDownload: (format: string, dpi:
   }, [open])
   const go = async () => {
     setBusy(true); setFailure('')
-    try { await onDownload(format, dpi); setOpen(false) } catch (e) { setFailure((e as Error).message) } finally { setBusy(false) }
+    try {
+      if (format.startsWith('screen-')) {
+        const kind = format === 'screen-svg' ? 'svg' : 'png'
+        await saveFileWithPicker(screen!.file(kind, dpi), `${screen!.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'график'}.${kind}`)
+      } else await onDownload(format, dpi)
+      setOpen(false)
+    } catch (e) { setFailure((e as Error).message) } finally { setBusy(false) }
   }
   return (
     <div className="download" ref={root}>
@@ -1884,9 +1914,10 @@ export function DownloadMenu({ onDownload }: { onDownload: (format: string, dpi:
           <label className="inline-field">Формат
             <select value={format} onChange={e => setFormat(e.target.value)}>
               <option value="svg">SVG</option><option value="pdf">PDF</option><option value="png">PNG</option><option value="xlsx">XLSX (график и данные)</option>
+              {screen && <optgroup label="Пилот: как на экране"><option value="screen-svg">SVG как на экране</option><option value="screen-png">PNG как на экране</option></optgroup>}
             </select>
           </label>
-          {format !== 'xlsx' && <label className="inline-field">DPI
+          {format !== 'xlsx' && format !== 'screen-svg' && <label className="inline-field">DPI
             <select value={dpi} onChange={e => setDpi(Number(e.target.value))}>
               {[300, 600, 1200].map(d => <option key={d} value={d}>{d}</option>)}
             </select>
