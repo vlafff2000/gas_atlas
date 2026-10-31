@@ -297,3 +297,21 @@ def test_project_theme_reaches_files_not_screen(env):
     assert all((s.get('look') or {}).get('color') != '#ff0000' for c in screen['charts'] for s in c['series'])
     bad = client.patch(f'/api/projects/{pid}/settings', json={'values': {'chart_formats': {'theme': {'chart': {'legend': 'внизу'}}}}})
     assert bad.status_code == 400 and 'легенда' in bad.json()['error']
+
+
+def test_live_chart_and_chart_doc(env):
+    """Живой вид: график без оформления самого графика (его накладывает экран); файл и предпросмотр берут оформление (doc) на себя."""
+    client, pid = env
+    chart = first_chart(client, pid)
+    key = chart['items'][0]['key']
+    doc = {'chart': {'subtitle': 'Подзаголовок', 'legend': 'left'}, 'series': {key: {'color': '#00aa00'}}}
+    live = client.post(f'/api/projects/{pid}/export/any/chart', json={'module': MODULE, 'params': PARAMS, 'chart': chart['id'], 'settings': {'doc': doc}})
+    assert live.status_code == 200, live.text
+    assert 'subtitle' not in (live.json().get('style') or {})
+    s = settings_of({'doc': doc})
+    assert s['doc']['chart']['subtitle'] == 'Подзаголовок'
+    with pytest.raises(ParamError):
+        settings_of({'doc': {'chart': {'legend': 'внизу'}}})
+    file = client.post(f'/api/projects/{pid}/export/any/file', json={'module': MODULE, 'params': PARAMS, 'chart': chart['id'], 'settings': {'doc': doc, 'format': 'csv'}})
+    assert file.status_code == 200
+    assert client.post(f'/api/projects/{pid}/export/any/chart', json={'module': MODULE, 'params': PARAMS, 'chart': 'нет'}).status_code == 404

@@ -29,9 +29,11 @@ interface Props {
   looks: Record<string, Look>
   onLooks: (next: Record<string, Look>) => void
   onClose: () => void
+  /** Оформление одного графика (страница выгрузки): вместо выбора уровня показывается подпись. */
+  scopeLabel?: string
 }
 
-export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose }: Props) {
+export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, scopeLabel }: Props) {
   const axes = AXES.filter(n => n === 'x' || n === 'y' || chart[n])
   const [kind, id] = element.split(':')
   const axisName = (kind === 'axis' && axes.includes(id as AxisName) ? id : 'x') as AxisName
@@ -46,10 +48,11 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
     <Dialog title="Формат" subtitle={chart.title} onClose={onClose} dockRight>
       <div className="cs-scope">
         Оформление графика и осей действует на:
-        <select value={scope} onChange={e => onScope(e.target.value as FormatScope)} aria-label="Уровень оформления">
-          <option value="type">графики этого раздела</option>
-          <option value="project">все графики проекта</option>
-        </select>
+        {scopeLabel ? <b>{scopeLabel}</b> : (
+          <select value={scope} onChange={e => onScope(e.target.value as FormatScope)} aria-label="Уровень оформления">
+            <option value="type">графики этого раздела</option>
+            <option value="project">все графики проекта</option>
+          </select>)}
       </div>
       <div className="cs-body">
         <ul className="cs-list">

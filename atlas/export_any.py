@@ -12,7 +12,7 @@ import logging
 from typing import Any, Mapping
 
 from . import chart_special, chart_view, render
-from .chart_style import FONTS, apply_format, clean_axes, clean_chart
+from .chart_style import FONTS, apply_format, clean_axes, clean_chart, clean_format
 from .contract import Chart, Note, ParamError
 
 DPIS = (150, 200, 250, 300, 600, 1200)
@@ -118,16 +118,18 @@ def settings_of(raw: Any) -> dict[str, Any]:
     labels = src.get('labels') if isinstance(src.get('labels'), Mapping) else {}
     return {'format': fmt, 'dpi': dpi, 'look': look, 'width': width, 'height': height, 'font': font, 'font_size': size,
             'sized': bool(_number(src.get('width'), 'Ширина, мм', 80, 300) or preset[0]), 'table': table, 'segment_size': segment, 'cell_size': cell, 'angle': angle, 'filename': filename,
-            'view': dict(view), 'chart': clean_chart(chart), 'title': title, 'axes': clean_axes(src.get('axes')),
+            'view': dict(view), 'doc': clean_format(src.get('doc')), 'chart': clean_chart(chart), 'title': title, 'axes': clean_axes(src.get('axes')),
             'labels': {k: str(v).strip()[:200] for k, v in labels.items() if k in chart_view.AXES + ('x',) and str(v).strip()}}
 
 
-def prepared(chart: Chart, s: Mapping[str, Any]) -> tuple[Chart, list[Note]]:
+def prepared(chart: Chart, s: Mapping[str, Any], with_doc: bool = True) -> tuple[Chart, list[Note]]:
     """Копия графика с видом экрана (ряды, диапазоны), ручными осями, оформлением и заголовком; сам расчёт модуля не меняется.
     Оформление и оси идут через общую модель (``chart_style.apply_format``), как у конструктора."""
     notes: list[Note] = []
     out = chart_view.apply_view(chart, s['view'])
     out = apply_format(out, {'chart': s['chart'], 'axes': s['axes']}, notes)
+    if with_doc and s.get('doc'):
+        out = apply_format(out, s['doc'], notes)      # оформление этого графика (панель «Формат»): главнее настроек формы выше
     if s['title']:
         out = dataclasses.replace(out, title=s['title'])
     names = set(out.axis_names()) | {'x'}
@@ -286,6 +288,18 @@ def routes(projects, E, compute) -> list:
         return Response(content, media_type=mime, headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(name)}",
                                                            'X-Atlas-Notes': quote(json.dumps(notes, ensure_ascii=False))})
 
+    def live(request, body):
+        """График для живого вида: оформление проекта и настройки формы уже на нём, оформление самого графика (``doc``) накладывает экран."""
+        from .contract import _chart_json
+        wanted = str(body.get('chart') or '')
+        found, _ = charts_of(str(body.get('module') or ''), request.path_params['pid'], body.get('params'),
+                             only=wanted.split(SEP, 1)[0] if SEP in wanted else None)
+        chart = next((c for c, _ in found if c.id == wanted), None)
+        if chart is None:
+            return Response(json.dumps({'error': 'График не найден. Обновите список.'}, ensure_ascii=False), status_code=404,
+                            media_type='application/json')
+        return _chart_json(prepared(chart, settings_of(body.get('settings')), with_doc=False)[0])
+
     base = '/api/projects/{pid}/export/any'
     return [Route(base + '/modules', E(modules)), Route(base + '/charts', E(charts), methods=['POST']),
-            Route(base + '/file', E(file), methods=['POST'])]
+            Route(base + '/chart', E(live), methods=['POST']), Route(base + '/file', E(file), methods=['POST'])]

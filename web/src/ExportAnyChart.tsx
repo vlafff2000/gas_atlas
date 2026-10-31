@@ -3,20 +3,17 @@
 // Выбор и настройки каждого графика хранятся в проекте (``settings.export_any``); график без своих настроек берёт вид с экрана.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { saveFileWithPicker } from './desktopDownload'
-import { api, defaults, type ModuleSpec, type Params, type Project } from './api'
+import { api, defaults, type Chart, type ModuleSpec, type Params, type Project } from './api'
+import { ChartView } from './ChartView'
+import type { ChartFormat } from './chartFormat'
 import { ParamBar } from './ParamBar'
-import { SeriesLookFields } from './ChartSettings'
-import { Check, Color, GRID_OPTIONS as GRIDS, MINOR_GRID_OPTIONS as MINOR_GRIDS, Num, Section, Select, SizePick, Text, type Opt } from './exportFields'
-import type { Look } from './chartStyle'
+import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import { savedRanges, seriesLooks } from './chartPrefs'
 import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type AnyStore, type Form } from './api_projects'
 
 const FORMATS: Opt[] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
 const FONTS: Opt[] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]
-const LEGENDS: Opt[] = [['auto', 'Авто'], ['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]
-const ALIGNS: Opt[] = [['', 'Авто'], ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]
 const AXIS_NAME: Record<string, string> = { x: 'Ось X', y: 'Ось Y', y2: 'Ось Y2 (справа)', y3: 'Ось Y3', y4: 'Ось Y4', y5: 'Ось Y5' }
-const SERIES_LIMIT = 40
 const EXTRA_FORMATS: Opt[] = [['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel'], ['csv', 'CSV']]
 const FACET_SEP = '\u0001'      // как на экране: 'Признак\u0001значение'
 const DPIS = [150, 200, 250, 300, 600, 1200]
@@ -55,6 +52,24 @@ function Field({ label, value, onChange, placeholder, wide, type = 'text' }:
 }
 
 /** Вид графика на экране: личный вид рядов («Настройка») и ручные границы осей Y (двойной щелчок по оси). */
+/** Старые настройки формы (оформление графика и вид рядов) переносятся в оформление графика (doc): их правит панель «Формат».
+ *  Заголовок и границы осей остаются в форме. Уже заданное в doc главнее перенесённого. */
+function legacyToDoc(s: AnySettings): { settings: AnySettings; moved: boolean } {
+  const chart = { ...((s.chart as Dict | undefined) ?? {}) }
+  const title = chart.title
+  delete chart.title
+  const view = { ...((s.view as Dict | undefined) ?? {}) }
+  const looks = view.looks as Record<string, unknown> | undefined
+  if (!Object.keys(chart).length && !looks) return { settings: s, moved: false }
+  const old = ((s as { doc?: ChartFormat }).doc ?? {}) as ChartFormat
+  const doc: ChartFormat = { ...old, chart: { ...chart, ...old.chart }, ...(looks ? { series: { ...(looks as Record<string, never>), ...old.series } } : {}) }
+  if (!Object.keys(doc.chart ?? {}).length) delete doc.chart
+  const next: Dict = { ...s, doc }
+  if (title) next.chart = { title }; else delete next.chart
+  if (looks) { delete view.looks; if (Object.keys(view).length) next.view = view; else delete next.view }
+  return { settings: next, moved: true }
+}
+
 function screenView(chart: AnyChartInfo): Dict {
   const all = seriesLooks.get()
   const looks = Object.fromEntries(chart.items.filter(it => all[it.key]).map(it => [it.key, all[it.key]]))
@@ -81,6 +96,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const [chartId, setChartId] = useState('')
   const [settings, setSettings] = useState<AnySettings>({})
   const [image, setImage] = useState<string | null>(null)
+  const [live, setLive] = useState<Chart | null>(null)
   const [notes, setNotes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -160,7 +176,11 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
     loadedKey.current = chartKey
     edited.current = false
     const own = storeRef.current.charts?.[chartKey]
-    if (own) { setSettings(own); return }
+    if (own) {
+      const m = legacyToDoc(own)
+      if (m.moved) edited.current = true
+      setSettings(m.settings); return
+    }
     const view = screenView(chart)
     setSettings(Object.keys(view).length ? { view } : {})
   }, [chart, chartKey])
@@ -203,6 +223,21 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   }, [settingsKey, moduleId, chartId, paramsKey, chartKey])
   useEffect(() => () => flush.current(), [])     // уход со вкладки: несохранённое пишется сразу
 
+  // Живой вид: график с оформлением проекта и настройками формы; оформление самого графика (doc) накладывает экран сразу.
+  const { doc: _doc, ...formSettings } = settings as AnySettings & { doc?: unknown }
+  const formKey = JSON.stringify(formSettings)
+  useEffect(() => {
+    if (!moduleId || !chart?.id || chart.special) { setLive(null); return }
+    let alive = true
+    const timer = setTimeout(() => {
+      anyApi.chart(project.id, moduleId, params, chart.id, formSettings).then(c => alive && setLive(c)).catch(e => alive && setError((e as Error).message))
+    }, 400)
+    return () => { alive = false; clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moduleId, chart?.id, formKey, paramsKey, project.id, dataRevision])
+  const doc = ((settings as { doc?: ChartFormat }).doc ?? {}) as ChartFormat
+  const onDoc = (next: ChartFormat) => change(s => put(s, 'doc', Object.keys(JSON.parse(JSON.stringify(next))).length ? next : ''))
+
   // Предпросмотр: тот же файл, что уйдёт на выгрузку, PNG 150 DPI.
   const shownId = chart?.id ?? ''         // предпросмотр — только у графика, который есть в перечне
   useEffect(() => {
@@ -237,13 +272,6 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const setView = (fn: (v: Dict) => Dict) => change(s => {
     const next = fn((s.view as Dict | undefined) ?? {})
     return put(s, 'view', Object.keys(next).length ? next : '')
-  })
-  const setLook = (key: string, patch: Partial<Look>) => setView(v => {
-    const looks = { ...((v.looks as Record<string, Look> | undefined) ?? {}) }
-    const one = { ...looks[key], ...patch } as Dict
-    for (const k of Object.keys(one)) if (one[k] === undefined) delete one[k]
-    if (Object.keys(one).length) looks[key] = one as Look; else delete looks[key]
-    return put(v, 'looks', Object.keys(looks).length ? looks : '')
   })
   const setHidden = (group: string, hide: boolean) => setView(v => {
     const list = ((v.hidden as string[] | undefined) ?? []).filter(g => g !== group)
@@ -339,7 +367,6 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
               <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
               <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
                 options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as Opt)]} />
-              <Select {...F} field="legend" label="Легенда" def="auto" options={LEGENDS} />
               <Text {...F} field="title" label="Заголовок графика" def="" wide />
               <Select {...F} field="angle" label="Подписи оси X" def="auto"
                 options={[['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]} />
@@ -370,20 +397,6 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
                   </div>
                 )
               })}
-            </Section>
-            <Section title="Оформление графика">
-              <Field label="Размер заголовка, пт" type="number" value={chartStyle.title_size} onChange={v => sub('chart', 'title_size', v === '' ? '' : Number(v))} />
-              <Select {...F} field="title_align" label="Выравнивание заголовка" def="" options={ALIGNS} />
-              <Color label="Цвет заголовка" value={chartStyle.title_color} onChange={v => sub('chart', 'title_color', v)} />
-              <Select {...F} field="grid" label="Сетка" def="" options={GRIDS} />
-              <Color label="Цвет сетки" value={chartStyle.grid_color} onChange={v => sub('chart', 'grid_color', v)} />
-              <Num {...F} field="grid_width" label="Толщина основной сетки, пт" def={0.7} min={0.2} max={4} step={0.1} />
-              <Select {...F} field="minor_grid" label="Доп. линии сетки" def="" options={MINOR_GRIDS} />
-              <Color label="Цвет доп. линий" value={chartStyle.minor_grid_color} onChange={v => sub('chart', 'minor_grid_color', v)} />
-              <Num {...F} field="minor_grid_width" label="Толщина доп. линий, пт" def={0.5} min={0.2} max={4} step={0.1} />
-              <Color label="Фон рисунка" value={chartStyle.background} onChange={v => sub('chart', 'background', v)} />
-              <Color label="Фон области построения" value={chartStyle.plot_background} onChange={v => sub('chart', 'plot_background', v)} />
-              <Color label="Цвет текста" value={chartStyle.text_color} onChange={v => sub('chart', 'text_color', v)} />
             </Section>
           </div>
           {(chart.table || chart.kind === 'stack') && (
@@ -442,28 +455,29 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
               ))}
             </details>
           )}
-          {!special && chart.items.length > 0 && (
+          {!special && (
+            <section className="table-block">
+              <div className="pad">
+                <p className="muted small-text">Живой график: двойной щелчок по заголовку, оси или ряду, правая кнопка или кнопка «Формат» открывают панель оформления этого графика
+                  (заголовок, легенда, сетка, оси, ряды). То, что вы здесь настроили, попадает в файл.</p>
+                {live
+                  ? <ChartView key={live.id + moduleId} chart={live} excludeMode={false} onExclude={() => {}}
+                      format={{ doc, onDoc, label: 'этот график' }}
+                      onDownload={async () => { throw new Error('Файл создаётся кнопкой «Скачать» ниже.') }} />
+                  : <p className="pulse">Построение графика…</p>}
+              </div>
+            </section>
+          )}
+          {!special && chart.items.length > 1 && (
             <details className="table-block">
-              <summary className="block-head"><h3>Ряды ({chart.items.length})</h3></summary>
-              <p className="muted pad">Цвет, линия, маркеры и прозрачность каждого ряда; снятая галочка скрывает ряд в файле. Цвет «авто» — из сквозной палитры групп.</p>
-              {chart.items.slice(0, SERIES_LIMIT).map(it => {
-                const look = (((settings.view as Dict | undefined)?.looks as Dict | undefined)?.[it.key] as Look | undefined) ?? {}
-                const hidden = (((settings.view as Dict | undefined)?.hidden as string[] | undefined) ?? []).includes(it.group)
-                return (
-                  <details key={it.key} className="table-block">
-                    <summary className="block-head">
-                      <span style={{ display: 'inline-block', width: 12, height: 12, background: look.color ?? it.color, marginRight: 8, borderRadius: 2 }} />
-                      {it.name || it.group}{hidden ? ' (скрыт)' : ''}
-                    </summary>
-                    <div className="pad">
-                      <Tick label="Показывать ряд" value={!hidden} onChange={v => setHidden(it.group, !v)} />
-                      <SeriesLookFields s={{ kind: it.kind, dash: 'solid', dashed: false, width: 0, markers: false, symbol: 'circle', opacity: 1 }}
-                        color={it.color} look={look} onChange={patch => setLook(it.key, patch)} />
-                    </div>
-                  </details>
-                )
-              })}
-              {chart.items.length > SERIES_LIMIT && <p className="muted pad">Показаны первые {SERIES_LIMIT} рядов из {chart.items.length}.</p>}
+              <summary className="block-head"><h3>Какие ряды выгружать ({chart.items.length})</h3></summary>
+              <p className="muted pad">Снятая галочка убирает ряд из файла. Цвет, линия и маркеры рядов — в панели «Формат» живого графика.</p>
+              <div className="pad">
+                {chart.items.slice(0, 200).map(it => {
+                  const hidden = (((settings.view as Dict | undefined)?.hidden as string[] | undefined) ?? []).includes(it.group)
+                  return <Tick key={it.key} label={it.name || it.group} value={!hidden} onChange={v => setHidden(it.group, !v)} />
+                })}
+              </div>
             </details>
           )}
           <div className="toolbar">
