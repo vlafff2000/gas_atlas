@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { api, type ModuleSpec, type Param, type Params } from './api'
 import { MultiSelect } from './MultiSelect'
+import { wellPresets } from './api_wells'
 import { openFilePicker } from './FilePicker'
 import { paramsCollapsed, usePref } from './chartPrefs'
 import { formatDate } from './format'
@@ -227,7 +228,7 @@ function DynamicMulti({ spec, project, param: p, values, onChange, onOptions }:
   }, [options])
 
   return <MultiSelect label={p.label} options={options ?? []} value={value} loading={options === undefined}
-    emptyMeaning={p.empty} prefix={p.prefix} picker={p.wells_picker || isWellsParam(p) ? project : undefined}
+    emptyMeaning={p.empty} prefix={p.prefix} presets={p.wells_picker || isWellsParam(p) ? wellPresets(project) : undefined}
     onChange={v => { touched.current = true; onChange(v) }} />
 }
 
@@ -303,7 +304,7 @@ function Field({ param: p, project, value, options, onChange }:
     const list = options ?? p.options.map(o => String(o.value))
     return <MultiSelect label={p.label} options={list} value={(value as string[]) ?? []} onChange={onChange}
       loading={p.source !== null && options === undefined} emptyMeaning={p.empty} prefix={p.prefix}
-      picker={p.wells_picker || isWellsParam(p) ? project : undefined} />
+      presets={p.wells_picker || isWellsParam(p) ? wellPresets(project) : undefined} />
   }
   if (p.kind === 'boolean') {
     return (

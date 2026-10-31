@@ -26,6 +26,10 @@ const json = (method: string, body: unknown): RequestInit => ({
   method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 })
 
+import { presetSource } from './wellPresets'
+/** Источник пресетов проекта для общего списка скважин (MultiSelect): тот же адрес, что у wellPresetApi. */
+export const wellPresets = (project: string) => presetSource(`/api/projects/${project}/well-presets`)
+
 export const wellFilterApi = {
   status: (project: string, filter: WellFilter) => send<WellFilterStatus>(`/api/projects/${project}/well-filter`, json('POST', { filter })),
 }

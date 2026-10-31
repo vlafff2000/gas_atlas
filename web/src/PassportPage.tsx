@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Project } from './api'
 import { passportApi, type PassportCard, type PassportInfo } from './api_passport'
 import { MultiSelect } from './MultiSelect'
+import { wellPresets } from './api_wells'
 import { PassportDashboard } from './PassportCard'
 import { WellFilter } from './WellFilter'
 import type { WellFilter as WellFilterValue } from './api_wells'
@@ -93,7 +94,7 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
           </label>
           <WellFilter project={project.id} revision={project.revision} value={filter} onChange={setFilter} />
           <MultiSelect label="Скважины для PDF" options={info.shown} value={batch} onChange={setBatch} emptyMeaning="только выбранная"
-            prefix="№ " picker={project.id} />
+            prefix="№ " presets={wellPresets(project.id)} />
           <button type="button" className="quiet" disabled={info.shown.length === 0}
             onClick={() => setBatch(info.shown)} title="Все скважины, оставшиеся после фильтра">Выбрать все по фильтру ({info.shown.length})</button>
           <span className="spacer" />

@@ -1,6 +1,6 @@
 // Кнопки «Второе окно» и «Окна связаны»: одна и та же программа на двух мониторах (см. windows.ts).
 // Подключение: <WindowButtons page={текущая страница} other="страница для второго окна" />, обычно в боковом меню.
-import { usePref } from './chartPrefs'
+import { usePref } from './pref'
 import { linkWindows, openSecondWindow } from './windows'
 
 export function WindowButtons({ page, other }: { page: string; other?: string }) {
