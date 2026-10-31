@@ -131,7 +131,7 @@ export function SeriesDialog({ project, layout, onClose }: { project: string; la
               {tooMany ? `Выбрано ${wells.length} скважин, за один раз можно не больше ${info.limit}. Выберите меньше.` : `К выгрузке: ${wells.length} скв. Скважины без данных пропускаются, их перечень будет в заметке.`}
             </p>
             <button type="button" className="primary" disabled={busy || !info.enabled || !wells.length || tooMany} onClick={run}>
-              {busy ? 'Готовим файл…' : 'Выгрузить серию'}</button>
+              {busy ? 'Готовим файл…' : 'Скачать серию'}</button>
           </>
         )}
         {message && <div className="note info" role="status">{message}</div>}
