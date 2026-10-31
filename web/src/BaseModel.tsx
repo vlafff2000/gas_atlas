@@ -92,7 +92,7 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
         <ul>{state.notes.slice(0, 20).map((n, i) => <li key={i} className="small">{n}</li>)}</ul></details>}
       {state && cmp && (
         <>
-          <table className="raw"><thead><tr><th>Параметр</th><th>совпало</th><th>расходится</th><th>только в модели</th><th>только в файле</th><th>взять</th></tr></thead>
+          <table className="data-grid"><thead><tr><th>Параметр</th><th>совпало</th><th>расходится</th><th>только в модели</th><th>только в файле</th><th>взять</th></tr></thead>
             <tbody>{state.fields.map(f => <tr key={f.key}><td>{f.label}</td>
               <td>{cmp.counts[f.key].same}</td><td>{cmp.counts[f.key].diff}</td><td>{cmp.counts[f.key].only_model}</td><td>{cmp.counts[f.key].only_file}</td>
               <td><input type="checkbox" checked={fields.includes(f.key)} onChange={() => toggle(f.key)} aria-label={'Взять из модели: ' + f.label} /></td></tr>)}</tbody></table>
@@ -104,7 +104,7 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
           <p className="muted small">Альтитуды лучше сверять с файлом: по умолчанию они не отмечены.</p>
           {cmp.rows.length > 0 && (
             <details><summary className="small">Расхождения и недостающие значения: скважин {cmp.rows.length}{cmp.truncated ? ` (показаны первые, ещё ${cmp.truncated})` : ''}</summary>
-              <table className="raw"><thead><tr><th>Скважина</th><th>Поле</th><th>Модель</th><th>Файл</th><th>Статус</th></tr></thead>
+              <table className="data-grid"><thead><tr><th>Скважина</th><th>Поле</th><th>Модель</th><th>Файл</th><th>Статус</th></tr></thead>
                 <tbody>{cmp.rows.flatMap(r => Object.entries(r).filter(([k, v]) => k !== 'well' && typeof v === 'object' && (v as BaseModelCell).state !== 'same')
                   .map(([k, v]) => <tr key={r.well + k}><td>{r.well}</td><td>{k}</td><td>{num((v as BaseModelCell).model)}</td><td>{num((v as BaseModelCell).file)}</td>
                     <td>{STATE_TEXT[(v as BaseModelCell).state]}</td></tr>))}</tbody></table></details>

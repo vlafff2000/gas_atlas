@@ -8,7 +8,7 @@
 .import .form-row { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; }
 .import .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 16px; }
 .field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
-.field select, .field input, .import textarea, .grid select, .grid input, .names input {
+.field select, .field input, .import textarea, .data-grid select, .data-grid input, .names input {
   border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 8px; background: var(--surface); color: var(--ink);
   font-size: 14px; min-width: 0;
 }
@@ -34,11 +34,7 @@ button.link { background: none; border: 0; color: var(--accent-strong); cursor: 
 .metrics span { font-size: 13px; color: var(--muted); }
 .metrics strong { font-size: 22px; }
 .table-scroll { overflow: auto; max-height: 560px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
-table.grid { border-collapse: collapse; width: 100%; font-size: 14px; }
-table.grid th, table.grid td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
-table.grid th { position: sticky; top: 0; background: var(--bg); font-weight: 700; z-index: 1; }
-table.grid td.ok { color: var(--accent-strong); }
-.bad, table.grid td.bad { color: var(--bad); }
+.bad { color: var(--bad); }
 .boxed { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; background: var(--surface); }
 .boxed h3 { font-size: 17px; }
 .sheet-editor { display: grid; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }

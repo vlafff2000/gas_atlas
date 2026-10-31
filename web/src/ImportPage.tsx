@@ -373,7 +373,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
             <>
               <Metrics items={[['Файлов', simple.counts.files], ['Листов', simple.counts.sheets], ['Будет загружено', simple.counts.use], ['Не распознано', simple.counts.unknown]]} />
               <div className="table-scroll">
-                <table className="grid">
+                <table className="data-grid">
                   <thead><tr><th>Исп.</th><th>Файл</th><th>Лист</th><th>Тип данных</th><th>Распознанные поля</th><th>Статус</th></tr></thead>
                   <tbody>
                     {simple.rows.map(r => (
@@ -644,7 +644,7 @@ function PressureImport({ project, options, onProject }: { project: Project; opt
           {rows.length > 12 && <label className="toggle"><input type="checkbox" checked={onlyIssues} onChange={e => setOnlyIssues(e.target.checked)} /><span>Показать только листы с замечаниями</span></label>}
           {rows.length > 0 && (
             <div className="table-scroll">
-              <table className="grid">
+              <table className="data-grid">
                 <thead><tr><th>Исп.</th><th>Файл</th><th>Лист</th><th>Роль</th><th>Объект</th><th>Сценарий</th><th>Статус</th><th>Значений</th><th>Скважин</th><th>Период</th><th>Структура</th></tr></thead>
                 <tbody>
                   {shown.map(r => (
