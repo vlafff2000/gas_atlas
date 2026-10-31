@@ -1,0 +1,19 @@
+/* Общая сетка данных (DataGrid): служебные списки и таблицы со строками, которые выбирают или правят.
+   Таблицы-результаты (выгрузка, режимы расположения) — TableView, а не эта. Источник — gas_atlas/web/src, копия в all_scripts/pxg_core/web-ui. */
+table.data-grid { border-collapse: collapse; width: 100%; font-size: 13px; }
+.data-grid th, .data-grid td { padding: 4px 8px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: middle; }
+.data-grid thead th { position: sticky; top: 0; z-index: 1; background: var(--head-bg, var(--bg)); font-weight: 700; }
+.data-grid th button { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-weight: 700; color: var(--ink); text-align: inherit; }
+.data-grid tbody tr:hover { background: var(--row-hover, var(--accent-soft)); }
+.data-grid.pick tbody tr { cursor: pointer; }
+.data-grid tbody tr.sel { background: var(--accent-soft); }
+.data-grid tr.hdr { background: var(--accent-soft); font-weight: 700; }
+.data-grid tr.dim { opacity: .55; }
+.data-grid.dense { font-size: 12px; }
+.data-grid.dense th, .data-grid.dense td { padding: 3px 8px; white-space: nowrap; }
+.data-grid .number { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.data-grid td.ok { color: var(--accent-strong); }
+.data-grid td.bad { color: var(--bad); font-weight: 700; }
+.data-grid a { color: var(--accent-strong); }
+.data-grid td input, .data-grid td select { font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); max-width: 100%; }
+.data-grid td input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }

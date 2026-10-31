@@ -39,7 +39,7 @@ export function ImportChecklist({ project }: { project: Project }) {
             <h3>{shown.label}</h3>
             <p className="small">{shown.count > 0 ? 'Уже в проекте.' : 'В проекте пока нет.'} Нужно для: {shown.used}.</p>
             {shown.details.length > 0 && (
-              <table className="raw checklist-facts" aria-label="Что загружено">
+              <table className="data-grid checklist-facts" aria-label="Что загружено">
                 <tbody>{shown.details.map(([k, v]) => <tr key={k}><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
               </table>
             )}
@@ -48,7 +48,7 @@ export function ImportChecklist({ project }: { project: Project }) {
             )}
             {shown.columns.length > 0 && (
               <div className="table-scroll">
-                <table className="raw">
+                <table className="data-grid">
                   <thead><tr>{shown.columns.map((c, k) => <th key={k}>{c}</th>)}</tr></thead>
                   {shown.example.length > 0 && <tbody><tr>{shown.example.map((c, k) => <td key={k}>{c}</td>)}</tr></tbody>}
                 </table>

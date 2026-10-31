@@ -75,7 +75,7 @@ export function FundPage({ project, onProject }: { project: Project; onProject: 
           </div>
           {message && <div className={'note ' + message.level} role="status">{message.text}</div>}
           <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-            <table className="grid">
+            <table className="data-grid">
               <thead><tr><th></th><th>Скважина</th><th>Группа</th><th>Фонд</th><th>Подсказка программы</th><th>Откуда известна</th></tr></thead>
               <tbody>{rows.map(r => (
                 <tr key={r.well}>
