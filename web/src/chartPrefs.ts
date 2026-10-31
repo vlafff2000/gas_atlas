@@ -101,6 +101,8 @@ export const savedSteps = pref<Record<string, Partial<Record<'x' | 'y' | 'y2' | 
 export const seriesLooks = pref<Record<string, Look>>('', {})
 /** Оформление открытого проекта (settings.chart_formats): тема и типы графиков. Вид рядов темы — в seriesLooks (правится вживую). */
 export const projectFormats = pref<FormatStore>('', {})
+/** Общий шрифт графиков проекта (settings.chart_font): times — по умолчанию, base — шрифт приложения, arial_narrow. */
+export const chartFont = pref<string>('', 'times')
 /** Уровень, на который панель «Формат» пишет оформление графика и осей: раздел или весь проект. */
 export const formatScope = pref<'type' | 'project'>('atlas.format.scope', 'type')
 /** Вид рядов, который раньше хранился в браузере (до хранения в проекте): переносится в проекты без своего оформления. */

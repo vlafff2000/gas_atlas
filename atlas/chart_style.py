@@ -467,12 +467,24 @@ def clean_store(raw: Any) -> dict[str, Any]:
     return out
 
 
+CHART_FONTS = {'times': 'Times New Roman', 'base': 'Базовый', 'arial_narrow': 'Arial Narrow'}
+CHART_FONT_DEFAULT = 'times'
+
+
+def font_of(settings: Mapping[str, Any] | None) -> str | None:
+    """Общий шрифт графиков проекта (настройка ``chart_font``): Times New Roman по умолчанию; «базовый» — без своего шрифта."""
+    key = (settings or {}).get('chart_font', CHART_FONT_DEFAULT)
+    return None if key == 'base' else (key if key in CHART_FONTS else CHART_FONT_DEFAULT)
+
+
 def format_of(settings: Mapping[str, Any] | None, module: str) -> dict[str, Any]:
     """Оформление графиков раздела по настройкам проекта: тема, затем тип (раздел)."""
     store = (settings or {}).get('chart_formats') or {}
     if not isinstance(store, Mapping):
-        return {}
-    return merge_formats(store.get('theme'), (store.get('types') or {}).get(module))
+        store = {}
+    font = font_of(settings)
+    # общий шрифт проекта — самый нижний слой: тема, тип и график его переопределяют
+    return merge_formats({'chart': {'font': font}} if font else None, store.get('theme'), (store.get('types') or {}).get(module))
 
 
 def apply_store(result: Any, settings: Mapping[str, Any] | None, module: str) -> Any:

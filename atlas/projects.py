@@ -98,6 +98,8 @@ EDITABLE_SETTINGS = {
     'export_any': _export_any,
     # Оформление графиков проекта: тема (все графики) и типы (разделы); проверка — ``chart_style.clean_store``.
     'chart_formats': _chart_formats,
+    # Общий шрифт графиков проекта: times (по умолчанию) / base / arial_narrow.
+    'chart_font': lambda v: v in ('times', 'base', 'arial_narrow'),
     'an_colors': lambda v: isinstance(v, dict) and all(isinstance(k, str) and len(k) <= 40 and isinstance(x, str)
                                                        and re.fullmatch(r'#?[0-9A-Fa-f]{6}', x) for k, x in v.items()),
 }
@@ -108,7 +110,7 @@ SETTING_LABELS = {'season_format': 'Вид названий сезонов', 'le
                   'auto_peaks': 'Искать пиковые режимы по расходу', 'peak_factor': 'Пик: во сколько раз выше медианы сезона',
                   'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков',
                   'well_filter': 'Фильтр скважин', 'export_filters': 'Фильтры вкладок экспорта',
-                  'export_any': 'Настройки «Любого графика»', 'chart_formats': 'Оформление графиков проекта'}
+                  'export_any': 'Настройки «Любого графика»', 'chart_formats': 'Оформление графиков проекта', 'chart_font': 'Шрифт графиков'}
 
 
 def _setting_value(name: str, value: Any) -> Any:

@@ -3,7 +3,7 @@
 // (весь проект) или types[модуль] (графики этого раздела). На экране правка видна сразу, в проект пишется с паузой.
 import { useEffect } from 'react'
 import { api, type Project } from './api'
-import { browserLooks, projectFormats, seriesLooks } from './chartPrefs'
+import { browserLooks, chartFont, projectFormats, seriesLooks } from './chartPrefs'
 import type { ChartFormat, FormatStore } from './chartFormat'
 
 const SAVE_DELAY = 800                              // мс: перетаскивание ползунка не пишет проект на каждый шаг
@@ -47,6 +47,8 @@ export function setFormatDoc(scope: FormatScope, module: string, doc: ChartForma
  *  (открыт впервые после обновления) получает вид рядов, который раньше хранился в этом браузере. */
 export function useProjectLooks(project: Project | null) {
   const pid = project?.id
+  const font = project?.settings.chart_font
+  useEffect(() => { chartFont.set(typeof font === 'string' ? font : 'times') }, [font])
   useEffect(() => {
     if (!project) return
     const own = saved.get(project.id) ?? (project.settings.chart_formats as FormatStore | null | undefined) ?? null
