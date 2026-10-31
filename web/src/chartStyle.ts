@@ -1,4 +1,4 @@
-// Личный вид рядов графика (окно «Настройка»): цвет, линия, маркеры. Хранится в браузере; данные и расчёт не меняются.
+// Вид рядов графика (окно «Настройка»): цвет, линия, маркеры. Хранится в проекте (projectLooks.ts); данные и расчёт не меняются.
 import type { Chart, Series } from './api'
 
 export type MarkerShape = 'circle' | 'square' | 'diamond' | 'triangle' | 'plus' | 'x' | 'star'
@@ -36,6 +36,8 @@ export const LINE_STYLES: { value: LineStyleName; label: string }[] = [
   { value: 'solid', label: 'Сплошная' },
   { value: 'dash', label: 'Штриховая' },
   { value: 'dot', label: 'Пунктирная' },
+  { value: 'dashdot', label: 'Штрихпунктирная' },
+  { value: 'longdash', label: 'Длинный штрих' },
 ]
 
 // Крест и звезда — контуры в условных координатах [-1, 1]; ECharts растягивает их до размера отметки.

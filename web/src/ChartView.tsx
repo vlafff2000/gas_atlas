@@ -12,8 +12,9 @@ import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
-import { seriesLooks, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
-import { applyLooks, looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
+import { seriesLooks, projectFormats, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
+import { applyFormat, mergeFormats } from './chartFormat'
 import { ChartSettings } from './ChartSettings'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import './chart.css'
@@ -26,6 +27,15 @@ const SYMBOL = { circle: 'circle', square: 'rect', diamond: 'diamond', triangle:
 const DASH: Record<string, string | number[]> = {
   solid: 'solid', dash: [6, 4], dot: [1.5, 3.5], dashdot: [8, 3, 2, 3], longdash: [12, 4],
 }
+/** Единицы отображения оси (как в Excel): подписи делятся на множитель, к единице добавляется ×10ⁿ. */
+const UNIT_FACTOR = { thousands: [1e3, '×10³'], millions: [1e6, '×10⁶'], billions: [1e9, '×10⁹'] } as const
+const numeric = (a: Axis) => a.scale === 'value' || a.scale === 'log'
+const unitFactor = (a: Axis) => (a.style?.units && numeric(a) ? UNIT_FACTOR[a.style.units][0] : 1)
+const shownUnit = (a: Axis) => (a.style?.units && numeric(a) ? [UNIT_FACTOR[a.style.units][1], a.unit].filter(Boolean).join(' ') : a.unit)
+/** Деления оси: наружу, внутрь, через ось (ECharts рисует наружу и длиннее), нет. */
+const tickOpt = (mark: string | undefined, color: string, fallback: boolean, length: number) => mark
+  ? { show: mark !== 'none', inside: mark === 'in', length: mark === 'cross' ? length * 1.6 : length, lineStyle: { color } }
+  : { show: fallback }
 const LARGE = 5000          // точек в серии: дальше облако рисуется пакетно, линия — с прореживанием LTTB
 const DENSE = 400           // точек в серии: плотнее — белые обводки отметок закрывают линию, поэтому рисуется сплошная линия без отметок
 const SMOOTH_BINS = 500     // точек сглаженной линии (среднее по подряд идущим замерам) в режиме «Сплошная кривая»
@@ -43,6 +53,8 @@ const eventColor = (kind: ChartEvent['kind'], tk: ChartTokens) =>
 
 interface Props {
   chart: Chart
+  /** Тип графика — id модуля: оформление проекта для этого типа (settings.chart_formats.types) ложится поверх темы. */
+  module?: string
   /** Мини-вариант (подсказка на карте, карточка): без заголовка, кнопок, легенды и навигатора; высота — переменная --chart-h (104px по умолчанию). Подсказка, перекрестие и зум остаются теми же. */
   compact?: boolean
   excludeMode: boolean
@@ -95,7 +107,7 @@ function binned(rows: unknown[][], bins: number) {
   }
   return out
 }
-const dashOf = (s: Series) => DASH[s.dash || (s.dashed ? 'dash' : 'solid')]
+const dashOf = (s: Series) => DASH[s.look?.dash || s.dash || (s.dashed ? 'dash' : 'solid')]
 
 function colorOf(chart: Chart) {
   const groups = [...new Set(chart.series.map(key))]
@@ -246,7 +258,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const dual = alignedYAxes(chart, base)
   const twin = yCount(chart) > 1 && Y_NAMES.slice(0, yCount(chart)).every((_, i) => yAxisAt(chart, i).scale === 'value')      // ручные границы тоже делятся на 5
   const manyRight = rightAxes(chart).length > 1
-  const rightNames = yAxesOf(chart).map(a => fitAxisName(plainRich(a.label), a.unit, Y_BAND - 8, a.style?.title_size ?? 12))
+  const rightNames = yAxesOf(chart).map(a => fitAxisName(plainRich(a.label), shownUnit(a), Y_BAND - 8, a.style?.title_size ?? 12))
   const nameLines = manyRight ? Math.max(...rightNames.slice(1).map(n => n.lines)) : 1
   const axis = (a: Axis, position: 'x' | YName) => {
     const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position !== 'x' ? dual?.[position] : undefined
@@ -282,7 +294,14 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     const ink = a.color || cs.text_color || tk.muted
     const showGrid = !cs.grid || cs.grid === 'both' || cs.grid === (y ? 'h' : 'v')
     const dateFormat = as.date_format ? as.date_format.replace(/(dd|MM|yyyy)/g, '{$1}') : null
-    const nameRich = echartsRich(axisTitle(a.label, a.unit), as.title_size ?? 12)
+    const nameRich = echartsRich(axisTitle(a.label, shownUnit(a)), as.title_size ?? 12)
+    const factor = unitFactor(a)
+    const titleFont = { fontWeight: as.title_bold ? 700 : undefined, fontStyle: as.title_italic ? 'italic' : undefined }
+    const along = as.title_place === 'middle'                // название вдоль оси: Y — повернуто, по середине; X — по середине
+    const atEnd = !y && as.title_place === 'end'
+    const lineColor = as.line_color || a.color || tk.axis
+    const minorBy = as.minor_step && a.step ? Math.max(1, Math.round(a.step / as.minor_step)) : undefined
+    const minorGrid = cs.minor_grid === 'show' && (position === 'y' || position === 'x') && numeric(a)
     return {
       type: a.scale, inverse: a.inverse, scale: !zero,
       min: a.scale === 'category' ? undefined : a.minimum ?? (zero ? 0 : undefined),
@@ -291,22 +310,28 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       minInterval: (a.unit === 'скв.' || a.unit === 'ед.') && a.scale === 'value' ? 1 : undefined,      // скважин — целое число, делений по 0,5 не бывает
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
       name: narrow ? narrow.text : nameRich.text,
-      // подпись шкалы Y — горизонтально над осью, читается без наклона головы
-      nameLocation: y ? (a.inverse ? 'start' : 'end') : 'middle', nameGap: y ? 14 : 30,
-      ...(narrow?.cut ? { triggerEvent: true, tooltip: { show: true, formatter: () => richHtml(axisTitle(a.label, a.unit)) } } : {}),
-      nameTextStyle: y
-        ? { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 15 } : {}), padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0], rich: nameRich.rich }
-        : { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, rich: nameRich.rich },
-      axisLine: { show: !y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color, lineStyle: { color: a.color || tk.axis } },
+      // подпись шкалы Y — горизонтально над осью, читается без наклона головы; «вдоль оси» — повернута, как в Excel
+      nameLocation: y ? (along ? 'middle' : a.inverse ? 'start' : 'end') : atEnd ? 'end' : 'middle', nameGap: y ? (along ? 46 : 14) : atEnd ? 8 : 30,
+      ...(y && along ? { nameRotate: position === 'y' ? 90 : -90 } : {}),
+      ...(narrow?.cut ? { triggerEvent: true, tooltip: { show: true, formatter: () => richHtml(axisTitle(a.label, shownUnit(a))) } } : {}),
+      nameTextStyle: y && !along
+        ? { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, ...titleFont, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 15 } : {}), padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0], rich: nameRich.rich }
+        : { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, ...titleFont, rich: nameRich.rich },
+      axisLine: { show: as.line ?? (!y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color || !!as.line_color), lineStyle: { color: lineColor, width: as.line_width ?? 1 } },
       ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
-      axisTick: { show: false },
+      axisTick: tickOpt(as.ticks, lineColor, false, 5),
+      ...(as.minor_ticks || minorGrid ? { minorTick: { ...tickOpt(as.minor_ticks ?? 'none', lineColor, false, 3), ...(minorBy ? { splitNumber: minorBy } : {}) } } : {}),
+      ...(minorGrid ? { minorSplitLine: { show: true, lineStyle: { color: cs.minor_grid_color || tk.grid, width: cs.minor_grid_width ?? 0.5, type: DASH[cs.minor_grid_dash ?? 'dot'], opacity: 0.6 } } } : {}),
       axisLabel: {
         color: ink, fontSize: as.tick_size ?? 11, fontFamily: family, hideOverlap: true, margin: 10,
+        fontWeight: as.tick_bold ? 700 : undefined, fontStyle: as.tick_italic ? 'italic' : undefined,
+        ...(as.label_rotate ? { rotate: as.label_rotate } : {}),
         ...(a.scale === 'time'
           ? dateFormat ? { formatter: dateFormat } : { formatter: { year: '{yyyy}', month: '{MM}.{yyyy}', day: '{dd}.{MM}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', none: '{dd}.{MM}.{yyyy}' } }
-          : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(v, as.decimals ?? null) }),
+          : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(v / factor, as.decimals ?? null) }),
       },
-      splitLine: { show: showGrid && (position === 'y' || position === 'x') && (y || a.scale !== 'category'), lineStyle: { color: chart.style?.grid_color || tk.grid, width: 1 } },
+      splitLine: { show: showGrid && (position === 'y' || position === 'x') && (y || a.scale !== 'category'),
+        lineStyle: { color: cs.grid_color || tk.grid, width: cs.grid_width ?? 1, ...(cs.grid_dash ? { type: DASH[cs.grid_dash] } : {}) } },
     }
   }
 
@@ -328,7 +353,11 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     ...(colored.length ? { visualMap: { type: 'continuous', min: shadeLo, max: shadeHi === shadeLo ? shadeLo + 1 : shadeHi, dimension: 4, seriesIndex: colored.map(c => c.i),
       right: 4, top: 'middle', itemHeight: 150, itemWidth: 12, calculable: false, text: [`${shadeTitle}\n${shadeFmt(shadeHi)}`, shadeFmt(shadeLo)],
       inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: 11 } } } : {}),
-    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 64, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44 },
+    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 64, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44,
+      // область построения: фон и рамка (модель оформления: plot_background, plot_border_*)
+      ...(chart.style?.plot_background || chart.style?.plot_border_color || chart.style?.plot_border_width ? { show: true,
+        backgroundColor: chart.style.plot_background || 'transparent', borderColor: chart.style.plot_border_color || tk.axis,
+        borderWidth: chart.style.plot_border_color || chart.style.plot_border_width ? chart.style.plot_border_width ?? 1 : 0 } : {}) },
     xAxis: axis(chart.x, 'x'),
     yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
@@ -383,6 +412,13 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     series: withBands(chart.series.map(s => {
       const L: Look = s.look ?? {}
       const c = L.color ?? color(s)
+      const hollow = L.hollow ?? s.hollow
+      // граница маркера и подписи данных из оформления (модель v2): не заданное — как задано модулем
+      const edge = (fallback: string, width: number) => ({ borderColor: L.marker_border ?? fallback, borderWidth: L.marker_border_width ?? width })
+      const dataLabel = (position: string, fallbackDecimals: number | null) => ({
+        show: true, position: L.label_position ?? position, distance: 2, fontFamily: fontCss('times'), fontSize: L.label_size ?? 11, color: tk.ink,
+        formatter: (p: { value: unknown }) => { const v = Number(Array.isArray(p.value) ? p.value[1] : p.value)
+          return Number.isFinite(v) ? formatNumber(v, L.label_decimals ?? fallbackDecimals) : '' } })
       const blur = total <= BLUR_LIMIT
       const emphasis = { focus: blur ? 'series' : 'none', blurScope: 'coordinateSystem' }
       const blurred = { lineStyle: { opacity: 0.25 }, itemStyle: { opacity: 0.25 } }
@@ -425,8 +461,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : { barMaxWidth: 24 }), barGap: '12%',
           itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
           // подписи значений: целые, над столбиком; при тесноте ECharts прячет лишние, чтобы соседние не налезали
-          ...(L.valueLabels ? { label: { show: true, position: 'top', distance: 2, fontFamily: fontCss('times'), fontSize: 11, color: tk.ink,
-            formatter: (p: { value: unknown }) => String(Math.round(Number(Array.isArray(p.value) ? p.value[1] : p.value))) }, labelLayout: { hideOverlap: true } } : {}),
+          ...(L.valueLabels ? { label: dataLabel('top', 0), labelLayout: { hideOverlap: true } } : {}),
           emphasis: { focus: 'none', itemStyle: { color: c } } }
       }
       const width = L.width ?? (s.width || 2)
@@ -438,7 +473,8 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         return { ...common, type: 'line', z: s.fill ? 1 : s.markers ? 3 : 2, connectNulls: false, ...(s.step ? { step: 'end' } : {}),
           sampling: rows.length > LARGE && !markers && thinCharts.get() ? 'lttb' : undefined,
           showSymbol: markers, showAllSymbol: 'auto', symbol: markers ? markerSymbol(L.shape, SYMBOL[s.symbol]) : 'none', symbolSize: L.size ?? (rows.length > 150 ? 4 : s.markers ? 7 : 5),
-          itemStyle: s.hollow ? { color: tk.surface, borderColor: mc, borderWidth: 1.8 } : { color: mc, borderColor: tk.surface, borderWidth: 1.5 },
+          itemStyle: hollow ? { color: tk.surface, ...edge(mc, 1.8) } : { color: mc, ...edge(tk.surface, 1.5) },
+          ...(L.valueLabels ? { label: dataLabel('top', null), labelLayout: { hideOverlap: true } } : {}),
           lineStyle: { color: c, width, type: L.dash ? DASH[L.dash] : dashOf(s), cap: 'round', join: 'round', opacity: L.line === false ? 0 : s.opacity < 1 && !s.fill ? s.opacity : 1 },
           ...(area ? { areaStyle: { color: c, opacity: s.fill ? L.opacity ?? 0.6 : 0.6 } } : {}),
           emphasis: { ...emphasis, lineStyle: { width: width + 1 } } }
@@ -452,12 +488,13 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         formatter: (p: { dataIndex: number }) => captions[p.dataIndex] ?? '',
       } : undefined
       // hideOverlap: соседние подписи не налезают друг на друга — скрытая подпись видна в подсказке точки
-      return { ...common, type: 'scatter', z: s.hollow ? 4 : 3, symbol: L.marker === false ? 'none' : markerSymbol(L.shape, SYMBOL[s.symbol]), symbolSize: L.size ?? (big ? 5 : s.hollow ? 10 : 9),
-        large: big, largeThreshold: LARGE, progressive: 0, ...(caption ? { label: caption, labelLayout: { hideOverlap: true } } : {}),
+      const labels = caption ?? (L.valueLabels && !big ? dataLabel('top', null) : undefined)
+      return { ...common, type: 'scatter', z: hollow ? 4 : 3, symbol: L.marker === false ? 'none' : markerSymbol(L.shape, SYMBOL[s.symbol]), symbolSize: L.size ?? (big ? 5 : hollow ? 10 : 9),
+        large: big, largeThreshold: LARGE, progressive: 0, ...(labels ? { label: labels, labelLayout: { hideOverlap: true } } : {}),
         itemStyle: {
-          ...(s.hollow
-            ? { color: 'rgba(255,255,255,0)', borderColor: c, borderWidth: 1.8 }
-            : big ? { color: alpha(c, 0.55) } : { color: c, borderColor: tk.surface, borderWidth: 1.5 }),
+          ...(hollow
+            ? { color: 'rgba(255,255,255,0)', ...edge(L.markerColor ?? c, 1.8) }
+            : big ? { color: alpha(c, 0.55) } : { color: L.markerColor ?? c, ...edge(tk.surface, 1.5) }),
           ...(s.opacity < 1 ? { opacity: s.opacity } : {}) } }
     }), chart, tk),
   }
@@ -520,7 +557,7 @@ function suspectClick(st: { pending: null | { id: string; dataset: string; timer
   st.pending = { id, dataset, timer }
 }
 
-export function ChartView({ chart: given, compact, excludeMode, onExclude, onConfirm, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
+export function ChartView({ chart: given, module, compact, excludeMode, onExclude, onConfirm, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -533,7 +570,10 @@ export function ChartView({ chart: given, compact, excludeMode, onExclude, onCon
   }, [given, patch])
   const looksAll = usePref(seriesLooks)
   const looks = useMemo(() => looksOf(given, looksAll), [given, looksAll])
-  const chart = useMemo(() => applyLooks(windowed, looks), [windowed, looks])
+  const store = usePref(projectFormats)
+  // оформление проекта: тема (стиль, оси, вид рядов из «Настройки») → тип графика; на экране сразу, без пересчёта
+  const chart = useMemo(() => applyFormat(windowed, mergeFormats({ chart: store.theme?.chart, axes: store.theme?.axes, series: looks },
+    module ? store.types?.[module] : undefined)), [windowed, looks, store, module])
   const [settings, setSettings] = useState(false)
   const thinned = given.series.map((s, i) => [s, i] as const).filter(([s]) => s.total > s.x.length)
   const state = useRef({
@@ -1409,7 +1449,7 @@ export function ChartView({ chart: given, compact, excludeMode, onExclude, onCon
   )
 
   return (
-    <figure className={'chart' + (excludeMode ? ' exclude-mode' : '') + (compact ? ' compact' : '')}>
+    <figure className={'chart' + (excludeMode ? ' exclude-mode' : '') + (compact ? ' compact' : '')} style={frameStyle(chart.style)}>
       <figcaption>
         <RichText value={chart.title} style={titleStyle(chart.style)} />
         <span className="chart-actions">
@@ -1461,8 +1501,10 @@ export function ChartView({ chart: given, compact, excludeMode, onExclude, onCon
       {settings && createPortal(<ChartSettings title={chart.title} series={chart.series} colorOf={colorOf(chart)} looks={looks ?? {}}
         onChange={setLooks} onClose={() => setSettings(false)} />, document.body)}
       {thinned.length > 0 && <ThinNote chart={chart} thinned={thinned.map(([, i]) => i)} windowed={!!patch && patch.base === given} patch={patch} />}
+      {chart.style?.subtitle && <p className="chart-subtitle" style={chart.style.subtitle_size ? { fontSize: chart.style.subtitle_size } : undefined}>{chart.style.subtitle}</p>}
       {legendEl && chart.style?.legend === 'top' && legendEl}
-      <div className={chart.style?.legend === 'right' && legendEl ? 'chart-body legend-right' : 'chart-body'}>
+      <div className={(chart.style?.legend === 'right' || chart.style?.legend === 'left') && legendEl ? 'chart-body legend-right' : 'chart-body'}>
+      {legendEl && chart.style?.legend === 'left' && legendEl}
       <div className="chart-stage" ref={stage} style={chart.style?.background ? { background: chart.style.background } : undefined}>
         <div ref={box} className="chart-canvas" role="img" aria-label={chart.title} />
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
@@ -1496,7 +1538,7 @@ export function ChartView({ chart: given, compact, excludeMode, onExclude, onCon
       {legendEl && chart.style?.legend === 'right' && legendEl}
       </div>
       {chart.table && <ChartTableView table={chart.table} colors={chart.series.map(colorOf(chart))} />}
-      {legendEl && chart.style?.legend !== 'top' && chart.style?.legend !== 'right' && legendEl}
+      {legendEl && (!chart.style?.legend || chart.style.legend === 'bottom') && legendEl}
     </figure>
   )
 }
@@ -1534,12 +1576,20 @@ function titleStyle(st: ChartStyle | undefined): CSSProperties | undefined {
   return Object.keys(out).length ? out : undefined
 }
 
+/** Рамка и фон всего рисунка (модель оформления: border_color, border_width, background). */
+function frameStyle(st: ChartStyle | undefined): CSSProperties | undefined {
+  if (!st?.border_color && !st?.border_width) return undefined
+  return { borderColor: st.border_color, borderWidth: st.border_width ?? 1, borderStyle: 'solid' }
+}
+
 /** Шрифт и размер легенды: размер — переменная CSS, её читают пункты легенды. */
 function legendStyle(st: ChartStyle | undefined): CSSProperties | undefined {
   if (!st) return undefined
   const out: Record<string, string | number> = {}
   if (st.legend_font || st.font) out.fontFamily = fontCss(st.legend_font ?? st.font)
   if (st.legend_size) out['--legend-size'] = st.legend_size + 'px'
+  if (st.legend_columns) out['--legend-cols'] = st.legend_columns
+  if (st.legend_background) out['--legend-bg'] = st.legend_background
   if (st.text_color) out.color = st.text_color
   return Object.keys(out).length ? out as CSSProperties : undefined
 }
@@ -1548,6 +1598,7 @@ function legendStyle(st: ChartStyle | undefined): CSSProperties | undefined {
 
 interface LegendItem {
   name: string; color: string; dash: string | number[]; line: boolean; symbol: string | null; hollow: boolean
+  label: string          // подпись в легенде: имя ряда или «имя в легенде» из оформления
   facets: Map<string, string>[]      // признаки серий этого пункта (у пункта может быть несколько серий)
 }
 interface FacetValue { value: string; color: string | null; dash: string | number[] | null }
@@ -1566,7 +1617,8 @@ function legendModel(chart: Chart, excludeMode: boolean, mode: HoverMode): Legen
       if (!chart.series.some(o => key(o) === name && o.legend)) continue
       const first = chart.series.find(o => key(o) === name && o.legend)!
       item = {
-        name, color: color(first), dash: dashOf(first), line: first.kind === 'line', hollow: first.hollow,
+        name, label: first.look?.legend_name || name, color: color(first), dash: dashOf(first), line: first.kind === 'line' && first.look?.line !== false,
+        hollow: first.look?.hollow ?? first.hollow,
         symbol: first.kind === 'points' || (first.kind === 'line' && hasMarkers(first, excludeMode, mode)) ? first.symbol : null,
         facets: [],
       }
@@ -1630,8 +1682,8 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
   if (model.items.length < 2 && !kinds.length) return null
   const hint = 'Щелчок — скрыть или показать, двойной щелчок — только этот'
   return (
-    <div className={'chart-legend-wrap' + (position === 'right' ? ' side' : '')} style={legendStyle(fmt)}>
-      <div ref={root} className={'chart-legend' + (open ? ' open' : '')}>
+    <div className={'chart-legend-wrap' + (position === 'right' || position === 'left' ? ' side' : '')} style={legendStyle(fmt)}>
+      <div ref={root} className={'chart-legend' + (open ? ' open' : '') + (fmt?.legend_columns ? ' cols' : '') + (fmt?.legend_border ? ' boxed' : '')}>
         {model.facets.map(f => (
           <div key={f.name} className="legend-row">
             <span className="legend-title">{f.name}</span>
@@ -1652,7 +1704,7 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
                 onClick={e => onToggle(i.name, e.detail > 1)}
                 onMouseEnter={() => onHighlight(i.name)} onMouseLeave={() => onHighlight(null)}>
                 <Swatch color={i.color} dash={i.dash} line={i.line} symbol={i.symbol} hollow={i.hollow} />
-                <span>{i.name}</span>
+                <span>{i.label}</span>
               </button>
             ))}
           </div>

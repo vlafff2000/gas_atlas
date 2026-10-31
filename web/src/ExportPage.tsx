@@ -588,7 +588,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
                     {!exclusions && ' Исключения проекта в этой выгрузке отключены, поэтому точки не выбираются.'}</p>
                   {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее. Расчетные кривые и серые исключенные точки не выбираются.</div>}
                   {liveChart
-                    ? <ChartView key={liveChart.id + chart} chart={liveChart} excludeMode={excludeMode && exclusions} onExclude={excludePoint}
+                    ? <ChartView key={liveChart.id + chart} chart={liveChart} module={shownPlan?.charts.find(c => c.name === chart)?.module} excludeMode={excludeMode && exclusions} onExclude={excludePoint}
                         onDownload={async () => { throw new Error('Файлы выгрузки создаются кнопками «Сформировать архив» и «Создать отчет Word».') }} />
                     : <p className="pulse">Построение графика…</p>}
                 </>
