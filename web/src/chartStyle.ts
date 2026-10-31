@@ -24,6 +24,8 @@ export interface Look {
   trend?: 'linear' | 'poly' | 'log' | 'power' | 'exp' | 'moving'; trend_order?: number; trend_period?: number
   trend_label?: boolean; trend_color?: string; trend_width?: number
   // штриховка столбцов для чёрно-белой печати
+  // погрешность (доверительный интервал): в процентах или абсолютная, усы или граничные линии
+  err_mode?: 'percent' | 'abs'; err_value?: number; err_style?: 'bars' | 'band'
   hatch?: 'diag' | 'back' | 'cross' | 'grid' | 'dots' | 'horizontal' | 'vertical'; hatch_color?: string
 }
 

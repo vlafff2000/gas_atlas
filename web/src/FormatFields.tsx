@@ -309,6 +309,16 @@ export function SeriesExtraFields({ value: look, set, marker, labels, trend = fa
         <p className="cs-hint">Столбцы различаются рисунком, а не только цветом: график читается на чёрно-белой печати.</p>
       </fieldset>}
       {trend && <fieldset>
+        <legend>Погрешность</legend>
+        <Choice label="Задание" value={look.err_mode} options={[{ value: 'percent', label: 'В процентах от значения' }, { value: 'abs', label: 'Абсолютное значение' }]}
+          auto="в процентах" onChange={v => set({ err_mode: v })} />
+        <Num label={look.err_mode === 'abs' ? 'Величина ±' : 'Величина ±, %'} value={look.err_value} min={0} max={1e9} step={look.err_mode === 'abs' ? 1 : 0.5}
+          onChange={v => set({ err_value: v })} />
+        {!!look.err_value && <Choice label="Вид" value={look.err_style} options={[{ value: 'bars', label: 'Усы у каждой точки' }, { value: 'band', label: 'Две граничные линии' }]}
+          auto="усы" onChange={v => set({ err_style: v })} />}
+        <p className="cs-hint">Интервал задаёт инженер вручную: от каждой точки откладывается указанная величина вверх и вниз.</p>
+      </fieldset>}
+      {trend && <fieldset>
         <legend>Линия тренда</legend>
         <Choice label="Вид" value={look.trend} options={TRENDS} auto="нет" onChange={v => set({ trend: v })} />
         {look.trend === 'poly' && <Num label="Степень" value={look.trend_order} min={2} max={6} onChange={v => set({ trend_order: v })} />}

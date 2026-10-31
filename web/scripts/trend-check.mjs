@@ -1,6 +1,6 @@
 // Контрольные значения линий тренда экрана (web/src/trend.ts); их же считает atlas/trend.py (tests/atlas/test_trend.py сверяет).
 // Запуск: node --experimental-strip-types web/scripts/trend-check.mjs
-import { fitTrend } from '../src/trend.ts'
+import { errorSeries, fitTrend } from '../src/trend.ts'
 
 const x = [1, 2, 3, 4, 5, 6], y = [2.1, 3.9, 6.2, 7.8, 10.1, 12.0]
 const dates = ['2024-01-01', '2024-01-11', '2024-01-21', '2024-02-01', '2024-02-10', '2024-02-20']
@@ -11,4 +11,7 @@ for (const [name, kind, order, period] of [['linear', 'linear'], ['poly2', 'poly
 }
 const t = fitTrend('linear', dates, y)
 out.time = t && { equation: t.equation, r2: t.r2, n: t.x.length, first: t.y[0], last: t.y[t.y.length - 1] }
+const ser = (style, mode) => ({ name: 'Р', kind: 'points', group: 'Г', x: [1, 2, 3], y: [10, 20, null], look: { err_mode: mode, err_value: 10, err_style: style }, legend: true })
+out.errors = Object.fromEntries([['bars', 'percent'], ['band', 'percent'], ['bars', 'abs']].map(([st, m]) =>
+  [st + m, errorSeries([ser(st, m)]).map(e => ({ name: e.name, x: e.x, y: e.y }))]))
 console.log(JSON.stringify(out))

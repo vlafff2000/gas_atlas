@@ -128,3 +128,39 @@ def test_hatch_for_bars_reaches_the_file():
     assert fig.data[0].meta['hatch'] == 'diag' and figure_bytes(fig, 'png', 150, 150) != plain
     with pytest.raises(ParamError):
         clean_format({'series': {'Г|bar': {'hatch': 'волны'}}})
+
+
+def _err(style, mode='percent'):
+    c = Chart(id='c', title='T', x=Axis(label='x'), y=Axis(label='y'), series=[Series(name='Р', x=[1, 2, 3], y=[10, 20, None], group='Г')])
+    doc = clean_format({'series': {'Г|points': {'err_mode': mode, 'err_value': 10, 'err_style': style}}})
+    return c, apply_format(c, doc)
+
+
+def test_error_interval_bars_band_abs():
+    _, bars = _err('bars')
+    assert [(list(s.x), list(s.y)) for s in bars.series[1:]] == [([1, 1, 1, 2, 2, 2], [9.0, 11.0, None, 18.0, 22.0, None])]
+    _, band = _err('band')
+    assert [s.name for s in band.series[1:]] == ['Погрешность: Р (верх)', 'Погрешность: Р (низ)'] and list(band.series[1].y) == [11.0, 22.0]
+    _, absolute = _err('bars', 'abs')
+    assert list(absolute.series[1].y)[:2] == [0.0, 20.0] and len(apply_format(absolute, clean_format({'series': {'Г|points': {'err_value': 10}}})).series) == 2
+    off = apply_format(chart(), clean_format({'series': {'Г|points': {'err_value': 0}}}))
+    assert len(off.series) == 1
+
+
+def test_error_interval_reaches_the_file():
+    from atlas.render import to_plotly
+    from atlas.engine.core.export import figure_bytes
+    base, marked = _err('bars')
+    assert figure_bytes(to_plotly(marked), 'png', 150, 150) != figure_bytes(to_plotly(base), 'png', 150, 150)
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='нужен node')
+def test_error_interval_screen_matches_server():
+    script = Path(__file__).resolve().parents[2] / 'web' / 'scripts' / 'trend-check.mjs'
+    run = subprocess.run(['node', '--experimental-strip-types', str(script)], capture_output=True, text=True, timeout=60)
+    if run.returncode != 0:
+        pytest.skip(f'node не смог запустить проверку: {run.stderr[-200:]}')
+    screen = json.loads(run.stdout.strip().splitlines()[-1])['errors']
+    for key, (style, mode) in {'barspercent': ('bars', 'percent'), 'bandpercent': ('band', 'percent'), 'barsabs': ('bars', 'abs')}.items():
+        _, out = _err(style, mode)
+        assert screen[key] == [{'name': s.name, 'x': list(s.x), 'y': list(s.y)} for s in out.series[1:]], key
