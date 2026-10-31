@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import { Icon } from './Icon'
 import { api, type ModuleSpec, type Param, type Params } from './api'
 import { MultiSelect } from './MultiSelect'
 import { wellPresets } from './api_wells'
@@ -120,7 +121,7 @@ export function ParamBar({ spec, project, panel, values, onChange, revision = 0 
     <div className={'param-bar' + (collapsed ? ' collapsed' : '')}>
       <button type="button" className="param-summary" aria-expanded={!collapsed} onClick={() => paramsCollapsed.set(!collapsed)}
         title={collapsed ? 'Показать параметры' : 'Свернуть параметры в одну строку'}>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d={collapsed ? 'M6 3.5 10.5 8 6 12.5' : 'M3.5 6 8 10.5 12.5 6'} /></svg>
+        <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} />
         <span className="param-summary-label">Параметры</span>
         {collapsed && <span className="param-summary-text">{summary.join(' · ')}</span>}
         <span className="param-summary-action">{collapsed ? 'Изменить' : 'Свернуть'}</span>
