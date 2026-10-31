@@ -133,3 +133,31 @@ export function trendSeries(series: Series[]): Series[] {
   }
   return out
 }
+
+/** Интервал погрешности рядов с err_value (как atlas/chart_style._errors): усы или две граничные линии; величина задана вручную. */
+export function errorSeries(series: Series[]): Series[] {
+  const out: Series[] = []
+  for (const s of series) {
+    const look = s.look, value = Number(look?.err_value ?? 0)
+    if (!look || !(value > 0) || (s.kind !== 'points' && s.kind !== 'line') || s.name.startsWith('Тренд: ') || s.name.startsWith('Погрешность: ')
+      || series.some(t => t.name.startsWith('Погрешность: ' + s.name))) continue
+    const percent = (look.err_mode ?? 'percent') === 'percent'
+    const pairs: [Cell, number, number][] = []
+    s.x.forEach((x, i) => { const y = s.y[i]; if (typeof y === 'number' && Number.isFinite(y)) pairs.push([x, y, percent ? Math.abs(y) * value / 100 : value]) })
+    if (!pairs.length) continue
+    const tip = percent ? `${s.name}: ±${value} %` : `${s.name}: ±${value}`
+    const base: Series = { ...s, kind: 'line', group: s.group || s.name, legend: false, tooltip: tip, color: look.color ?? s.color, look: undefined, dashed: false,
+      ids: null, labels: null, dataset: null, markers: false, hollow: false, facets: null, captions: null, values: null, suspect: false, fill: false, step: false, stack: '' }
+    if (look.err_style === 'band') {
+      for (const [sign, word] of [[1, 'верх'], [-1, 'низ']] as const) {
+        const y = pairs.map(p => p[1] + sign * p[2])
+        out.push({ ...base, name: `Погрешность: ${s.name} (${word})`, x: pairs.map(p => p[0]), y, dash: 'dot', width: 1, total: y.length })
+      }
+    } else {
+      const x: Cell[] = [], y: Cell[] = []
+      for (const [px, py, e] of pairs) { x.push(px, px, px); y.push(py - e, py + e, null) }
+      out.push({ ...base, name: `Погрешность: ${s.name}`, x, y, dash: '', width: 1.2, total: y.length })
+    }
+  }
+  return out
+}

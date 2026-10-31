@@ -32,6 +32,8 @@ DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
 TICKS = ('out', 'in', 'cross', 'none')                       # деления оси: наружу, внутрь, пересекают, нет (как в Excel)
 UNITS = ('thousands', 'millions', 'billions')               # единицы отображения: подписи делятся на 10³, 10⁶, 10⁹
 TITLE_PLACES = ('end', 'middle')                            # название оси Y: над осью или вдоль оси
+ERROR_MODES = ('percent', 'abs')                  # погрешность: в процентах от значения или абсолютная
+ERROR_STYLES = ('bars', 'band')                   # усы у каждой точки или две граничные линии
 HATCHES = ('diag', 'back', 'cross', 'grid', 'dots', 'horizontal', 'vertical')   # штриховка столбцов для чёрно-белой печати
 TRENDS = ('linear', 'poly', 'log', 'power', 'exp', 'moving')   # вид линии тренда
 LABEL_PLACES = ('top', 'bottom', 'left', 'right', 'inside', 'center')
@@ -119,7 +121,9 @@ LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DAS
         'trend': TRENDS, 'trend_order': ('int', 2, 6), 'trend_period': ('int', 2, 60), 'trend_label': 'bool', 'trend_color': 'color',
         'trend_width': ('num', 0.5, 12),
         # штриховка столбцов (чёрно-белая печать): вид и цвет штриха
-        'hatch': HATCHES, 'hatch_color': 'color'}
+        'hatch': HATCHES, 'hatch_color': 'color',
+        # погрешность (доверительный интервал): вид задания, величина, усы или граничные линии
+        'err_mode': ERROR_MODES, 'err_value': ('num', 0, 1e9), 'err_style': ERROR_STYLES}
 AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FORMATS, 'font': FONTS, 'tick_size': ('num', 5, 30),
             'title_size': ('num', 5, 30), 'title_bold': 'bool', 'title_italic': 'bool', 'tick_bold': 'bool', 'tick_italic': 'bool',
             # модель v2: деления, линия оси, поворот подписей, единицы отображения, положение названия
@@ -331,7 +335,40 @@ def apply_format(chart: Chart, doc: Mapping[str, Any] | None, notes: list[Note] 
                 look = {**(s.look or {}), **own}
                 s = dataclasses.replace(s, look=look, **({'opacity': look['opacity']} if 'opacity' in look else {}))
             series.append(s)
-        out = dataclasses.replace(out, series=series + _trends(series, notes))
+        out = dataclasses.replace(out, series=series + _trends(series, notes) + _errors(series))
+    return out
+
+
+def _errors(series: list[Series]) -> list[Series]:
+    """Интервал погрешности рядов с ``err_value``: усы (отрезок вверх и вниз от точки) или две граничные линии. Задаётся вручную
+    инженером в процентах от значения или абсолютно; ряд для экрана и файлов строится одинаково (``web/src/trend.ts``)."""
+    out = []
+    for s in series:
+        look = s.look or {}
+        value = float(look.get('err_value') or 0)
+        if value <= 0 or s.kind not in ('points', 'line') or s.name.startswith(('Тренд: ', 'Погрешность: ')) \
+                or any(t.name.startswith('Погрешность: ' + s.name) for t in series):
+            continue
+        percent = look.get('err_mode', 'percent') == 'percent'
+        pairs = []
+        for x, y in zip(s.x, s.y):
+            if isinstance(y, bool) or not isinstance(y, (int, float)) or y != y:
+                continue
+            pairs.append((x, y, abs(y) * value / 100 if percent else value))
+        if not pairs:
+            continue
+        tip = f'{s.name}: ±{value:g} %' if percent else f'{s.name}: ±{value:g}'
+        common = dict(kind='line', group=s.group or s.name, legend=False, axis=s.axis, color=look.get('color') or s.color, tooltip=tip)
+        if look.get('err_style', 'bars') == 'band':
+            for sign, word in ((1, 'верх'), (-1, 'низ')):
+                out.append(Series(name=f'Погрешность: {s.name} ({word})', x=[p[0] for p in pairs], y=[p[1] + sign * p[2] for p in pairs],
+                                  dash='dot', width=1.0, **common))
+        else:
+            xs, ys = [], []
+            for x, y, e in pairs:
+                xs += [x, x, x]
+                ys += [y - e, y + e, None]
+            out.append(Series(name=f'Погрешность: {s.name}', x=xs, y=ys, width=1.2, **common))
     return out
 
 
