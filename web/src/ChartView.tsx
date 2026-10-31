@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, LineChart, ScatterChart } from 'echarts/charts'
 import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent, MarkPointComponent, ToolboxComponent, TooltipComponent, VisualMapContinuousComponent } from 'echarts/components'
+import { AxisBreak } from 'echarts/features'
 import { CanvasRenderer, SVGRenderer } from 'echarts/renderers'
 import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
@@ -22,7 +23,7 @@ import { saveFileWithPicker } from './desktopDownload'
 import './chart.css'
 
 echarts.use([BarChart, BoxplotChart, LineChart, ScatterChart, GridComponent, LegendComponent, ToolboxComponent, TooltipComponent,
-  DataZoomComponent, AxisPointerComponent, VisualMapContinuousComponent, MarkAreaComponent, MarkLineComponent, MarkPointComponent, CanvasRenderer, SVGRenderer])
+  DataZoomComponent, AxisPointerComponent, VisualMapContinuousComponent, MarkAreaComponent, MarkLineComponent, MarkPointComponent, AxisBreak, CanvasRenderer, SVGRenderer])
 
 export { PALETTE }
 const SYMBOL = { circle: 'circle', square: 'rect', diamond: 'diamond', triangle: 'triangle' } as const
@@ -324,6 +325,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       min: a.scale === 'category' ? undefined : a.minimum ?? (zero ? 0 : undefined),
       max: a.scale === 'category' ? undefined : a.maximum ?? undefined,
       interval: a.step && a.scale === 'value' ? a.step : undefined,
+      ...(as.break_lo !== undefined && as.break_hi !== undefined && (a.scale === 'value' || a.scale === 'time') ? { breaks: [{ start: as.break_lo, end: as.break_hi, gap: 8 }] } : {}),
       minInterval: (a.unit === 'скв.' || a.unit === 'ед.') && a.scale === 'value' ? 1 : undefined,      // скважин — целое число, делений по 0,5 не бывает
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
       name: narrow ? narrow.text : nameRich.text,

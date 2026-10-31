@@ -8,6 +8,7 @@ export type AxisName = 'x' | 'y' | 'y2' | 'y3' | 'y4' | 'y5'
 /** Настройки оси: оформление (AxisStyle) + цвет, границы и деления текстом (проверяются на сервере). */
 export type AxisFormat = AxisStyle & {
   color?: string; min?: string; max?: string; step?: string; minor_step?: string; cross?: string
+  break_from?: string; break_to?: string     // разрыв оси: от и до (число или дата дд.мм.гггг)
   log?: boolean; inverse?: boolean; from_zero?: boolean
 }
 export interface ChartFormat {
@@ -72,6 +73,8 @@ export function formatAxis(axis: Axis, spec: AxisFormat, values: number[]): Axis
     if (step !== null && step > 0) out.step = step
     if (minor !== null && minor > 0) out.style!.minor_step = minor
   }
+  const breakLo = parseBound(spec.break_from, time), breakHi = parseBound(spec.break_to, time)
+  if (breakLo !== null && breakHi !== null && breakLo < breakHi && (axis.scale === 'value' || axis.scale === 'time')) { out.style!.break_lo = breakLo; out.style!.break_hi = breakHi }
   const cross = parseBound(spec.cross, time)
   if (cross !== null) out.style!.cross = cross
   return out

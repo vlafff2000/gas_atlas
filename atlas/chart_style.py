@@ -130,7 +130,7 @@ AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FOR
             'ticks': TICKS, 'minor_ticks': TICKS, 'line': 'bool', 'line_color': 'color', 'line_width': ('num', 0.2, 6),
             'label_rotate': ('num', -90, 90), 'units': UNITS, 'title_place': TITLE_PLACES}
 AXIS_STYLE_KEYS = tuple(k for k in AXIS_FMT if k != 'color')     # что из настроек оси ложится в ``Axis.style`` (цвет — в ``Axis.color``)
-AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'cross')  # границы и деления: текст, проверяется по виду оси (``bound``)
+AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'cross', 'break_from', 'break_to')  # границы и деления: текст, проверяется по виду оси (``bound``)
 CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,
              'font': FONTS, 'text_color': 'color', 'legend': LEGENDS, 'legend_font': FONTS, 'legend_size': ('num', 5, 30),
              'grid': GRIDS, 'grid_color': 'color', 'grid_width': ('num', 0.2, 4), 'minor_grid': MINOR_GRIDS, 'minor_grid_color': 'color',
@@ -190,6 +190,9 @@ def clean_axis(raw: Any, name: str) -> dict[str, Any]:
     for key in AXIS_SCALE_KEYS:
         if not _empty(src.get(key)):
             out[key] = str(src[key]).strip()
+    if ('break_from' in out) != ('break_to' in out):      # разрыв задан не до конца: пока не применяется, чтобы недописанное не мешало сохранению
+        out.pop('break_from', None)
+        out.pop('break_to', None)
     for key in ('log', 'inverse', 'from_zero'):
         if src.get(key) is True or str(src.get(key)).lower() in ('1', 'true'):
             out[key] = True
@@ -256,6 +259,15 @@ def style_axis(axis: Axis, spec: Mapping[str, Any], title: str, values: Iterable
             axis.step = value
         else:
             axis.style['minor_step'] = value
+    if 'break_from' in spec and 'break_to' in spec:      # разрыв оси: диапазон между значениями не показывается (экран и файлы)
+        if axis.scale not in ('value', 'time'):
+            notes.append(Note(f'Ось {title}: разрыв оси возможен у числовой оси и оси дат — на логарифмической и категорной не применён.'))
+        else:
+            lo = bound(spec['break_from'], f'Ось {title}, разрыв от', time)
+            hi = bound(spec['break_to'], f'Ось {title}, разрыв до', time)
+            if lo >= hi:
+                raise ParamError(f'Ось {title}: начало разрыва должно быть меньше его конца')
+            axis.style['break_lo'], axis.style['break_hi'] = lo, hi
     if 'cross' in spec:          # где ось пересекает соседнюю: значение этой оси (число или дата)
         axis.style['cross'] = bound(spec['cross'], f'Ось {title}, пересечение', time)
 
