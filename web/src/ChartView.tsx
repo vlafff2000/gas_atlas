@@ -43,6 +43,8 @@ const eventColor = (kind: ChartEvent['kind'], tk: ChartTokens) =>
 
 interface Props {
   chart: Chart
+  /** Мини-вариант (подсказка на карте, карточка): без заголовка, кнопок, легенды и навигатора; высота — переменная --chart-h (104px по умолчанию). Подсказка, перекрестие и зум остаются теми же. */
+  compact?: boolean
   excludeMode: boolean
   onExclude: (dataset: string, id: string) => void
   /** Двойной щелчок по сомнительной точке (режим поиска выбросов): точка перестаёт быть сомнительной и остаётся в расчётах. */
@@ -228,7 +230,7 @@ export const hasNavigator = (chart: Chart) => xSpan(chart) > (chart.x.scale === 
 /** Холст рисуется минимум в двойном разрешении: на обычных мониторах (масштаб 100%) линии и подписи иначе выходят «мыльными». */
 function pixelRatio() { return Math.max(2, window.devicePixelRatio || 1) }
 
-function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode, pin: AxisPin | null, base: Chart, manual: Manual, steps: Steps): echarts.EChartsCoreOption {
+function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: boolean, mode: HoverMode, pin: AxisPin | null, base: Chart, manual: Manual, steps: Steps, compact = false): echarts.EChartsCoreOption {
   const color = colorOf(chart)
   const tips = new Map<string, string[]>()
   for (const s of chart.series) {
@@ -238,7 +240,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const legend = [...new Set(chart.series.map(key))].filter(g => chart.series.some(s => key(s) === g && s.legend))
   const total = chart.series.reduce((n, s) => n + s.x.length, 0)
   const time = chart.x.scale === 'time'
-  const navigator = hasNavigator(base)      // по полному графику: подгрузка окна не должна убирать навигатор
+  const navigator = !compact && hasNavigator(base)      // по полному графику: подгрузка окна не должна убирать навигатор
 
   // две оси Y: одинаковое число делений строго друг напротив друга — одна основная сетка на обе
   const dual = alignedYAxes(chart, base)
@@ -518,7 +520,7 @@ function suspectClick(st: { pending: null | { id: string; dataset: string; timer
   st.pending = { id, dataset, timer }
 }
 
-export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
+export function ChartView({ chart: given, compact, excludeMode, onExclude, onConfirm, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -1331,7 +1333,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
     st.focused = -1
     const view = (st.patch && st.patch.base === given) || st.lastChart === chart ? st.edges() : null      // масштаб сохраняется при подмене точек окна и смене границ осей
     st.lastChart = chart
-    instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode, st.patch ? st.pin : null, given, st.ranges, st.steps), { notMerge: true })
+    instance.current?.setOption(toOption(chart, excludeMode, st.tokens, st.tracks.length > 0, mode, st.patch ? st.pin : null, given, st.ranges, st.steps, !!compact), { notMerge: true })
     if (view) instance.current?.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: view[0], endValue: view[1] })
     st.applyZoom()
     st.selected = {}
@@ -1342,7 +1344,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
     const later = window.setTimeout(st.ensure, 0)
     return () => window.clearTimeout(later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart, excludeMode, mode, theme, ranges, steps, smooth])
+  }, [chart, excludeMode, mode, theme, ranges, steps, smooth, compact])
 
   // новый расчёт (другие параметры, исключение точки) — подгруженное окно относится к прежнему графику
   useEffect(() => { state.current.patch = null; state.current.pin = null; setPatch(null) }, [given])
@@ -1380,7 +1382,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
     if (name) ch.dispatchAction({ type: 'highlight', seriesName: name })
   }
 
-  const legendEl = chart.style?.legend === 'hide' ? null : (
+  const legendEl = chart.style?.legend === 'hide' || compact ? null : (
     <ChartLegend model={legend} position={chart.style?.legend} fmt={chart.style} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
         offEvents={offEvents} onHighlight={highlight}
         onToggle={(name, only) => setHidden(h => {
@@ -1407,7 +1409,7 @@ export function ChartView({ chart: given, excludeMode, onExclude, onConfirm, onO
   )
 
   return (
-    <figure className={'chart' + (excludeMode ? ' exclude-mode' : '')}>
+    <figure className={'chart' + (excludeMode ? ' exclude-mode' : '') + (compact ? ' compact' : '')}>
       <figcaption>
         <RichText value={chart.title} style={titleStyle(chart.style)} />
         <span className="chart-actions">
