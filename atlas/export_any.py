@@ -12,7 +12,7 @@ import logging
 from typing import Any, Mapping
 
 from . import chart_special, chart_view, render
-from .chart_style import FONTS, bound, clean_axes, clean_chart
+from .chart_style import FONTS, apply_format, clean_axes, clean_chart
 from .contract import Chart, Note, ParamError
 
 DPIS = (150, 200, 250, 300, 600, 1200)
@@ -123,19 +123,14 @@ def settings_of(raw: Any) -> dict[str, Any]:
 
 
 def prepared(chart: Chart, s: Mapping[str, Any]) -> tuple[Chart, list[Note]]:
-    """Копия графика с видом экрана (ряды, диапазоны), ручными осями, оформлением и заголовком; сам расчёт модуля не меняется."""
-    from .modules.builder import _style_axis
+    """Копия графика с видом экрана (ряды, диапазоны), ручными осями, оформлением и заголовком; сам расчёт модуля не меняется.
+    Оформление и оси идут через общую модель (``chart_style.apply_format``), как у конструктора."""
     notes: list[Note] = []
     out = chart_view.apply_view(chart, s['view'])
-    out = dataclasses.replace(out, style={**out.style, **s['chart']}, title=s['title'] or out.title)
+    out = apply_format(out, {'chart': s['chart'], 'axes': s['axes']}, notes)
+    if s['title']:
+        out = dataclasses.replace(out, title=s['title'])
     names = set(out.axis_names()) | {'x'}
-    for name, spec in s['axes'].items():
-        if name not in names:
-            continue
-        axis = dataclasses.replace(out.x if name == 'x' else out.axis_at(name))
-        values = []       # логарифм по значениям не проверяется: ``_style_axis`` сверяет положительность только по переданным рядам
-        _style_axis(axis, spec, 'X' if name == 'x' else name.upper(), values, notes)
-        out = dataclasses.replace(out, **{name: axis})
     for name, label in s['labels'].items():
         if name in names:
             axis = dataclasses.replace(out.x if name == 'x' else out.axis_at(name), label=label, unit='')

@@ -1,4 +1,9 @@
-"""Ручное оформление графика конструктора: ряд, ось, график. Пустое поле — «авто» (поле в словаре не появляется).
+"""Единая модель оформления графика: ряд, ось, график. Пустое поле — «авто» (поле в словаре не появляется).
+
+Модель одна для конструктора, «Любого графика», вида с экрана и (дальше) темы проекта и типа графика: документ
+``{'chart': {...}, 'axes': {'x': {...}, 'y': {...}}, 'series': {ключ ряда: {...}}}`` (``clean_format``), уровни складываются
+``merge_formats`` (последний главнее, по полям), на график накладывается ``apply_format``. Старые места хранения переводятся
+в документ функциями ``format_from_*``; сами старые поля не меняются — старые проекты и макеты открываются как раньше.
 
 Хранится в макете (``layout.series[].look``, ``layout.axis_style``, ``layout.chart_style``), ложится в ``Series.look``, ``Axis.style``
 и ``Chart.style`` и действует одинаково на экране (``web/src/ChartView.tsx``) и в выгрузке (``atlas/render.py``,
@@ -7,21 +12,27 @@
 """
 from __future__ import annotations
 
+import copy
+import dataclasses
 import re
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-from .contract import ParamError
+from .contract import Axis, Chart, Note, ParamError, Series
 
 FONTS = ('default', 'times', 'arial_narrow', 'calibri')
 SHAPES = ('circle', 'square', 'diamond', 'triangle', 'plus', 'x', 'star')
-DASHES = ('solid', 'dash', 'dot')
-LEGENDS = ('bottom', 'top', 'right', 'hide')
+DASHES = ('solid', 'dash', 'dot', 'dashdot', 'longdash')
+LEGENDS = ('bottom', 'top', 'right', 'left', 'hide')
 GRIDS = ('both', 'h', 'v', 'none')
 MINOR_GRIDS = ('show', 'hide')
 ALIGNS = ('left', 'center', 'right')
 DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
+TICKS = ('out', 'in', 'cross', 'none')                       # деления оси: наружу, внутрь, пересекают, нет (как в Excel)
+UNITS = ('thousands', 'millions', 'billions')               # единицы отображения: подписи делятся на 10³, 10⁶, 10⁹
+TITLE_PLACES = ('end', 'middle')                            # название оси Y: над осью или вдоль оси
+LABEL_PLACES = ('top', 'bottom', 'left', 'right', 'inside', 'center')
 HEX = re.compile(r'^#[0-9a-fA-F]{6}$')
 
 
@@ -86,16 +97,37 @@ LABELS = {
     'title_align': 'выравнивание заголовка', 'text_color': 'цвет текста', 'grid_width': 'толщина сетки',
     'minor_grid': 'доп. линии сетки', 'minor_grid_color': 'цвет доп. линий', 'minor_grid_width': 'толщина доп. линий',
     'title_bold': 'жирный', 'title_italic': 'курсив', 'tick_bold': 'жирные подписи', 'tick_italic': 'курсивные подписи',
+    'marker_border': 'граница маркера', 'marker_border_width': 'толщина границы маркера', 'hollow': 'полый маркер',
+    'label_position': 'положение подписей данных', 'label_decimals': 'знаков в подписях данных', 'label_size': 'размер подписей данных',
+    'legend_name': 'имя в легенде', 'ticks': 'основные деления', 'minor_ticks': 'доп. деления', 'line': 'линия оси',
+    'line_color': 'цвет линии оси', 'line_width': 'толщина линии оси', 'label_rotate': 'поворот подписей', 'units': 'единицы отображения',
+    'title_place': 'положение названия', 'minor_step': 'доп. шаг', 'cross': 'пересечение', 'subtitle': 'подзаголовок',
+    'subtitle_size': 'размер подзаголовка', 'legend_columns': 'колонок легенды', 'legend_border': 'рамка легенды',
+    'legend_background': 'фон легенды', 'grid_dash': 'штрих сетки', 'minor_grid_dash': 'штрих доп. линий',
+    'border_color': 'рамка рисунка', 'border_width': 'толщина рамки рисунка', 'plot_border_color': 'рамка области построения',
+    'plot_border_width': 'толщина рамки области построения',
 }
 
 LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DASHES, 'marker': 'bool', 'shape': SHAPES,
-        'size': ('num', 2, 24), 'markerColor': 'color', 'opacity': ('num', 0.05, 1), 'valueLabels': 'bool'}
+        'size': ('num', 2, 24), 'markerColor': 'color', 'opacity': ('num', 0.05, 1), 'valueLabels': 'bool',
+        # модель v2: граница маркера, полый маркер, подписи данных, имя в легенде
+        'marker_border': 'color', 'marker_border_width': ('num', 0, 6), 'hollow': 'bool',
+        'label_position': LABEL_PLACES, 'label_decimals': ('int', 0, 8), 'label_size': ('num', 5, 30), 'legend_name': 'text'}
 AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FORMATS, 'font': FONTS, 'tick_size': ('num', 5, 30),
-            'title_size': ('num', 5, 30), 'title_bold': 'bool', 'title_italic': 'bool', 'tick_bold': 'bool', 'tick_italic': 'bool'}
+            'title_size': ('num', 5, 30), 'title_bold': 'bool', 'title_italic': 'bool', 'tick_bold': 'bool', 'tick_italic': 'bool',
+            # модель v2: деления, линия оси, поворот подписей, единицы отображения, положение названия
+            'ticks': TICKS, 'minor_ticks': TICKS, 'line': 'bool', 'line_color': 'color', 'line_width': ('num', 0.2, 6),
+            'label_rotate': ('num', -90, 90), 'units': UNITS, 'title_place': TITLE_PLACES}
+AXIS_STYLE_KEYS = tuple(k for k in AXIS_FMT if k != 'color')     # что из настроек оси ложится в ``Axis.style`` (цвет — в ``Axis.color``)
+AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'cross')  # границы и деления: текст, проверяется по виду оси (``bound``)
 CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,
              'font': FONTS, 'text_color': 'color', 'legend': LEGENDS, 'legend_font': FONTS, 'legend_size': ('num', 5, 30),
              'grid': GRIDS, 'grid_color': 'color', 'grid_width': ('num', 0.2, 4), 'minor_grid': MINOR_GRIDS, 'minor_grid_color': 'color',
-             'minor_grid_width': ('num', 0.2, 4), 'background': 'color', 'plot_background': 'color'}
+             'minor_grid_width': ('num', 0.2, 4), 'background': 'color', 'plot_background': 'color',
+             # модель v2: подзаголовок, легенда (колонки, рамка, фон), штрих сетки, рамки рисунка и области построения
+             'subtitle': 'text', 'subtitle_size': ('num', 6, 48), 'legend_columns': ('int', 1, 12), 'legend_border': 'bool',
+             'legend_background': 'color', 'grid_dash': DASHES, 'minor_grid_dash': DASHES, 'border_color': 'color',
+             'border_width': ('num', 0.2, 6), 'plot_border_color': 'color', 'plot_border_width': ('num', 0.2, 6)}
 
 
 def clean_look(raw: Any, index: int) -> dict[str, Any]:
@@ -112,7 +144,7 @@ def clean_axis(raw: Any, name: str) -> dict[str, Any]:
     """Настройки оси: границы, шаг, логарифм, обратное направление (необработанные, см. ``bound``) и оформление."""
     src = raw if isinstance(raw, Mapping) else {}
     out = _fill(src, f'Ось {name}', AXIS_FMT)
-    for key in ('min', 'max', 'step'):
+    for key in AXIS_SCALE_KEYS:
         if not _empty(src.get(key)):
             out[key] = str(src[key]).strip()
     for key in ('log', 'inverse', 'from_zero'):
@@ -142,3 +174,151 @@ def clean_axes(raw: Any) -> dict[str, dict[str, Any]]:
         if item:
             out[name] = item
     return out
+
+
+def style_axis(axis: Axis, spec: Mapping[str, Any], title: str, values: Iterable[pd.Series], notes: list[Note]) -> None:
+    """Ручные границы, шаги, пересечение, логарифм, направление и оформление оси (меняет ``axis``);
+    то, что к оси не подходит, пропускается с заметкой. Общая для конструктора, «Любого графика» и ``apply_format``."""
+    time = axis.scale == 'time'
+    if 'color' in spec:
+        axis.color = spec['color']
+    axis.style = {**(axis.style or {}), **{k: v for k, v in spec.items() if k in AXIS_STYLE_KEYS}}
+    if spec.get('inverse'):
+        axis.inverse = True
+    if spec.get('from_zero') and axis.scale == 'value':
+        axis.from_zero = True
+    low = bound(spec['min'], f'Ось {title}, минимум', time) if 'min' in spec else None
+    high = bound(spec['max'], f'Ось {title}, максимум', time) if 'max' in spec else None
+    if low is not None and high is not None and low >= high:
+        raise ParamError(f'Ось {title}: минимум должен быть меньше максимума')
+    if spec.get('log'):
+        positive = all((v.dropna() > 0).all() for v in values if not pd.api.types.is_datetime64_any_dtype(v))
+        if time:
+            notes.append(Note(f'Ось {title}: логарифмическая шкала не применяется к датам.'))
+        elif not positive or (low is not None and low <= 0):
+            notes.append(Note(f'Ось {title}: логарифмическая шкала возможна только для положительных значений — оставлена линейная.'))
+        else:
+            axis.scale = 'log'
+    axis.minimum, axis.maximum = low, high
+    for key, what in (('step', 'шаг'), ('minor_step', 'доп. шаг')):
+        if key not in spec:
+            continue
+        if axis.scale not in ('value', 'log'):
+            notes.append(Note(f'Ось {title}: {what} делений задаётся для чисел; у дат деления подбираются сами.'))
+            continue
+        value = bound(spec[key], f'Ось {title}, {what}', False)
+        if value <= 0:
+            raise ParamError(f'Ось {title}, {what}: больше нуля')
+        if key == 'step':
+            axis.step = value
+        else:
+            axis.style['minor_step'] = value
+    if 'cross' in spec:          # где ось пересекает соседнюю: значение этой оси (число или дата)
+        axis.style['cross'] = bound(spec['cross'], f'Ось {title}, пересечение', time)
+
+
+# --- Документ оформления (модель v2) ---------------------------------------------------------------------------------
+
+FORMAT_PARTS = ('chart', 'axes', 'series')
+AXIS_NAMES = ('x', 'y', 'y2', 'y3', 'y4', 'y5')
+
+
+def series_key(s: Series) -> str:
+    """Ключ ряда в документе — тот же, что на экране (``seriesLookKey``): группа или имя, и вид ряда."""
+    return f'{s.group or s.name}|{s.kind}'
+
+
+def clean_format(raw: Any) -> dict[str, Any]:
+    """Проверенный документ оформления ``{'chart', 'axes', 'series'}``: пустые части не появляются, ошибка — ``ParamError``."""
+    src = raw if isinstance(raw, Mapping) else {}
+    out: dict[str, Any] = {}
+    chart = clean_chart(src.get('chart'))
+    axes = clean_axes(src.get('axes'))
+    looks = src.get('series') if isinstance(src.get('series'), Mapping) else {}
+    series = {}
+    for i, (key, look) in enumerate(looks.items(), 1):
+        one = clean_look(look, i)
+        if one:
+            series[str(key)[:300]] = one
+    for name, part in (('chart', chart), ('axes', axes), ('series', series)):
+        if part:
+            out[name] = part
+    return out
+
+
+def merge_formats(*docs: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Уровни оформления (тема проекта → тип графика → график): поле более позднего уровня главнее, остальное наследуется."""
+    out: dict[str, Any] = {}
+    for doc in docs:
+        if not doc:
+            continue
+        if doc.get('chart'):
+            out['chart'] = {**out.get('chart', {}), **doc['chart']}
+        for part in ('axes', 'series'):
+            for key, value in (doc.get(part) or {}).items():
+                out.setdefault(part, {})[key] = {**out.get(part, {}).get(key, {}), **value}
+    return copy.deepcopy(out)
+
+
+def _numbers(values: Any) -> pd.Series | None:
+    """Числа ряда для проверки логарифма; у ящиков и прочих составных значений проверки нет."""
+    try:
+        return pd.to_numeric(pd.Series(list(values), dtype='object'), errors='coerce')
+    except (TypeError, ValueError):
+        return None
+
+
+def apply_format(chart: Chart, doc: Mapping[str, Any] | None, notes: list[Note] | None = None) -> Chart:
+    """Копия графика с оформлением документа: ``Chart.style``, ``Axis`` (через ``style_axis``) и ``Series.look`` по ключу ряда.
+    Расчёт модуля не меняется; ось, которой у графика нет, пропускается."""
+    if not doc:
+        return chart
+    notes = notes if notes is not None else []
+    out = dataclasses.replace(chart, style={**chart.style, **doc.get('chart', {})}) if doc.get('chart') else chart
+    names = set(out.axis_names()) | {'x'}
+    for name, spec in (doc.get('axes') or {}).items():
+        if name not in names:
+            continue
+        axis = dataclasses.replace(out.x if name == 'x' else out.axis_at(name), style=dict((out.x if name == 'x' else out.axis_at(name)).style))
+        values = [v for s in out.series if name != 'x' and (s.axis or 'y') == name for v in [_numbers(s.y)] if v is not None]
+        style_axis(axis, spec, 'X' if name == 'x' else name.upper(), values, notes)
+        out = dataclasses.replace(out, **{name: axis})
+    looks = doc.get('series') or {}
+    if looks:
+        series = []
+        for s in out.series:
+            own = looks.get(series_key(s))
+            if own:
+                look = {**(s.look or {}), **own}
+                s = dataclasses.replace(s, look=look, **({'opacity': look['opacity']} if 'opacity' in look else {}))
+            series.append(s)
+        out = dataclasses.replace(out, series=series)
+    return out
+
+
+def format_from_layout(layout: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Макет конструктора → документ: оформление графика и осей. Вид рядов остаётся в рядах макета (ряд конструктора
+    не имеет постоянного ключа до расчёта)."""
+    src = layout if isinstance(layout, Mapping) else {}
+    return clean_format({'chart': src.get('chart_style'), 'axes': src.get('axis_style')})
+
+
+def format_from_view(view: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Вид с экрана (``view.looks`` — окно «Настройка») → документ; неверный вид из браузера не ломает выгрузку."""
+    looks = view.get('looks') if isinstance(view, Mapping) and isinstance(view.get('looks'), Mapping) else {}
+    out = {}
+    for i, (key, look) in enumerate(looks.items(), 1):
+        try:
+            one = clean_look(look, i)
+        except ParamError:
+            continue
+        if one:
+            out[str(key)] = one
+    return {'series': out} if out else {}
+
+
+def format_from_any(settings: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Настройки «Любого графика» (``chart`` без заголовка, ``axes``, ``view.looks``) → документ."""
+    src = settings if isinstance(settings, Mapping) else {}
+    chart = {k: v for k, v in (src.get('chart') or {}).items() if k != 'title'} if isinstance(src.get('chart'), Mapping) else {}
+    return merge_formats(clean_format({'chart': chart, 'axes': src.get('axes')}), format_from_view(src.get('view')))

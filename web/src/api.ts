@@ -77,12 +77,23 @@ export interface Table {
 export interface TableStyle { rows: number[]; fill: string; font: string; columns: string[]; border: string }
 export interface TableMerge { first: number; last: number; columns: string[] }
 /** Ручное оформление оси; пусто — авто (atlas/chart_style.py). */
-export interface AxisStyle { decimals?: number; date_format?: string; font?: string; tick_size?: number; title_size?: number }
+export type TickMark = 'out' | 'in' | 'cross' | 'none'
+export interface AxisStyle {
+  decimals?: number; date_format?: string; font?: string; tick_size?: number; title_size?: number
+  title_bold?: boolean; title_italic?: boolean; tick_bold?: boolean; tick_italic?: boolean
+  // модель v2 (atlas/chart_style.py): деления, линия оси, поворот подписей, единицы отображения, положение названия, доп. шаг, пересечение
+  ticks?: TickMark; minor_ticks?: TickMark; line?: boolean; line_color?: string; line_width?: number; label_rotate?: number
+  units?: 'thousands' | 'millions' | 'billions'; title_place?: 'end' | 'middle'; minor_step?: number; cross?: number
+}
 /** Ручное оформление графика: заголовок, шрифты, легенда, сетка, фон (atlas/chart_style.py). */
 export interface ChartStyle {
   title_font?: string; title_size?: number; title_bold?: boolean; title_color?: string; title_align?: 'left' | 'center' | 'right'
-  font?: string; text_color?: string; legend?: 'bottom' | 'top' | 'right' | 'hide'; legend_font?: string; legend_size?: number
+  font?: string; text_color?: string; legend?: 'bottom' | 'top' | 'right' | 'left' | 'hide'; legend_font?: string; legend_size?: number
   grid?: 'both' | 'h' | 'v' | 'none'; grid_color?: string; background?: string; plot_background?: string
+  grid_width?: number; minor_grid?: 'show' | 'hide'; minor_grid_color?: string; minor_grid_width?: number
+  // модель v2: подзаголовок, легенда слева, колонки, рамка и фон легенды, штрих сетки, рамки рисунка и области построения
+  subtitle?: string; subtitle_size?: number; legend_columns?: number; legend_border?: boolean; legend_background?: string
+  grid_dash?: string; minor_grid_dash?: string; border_color?: string; border_width?: number; plot_border_color?: string; plot_border_width?: number
 }
 export interface Axis {
   color?: string                       // цвет правой шкалы под один ряд; пусто — по умолчанию
