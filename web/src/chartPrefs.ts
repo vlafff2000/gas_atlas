@@ -2,6 +2,7 @@
 import { useSyncExternalStore } from 'react'
 import type { HoverMode } from './chartHover'
 import type { Look } from './chartStyle'
+import type { FormatStore } from './chartFormat'
 
 export interface Pref<T> { get: () => T; set: (next: T) => void; subscribe: (f: () => void) => () => void }
 
@@ -98,6 +99,8 @@ export const savedSteps = pref<Record<string, Partial<Record<'x' | 'y' | 'y2' | 
 /** Вид рядов («Настройка») — общий для всех графиков проекта: ключ ряда (группа или имя и вид) → вид. Хранится в проекте
  *  (тема оформления, ``settings.chart_formats.theme.series``): сюда его кладёт и отсюда сохраняет ``useProjectLooks``. */
 export const seriesLooks = pref<Record<string, Look>>('', {})
+/** Оформление открытого проекта (settings.chart_formats): тема и типы графиков. Вид рядов темы — в seriesLooks (правится вживую). */
+export const projectFormats = pref<FormatStore>('', {})
 /** Вид рядов, который раньше хранился в браузере (до хранения в проекте): переносится в проекты без своего оформления. */
 export function browserLooks(): Record<string, Look> {
   try {

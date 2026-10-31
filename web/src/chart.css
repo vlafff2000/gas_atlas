@@ -230,3 +230,10 @@
 figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .chart.compact figcaption, .chart.compact .chart-thin, .chart.compact .chart-legend-wrap { display: none; }
 .chart.compact .chart-canvas { height: var(--chart-h, 104px); }
+
+/* Модель оформления v2: подзаголовок, колонки, рамка и фон легенды */
+.chart-subtitle { margin: -2px 4px 4px; font-size: 13px; color: var(--chart-muted); }
+.chart-legend.cols .legend-row { display: grid; grid-template-columns: repeat(var(--legend-cols, 1), max-content); column-gap: 10px; }
+.chart-legend.cols .legend-title { grid-column: 1 / -1; }
+.chart-legend.boxed { background: var(--legend-bg, transparent); border: 1px solid var(--chart-axis); border-radius: 4px; padding: 2px 6px; }
+.chart-legend { background: var(--legend-bg, transparent); }

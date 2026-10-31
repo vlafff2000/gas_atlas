@@ -562,7 +562,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
                     onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
                 ) : (
-                  <ChartView key={c.id} chart={c} excludeMode={excludeMode} onExclude={excludePoint} onConfirm={confirmPoint}
+                  <ChartView key={c.id} chart={c} module={spec.id} excludeMode={excludeMode} onExclude={excludePoint} onConfirm={confirmPoint}
                     mapLink={mapLink}
                     onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({
                       ...params, view: 'dynamics', wells: [well], groups: [], scope_groups: [], scope_wells: [], focus: `${well}|${date}` }) : undefined}
