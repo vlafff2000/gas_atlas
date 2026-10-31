@@ -40,6 +40,28 @@ KNOWN = {k.value: k for k in DatasetKind}
 # Настройки, которые интерфейс 6 может менять напрямую, с проверкой значения (как поля «Настроек» 5.8).
 _month = lambda v: not isinstance(v, bool) and float(v) == int(v) and 1 <= int(v) <= 12   # noqa: E731
 _names = lambda v: isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, (str, int)) for x in v))  # noqa: E731
+EXPORT_ANY_CHARTS = 300            # «Любой график»: сколько графиков помнят свои настройки
+EXPORT_ANY_BYTES = 512_000
+
+
+def _export_any(v: Any) -> bool:
+    """Экспорт → «Любой график»: ``{'last': {module, chart, params}, 'charts': {'раздел::график': настройки}}``.
+    Сами настройки проверяются при выгрузке (``export_any.settings_of``); здесь — только форма и размер."""
+    if not isinstance(v, dict) or set(v) - {'last', 'charts'}:
+        return False
+    last = v.get('last')
+    if last is not None and not (isinstance(last, dict) and set(last) <= {'module', 'chart', 'params'}
+                                 and all(isinstance(last.get(k, ''), str) for k in ('module', 'chart'))
+                                 and isinstance(last.get('params', {}), dict)):
+        return False
+    charts = v.get('charts', {})
+    if not isinstance(charts, dict) or len(charts) > EXPORT_ANY_CHARTS:
+        return False
+    if not all(isinstance(k, str) and len(k) <= 600 and isinstance(x, dict) for k, x in charts.items()):
+        return False
+    return len(json.dumps(v, ensure_ascii=False)) <= EXPORT_ANY_BYTES
+
+
 EDITABLE_SETTINGS = {
     'r2_threshold': lambda v: 0 <= float(v) <= 1,
     'season_start': _month,
@@ -66,6 +88,8 @@ EDITABLE_SETTINGS = {
     'well_filter': well_filter.valid,
     # Фильтр скважин каждой вкладки экспорта (своя выгрузка на каждой вкладке); хранится в проекте.
     'export_filters': well_filter.valid_tabs,
+    # Экспорт → «Любой график»: последний выбор и настройки выгрузки каждого графика; хранится в проекте.
+    'export_any': _export_any,
     'an_colors': lambda v: isinstance(v, dict) and all(isinstance(k, str) and len(k) <= 40 and isinstance(x, str)
                                                        and re.fullmatch(r'#?[0-9A-Fa-f]{6}', x) for k, x in v.items()),
 }
@@ -75,7 +99,8 @@ SETTING_LABELS = {'season_format': 'Вид названий сезонов', 'le
                   'season_rate_share': 'Порог расхода, % от типичного', 'season_schedule': 'Расписание периодов', 'peak_windows': 'Пиковые окна',
                   'auto_peaks': 'Искать пиковые режимы по расходу', 'peak_factor': 'Пик: во сколько раз выше медианы сезона',
                   'visible_pages': 'Разделы меню', 'working_horizons': 'Рабочие горизонты', 'chart_style': 'Оформление графиков',
-                  'well_filter': 'Фильтр скважин', 'export_filters': 'Фильтры вкладок экспорта'}
+                  'well_filter': 'Фильтр скважин', 'export_filters': 'Фильтры вкладок экспорта',
+                  'export_any': 'Настройки «Любого графика»'}
 
 
 def _setting_value(name: str, value: Any) -> Any:
@@ -326,6 +351,8 @@ class Projects:
             action = 'Фильтр скважин'
         elif set(values) == {'export_filters'}:
             action = 'Фильтры экспорта'
+        elif set(values) == {'export_any'}:
+            action = 'Настройки «Любого графика»'
         return self.summary(self._commit(pid, cfg, expected, action, {'changed': dict(values)}))
 
     def change_exclusions(self, pid: str, dataset: DatasetKind, add: Iterable[str] = (), remove: Iterable[str] = (),

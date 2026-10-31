@@ -48,8 +48,14 @@ def series_items(chart: Chart) -> list[dict[str, Any]]:
 def describe(chart: Chart) -> dict[str, Any]:
     return {'items': series_items(chart), 'id': chart.id, 'title': chart.title, 'kind': kind_of(chart), 'table': chart.table is not None,
             'series': len(chart.series), 'axes': chart.axis_names(), 'special': chart_special.is_special(chart), 'facets': facets_of(chart),
+            'range_key': range_key(chart),
             'labels': {name: (a.label + (f', {a.unit}' if a.unit else '')) for name in ['x', *chart.axis_names()]
                        for a in [chart.x if name == 'x' else chart.axis_at(name)] if a is not None}}
+
+
+def range_key(chart: Chart) -> str:
+    """Ключ ручных границ осей этого графика на экране (``rangeKey`` в ``web/src/ChartView.tsx``): заголовок и подписи осей Y."""
+    return f'{chart.title}|{chart.y.label}|' + '|'.join(a.label for _, a in chart.right_axes())
 
 
 def facets_of(chart: Chart) -> list[dict[str, Any]]:

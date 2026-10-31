@@ -252,3 +252,33 @@ def test_special_chart_axis_labels_and_style():
     assert s['angle'] == '45' and s['labels'] == {'y': 'Число, ед.'}
     content, *_ = export_any.export(chart, {'labels': {'x': 'Группы', 'y': 'Число, ед.'}, 'angle': '45'})
     assert content[:4] == b'\x89PNG'
+
+
+def test_range_key_matches_screen(env):
+    """Ключ ручных границ осей совпадает с ``rangeKey`` экрана: заголовок | подпись Y | подписи правых осей."""
+    client, pid = env
+    chart = first_chart(client, pid)
+    assert chart['range_key'].startswith(chart['title'] + '|') and chart['range_key'].count('|') >= 2
+
+
+def test_settings_saved_in_project(env):
+    client, pid = env
+    chart = first_chart(client, pid)
+    store = {'last': {'module': MODULE, 'chart': chart['id'], 'params': PARAMS},
+             'charts': {f"{MODULE}::{chart['id']}": {'dpi': 600, 'chart': {'legend': 'top'}}}}
+    r = client.patch(f'/api/projects/{pid}/settings', json={'values': {'export_any': store}})
+    assert r.status_code == 200, r.text
+    assert r.json()['settings']['export_any'] == store
+    again = client.get(f'/api/projects/{pid}').json()
+    assert again['settings']['export_any'] == store
+
+
+@pytest.mark.parametrize('bad', [
+    [], {'other': 1}, {'last': {'module': 1}}, {'last': {'module': 'gdi', 'params': []}},
+    {'charts': {'a': 'не словарь'}}, {'charts': {f'k{i}': {} for i in range(301)}},
+    {'charts': {'a': {'title': 'x' * 600_000}}},
+])
+def test_settings_store_validated(env, bad):
+    client, pid = env
+    r = client.patch(f'/api/projects/{pid}/settings', json={'values': {'export_any': bad}})
+    assert r.status_code == 400 and 'Любого графика' in r.json()['error']
