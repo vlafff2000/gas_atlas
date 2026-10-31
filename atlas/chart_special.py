@@ -88,8 +88,21 @@ def _dress(fig: Any, chart: Chart, o: dict[str, Any]) -> None:
     _axes(fig, chart, o, base)
     grid = st.get('grid')
     if grid in ('both', 'h', 'v') and chart.heat is None and chart.strips is None:
-        ax.grid(True, axis={'both': 'both', 'h': 'y', 'v': 'x'}[grid], color=st.get('grid_color') or '#d0d7da', lw=float(st.get('grid_width') or 0.7))
+        ax.grid(True, axis={'both': 'both', 'h': 'y', 'v': 'x'}[grid], color=st.get('grid_color') or '#d0d7da', lw=float(st.get('grid_width') or 0.7),
+                linestyle={'dash': '--', 'dot': ':', 'dashdot': '-.', 'longdash': (0, (8, 3))}.get(st.get('grid_dash'), '-'))
         ax.set_axisbelow(True)
+    # модель v2 (atlas/chart_style.py): подзаголовок, рамки рисунка и области построения
+    if st.get('subtitle'):
+        ax.annotate(st['subtitle'], (0, 1), xycoords='axes fraction', xytext=(0, 2), textcoords='offset points', va='bottom',
+                    fontsize=float(st.get('subtitle_size') or base - 1), color=st.get('text_color') or '#667085')
+    if st.get('border_color') or st.get('border_width'):
+        fig.patch.set_edgecolor(st.get('border_color') or '#888888')
+        fig.patch.set_linewidth(float(st.get('border_width') or 1) * 1.5)
+    if (st.get('plot_border_color') or st.get('plot_border_width')) and chart.heat is None and chart.strips is None:
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_edgecolor(st.get('plot_border_color') or '#888888')
+            spine.set_linewidth(float(st.get('plot_border_width') or 1))
 
 
 def _axes(fig: Any, chart: Chart, o: dict[str, Any], base: float) -> None:
@@ -111,6 +124,20 @@ def _axes(fig: Any, chart: Chart, o: dict[str, Any], base: float) -> None:
             label.set_fontweight('bold')
         if spec.get('title_italic'):
             label.set_fontstyle('italic')
+        mark = {'out': {'direction': 'out', 'length': 3.5}, 'in': {'direction': 'in', 'length': 3.5},
+                'cross': {'direction': 'inout', 'length': 6}, 'none': {'length': 0}}.get(spec.get('ticks'))
+        if mark:
+            ax.tick_params(axis=name, which='major', **mark)
+        if spec.get('line') is not None or spec.get('line_color') or spec.get('line_width'):
+            spine = ax.spines['bottom' if name == 'x' else 'left']
+            if spec.get('line') is not None:
+                spine.set_visible(bool(spec['line']))
+            if spec.get('line_color'):
+                spine.set_edgecolor(spec['line_color'])
+            if spec.get('line_width'):
+                spine.set_linewidth(float(spec['line_width']))
+        if spec.get('label_rotate'):
+            ax.tick_params(axis=name, labelrotation=float(spec['label_rotate']))
         ticks = axis.get_ticklabels()
         if spec.get('tick_size'):
             ax.tick_params(axis=name, labelsize=float(spec['tick_size']))
