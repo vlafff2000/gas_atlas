@@ -436,6 +436,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   return (
     <>
       <Title />
+      <ReadyFiles files={ready_files} pid={project.id} busy={busy !== null} onBundle={bundle} />
 
       <details className="table-block">
         <summary className="block-head"><h3>Шаблоны параметров экспорта</h3></summary>
@@ -692,6 +693,20 @@ function Title() {
   )
 }
 
+/** Готовые файлы вверху страницы: кнопки «Сохранить как…» видны сразу, без прокрутки вниз. */
+function ReadyFiles({ files, pid, busy, onBundle }: { files: string[]; pid: string; busy: boolean; onBundle: () => void }) {
+  if (!files.length) return null
+  return (
+    <section className="table-block ready-files" aria-label="Готовые файлы">
+      <div className="block-head"><h3>Готовые файлы ({files.length})</h3></div>
+      <div className="toolbar">
+        {files.map(f => <button key={f} type="button" onClick={() => saveLink(projectsApi.exportUrl(pid, f))}>Сохранить {f}…</button>)}
+        {files.length > 1 && <button type="button" className="primary" disabled={busy} onClick={onBundle}>Все файлы одним ZIP…</button>}
+      </div>
+    </section>
+  )
+}
+
 function Outcome({ title, result, pid, word, pack, ggh }: { title: string; result: ExportResult; pid: string; word?: boolean; pack?: boolean; ggh?: boolean }) {
   const partial = result.errors.length > 0
   return (
@@ -718,7 +733,7 @@ function Outcome({ title, result, pid, word, pack, ggh }: { title: string; resul
         </div>
       )}
       <ul className="file-list pad">
-        {result.files.map(f => <li key={f}><a href={projectsApi.exportUrl(pid, f)} download>{f}</a></li>)}
+        {result.files.map(f => <li key={f}><button type="button" className="link-button" onClick={() => saveLink(projectsApi.exportUrl(pid, f))}>{f}</button></li>)}
         {result.files.length === 0 && <li className="muted">Нет готовых файлов.</li>}
       </ul>
     </section>
