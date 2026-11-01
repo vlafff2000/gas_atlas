@@ -401,3 +401,53 @@ def test_54_xlsx_draws_the_well_line_and_keeps_gvk_in_one_row():
     ws = load_workbook(io.BytesIO(content)).worksheets[0]
     row4 = next(c.row for row in ws.iter_rows(min_col=1, max_col=1) for c in row if c.value == '4')
     assert ws.cell(row4, 1).border.top.style == 'medium'
+
+
+# --- схема скважины и планшет ГИС ---------------------------------------------------------------------------------------
+
+def _intervals():
+    return pd.DataFrame({
+        'well': ['115'] * 4, 'date': pd.to_datetime(['2024-10-01', '2024-10-01', '2025-03-01', '2025-03-01']),
+        'season': ['осень', 'осень', 'весна', 'весна'], 'pack': ['верхняя'] * 4,
+        'from_m': [800.0, 806.0, 800.0, 806.0], 'to_m': [806.0, 812.0, 806.0, 812.0], 'kg': [0.6, 0.1, 0.55, 0.2]})
+
+
+def test_planshet_has_track_per_season_gray_below_cutoff_and_perforation_from_gis():
+    packs = _frame()
+    packs['altitude_m'] = 50.0
+    packs['perf_top_m'], packs['perf_bottom_m'] = 801.0, 810.0
+    res = GisModule().run({GIS: packs, DatasetKind.GIS_INTERVALS: _intervals()}, _params(wells=['115'], view='planshet', seasons=[]))
+    fig = res.charts[0].figure
+    assert fig.kind == 'planshet' and len(fig.data['tracks']) == 2
+    assert [b['gas'] for b in fig.data['tracks'][0]['bars']] == [True, False]
+    assert fig.data['perf'] == [{'top': 801.0, 'bottom': 810.0}]
+    assert fig.data['top'] < 800 and fig.data['bottom'] > 812
+    assert next(m for m in fig.data['tracks'][1]['packs'] if m['pack'] == 'верхняя')['gvk'] == 50.0 + 1001.0
+
+
+def test_planshet_seasons_are_chosen_by_hand_and_perforation_falls_back_to_well_geo():
+    geo = pd.DataFrame({'well': ['115'], 'altitude': [50.0], 'perf_top': [-751.0], 'perf_bottom': [-760.0]})
+    data = {GIS: _frame(), DatasetKind.GIS_INTERVALS: _intervals(), DatasetKind.WELL_GEO: geo}
+    res = GisModule().run(data, _params(wells=['115'], view='planshet', seasons=['весна 2025']))
+    fig = res.charts[0].figure
+    assert len(fig.data['tracks']) == 1 and fig.data['tracks'][0]['title'].startswith('отбор')
+    assert fig.data['perf'] == [{'top': 801.0, 'bottom': 810.0}]       # альтитуда − отметка
+
+
+def test_construction_scheme_reuses_passport_scheme_and_adds_gis_packs():
+    cons = pd.DataFrame({'well': ['115', '115'], 'date': pd.to_datetime(['2024-01-01'] * 2), 'element': ['Эксплуатационная колонна', 'Фильтр'],
+                         'top_m': [0.0, 800.0], 'bottom_m': [820.0, 812.0]})
+    packs = _frame()
+    packs['top_m'], packs['bottom_m'] = 800.0, 812.0
+    res = GisModule().run({GIS: packs, DatasetKind.CONSTRUCTION: cons}, _params(wells=['115'], view='construction', scheme_gis=True))
+    fig = res.charts[0].figure
+    kinds = {i['kind'] for i in fig.data['scheme']['items']}
+    assert fig.kind == 'construction' and {'casing', 'filter', 'pay'} <= kinds and fig.data['scheme']['shapes']
+    off = GisModule().run({GIS: packs, DatasetKind.CONSTRUCTION: cons}, _params(wells=['115'], view='construction', scheme_gis=False))
+    assert 'pay' not in {i['kind'] for i in off.charts[0].figure.data['scheme']['items']}
+
+
+def test_scheme_without_construction_says_what_is_missing():
+    res = GisModule().run({GIS: _frame()}, _params(wells=['115'], view='construction', scheme_gis=False))
+    assert any('конструкц' in n.text.lower() for n in res.notes)
+    assert res.charts[0].figure.data['scheme']['items'] == []

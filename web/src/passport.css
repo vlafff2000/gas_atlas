@@ -9,3 +9,11 @@
 .schematic-tick-text { font-size: 14px; fill: #6b7280; }
 .schematic-label { font-size: 16px; font-weight: 600; }
 @media print { .tabs, .toolbar { display: none; } }
+.well-planshet { width: 100%; height: auto; display: block; }
+.planshet-head { font-size: 14px; font-weight: 600; fill: var(--text, #111827); }
+.planshet-track { fill: none; stroke: #9ca3af; }
+.planshet-grid { stroke: #e5e7eb; stroke-width: .6; }
+.planshet-cutoff { stroke: #9ca3af; stroke-dasharray: 3 3; }
+.planshet-gvk { font-size: 12px; fill: #0369a1; }
+.figure-chart .figure-body { overflow-x: auto; padding: 6px 0; }
+.figure-chart .well-schematic { margin: 0 auto; }

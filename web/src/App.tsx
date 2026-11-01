@@ -6,6 +6,7 @@ import { api, ApiError, defaults, type Assignments, type ModuleSpec, type Params
 import { ChartView } from './ChartView'
 import { HeatView } from './HeatView'
 import { StripView } from './StripView'
+import { FigureView } from './WellFigure'
 import { ChartBuilder } from './ChartBuilder'
 import { CommandBar } from './CommandBar'
 import { ParamBar } from './ParamBar'
@@ -555,7 +556,9 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
                 </label>
               )}
               <div className={'chart-grid' + (columns ? ' fixed-cols' : '')} style={columns ? ({ '--cols': columns } as React.CSSProperties) : undefined}>
-                {shown.map(c => c.strips ? (
+                {shown.map(c => c.figure ? (
+                  <FigureView key={c.id} chart={c} />
+                ) : c.strips ? (
                   <StripView key={c.id} chart={c}
                     onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />

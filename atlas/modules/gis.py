@@ -16,7 +16,7 @@ from atlas.engine.modules import gis_hikg
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series, Stat, Table
 from ..domain import DatasetKind
-from . import gis_an_tables, gis_tiles
+from . import gis_an_tables, gis_tiles, gis_well
 
 GIS = DatasetKind.GIS_PACKS
 INTERVALS = DatasetKind.GIS_INTERVALS
@@ -49,7 +49,7 @@ class GisModule(Module):
         group='Исследования скважин',
         description='Динамика ГВК, эффективной толщины и Кг ср.взв по скважинам и пачкам из «Базы ГИС».',
         needs=(GIS,),
-        optional=(INTERVALS,),
+        optional=(INTERVALS, DatasetKind.CONSTRUCTION, DatasetKind.BOTTOM, DatasetKind.WELL_GEO),
         order=75,
         builder_layouts=True,    # макеты «Конструктора графиков» графиками после основных
         params=(
@@ -59,7 +59,10 @@ class GisModule(Module):
             Param('view', 'График', 'choice', default='all', section='Вид', chart_kind=True, options=(
                 Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()),
                 Option('combo', 'Кривая hэф и столбцы Кг'), Option('svod', 'Свод по пачкам, все скважины'),
-                Option('tile', 'Плитка ГНТ и Кг по скважинам'), Option('hikg', 'Σ hi × Кг по исследованиям'), Option('an', 'Таблицы главы 5 АН (5.4–5.8)'))),
+                Option('tile', 'Плитка ГНТ и Кг по скважинам'), Option('hikg', 'Σ hi × Кг по исследованиям'), Option('an', 'Таблицы главы 5 АН (5.4–5.8)'),
+                Option('construction', 'Конструкция скважины'), Option('planshet', 'Планшет ГИС'))),
+            Param('scheme_gis', 'Пачки ГИС на схеме', 'boolean', default=True, section='Схема скважины', show_if={'view': 'construction'},
+                  help='Показать на схеме интервалы пачек (последний замер каждой пачки) из «Базы ГИС» (кровля и подошва). Выключите, чтобы остались только колонна, НКТ, фильтр и перфорация.'),
             Param('an_base', 'Новый сезон', 'choice', default='', dynamic=True, auto='last:1', section='Таблицы АН', show_if={'view': 'an'},
                   help='Сезон, от которого смотрим данные: по нему подбираются сезоны таблиц и считаются подписи. '
                        'По умолчанию самый поздний сезон с замерами.'),
@@ -88,6 +91,8 @@ class GisModule(Module):
         if name == 'seasons':
             if params.get('view') == 'tile':
                 return gis_an_tables.available(data.get(GIS), keep=True)
+            if params.get('view') == 'planshet':
+                return gis_an_tables.available(data.get(INTERVALS), keep=True)
             if INTERVALS not in data or data[INTERVALS].empty:
                 return []
             return gis_hikg.season_order(gis_hikg.prepare(data[INTERVALS])['season'].dropna().astype(str).unique())
@@ -104,6 +109,8 @@ class GisModule(Module):
             return self.run_an(data, params)
         if params['view'] == 'tile':
             return self.run_tile(data, params)
+        if params['view'] in ('construction', 'planshet'):
+            return self.run_well(data, params)
         if params['view'] == 'hikg':
             return self.run_hikg(data, params)
         if GIS not in data or data[GIS].empty:
@@ -138,6 +145,48 @@ class GisModule(Module):
         result.summary = [Stat('Скважин', str(len(wells))), Stat('Замеров', str(len(part)))]
         result.notes.append(Note('Треугольник — весенний замер (после отбора), круг — осенний (после закачки). Замеры без сезона '
                                  'показаны кругом. Точку можно исключить щелчком, как в других разделах.'))
+        return result
+
+    @staticmethod
+    def run_well(data: Data, params: dict[str, Any]) -> Result:
+        """Схема скважины (как в паспорте) или планшет ГИС по глубине: рисунок на скважину, расчёт — ``gis_well``."""
+        result = Result()
+        if GIS not in data or data[GIS].empty:
+            result.notes.append(Note('В данных нет «Базы ГИС». Загрузите таблицу пачек через «Источники» или «Импорт данных».'))
+            return result
+        wells = [w for w in params['wells'] if w in set(data[GIS]['well'].astype(str))]
+        if not wells:
+            result.notes.append(Note('Выберите скважины.'))
+            return result
+        if params['view'] == 'construction':
+            cons = data.get(DatasetKind.CONSTRUCTION)
+            if cons is None or cons.empty:
+                result.notes.append(Note('Нет конструкции скважин: загрузите шаблон «Конструкция» (Импорт данных). '
+                                         'Без неё на схеме будут только пачки ГИС.', level='warning'))
+            for well in wells:
+                result.charts.append(gis_well.construction_chart(well, cons, data.get(DatasetKind.BOTTOM), data[GIS], bool(params['scheme_gis'])))
+            result.notes.append(Note('Схема забоя та же, что в паспорте скважины: показаны эксплуатационная колонна, НКТ, фильтр, перфорация, '
+                                     'расширка, пакер и забой. Ширина условная, диаметры — в подписях.'))
+            return result
+        if INTERVALS not in data or data[INTERVALS].empty:
+            result.notes.append(Note('Планшету нужна таблица интервалов ГИС (от, до, Кг): загрузите её вместе с «Базой ГИС».'))
+            return result
+        prepared = gis_an_tables.seasoned(data[INTERVALS], keep=True)
+        labels = gis_an_tables.order(params['seasons']) if params['seasons'] else gis_an_tables.order(prepared['season'].unique())
+        if not params['seasons']:
+            labels = labels[-gis_well.MAX_TRACKS:]
+        if not labels:
+            result.notes.append(Note('В таблице интервалов нет замеров с датой.'))
+            return result
+        for well in wells:
+            chart = gis_well.planshet_chart(well, data[INTERVALS], data[GIS], data.get(DatasetKind.WELL_GEO), labels)
+            if chart is not None:
+                result.charts.append(chart)
+        if not result.charts:
+            result.notes.append(Note('За выбранные скважины и сезоны интервалов нет.'))
+            return result
+        result.notes.append(Note(f'Трек — один сезон (последний замер скважины в сезоне); без выбора показаны последние {gis_well.MAX_TRACKS}. '
+                                 f'Серый — интервал с Кг не выше {gis_well.KG_CUTOFF:g}; линия — ГВК пачки; слева — перфорация. Глубины от стола.'))
         return result
 
     @staticmethod

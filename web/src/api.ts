@@ -143,12 +143,20 @@ export interface WellStrips {
   rows: string[]; groups: string[]; columns: string[]; cells: (number | null)[][]; counts: number[]
   layout: 'matrix' | 'panels'; missing_text: string; colors?: Record<string, string>
 }
+export type FigureData =
+  | { kind: 'construction'; data: { well: string; scheme: unknown; gis: boolean } }
+  | { kind: 'planshet'; data: {
+      well: string; top: number; bottom: number; cutoff: number; perf: { top: number; bottom: number }[]
+      tracks: { title: string; date: string
+        bars: { top: number; bottom: number; kg: number | null; pack: string; gas: boolean }[]
+        packs: { pack: string; gvk: number | null; gvk_abs: number | null; h_eff: number | null; kg_avg: number | null }[] }[] } }
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean
   events?: ChartEvent[]
   bands?: ChartBand[]                       // годы над категориями оси X: подпись и серая/белая подложка
   callouts?: 'box' | 'dot'                  // узкие сегменты с подписью: выноска в рамке или точка (числа — в table)
   table?: ChartTable | null                 // таблица под графиком
+  figure?: FigureData | null                // схема скважины или планшет ГИС вместо рядов
   strips?: WellStrips | null                // скважины × сезоны (матрица или панели по ГСП)
   heat?: HeatMap | null                     // тепловая карта вместо рядов (ГСП × сезоны)
   style?: ChartStyle
