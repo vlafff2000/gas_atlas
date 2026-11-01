@@ -1,3 +1,4 @@
+import { PeriodDate, isEndParam } from './PeriodDate'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import { api, type ModuleSpec, type Param, type Params } from './api'
@@ -319,7 +320,7 @@ function Field({ param: p, project, value, options, onChange }:
     return (
       <label className="field date" title={p.help}>
         <span className="field-label">{p.label}</span>
-        <input type="date" value={(value as string | null) ?? ''} onChange={e => onChange(e.target.value || null)} />
+        <PeriodDate value={(value as string | null) ?? null} end={isEndParam(p.name)} onChange={onChange} />
       </label>
     )
   }

@@ -1,3 +1,4 @@
+import { PeriodDate } from './PeriodDate'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { MultiSelect } from './MultiSelect'
@@ -517,13 +518,11 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
             <>
               <label className="field date">
                 <span className="field-label">Период с</span>
-                <input type="date" value={row.date_from} min={ds.date_min ?? undefined} max={ds.date_max ?? undefined}
-                  onChange={e => onChange({ date_from: e.target.value })} />
+                <PeriodDate value={row.date_from} end={false} onChange={v => onChange({ date_from: v ?? '' })} />
               </label>
               <label className="field date">
                 <span className="field-label">по</span>
-                <input type="date" value={row.date_to} min={ds.date_min ?? undefined} max={ds.date_max ?? undefined}
-                  onChange={e => onChange({ date_to: e.target.value })} />
+                <PeriodDate value={row.date_to} end onChange={v => onChange({ date_to: v ?? '' })} />
               </label>
             </>
           )}

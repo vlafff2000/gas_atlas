@@ -22,7 +22,7 @@ from atlas.engine.core.import_rules import FIELDS as IMPORT_FIELDS
 from atlas.engine.core.loader import group_key
 
 from ..chart_style import clean_axes, clean_chart, clean_look, style_axis as _style_axis
-from ..contract import Axis, Chart, Data, Module, ModuleSpec, Note, Param, ParamError, Result, Series, Stat
+from ..contract import Axis, Chart, Data, Module, ModuleSpec, Note, Param, ParamError, parse_partial_date, Result, Series, Stat
 from . import builder_calc as calc
 from ._production import NEUTRAL_PREFIXES
 from ..domain import DatasetKind
@@ -256,13 +256,13 @@ def _kind(value: Any, what: str, index: int) -> DatasetKind:
         raise ParamError(f'Ряд {index}: неизвестный набор данных {value!r} ({what})') from None
 
 
-def _date(value: Any, index: int) -> str:
+def _date(value: Any, index: int, end: bool = False) -> str:
     if value in (None, ''):
         return ''
     try:
-        return pd.Timestamp(str(value)).strftime('%Y-%m-%d')
+        return parse_partial_date(value, end)
     except (TypeError, ValueError):
-        raise ParamError(f'Ряд {index}: дата периода — ГГГГ-ММ-ДД') from None
+        raise ParamError(f'Ряд {index}: дата периода — ГГГГ-ММ-ДД, ММ.ГГГГ или год') from None
 
 
 def _x_transform(raw: Any, index: int) -> calc.Transform:
@@ -331,7 +331,7 @@ def parse_layout(raw: Any) -> tuple[list[Row], dict[str, Any]]:
         if not isinstance(wells, list):
             raise ParamError(f'Ряд {i}: скважины — список')
         out.append(Row(i, dataset, str(r.get('y') or ''), x_dataset, str(r.get('x') or 'date'), [str(w) for w in wells],
-                       _date(r.get('date_from'), i), _date(r.get('date_to'), i), str(r.get('kind') or ''), axis, view, str(r.get('stack') or '').strip()[:60], key,
+                       _date(r.get('date_from'), i), _date(r.get('date_to'), i, True), str(r.get('kind') or ''), axis, view, str(r.get('stack') or '').strip()[:60], key,
                        days, str(r.get('name') or '')[:200], bool(r.get('hidden')), clean_look(r.get('look'), i),
                        source, None, calc.clean_transform(r.get('transform'), i), str(r.get('unit') or '').strip()[:40],
                        'current' if str(r.get('wells_mode') or '') == 'current' else 'fixed',
