@@ -1056,6 +1056,17 @@ class Imports:
                 out['error_model'] = str(e)
         return out
 
+    def base_model_inventory(self, pid: str) -> dict[str, Any]:
+        """Чек-лист файлов и данных базовой модели (по запросу: большие include просматриваются долго)."""
+        cfg = self.projects.manifest(pid).get('settings', {})
+        current, folder = base_model.selected(cfg), base_model.data_dir(cfg)
+        if not current and not folder:
+            return {'error': 'Базовая модель не выбрана', 'files': [], 'groups': [], 'other': [], 'notes': []}
+        try:
+            return {'error': '', **base_model.inventory(current, folder)}
+        except base_model.BaseModelUnavailable as e:
+            return {'error': str(e), 'files': [], 'groups': [], 'other': [], 'notes': []}
+
     def base_model_choose(self, pid: str, body: dict) -> dict[str, Any]:
         """Модель (файл результатов) и/или папка с .data; пустое значение сбрасывает. Ключ в теле — только то, что меняется."""
         m = self.projects.manifest(pid)

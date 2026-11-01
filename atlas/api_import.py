@@ -137,6 +137,7 @@ def routes(projects) -> list[Route]:
               methods=['POST']),
         Route('/api/projects/{pid}/import/base-model', _wrap(lambda r, b: imports.base_model_state(pid(r)))),
         Route('/api/projects/{pid}/import/base-model', _wrap(lambda r, b: imports.base_model_choose(pid(r), b)), methods=['POST']),
+        Route('/api/projects/{pid}/import/base-model/inventory', _wrap(lambda r, b: imports.base_model_inventory(pid(r)))),
         Route('/api/import/base-model/folder', _wrap(lambda r, b: imports.base_model_add_folder(b)), methods=['POST']),
         Route('/api/projects/{pid}/import/base-model/apply', _wrap(lambda r, b: imports.base_model_apply(pid(r), b)), methods=['POST']),
         Route('/api/projects/{pid}/import/ggh', _wrap(lambda r, b: imports.ggh_inspect(pid(r), b)), methods=['POST']),
