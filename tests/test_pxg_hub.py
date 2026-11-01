@@ -60,3 +60,21 @@ def test_start_stop_and_http_menu(tmp_path):
     finally:
         hub.stop_all()
         server.shutdown()
+
+
+def test_open_runs_on_server_and_page_has_no_blank_popup(tmp_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr(menu, 'open_app', lambda app: opened.append(app.id))
+    port, hub_port = free_port(), free_port()
+    hub = Hub([App('fake', 'Проба', '', port, FAKE)], project=tmp_path / 'P', root=tmp_path)
+    server, quit_event = menu.serve(hub, hub_port)
+    base = 'http://127.0.0.1:%d' % hub_port
+    try:
+        page = urllib.request.urlopen(base + '/').read().decode('utf-8')
+        assert 'about:blank' not in page and 'window.open' not in page
+        req = urllib.request.Request(base + '/api/start/fake?open=1', method='POST', headers={'X-PXG': '1'})
+        urllib.request.urlopen(req).read()
+        assert opened == ['fake']
+    finally:
+        hub.stop_all()
+        server.shutdown()
