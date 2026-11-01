@@ -40,6 +40,36 @@ export async function saveFileWithPicker(source: Blob | Promise<Blob>, name: str
   return answer.path || target
 }
 
+/** Сохранить готовый Blob через проводник «Сохранить как» с сообщением о результате (единый вход для всех выгрузок). */
+export async function saveBlobAs(source: Blob | Promise<Blob>, name: string): Promise<string | null> {
+  try {
+    const path = await saveFileWithPicker(source, name)
+    if (path) toast('Сохранено: ' + path)
+    return path
+  } catch (e) {
+    toast(`Файл не сохранён: ${(e as Error).message}`, true)
+    throw e
+  }
+}
+
+/** Скачать файл по адресу сервера через проводник «Сохранить как». */
+export async function saveUrlAs(url: string, name = ''): Promise<string | null> {
+  const resp = await fetch(url)
+  if (!resp.ok) { toast(`Не удалось получить файл (${resp.status})`, true); throw new Error(`не удалось получить файл (${resp.status})`) }
+  return saveBlobAs(resp.blob(), name || dispositionName(resp.headers.get('Content-Disposition')) || lastSegment(url) || 'файл')
+}
+
+/** Записать файл в уже выбранную папку (пакетная выгрузка: папку инженер выбирает один раз в проводнике). */
+export async function saveBlobToFolder(source: Blob | Promise<Blob>, folder: string, name: string): Promise<string> {
+  const sep = folder.includes('\\') && !folder.includes('/') ? '\\' : '/'
+  const target = folder.replace(/[\\/]+$/, '') + sep + name
+  const r = await fetch('/api/fs/save?overwrite=1&path=' + encodeURIComponent(target), {
+    method: 'POST', headers: { 'X-PXG': '1', 'Content-Type': 'application/octet-stream' }, body: await source })
+  const answer = (await r.json().catch(() => ({}))) as { ok?: boolean; path?: string; error?: string }
+  if (!r.ok || !answer.ok) throw new Error(answer.error || `ошибка ${r.status}`)
+  return answer.path || target
+}
+
 async function saveAnchor(a: HTMLAnchorElement) {
   const href = a.href
   // запрос уходит сразу: ссылку на blob после click() часто тут же отзывают

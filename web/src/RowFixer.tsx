@@ -3,28 +3,14 @@ import { useEffect, useRef, useState } from 'react'
 import { importApi, type CellEdit, type IssueSource, type RowsWindow } from './api_import'
 import type { Project } from './api'
 
-interface FilePicker { showSaveFilePicker?: (o: { suggestedName: string }) => Promise<{ createWritable: () => Promise<{ write: (b: Blob) => Promise<void>; close: () => Promise<void> }> }> }
+import { saveFileWithPicker } from './desktopDownload'
 
 const letters = (i: number) => { let s = ''; for (i += 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s }
 
-/** Записывает файл на диск: через окно «Сохранить как» (можно выбрать исходный файл и заменить его) или обычной загрузкой. */
+/** Записывает файл на диск через наш проводник «Сохранить как» (можно выбрать исходный файл и заменить его). */
 async function writeFile(blob: Blob, name: string): Promise<string> {
-  const picker = window as unknown as FilePicker
-  if (picker.showSaveFilePicker) {
-    try {
-      const handle = await picker.showSaveFilePicker({ suggestedName: name })
-      const out = await handle.createWritable()
-      await out.write(blob); await out.close()
-      return 'Файл записан в выбранное место.'
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') return 'Запись файла на диск отменена: исправления остались только в загруженном файле.'
-    }
-  }
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-  return 'Исправленный файл скачан: замените им исходный.'
+  const path = await saveFileWithPicker(blob, name)
+  return path ? 'Файл записан: ' + path : 'Запись файла на диск отменена: исправления остались только в загруженном файле.'
 }
 
 export function RowFixer({ project, source, onFixed, onClose }: {

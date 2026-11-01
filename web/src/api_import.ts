@@ -1,3 +1,4 @@
+import { saveBlobAs } from './desktopDownload'
 // Клиент раздела «Импорт данных» (atlas/api_import.py).
 import { ApiError, type Project, type Table } from './api'
 
@@ -104,10 +105,7 @@ async function save(response: Response, fallback: string) {
   const header = response.headers.get('Content-Disposition') ?? ''
   const match = /filename\*=UTF-8''([^;]+)/.exec(header)
   const name = match ? decodeURIComponent(match[1]) : fallback
-  const url = URL.createObjectURL(await response.blob())
-  const a = document.createElement('a')
-  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  await saveBlobAs(await response.blob(), name)
 }
 
 export interface BaseModelCell { model: number | null; file: number | null; state: 'same' | 'diff' | 'only_model' | 'only_file' }

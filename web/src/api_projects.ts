@@ -1,3 +1,4 @@
+import { saveUrlAs } from './desktopDownload'
 // Клиент API разделов «Проекты», «Настройки» и «Экспорт» (atlas/api_projects.py, atlas/api_export.py).
 import { ApiError, type Chart, type Project } from './api'
 import { menuPrefs } from './menuPrefs'
@@ -83,8 +84,7 @@ const P = (pid: string) => `/api/projects/${pid}`
 
 /** Скачивание через ссылку: большой файл не держится в памяти страницы. */
 export function saveLink(url: string) {
-  const a = document.createElement('a')
-  a.href = url; a.download = ''; document.body.appendChild(a); a.click(); a.remove()
+  saveUrlAs(url).catch(() => undefined)  // ошибку уже показал toast
 }
 
 export const projectsApi = {

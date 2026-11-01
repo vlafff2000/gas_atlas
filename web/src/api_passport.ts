@@ -1,3 +1,4 @@
+import { saveBlobAs } from './desktopDownload'
 // «Паспорт скважины»: atlas/api_passport.py.
 import { ApiError, chartPng, download, type Chart, type ChartExportView, type Project, type Table } from './api'
 
@@ -72,10 +73,7 @@ export const passportApi = {
     const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, wells, sections, periods, comment, card, seasons }))
     const match = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') ?? '')
     const name = match ? decodeURIComponent(match[1]) : (wells && wells.length > 1 ? `Паспорта_скважин_${wells.length}.zip` : `Паспорт_скважины_${well}.pdf`)
-    const url = URL.createObjectURL(await response.blob())
-    const a = document.createElement('a')
-    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    await saveBlobAs(await response.blob(), name)
     return name
   },
 }

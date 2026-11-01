@@ -1,3 +1,4 @@
+import { saveBlobAs } from './desktopDownload'
 import type { Look } from './chartStyle'
 // Типы повторяют atlas/contract.py. Интерфейс не знает о конкретных модулях.
 
@@ -189,10 +190,7 @@ async function downloadNotes(path: string, body: unknown): Promise<string> {
   const header = response.headers.get('Content-Disposition') ?? ''
   const match = /filename\*=UTF-8''([^;]+)/.exec(header)
   const name = match ? decodeURIComponent(match[1]) : 'atlas'
-  const url = URL.createObjectURL(await response.blob())
-  const a = document.createElement('a')
-  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  await saveBlobAs(await response.blob(), name)
   return decodeURIComponent(response.headers.get('X-Atlas-Notes') ?? '')
 }
 
