@@ -26,6 +26,7 @@ import { HelpPage } from './HelpPage'
 import { SectionSearch, type Section } from './SectionSearch'
 import { WindowButtons } from './WindowButtons'
 import { useShared } from './windows'
+import { ResourceBadge } from './ResourceBadge'
 import { chartColumns, sidebarCollapsed, theme, thinCharts, usePref, type Theme } from './chartPrefs'
 
 const remembered = {
@@ -177,6 +178,7 @@ export function App() {
             </button>
           ))}
         </div>
+        <ResourceBadge url={'/api/resources' + (project ? '?project=' + project.id : '')} />
       </aside>
       <SectionSearch sections={sections} open={search} onClose={() => setSearch(false)} onGo={id => { location.hash = '#/' + id }} />
       {menuOpen && <MenuWindow groups={groups} project={project} onClose={closeMenu} />}
