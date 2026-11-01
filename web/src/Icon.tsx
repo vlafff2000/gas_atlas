@@ -8,6 +8,8 @@ const PATHS = {
   moon: 'M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z',
   screen: 'M6 13.5h4',
   search: 'm10.5 10.5 3 3',
+  undo: 'M6 3 2.5 6.5 6 10M2.5 6.5h6.5a4 4 0 0 1 0 8H7',
+  redo: 'M10 3l3.5 3.5L10 10M13.5 6.5H7a4 4 0 0 0 0 8h2',
 } as const
 export type IconName = keyof typeof PATHS
 
