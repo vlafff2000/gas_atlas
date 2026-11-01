@@ -189,7 +189,7 @@ def routes(projects: Projects) -> list[Route]:
 
     def create(request, body):
         """«Новый проект» из боковой панели 5.8."""
-        pid = projects.store.create(str(body.get('name') or ''))
+        pid = projects.store.create(str(body.get('name') or ''), obj=str(body.get('object') or ''))
         return JSONResponse(projects.summary(projects.manifest(pid)), status_code=201)
 
     def info(request, body):
@@ -199,6 +199,13 @@ def routes(projects: Projects) -> list[Route]:
         pid = request.path_params['pid']
         projects.manifest(pid)
         projects.store.rename(pid, str(body.get('name') or ''), revision(body))
+        return projects.summary(projects.manifest(pid))
+
+    def set_object(request, body):
+        """Объект (ПХГ) проекта; пустое значение снимает привязку, и объектом снова считается название проекта."""
+        pid = request.path_params['pid']
+        projects.manifest(pid)
+        projects.store.set_object(pid, str(body.get('object') or ''), revision(body))
         return projects.summary(projects.manifest(pid))
 
     def copy(request, body):
@@ -270,6 +277,7 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/log', E(journal)),
         Route('/api/projects/{pid}/details', E(info)),
         Route('/api/projects/{pid}/rename', E(rename), methods=['POST']),
+        Route('/api/projects/{pid}/object', E(set_object), methods=['POST']),
         Route('/api/projects/{pid}/copy', E(copy), methods=['POST']),
         Route('/api/projects/{pid}/backup', E(backup)),
         Route('/api/projects/{pid}/versions', E(versions)),

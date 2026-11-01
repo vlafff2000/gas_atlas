@@ -29,6 +29,10 @@ def atomic_json(path, value):
     tmp.write_text(json.dumps(value,ensure_ascii=False,indent=2,default=str),encoding='utf8')
     os.replace(tmp,path)
 
+def clean_object(value):
+    """Объект (ПХГ), к которому относится проект: произвольное название; пусто — не задан (показывается название проекта)."""
+    return ' '.join(str(value or '').split())[:120]
+
 class Store:
     def __init__(self, root=STORAGE):
         self.root=Path(root); self.root.mkdir(parents=True,exist_ok=True)
@@ -66,14 +70,14 @@ class Store:
             except (ValueError,OSError): continue
         return sorted(out,key=lambda x:x['updated'],reverse=True)
 
-    def create(self,name,demo=False):
+    def create(self,name,demo=False,obj=''):
         name=name.strip()
         if not name: raise ValueError('Введите название проекта')
         pid=uuid.uuid4().hex; path=self.path(pid); path.mkdir()
         (path/'snapshots').mkdir(); (path/'originals').mkdir()
         manifest={'id':pid,'name':name[:120],'demo':demo,'version':VERSION,'revision':0,
                   'updated':dt.datetime.now(dt.timezone.utc).isoformat(),'tables':{},'snapshot':None,
-                  'settings':dict(DEFAULT_SETTINGS),'groups':{},'imports':[]}
+                  'settings':dict(DEFAULT_SETTINGS),'groups':{},'imports':[],'object':clean_object(obj)}
         atomic_json(path/'manifest.json',manifest); self.event(pid,'Создание',{'name':name})
         return pid
 
@@ -192,7 +196,7 @@ class Store:
                 req={'production':{'well','date','q','kind'},'gdi':{'well','date','q','dp2'},'response':{'well','date','horizon','level'},'object_pressure':{'date','pressure'},'operations':{'well','date','kind','work_hours'},'water':{'well','date','water_flag','water_rate'},'bottom':{'well','date','bottom_m'},'construction':{'well','date','element','top_m','bottom_m'},'pressure_match':{'well','date','fact','model','object','scenario','fond'},'plan':{'group','date','plan_volume','kind'},'ggh':{'well','date','horizon','hc','gas'},'water_factor':{'date','gas_in_place'},'elpro':{'well','date','q','kind'},'gas_db':{'date','kind','gas'},'well_geo':{'well'},'annulus':{'well','date','q','p'},'gis_packs':{'well','date','pack'},'gis_observations':{'well','date'},'gis_intervals':{'well','date','pack','from_m','to_m'},'krs_works':{'well','year'},'krs_priority':{'well'}}[name]
                 if not req<=set(df): raise ValueError('Неполные данные в архиве')
                 data[name]=df
-            pid=self.create(m.get('name','Восстановленный проект')+' (копия)',m.get('demo',False))
+            pid=self.create(m.get('name','Восстановленный проект')+' (копия)',m.get('demo',False),m.get('object',''))
             for n in names:
                 if n.startswith('originals/') and len(Path(n).parts)==2:
                     (self.path(pid)/n).write_bytes(z.read(n))
@@ -248,6 +252,15 @@ class Store:
             old=m['name'];m['name']=name[:120];m['revision']+=1;m['updated']=dt.datetime.now(dt.timezone.utc).isoformat()
             atomic_json(self.path(pid)/'manifest.json',m)
             self.event(pid,'Переименование',{'before':old,'after':m['name']})
+
+    def set_object(self,pid,obj,expected=None):
+        obj=clean_object(obj)
+        with self.lock(pid):
+            m=self.manifest(pid)
+            if expected is not None and m['revision']!=expected:raise ValueError('Проект изменен. Обновите страницу.')
+            old=m.get('object','');m['object']=obj;m['revision']+=1;m['updated']=dt.datetime.now(dt.timezone.utc).isoformat()
+            atomic_json(self.path(pid)/'manifest.json',m)
+            self.event(pid,'Объект проекта',{'before':old,'after':obj})
 
     def save_export(self,pid,filename,content,metadata=None):
         from .export import safe_name
