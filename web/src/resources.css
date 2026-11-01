@@ -1,0 +1,5 @@
+.resource-badge { margin: 8px 0 0; padding: 6px 8px; font-size: 11px; line-height: 1.5; color: var(--side-muted); background: var(--side-raised); border: 1px solid #34474f; border-radius: var(--radius); }
+.resource-badge > div { display: flex; justify-content: space-between; gap: 8px; }
+.resource-badge dt { margin: 0; }
+.resource-badge dd { margin: 0; color: var(--side-ink); text-align: right; font-variant-numeric: tabular-nums; }
+.shell.collapsed .resource-badge { display: none; }

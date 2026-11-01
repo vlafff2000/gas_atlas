@@ -26,6 +26,7 @@ from . import second_window
 from . import api_builder, api_corrected, api_export, api_projects, export_any, export_charts, group_colors, group_paint
 from .contract import DataRangeError, MissingData, ParamError, Result, _chart_json, _series_json, _table_json
 from .domain import DatasetKind
+from . import resources
 from .projects import Conflict, Projects
 
 log = logging.getLogger(__name__)
@@ -134,6 +135,17 @@ def create_app(projects: Projects | None = None) -> Starlette:
         return (shown, cached[1]), params, data
 
     # --- справочные ---
+    def resources_info(request, body):
+        """Плашка ресурсов: ОЗУ, размер проектов (кэш, считается в фоне), занятые потоки процессора."""
+        from atlas.parallel import default_workers
+        root = projects.store.projects
+        pid = request.query_params.get('project') or ''
+        try:
+            current = str(projects.store.path(pid)) if pid else ''
+        except ValueError:
+            current = ''
+        return resources.snapshot(current, str(root), default_workers)
+
     def health(request, body):
         return {'version': VERSION, 'modules': len(registry.modules())}
 
@@ -357,6 +369,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
     routes = [
         second_window.route(),
         Route('/api/health', E(health)),
+        Route('/api/resources', E(resources_info)),
         Route('/api/modules', E(list_modules)),
         Route('/api/modules/{mid}/run', E(run), methods=['POST']),
         Route('/api/modules/{mid}/export', E(export), methods=['POST']),

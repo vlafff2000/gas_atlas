@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './desktopDownload'
+import './resources.css'
 import '@fontsource/pt-sans/cyrillic-400.css'
 import '@fontsource/pt-sans/cyrillic-700.css'
 import '@fontsource/pt-sans/latin-400.css'
