@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import re
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, ClassVar, Literal, Mapping, Sequence
 
@@ -26,6 +27,37 @@ from atlas.engine.core.config import DataRangeError  # noqa: E402,F401  (пер�
 
 class ParamError(ValueError):
     """Неверное значение параметра; текст показывается пользователю как есть."""
+
+
+_END_NAMES = ('end', 'stop', 'date_to', 'cubes_to', 'model_cubes_to')
+
+
+def is_end_param(name: str) -> bool:
+    """Параметр — правая граница периода («по», «конец»): неполная дата округляется до конца периода."""
+    return name in _END_NAMES or name.endswith('_to') or name.endswith('_end')
+
+
+def parse_partial_date(value: Any, end: bool = False) -> str:
+    """Дата с неполными частями → 'ГГГГ-ММ-ДД'. «2020» — 01.01.2020 (начало) или 31.12.2020 (конец),
+    «03.2020» / «2020-03» — 01.03 или 31.03. Полная дата берётся как есть. Единый разбор для всех фильтров периода."""
+    text = str(value).strip()
+    m = re.fullmatch(r'(\d{4})', text)
+    if m:
+        year, month = int(m[1]), None
+    else:
+        m = re.fullmatch(r'(\d{4})[-./](\d{1,2})', text) or re.fullmatch(r'(\d{1,2})[-./](\d{4})', text)
+        if m:
+            a, b = int(m[1]), int(m[2])
+            year, month = (a, b) if m[1] and len(m[1]) == 4 else (b, a)
+        else:
+            d = re.fullmatch(r'(\d{1,2})[./](\d{1,2})[./](\d{4})', text)
+            return (dt.date(int(d[3]), int(d[2]), int(d[1])).isoformat() if d else pd.Timestamp(text).strftime('%Y-%m-%d'))
+    if month is not None and not 1 <= month <= 12:
+        raise ValueError(text)
+    if month is None:
+        return f'{year:04d}-12-31' if end else f'{year:04d}-01-01'
+    start = pd.Timestamp(year=year, month=month, day=1)
+    return (start + pd.offsets.MonthEnd(0) if end else start).strftime('%Y-%m-%d')
 
 
 @dataclass(frozen=True)
@@ -97,9 +129,9 @@ class Param:
             raise ParamError(f'«{self.label}»: ожидается {"целое " if self.kind == "integer" else ""}число') from None
         if self.kind == 'date':
             try:
-                return pd.Timestamp(str(value)).strftime('%Y-%m-%d')
+                return parse_partial_date(value, is_end_param(self.name))
             except (TypeError, ValueError):
-                raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД') from None
+                raise ParamError(f'«{self.label}»: ожидается дата ГГГГ-ММ-ДД, ММ.ГГГГ или год') from None
         if self.kind == 'text':
             return str(value)[:5000]
         if self.kind == 'file':    # путь к файлу, выбранному общим проводником; существование проверяет модуль
