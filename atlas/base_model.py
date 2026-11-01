@@ -139,3 +139,45 @@ def apply(old: pd.DataFrame | None, model: pd.DataFrame, fields: list[str], mode
         if c not in new:
             new[c] = np.nan
     return geo.merge(old, new[geo.COLUMNS], keep_old=mode == 'fill')
+
+
+# ---------- Что есть во входных файлах модели и что из этого читается ----------
+# (группа, ключевые слова, что это, читается ли сейчас, куда попадает)
+CATALOG: list[tuple[str, tuple[str, ...], str, bool, str]] = [
+    ('Файлы и даты', ('INCLUDE', 'IMPORT'), 'подключаемые файлы (путь от папки самого .data)', True, 'дерево файлов ниже'),
+    ('Файлы и даты', ('START', 'DATES', 'TSTEP'), 'начало расчёта и шаги по датам', True, 'даты изменения перфораций'),
+    ('Скважины', ('WELLTRACK',), 'траектория скважины: первая точка = устье', True, 'X, Y, альтитуда → таблица координат скважин'),
+    ('Скважины', ('COMPDAT', 'COMPDATL', 'COMPDATMD'), 'интервалы вскрытия (ячейки или MD)', True, 'перфорация (верх, низ) → таблица координат'),
+    ('Скважины', ('WELOPEN',), 'открытие и закрытие скважин и интервалов', True, 'состояние перфораций на дату'),
+    ('Скважины', ('WELSPECS',), 'группа, ячейка I, J, опорная глубина', True, 'читается, в проект пока не переносится'),
+    ('Скважины', ('WCONPROD', 'WCONINJE', 'WCONHIST', 'WCONINJH', 'WELTARG', 'GCONPROD', 'GCONINJE'), 'режимы и цели скважин и групп', False, ''),
+    ('Скважины', ('GRUPTREE', 'GRUPNET', 'GROUP'), 'дерево групп', False, ''),
+    ('Сетка', ('DIMENS', 'SPECGRID', 'COORD', 'ZCORN', 'DX', 'DY', 'DZ', 'TOPS', 'ACTNUM', 'COARSEN', 'MAPAXES'), 'геометрия сетки', False,
+     'сетка берётся из EGRID результатов'),
+    ('Свойства породы', ('PORO', 'PERMX', 'PERMY', 'PERMZ', 'NTG', 'MULTPV', 'MULTX', 'MULTY', 'MULTZ', 'ROCK', 'ROCKTAB'), 'пористость, проницаемость, сжимаемость', False, ''),
+    ('PVT флюидов', ('PVTG', 'PVDG', 'PVTO', 'PVDO', 'PVTW', 'PVCDO', 'DENSITY', 'GRAVITY', 'RSCONST', 'RV', 'RS'), 'свойства газа, нефти и воды', False, ''),
+    ('Фазовые проницаемости', ('SWOF', 'SGOF', 'SWFN', 'SGFN', 'SOF3', 'SOF2', 'SGWFN', 'SATNUM', 'ENDSCALE'), 'ОФП и области насыщенности', False, ''),
+    ('Начальные условия', ('EQUIL', 'PRESSURE', 'SWAT', 'SGAS', 'SOIL', 'EQLNUM', 'RPTRST'), 'ГВК, начальное давление и насыщенности', False, ''),
+]
+
+
+def inventory(anchor: str, folder: str = '') -> dict[str, Any]:
+    """Чек-лист входных файлов модели: какие файлы подключены и какие группы данных в них найдены, что читается сейчас."""
+    try:
+        from tnav_results import base_model as bm
+    except ImportError as e:
+        raise BaseModelUnavailable('Не найдена читалка tNavigator (пакет tnav_results из all_scripts).') from e
+    if not hasattr(bm, 'inventory'):
+        raise BaseModelUnavailable('Читалка tnav_results устарела: нет описи файлов модели. Обновите архив.')
+    inv = bm.inventory(folder or anchor)
+    found = inv['keywords']
+    groups: dict[str, list[dict[str, Any]]] = {}
+    known: set[str] = set()
+    for group, words, what, used, goes in CATALOG:
+        known.update(words)
+        present = [{'word': w, 'count': found[w]['count'], 'files': found[w]['files']} for w in words if w in found]
+        groups.setdefault(group, []).append({'words': list(words), 'what': what, 'used': used, 'goes': goes, 'present': present,
+                                             'status': ('read' if used else 'found') if present else 'absent'})
+    other = sorted(({'word': w, 'count': d['count'], 'files': d['files']} for w, d in found.items() if w not in known),
+                   key=lambda r: -r['count'])[:60]
+    return {'files': inv['files'], 'groups': [{'title': g, 'items': it} for g, it in groups.items()], 'other': other, 'notes': inv['notes']}

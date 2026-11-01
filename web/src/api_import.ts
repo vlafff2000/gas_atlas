@@ -109,6 +109,13 @@ async function save(response: Response, fallback: string) {
 }
 
 export interface BaseModelCell { model: number | null; file: number | null; state: 'same' | 'diff' | 'only_model' | 'only_file' }
+export interface BaseModelInventory {
+  error: string; notes: string[]
+  files: { path: string; name: string; parent: string; found: boolean; size: number; big?: boolean }[]
+  groups: { title: string; items: { words: string[]; what: string; used: boolean; goes: string; status: 'read' | 'found' | 'absent'
+    present: { word: string; count: number; files: string[] }[] }[] }[]
+  other: { word: string; count: number; files: string[] }[]
+}
 export interface BaseModelState {
   available: boolean; error: string; error_model: string; selected: string; notes: string[]
   data_dir: string; folders: string[]; data_files: { used: string[]; auto: string[]; source: 'folder' | 'auto' | 'none' }
@@ -126,6 +133,7 @@ export interface ChecklistItem {
 export const importApi = {
   checklist: async (project: string) => ((await send(`/api/projects/${project}/import/checklist`)).json() as Promise<{ items: ChecklistItem[] }>),
   baseModel: async (project: string) => (await send(`/api/projects/${project}/import/base-model`)).json() as Promise<BaseModelState>,
+  baseModelInventory: async (project: string) => (await send(`/api/projects/${project}/import/base-model/inventory`)).json() as Promise<BaseModelInventory>,
   chooseBaseModel: (project: string, body: { model?: string; data_dir?: string }) => post<BaseModelState>(`/api/projects/${project}/import/base-model`, body),
   addModelFolder: (folder: string) => post<{ folders: string[]; models: number }>('/api/import/base-model/folder', { folder }),
   applyBaseModel: (project: string, fields: string[], mode: 'fill' | 'replace') =>

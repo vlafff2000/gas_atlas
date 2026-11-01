@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { importApi, type BaseModelCell, type BaseModelState } from './api_import'
+import { importApi, type BaseModelCell, type BaseModelInventory, type BaseModelState } from './api_import'
 import { openFilePicker } from './FilePicker'
 import type { Project } from './api'
 
@@ -14,6 +14,7 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
   const [mode, setMode] = useState<'fill' | 'replace'>('fill')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [checklist, setChecklist] = useState<BaseModelInventory | 'loading' | null>(null)
   const pid = project?.id
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
     const r = await importApi.applyBaseModel(project.id, fields, mode)
     setState(r.state); setMessage(r.message); onProject?.(r.project)
   })
+  const openChecklist = () => { setChecklist('loading'); importApi.baseModelInventory(project.id).then(setChecklist).catch(e => { setChecklist(null); setMessage((e as Error).message) }) }
   const toggle = (k: string) => setFields(fields.includes(k) ? fields.filter(x => x !== k) : [...fields, k])
   const cmp = state?.compare
   const files = state?.data_files
@@ -56,7 +58,8 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
       <h2>Базовая модель</h2>
       <p className="muted small">Из входных файлов модели (.data) берутся устье X, Y, альтитуда и интервалы перфорации. Значения только предлагаются:
         сверка с загруженным файлом ниже, в проект они попадают по кнопке. Файл остаётся главным, пока вы не выберете «заменить».
-        Карты и ГДМ читают тот же проект.</p>
+        Карты и ГДМ читают тот же проект. <button type="button" onClick={openChecklist} disabled={!state?.selected && !state?.data_dir}>Что читается из модели…</button></p>
+      {checklist && <BaseModelChecklist data={checklist === 'loading' ? null : checklist} onClose={() => setChecklist(null)} />}
       {!state && !message && <p className="muted small">Загрузка…</p>}
       {state && !state.available && <div className="note warning">{state.error}</div>}
       {state && state.available && (
@@ -113,5 +116,52 @@ export function BaseModel({ project, onProject }: { project: Project | null; onP
       )}
       {message && <div className="note">{message}</div>}
     </section>
+  )
+}
+
+
+const STATUS_TEXT = { read: '✓ читается', found: '○ есть в модели, пока не читается', absent: '— не найдено' } as const
+const size = (b: number) => (b > 1048576 ? (b / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(b / 1024)) + ' КБ')
+
+/** Окно-чек-лист: какие файлы модели подключены (.data и INCLUDE) и что из найденного читается и куда попадает. */
+function BaseModelChecklist({ data, onClose }: { data: BaseModelInventory | null; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="palette-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="menu-window" style={{ width: 'min(760px, calc(100vw - 32px))' }} role="dialog" aria-modal="true" aria-label="Что читается из базовой модели">
+        <header className="menu-window-head">
+          <h2>Что читается из базовой модели</h2>
+          <button type="button" className="menu-close" onClick={onClose} aria-label="Закрыть" title="Закрыть (Esc)">×</button>
+        </header>
+        <div className="menu-groups">
+          {!data && <p className="muted small">Просмотр файлов модели…</p>}
+          {data?.error && <p className="warn">{data.error}</p>}
+          {data && !data.error && <>
+            <p className="muted small-text">Читается .data и всё, что подключено через INCLUDE (путь от папки самого .data). «Читается» — значение берётся и
+              показывается в сверке; «есть в модели» — данные в файлах найдены, но программа их пока не использует.</p>
+            <h3>Файлы ({data.files.length})</h3>
+            <ul className="menu-items" style={{ marginLeft: 8 }}>
+              {data.files.map((f, n) => <li key={n}>{f.found ? '✓' : '✗'} {f.parent ? '↳ ' : ''}<span title={f.path}>{f.name}</span>{' '}
+                <small className="muted">{f.found ? size(f.size) + (f.big ? ', большой: просмотрены только отдельные слова' : '') : 'не найден'}{f.parent ? `, из ${f.parent}` : ''}</small></li>)}
+            </ul>
+            {data.groups.map(g => <section key={g.title}>
+              <h3>{g.title}</h3>
+              <table className="data-grid"><tbody>
+                {g.items.map((it, n) => <tr key={n}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{STATUS_TEXT[it.status]}</td>
+                  <td><b>{it.words.join(', ')}</b><br /><small className="muted">{it.what}{it.goes ? ' → ' + it.goes : ''}</small></td>
+                  <td><small>{it.present.map(p => `${p.word} ×${p.count} (${p.files.join(', ')})`).join('; ')}</small></td></tr>)}
+              </tbody></table></section>)}
+            {data.other.length > 0 && <section><h3>Другие ключевые слова в файлах</h3>
+              <p className="small">{data.other.map(o => `${o.word} ×${o.count}`).join(', ')}</p></section>}
+            {data.notes.map((t, n) => <p key={n} className="muted small">{t}</p>)}
+          </>}
+        </div>
+      </div>
+    </div>
   )
 }
