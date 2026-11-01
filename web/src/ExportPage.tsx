@@ -1,4 +1,5 @@
 // Раздел «Экспорт» (5.8: app/ui/export_panel.py). Поля формы называются как виджеты 5.8 — шаблоны общие.
+import { UndoButtons, useUndo, useUndoValue, type Undo } from './useUndo'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MultiSelect } from './MultiSelect'
 import { ChartView } from './ChartView'
@@ -78,6 +79,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   }, [project.id, project.revision, exclusions])
 
   const set = useCallback((field: string, value: unknown) => setForm(f => ({ ...f, [field]: value })), [])
+  // Отмена (Ctrl+Z) для параметров выгрузки: любое изменение формы, включая шаблон, фильтры и переключатели модулей.
+  const undo = useUndo({ onNotice: setToast })
+  useUndoValue(form, setForm, undo, 'изменение параметров выгрузки', project.id + (choices ? ':готово' : ':загрузка'))
   // Фильтры вкладок хранятся в проекте: при открытии раздела берутся оттуда, при изменении сохраняются (с паузой, чтобы не писать на каждый щелчок).
   const savedFilters = (project.settings.export_filters ?? {}) as Record<string, TabFilter>
   const pendingFilters = useRef<Record<string, TabFilter> | null>(null)
@@ -277,7 +281,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   if (!choices) {
     return (
       <>
-        <Title />
+        <Title undo={undo} />
         {error ? <div className="note warning" role="alert">{error}</div> : <p className="muted loading-line">Загрузка…</p>}
       </>
     )
@@ -411,7 +415,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     </>
   )
   if (!choices.modules.length && !gghAvailable) {
-    return <><Title /><div className="note info">В проекте нет данных для выгрузки. Загрузите данные в разделе «Импорт данных».</div></>
+    return <><Title undo={undo} /><div className="note info">В проекте нет данных для выгрузки. Загрузите данные в разделе «Импорт данных».</div></>
   }
 
   const first = view === 'pack' && packAvailable ? 'pack' : view === 'ggh' && gghAvailable ? 'ggh' : (choices.modules[0]?.id ?? extraTabs[0][0])
@@ -431,11 +435,11 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         {readyPlan && <button type="button" role="tab" aria-selected={current === 'custom'} onClick={() => setTab('custom')}>Отдельные графики</button>}
       </div>
   )
-  if (current === 'any') return <><Title />{tabsRow}<TabWellFilter tab={current} choices={choices} form={form} projectId={project.id} onChange={() => undefined} /><ExportAnyChart project={project} onProject={onProject} /></>
+  if (current === 'any') return <><Title undo={undo} />{tabsRow}<TabWellFilter tab={current} choices={choices} form={form} projectId={project.id} onChange={() => undefined} /><ExportAnyChart project={project} onProject={onProject} /></>
 
   return (
     <>
-      <Title />
+      <Title undo={undo} />
       <ReadyFiles files={ready_files} pid={project.id} busy={busy !== null} onBundle={bundle} />
 
       <details className="table-block">
@@ -682,13 +686,14 @@ function TabWellFilter({ tab, choices, form, projectId, onChange }: { tab: strin
   )
 }
 
-function Title() {
+function Title({ undo }: { undo: Undo }) {
   return (
     <header className="module-title">
       <div>
         <h1>Экспорт результатов</h1>
         <p className="lede">Параметры выгрузки, предпросмотр каждой диаграммы, архивы и отчет Word.</p>
       </div>
+      <UndoButtons undo={undo} />
     </header>
   )
 }
