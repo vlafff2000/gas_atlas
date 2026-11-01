@@ -194,7 +194,7 @@ class GisModule(Module):
             if lacking:
                 result.notes.append(Note('Нет альтитуды, ось осталась в MD: скважины ' + ', '.join(lacking) + '.', level='warning'))
         result.notes.append(Note(f'Трек — один сезон (последний замер скважины в сезоне); без выбора показаны последние {gis_well.MAX_TRACKS}. '
-                                 f'Серый — интервал с Кг не выше {gis_well.KG_CUTOFF:g}; линия — ГВК пачки; слева — перфорация. Глубины: ' + ('а.о. (альтитуда − MD).' if params.get('depth_axis') == 'abs' else 'MD, метры от стола.'))))
+                                 f'Серый — интервал с Кг не выше {gis_well.KG_CUTOFF:g}; линия — ГВК пачки; слева — перфорация. Глубины: ' + ('а.о. (альтитуда − MD).' if params.get('depth_axis') == 'abs' else 'MD, метры от стола.')))
         return result
 
     @staticmethod
