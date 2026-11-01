@@ -250,6 +250,8 @@ def routes(projects, E, compute) -> list:
                 logging.getLogger(__name__).warning('Любой график: вид «%s» раздела %s не посчитался', label, module_id, exc_info=True)
                 continue            # вид, который при этих данных не считается, в списке просто отсутствует
             for c in result.charts:
+                if c.figure is not None:
+                    continue            # схемы скважин скачиваются кнопками на самом рисунке
                 sig = (c.id, c.title, tuple((x.name, len(x.x), str(list(x.x)[:3]), str(list(x.y)[:3])) for x in c.series))
                 if only is None and key and sig in seen:
                     continue            # тот же график уже есть в другом виде

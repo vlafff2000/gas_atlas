@@ -395,6 +395,13 @@ class WellStrips:
 
 
 @dataclass
+class Figure:
+    """Рисунок вместо рядов: схема скважины или планшет ГИС по глубине (фигуры считает модуль, рисует общий компонент WellFigure)."""
+    kind: Literal['construction', 'planshet']
+    data: dict[str, Any]
+
+
+@dataclass
 class Chart:
     id: str
     title: str
@@ -413,6 +420,7 @@ class Chart:
     bands: list[Band] = field(default_factory=list)   # полосы по категориям оси X с подписью (годы)
     heat: HeatMap | None = None      # тепловая карта вместо рядов (series пуст)
     strips: WellStrips | None = None  # скважины × сезоны вместо рядов (series пуст)
+    figure: Figure | None = None     # схема скважины или планшет ГИС вместо рядов (series пуст); скачивание — кнопками на самом рисунке
 
     def right_axes(self) -> list[tuple[str, Axis]]:
         """Правые шкалы по порядку от графика наружу: [('y2', ...), ('y3', ...), ...]; идут подряд, без пропусков."""
@@ -656,4 +664,4 @@ def _chart_json(c: Chart, thin: bool = True) -> dict[str, Any]:
                         'well': e.well} for e in c.events],
             'bands': [asdict(b) for b in c.bands],
             'callouts': c.callouts, 'table': asdict(c.table) if c.table else None, 'heat': asdict(c.heat) if c.heat else None,
-            'strips': asdict(c.strips) if c.strips else None}
+            'strips': asdict(c.strips) if c.strips else None, 'figure': asdict(c.figure) if c.figure else None}

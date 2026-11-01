@@ -23,7 +23,8 @@ def _names(charts: Sequence[Chart]) -> list[str]:
 
 
 def archive(charts: Sequence[Chart], title: str, dpi: int = 200) -> tuple[bytes, str, str]:
-    """ZIP: PNG на каждый график."""
+    """ZIP: PNG на каждый график (схемы скважин и планшеты рисует экран, их здесь нет)."""
+    charts = [c for c in charts if c.figure is None]
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for chart, name in zip(charts, _names(charts)):
@@ -34,6 +35,7 @@ def archive(charts: Sequence[Chart], title: str, dpi: int = 200) -> tuple[bytes,
 def sheet(charts: Sequence[Chart], title: str, cols: int = 2, dpi: int = 150) -> tuple[bytes, str, str]:
     """Один PNG: графики в сетке по ``cols`` в ряд, одного размера, белый фон."""
     from PIL import Image
+    charts = [c for c in charts if c.figure is None]
     cols = min(max(int(cols), 1), 3)
     images = [Image.open(io.BytesIO(render.chart_file(chart, 'png', dpi)[0])).convert('RGB') for chart in charts]
     width, height = max(i.width for i in images), max(i.height for i in images)
