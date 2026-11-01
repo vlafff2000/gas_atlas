@@ -2,7 +2,7 @@
 // Использование: const path = await openFilePicker({ start: текущийПуть }); null — отмена.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { marksAfterArrow, marksAfterNavigate } from './pickerSelection'
+import { marksAfterArrow, marksAfterNavigate, marksAfterSpace, type Carried } from './pickerSelection'
 
 interface Item { name: string; dir: boolean; size: number; mtime: string; ext: string; locked: boolean }
 interface Listing { path: string; parent: string; items: Item[]; total: number; truncated: boolean; error: string; network?: boolean; cached?: boolean; lazy?: boolean; ms?: number }
@@ -59,7 +59,16 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
   const multi = opts.mode === 'files'
   const saveMode = opts.mode === 'save'
   const [fname, setFname] = useState(opts.name || '')
-  const [marked, setMarked] = useState<string[]>([])
+  const [marked, setMarkedRaw] = useState<string[]>([])
+  const [carried, setCarried] = useState<Carried[]>([]) // ручные галочки из других папок
+  const markedRef = useRef<string[]>([])
+  const autoRef = useRef<string[]>([]) // галочки, поставленные навигацией стрелками (не руками)
+  markedRef.current = marked
+  const carriedRef = useRef<Carried[]>([])
+  carriedRef.current = carried
+  // любое ручное действие (мышь, пробел, рамка, «Выбрать все») делает галочки ручными
+  const setMarked = (v: string[] | ((m: string[]) => string[])) => { autoRef.current = []; setMarkedRaw(v) }
+  const total = marked.length + carried.length
   const [places, setPlaces] = useState<Place[]>([])
   const [recent, setRecent] = useState<string[]>([])
   const [list, setList] = useState<Listing | null>(null)
@@ -111,8 +120,12 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
       }
     }))
     if (!fresh) setSel(-1)
-    // выбор не переживает смену папки
-    if (r.path && !r.error && r.path !== dirRef.current) { const from = dirRef.current, to = r.path; setMarked(m => marksAfterNavigate(m, from, to)); anchor.current = -1 }
+    // автогалочка от стрелок не переживает смену папки; ручные остаются (запоминаем путь)
+    if (r.path && !r.error && r.path !== dirRef.current) {
+      const nx = marksAfterNavigate({ marked: markedRef.current, auto: autoRef.current }, carriedRef.current, dirRef.current, r.path)
+      autoRef.current = nx.auto; carriedRef.current = nx.carried; markedRef.current = nx.marked
+      setMarkedRaw(nx.marked); setCarried(nx.carried); anchor.current = -1
+    }
     if (r.path && !r.error) { dirRef.current = r.path; setPathText(r.path) }
     // сеть: листинг пришёл из кэша — при переходе в папку обновляем его в фоне (при поиске, сортировке и фильтрах — нет:
     // иначе каждая буква в поиске перечитывала бы сетевую папку заново)
@@ -231,7 +244,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
     }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
-  const chooseMany = () => { if (!list) return; const files = marked.map(n => join(list.path, n)); void remember({ dir: list.path, file: files[files.length - 1] }); done(files.join('\n')) }
+  const chooseMany = () => { if (!list) return; const files = [...carried.map(c => join(c.dir, c.name)), ...marked.map(n => join(list.path, n))]; void remember({ dir: list.path, file: files[files.length - 1] }); done(files.join('\n')) }
   const resort = (k: 'name' | 'mtime' | 'size') => {
     const d = sort === k ? !desc : false
     setSort(k); setDesc(d); void load(dirRef.current, { sort: k, desc: d })
@@ -250,13 +263,17 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
         if (anchor.current < 0) anchor.current = Math.max(sel, 0)
         const [a, b] = [Math.min(anchor.current, n), Math.max(anchor.current, n)]
         setMarked(items.slice(a, b + 1).filter(x => !x.dir).map(x => x.name))
-      } else if (multi && !e.shiftKey && !e.ctrlKey && items[n]) { anchor.current = items[n].dir ? -1 : n; setMarked(m => marksAfterArrow(items, n, m)) }
+      } else if (multi && !e.shiftKey && !e.ctrlKey && items[n]) {
+        anchor.current = items[n].dir ? -1 : n
+        const nx = marksAfterArrow(items, n, { marked: markedRef.current, auto: autoRef.current })
+        autoRef.current = nx.auto; setMarkedRaw(nx.marked)
+      }
     }
-    else if (multi && e.key === ' ' && items[sel] && !items[sel].dir) { e.preventDefault(); toggle(items[sel].name); anchor.current = sel }
+    else if (multi && e.key === ' ' && items[sel] && !items[sel].dir) { e.preventDefault(); const nx = marksAfterSpace(items[sel].name, { marked: markedRef.current, auto: autoRef.current }); autoRef.current = nx.auto; setMarkedRaw(nx.marked); anchor.current = sel }
     else if (e.key === 'Backspace' && list?.parent) { e.preventDefault(); open(list.parent) }
     else if (e.key === 'Enter') {
       e.preventDefault()
-      if (multi && marked.length && !(sel >= 0 && items[sel]?.dir)) chooseMany()
+      if (multi && total && !(sel >= 0 && items[sel]?.dir)) chooseMany()
       else if (sel >= 0 && items[sel]) activate(items[sel])
       else if (folderMode && list) choose(list.path)
     }
@@ -285,7 +302,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
   }
 
   const cur = items[sel]
-  const canPick = saveMode ? !!list && !list.error && !!cleanName(fname) : folderMode ? !!list && !list.error : multi ? marked.length > 0 : !!cur && !cur.dir
+  const canPick = saveMode ? !!list && !list.error && !!cleanName(fname) : folderMode ? !!list && !list.error : multi ? total > 0 : !!cur && !cur.dir
 
   return (
     <div className="fp-back" onMouseDown={e => { if (e.target === e.currentTarget) close(null) }} onKeyDown={onKey}>
@@ -390,13 +407,13 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
           <label><input type="checkbox" checked={hidden} onChange={e => { setHidden(e.target.checked); void load(dirRef.current, { hidden: e.target.checked }) }} /> Скрытые</label>
           {multi && <>
             <button onClick={markAll} title="Ctrl+A">Выделить всё</button>
-            <button disabled={!marked.length} onClick={() => setMarked([])}>Снять</button>
+            <button disabled={!total} onClick={() => { setMarked([]); setCarried([]) }}>Снять</button>
           </>}
           <span className="fp-sp" />
           {!!list?.ms && list.ms > 500 && !list.error && <span className="fp-pick" title="Время чтения папки сервером">чтение {(list.ms / 1000).toFixed(1)} с</span>}
           {saveMode && <input className="fp-fname" value={fname} autoFocus placeholder="Имя файла" aria-label="Имя файла"
             onChange={e => setFname(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); save() } }} />}
-          {!saveMode && <span className="fp-pick">{folderMode ? (list?.path || '') : multi ? (marked.length ? 'Выбрано: ' + marked.length : 'Shift, Ctrl, рамка мышью') : cur && !cur.dir ? cur.name : ''}</span>}
+          {!saveMode && <span className="fp-pick">{folderMode ? (list?.path || '') : multi ? (total ? 'Выбрано: ' + total : 'Shift, Ctrl, рамка мышью') : cur && !cur.dir ? cur.name : ''}</span>}
           <button onClick={() => close(null)}>Отмена</button>
           <button className="primary" disabled={!canPick} onClick={() => (saveMode ? save() : folderMode ? list && choose(list.path) : multi ? chooseMany() : cur && choose(join(list!.path, cur.name)))}>
             {saveMode ? 'Сохранить' : folderMode ? 'Выбрать эту папку' : multi ? 'Добавить' : 'Открыть'}</button>
