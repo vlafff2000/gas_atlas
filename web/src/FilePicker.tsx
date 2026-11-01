@@ -2,6 +2,7 @@
 // Использование: const path = await openFilePicker({ start: текущийПуть }); null — отмена.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { marksAfterArrow, marksAfterNavigate } from './pickerSelection'
 
 interface Item { name: string; dir: boolean; size: number; mtime: string; ext: string; locked: boolean }
 interface Listing { path: string; parent: string; items: Item[]; total: number; truncated: boolean; error: string; network?: boolean; cached?: boolean; lazy?: boolean; ms?: number }
@@ -110,6 +111,8 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
       }
     }))
     if (!fresh) setSel(-1)
+    // выбор не переживает смену папки
+    if (r.path && !r.error && r.path !== dirRef.current) { const from = dirRef.current, to = r.path; setMarked(m => marksAfterNavigate(m, from, to)); anchor.current = -1 }
     if (r.path && !r.error) { dirRef.current = r.path; setPathText(r.path) }
     // сеть: листинг пришёл из кэша — при переходе в папку обновляем его в фоне (при поиске, сортировке и фильтрах — нет:
     // иначе каждая буква в поиске перечитывала бы сетевую папку заново)
@@ -247,7 +250,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
         if (anchor.current < 0) anchor.current = Math.max(sel, 0)
         const [a, b] = [Math.min(anchor.current, n), Math.max(anchor.current, n)]
         setMarked(items.slice(a, b + 1).filter(x => !x.dir).map(x => x.name))
-      } else if (multi && !e.shiftKey && !e.ctrlKey && items[n] && !items[n].dir) { anchor.current = n; setMarked([items[n].name]) }
+      } else if (multi && !e.shiftKey && !e.ctrlKey && items[n]) { anchor.current = items[n].dir ? -1 : n; setMarked(m => marksAfterArrow(items, n, m)) }
     }
     else if (multi && e.key === ' ' && items[sel] && !items[sel].dir) { e.preventDefault(); toggle(items[sel].name); anchor.current = sel }
     else if (e.key === 'Backspace' && list?.parent) { e.preventDefault(); open(list.parent) }
