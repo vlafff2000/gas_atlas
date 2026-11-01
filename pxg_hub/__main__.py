@@ -7,7 +7,14 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .hub import Hub, port_open
+from .hub import Hub, app_url, port_open
+
+
+def open_app(app) -> None:
+    """Отдельное окно приложения (Chromium --app), нет браузера — обычная вкладка. Окно меню остаётся."""
+    from atlas.app_window import open_app_window
+    if open_app_window(app_url(app), app.title) is None:
+        webbrowser.open(app_url(app))
 
 PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ПХГ — все приложения</title><style>
@@ -32,8 +39,7 @@ async function load(){const j=await (await fetch('/api/status')).json();document
  <div class="st ${a.running?'on':''}">${a.running?'работает: '+a.url:'остановлено'}</div>
  <div class="row"><button class="main" data-open="${a.id}">Открыть</button>${a.ours?`<button data-stop="${a.id}">Остановить</button>`:''}</div></div>`).join('')}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;const err=document.getElementById('err');err.textContent='';
- try{if(b.dataset.open){b.disabled=true;b.textContent='Запускаю…';const w=window.open('about:blank','_blank');
-   try{const j=await post('/api/start/'+b.dataset.open);if(w)w.location=j.url;else location=j.url}catch(x){if(w)w.close();throw x}}
+ try{if(b.dataset.open){b.disabled=true;b.textContent='Запускаю…';await post('/api/start/'+b.dataset.open+'?open=1')}
   else if(b.dataset.stop)await post('/api/stop/'+b.dataset.stop);
   else if(b.id==='quit'){await post('/api/quit');document.body.innerHTML='<main><p>Приложения остановлены. Окно можно закрыть.</p></main>';return}}
  catch(x){err.textContent=x.message}load()});
@@ -70,10 +76,14 @@ def make_handler(hub: Hub, quit_event: threading.Event):
         def do_POST(self):
             if not self.host_ok() or self.headers.get('X-PXG') != '1':  # чужая страница в браузере не может запускать процессы
                 return self.send(403, json.dumps({'error': 'запрещено'}))
-            parts = self.path.strip('/').split('/')
+            path, _, query = self.path.partition('?')
+            parts = path.strip('/').split('/')
             try:
                 if parts[:2] == ['api', 'start'] and parts[2] in hub.apps:
-                    return self.send(200, json.dumps(hub.start(parts[2]), ensure_ascii=False))
+                    result = hub.start(parts[2])
+                    if 'open=1' in query.split('&'):  # окно открывает сам процесс меню: window.open из окна меню рождает пустое «about:blank»
+                        open_app(hub.apps[parts[2]])
+                    return self.send(200, json.dumps(result, ensure_ascii=False))
                 if parts[:2] == ['api', 'stop'] and parts[2] in hub.apps:
                     hub.stop(parts[2])
                     return self.send(200, '{}')
