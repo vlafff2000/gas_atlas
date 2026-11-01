@@ -98,7 +98,7 @@ def _perforation(well: str, packs: pd.DataFrame, geo: pd.DataFrame | None) -> li
 
 
 def planshet_chart(well: str, intervals: pd.DataFrame, packs: pd.DataFrame | None, geo: pd.DataFrame | None,
-                   labels: list[str]) -> Chart | None:
+                   labels: list[str], axis: str = 'md') -> Chart | None:
     """Планшет ГИС скважины по выбранным сезонам; None — по скважине нет замеров с интервалами."""
     cut = seasons_of.seasoned(intervals, keep=True)
     cut = cut[cut['season'].isin(labels)]
@@ -108,6 +108,8 @@ def planshet_chart(well: str, intervals: pd.DataFrame, packs: pd.DataFrame | Non
     pk = _last_dates(seasons_of.seasoned(packs, keep=True), well) if packs is not None and len(packs) else pd.DataFrame()
     tracks, top, low = [], math.inf, -math.inf
     alt = _altitude(well, geo)
+    if alt is None and len(pk) and 'altitude_m' in pk.columns:
+        alt = next((a for a in (_num(v) for v in pk['altitude_m']) if a is not None), None)
     for label in seasons_of.order(last['season'].unique()):
         part = last[last['season'] == label].sort_values('from_m')
         bars = []
@@ -136,5 +138,5 @@ def planshet_chart(well: str, intervals: pd.DataFrame, packs: pd.DataFrame | Non
     pad = max((low - top) * .05, 2.0)
     chart = Chart(f'gis-planshet-{well}', f'Скважина №{well}: планшет ГИС', Axis('Кг', 'д.ед.'), Axis('Глубина', 'м', inverse=True))
     chart.figure = Figure('planshet', {'well': well, 'top': round(top - pad, 1), 'bottom': round(low + pad, 1), 'cutoff': KG_CUTOFF,
-                                         'tracks': tracks, 'perf': perf})
+                                         'tracks': tracks, 'perf': perf, 'alt': alt, 'axis': 'abs' if axis == 'abs' and alt is not None else 'md'})
     return chart

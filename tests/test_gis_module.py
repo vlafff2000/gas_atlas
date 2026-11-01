@@ -451,3 +451,13 @@ def test_scheme_without_construction_says_what_is_missing():
     res = GisModule().run({GIS: _frame()}, _params(wells=['115'], view='construction', scheme_gis=False))
     assert any('конструкц' in n.text.lower() for n in res.notes)
     assert res.charts[0].figure.data['scheme']['items'] == []
+
+
+def test_planshet_depth_axis_abs_needs_altitude_and_falls_back_to_md():
+    packs = _frame()
+    packs['altitude_m'] = 50.0
+    base = dict(wells=['115'], view='planshet', seasons=[])
+    data = GisModule().run({GIS: packs, DatasetKind.GIS_INTERVALS: _intervals()}, _params(**base, depth_axis='abs')).charts[0].figure.data
+    assert data['axis'] == 'abs' and data['alt'] == 50.0
+    res = GisModule().run({GIS: _frame(), DatasetKind.GIS_INTERVALS: _intervals()}, _params(**base, depth_axis='abs'))
+    assert res.charts[0].figure.data['axis'] == 'md' and any('альтитуд' in n.text for n in res.notes)

@@ -146,7 +146,7 @@ export interface WellStrips {
 export type FigureData =
   | { kind: 'construction'; data: { well: string; scheme: unknown; gis: boolean } }
   | { kind: 'planshet'; data: {
-      well: string; top: number; bottom: number; cutoff: number; perf: { top: number; bottom: number }[]
+      well: string; top: number; bottom: number; cutoff: number; alt: number | null; axis: 'md' | 'abs'; perf: { top: number; bottom: number }[]
       tracks: { title: string; date: string
         bars: { top: number; bottom: number; kg: number | null; pack: string; gas: boolean }[]
         packs: { pack: string; gvk: number | null; gvk_abs: number | null; h_eff: number | null; kg_avg: number | null }[] }[] } }

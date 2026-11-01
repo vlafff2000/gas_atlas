@@ -61,6 +61,10 @@ class GisModule(Module):
                 Option('combo', 'Кривая hэф и столбцы Кг'), Option('svod', 'Свод по пачкам, все скважины'),
                 Option('tile', 'Плитка ГНТ и Кг по скважинам'), Option('hikg', 'Σ hi × Кг по исследованиям'), Option('an', 'Таблицы главы 5 АН (5.4–5.8)'),
                 Option('construction', 'Конструкция скважины'), Option('planshet', 'Планшет ГИС'))),
+            Param('depth_axis', 'Глубина по оси', 'choice', default='md', section='Планшет', show_if={'view': 'planshet'}, options=(
+                Option('md', 'MD, м от стола'), Option('abs', 'а.о., м (альтитуда − MD)')),
+                  help='MD — метры от стола, как в таблицах ГИС. а.о. — абсолютная отметка со знаком минус; нужна альтитуда скважины '
+                       '(из «Базы ГИС» или «Положения и перфорации»), без неё остаётся MD.'),
             Param('scheme_gis', 'Пачки ГИС на схеме', 'boolean', default=True, section='Схема скважины', show_if={'view': 'construction'},
                   help='Показать на схеме интервалы пачек (последний замер каждой пачки) из «Базы ГИС» (кровля и подошва). Выключите, чтобы остались только колонна, НКТ, фильтр и перфорация.'),
             Param('an_base', 'Новый сезон', 'choice', default='', dynamic=True, auto='last:1', section='Таблицы АН', show_if={'view': 'an'},
@@ -179,14 +183,18 @@ class GisModule(Module):
             result.notes.append(Note('В таблице интервалов нет замеров с датой.'))
             return result
         for well in wells:
-            chart = gis_well.planshet_chart(well, data[INTERVALS], data[GIS], data.get(DatasetKind.WELL_GEO), labels)
+            chart = gis_well.planshet_chart(well, data[INTERVALS], data[GIS], data.get(DatasetKind.WELL_GEO), labels, params.get('depth_axis', 'md'))
             if chart is not None:
                 result.charts.append(chart)
         if not result.charts:
             result.notes.append(Note('За выбранные скважины и сезоны интервалов нет.'))
             return result
+        if params.get('depth_axis', 'md') == 'abs':
+            lacking = [c.figure.data['well'] for c in result.charts if c.figure.data['axis'] != 'abs']
+            if lacking:
+                result.notes.append(Note('Нет альтитуды, ось осталась в MD: скважины ' + ', '.join(lacking) + '.', level='warning'))
         result.notes.append(Note(f'Трек — один сезон (последний замер скважины в сезоне); без выбора показаны последние {gis_well.MAX_TRACKS}. '
-                                 f'Серый — интервал с Кг не выше {gis_well.KG_CUTOFF:g}; линия — ГВК пачки; слева — перфорация. Глубины от стола.'))
+                                 f'Серый — интервал с Кг не выше {gis_well.KG_CUTOFF:g}; линия — ГВК пачки; слева — перфорация. Глубины: ' + ('а.о. (альтитуда − MD).' if params.get('depth_axis') == 'abs' else 'MD, метры от стола.'))))
         return result
 
     @staticmethod

@@ -59,9 +59,13 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
   const packs = [...new Set(d.tracks.flatMap(t => t.bars.map(b => b.pack)))]
   const color = (p: string) => PACK_COLORS[Math.max(packs.indexOf(p), 0) % PACK_COLORS.length]
   const y = (m: number) => HEAD + (m - d.top) / (d.bottom - d.top) * H
-  const step = [1, 2, 5, 10, 20, 50, 100].find(s => (d.bottom - d.top) / s <= 14) ?? 100
+  const abs = d.axis === 'abs' && d.alt !== null
+  const toV = (m: number) => (abs ? (d.alt as number) - m : m)          // MD → значение на оси (а.о. = альтитуда − MD)
+  const toM = (v: number) => (abs ? (d.alt as number) - v : v)
+  const vLo = Math.min(toV(d.top), toV(d.bottom)), vHi = Math.max(toV(d.top), toV(d.bottom))
+  const step = [1, 2, 5, 10, 20, 50, 100].find(s => (vHi - vLo) / s <= 14) ?? 100
   const ticks: number[] = []
-  for (let t = Math.ceil(d.top / step) * step; t <= d.bottom; t += step) ticks.push(t)
+  for (let t = Math.ceil(vLo / step) * step; t <= vHi; t += step) ticks.push(t)
   const W = AXIS + PERF + 8 + d.tracks.length * (TW + PAD) + 150
   const gx = (ti: number) => AXIS + PERF + 8 + ti * (TW + PAD)
   return (
@@ -72,11 +76,11 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
         </pattern>
       </defs>
       <rect x="0" y="0" width={W} height={HEAD + H + 12} rx="8" className="schematic-bg" />
-      <text x={AXIS - 9} y={HEAD - 8} className="schematic-tick-text" textAnchor="end">м</text>
+      <text x={AXIS - 9} y={HEAD - 8} className="schematic-tick-text" textAnchor="end">{abs ? 'а.о.' : 'MD'}</text>
       {ticks.map(t => (
-        <g key={t}><line x1={AXIS - 6} x2={AXIS} y1={y(t)} y2={y(t)} className="schematic-tick" />
-          <text x={AXIS - 9} y={y(t)} className="schematic-tick-text" textAnchor="end" dominantBaseline="middle">{t}</text>
-          <line x1={AXIS + PERF + 4} x2={W - 150} y1={y(t)} y2={y(t)} className="planshet-grid" /></g>))}
+        <g key={t}><line x1={AXIS - 6} x2={AXIS} y1={y(toM(t))} y2={y(toM(t))} className="schematic-tick" />
+          <text x={AXIS - 9} y={y(toM(t))} className="schematic-tick-text" textAnchor="end" dominantBaseline="middle">{t}</text>
+          <line x1={AXIS + PERF + 4} x2={W - 150} y1={y(toM(t))} y2={y(toM(t))} className="planshet-grid" /></g>))}
       <text x={AXIS + PERF / 2} y={HEAD - 8} className="planshet-head" textAnchor="middle">Перф.</text>
       {d.perf.map((p, i) => (
         <rect key={i} x={AXIS} y={y(p.top)} width={PERF} height={Math.max(y(p.bottom) - y(p.top), 1)} fill="url(#pl-perf)" stroke="#be123c">
