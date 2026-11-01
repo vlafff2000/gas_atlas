@@ -88,11 +88,13 @@ function VersionsBlock({ project, onProject, onToast }: { project: Project; onPr
 function ProjectsPage({ project, projects, onProject, onOpen }: PageProps) {
   const { details, error, reload } = useDetails(project.id, project.revision)
   const [name, setName] = useState(project.name)
+  const [object, setObject] = useState(project.object_set ? project.object : '')
   const [newName, setNewName] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
   useEffect(() => setName(project.name), [project.name])
+  useEffect(() => setObject(project.object_set ? project.object : ''), [project.object, project.object_set])
 
   const act = async (label: string, work: () => Promise<void>) => {
     setBusy(label)
@@ -101,6 +103,10 @@ function ProjectsPage({ project, projects, onProject, onOpen }: PageProps) {
   const rename = () => act('rename', async () => {
     onProject(await projectsApi.rename(project.id, name, project.revision))
     setToast('Проект переименован.')
+  })
+  const saveObject = () => act('object', async () => {
+    onProject(await projectsApi.setObject(project.id, object, project.revision))
+    setToast(object.trim() ? 'Объект проекта сохранён.' : 'Объект снят: им считается название проекта.')
   })
   const copy = () => act('copy', async () => {
     const created = await projectsApi.copy(project.id)
@@ -129,11 +135,12 @@ function ProjectsPage({ project, projects, onProject, onOpen }: PageProps) {
         <div className="block-head"><h3>Все проекты</h3><span className="muted">{projects.length}</span></div>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Проект</th><th>Версия</th><th>Обновлен</th><th className="number">Строк данных</th><th /></tr></thead>
+            <thead><tr><th>Проект</th><th>Объект</th><th>Версия</th><th>Обновлен</th><th className="number">Строк данных</th><th /></tr></thead>
             <tbody>
               {projects.map(p => (
                 <tr key={p.id} className={p.id === project.id ? 'is-current' : undefined}>
                   <td>{p.name}{p.demo ? ' (демо)' : ''}</td>
+                  <td className={p.object_set ? undefined : 'muted'}>{p.object}</td>
                   <td>{(p as Project & { version?: string }).version ?? ''}</td>
                   <td>{formatDate(p.updated)}</td>
                   <td className="number">{Object.values(p.tables).reduce((a, b) => a + b, 0).toLocaleString('ru-RU')}</td>
@@ -156,6 +163,15 @@ function ProjectsPage({ project, projects, onProject, onOpen }: PageProps) {
           </label>
           <button type="button" className="quiet" disabled={busy !== null || !name.trim() || name.trim() === project.name}
             onClick={rename}>Переименовать проект</button>
+        </div>
+        <div className="form-row">
+          <label className="field wide">
+            <span className="field-label">Объект (ПХГ), к которому относится проект</span>
+            <input value={object} maxLength={120} placeholder={project.name}
+              onChange={e => setObject(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveObject() }} />
+          </label>
+          <button type="button" className="quiet" disabled={busy !== null || object.trim() === (project.object_set ? project.object : '')}
+            onClick={saveObject}>Сохранить объект</button>
         </div>
         <div className="form-row">
           <button type="button" className="quiet" disabled={busy !== null} onClick={copy}>

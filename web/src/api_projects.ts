@@ -90,6 +90,7 @@ export function saveLink(url: string) {
 export const projectsApi = {
   create: (name: string) => request<Project>('/api/projects', json('POST', { name })),
   details: (pid: string) => request<ProjectDetails>(`${P(pid)}/details`),
+  setObject: (pid: string, object: string, revision: number) => request<Project>(`${P(pid)}/object`, json('POST', { object, revision })),
   rename: (pid: string, name: string, revision: number) => request<Project>(`${P(pid)}/rename`, json('POST', { name, revision })),
   copy: (pid: string) => request<Project>(`${P(pid)}/copy`, json('POST', {})),
   settings: (pid: string, values: Record<string, unknown>) =>

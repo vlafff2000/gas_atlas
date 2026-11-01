@@ -48,6 +48,9 @@ export interface ModuleSpec {
 export interface Project {
   id: string
   name: string
+  /** Объект (ПХГ) проекта; если не задан — название проекта. */
+  object: string
+  object_set: boolean
   demo: boolean
   updated: string
   revision: number

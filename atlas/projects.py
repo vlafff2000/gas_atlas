@@ -178,7 +178,7 @@ class Projects:
     @staticmethod
     def summary(m: Mapping[str, Any]) -> dict[str, Any]:
         settings = m.get('settings', {})
-        return {'id': m['id'], 'name': m['name'], 'demo': bool(m.get('demo')), 'updated': m['updated'], 'version': m.get('version'),
+        return {'id': m['id'], 'name': m['name'], 'object': m.get('object') or m['name'], 'object_set': bool(m.get('object')), 'demo': bool(m.get('demo')), 'updated': m['updated'], 'version': m.get('version'),
                 'revision': m.get('revision', 0), 'tables': dict(m.get('tables', {})),
                 'settings': {k: settings.get(k) for k in EDITABLE_SETTINGS},
                 'menu': navigation.visible(settings),     # разделы 5.8, показанные в меню (как в боковой панели 5.8)
