@@ -133,7 +133,8 @@ def test_interval_marks_only_declining_well_and_charts_are_built():
     by = {c.id: c for c in charts}
     assert set(by) == {'gdi-due-1', 'gdi-due-3'}
     assert by['gdi-due-3'].style['annotations'][0]['kind'] == 'vband' and not by['gdi-due-1'].style
-    assert by['gdi-due-3'].y2.label == 'Давление (ЭЛПРО)' and by['gdi-due-3'].y3.label == 'Раскрытие КРУ'   # давление и КРУ на своих шкалах
+    assert [by['gdi-due-3'].y2.label, by['gdi-due-3'].y3.label, by['gdi-due-3'].y4.label, by['gdi-due-3'].y5.label] == [
+        'Расход группы', 'Расход объекта', 'Давление (ЭЛПРО)', 'Раскрытие КРУ']      # каждый ряд на своей шкале
     assert not any('Накопленный' in x.name for x in by['gdi-due-3'].series)
 
 
@@ -175,3 +176,16 @@ def test_kru_response_uses_production_flow_not_elpro_flow():
     d[DatasetKind.ELPRO]['q'] = 1.0                              # расход в ЭЛПРО испорчен: на результат влиять не должен
     t = build(d, PARAMS).set_index('well')
     assert t.at['3', 'eff_change'] == pytest.approx(base.at['3', 'eff_change']) and bool(t.at['3', 'f_open'])
+
+
+def test_curves_are_real_daily_flows_and_x_axis_can_be_object_cumulative():
+    from atlas.modules._gdi_due_metrics import last_two, well_curves, withdrawal_days
+    d = seasonal()
+    days = withdrawal_days(d[P])
+    c = well_curves(days, last_two(days)[0], d[DatasetKind.ELPRO], {w: 'ГСП-1' for w in '1234'}, '3')
+    first = c.iloc[0]
+    assert first.q == pytest.approx(100.0, rel=0.01)     # настоящий суточный расход, тыс. м³/сут
+    assert first.obj_q == pytest.approx(first.grp_q) == pytest.approx(400.0, rel=0.01)                  # сумма по четырём скважинам, не индекс
+    assert c.cum_obj.iloc[-1] == pytest.approx(c.obj_q.sum() / 1e3)                                       # накопленный отбор объекта, млн м³
+    by = {x.id: x for x in GdiDueModule().run(d, {**PARAMS, 'show': ['3'], 'xaxis': 'cumulative'}).charts}['gdi-due-3']
+    assert by.x.unit == 'млн м³' and by.x.scale == 'value' and float(by.style['annotations'][0]['value']) > 0
