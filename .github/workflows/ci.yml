@@ -61,3 +61,27 @@ jobs:
       - name: Build interface
         working-directory: web
         run: npm ci && npm test && npm run build
+  browser:
+    # Браузерный обход всех разделов на демо-проекте: ошибки консоли, ответы 4xx/5xx, пустые графики (tools/check_browser.py).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-lock-py313.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-lock-py313.txt playwright
+      - name: Build interface
+        working-directory: web
+        run: npm ci && npm run build
+      - name: Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Walk through all sections
+        run: python tools/check_browser.py
