@@ -15,6 +15,7 @@ import pandas as pd
 from ..contract import Axis, Chart, Series, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Source, Stat, Table
 from ..domain import UNITS, DatasetKind
 from atlas.engine.core.config import COLORS
+from ._production import x_step
 from ._gdi_due_metrics import METRIC_COLUMNS, productivity_intervals, well_curves, cumulative, dynamics, kru_response, last_two, withdrawal_days
 from .gdi import well_key
 from .gdi_trend import VERDICTS, histories, rating
@@ -149,7 +150,7 @@ def apply_manual(table: pd.DataFrame, add: list[str], remove: list[str]) -> pd.D
 
 
 def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> list[Chart]:
-    """График на скважину: расход, динамика группы и объекта, давление и раскрытие КРУ (ЭЛПРО); красным — интервалы снижения продуктивности."""
+    """График на скважину: суточные расходы скважины, группы и объекта, давление и раскрытие КРУ (ЭЛПРО); красным — интервалы снижения продуктивности."""
     days = withdrawal_days(data[PRODUCTION] if PRODUCTION in data else pd.DataFrame())
     last, _ = last_two(days)
     if last is None:
@@ -161,24 +162,29 @@ def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> lis
     charts = []
     for w in sorted(set(chosen) & set(days.well), key=well_key):
         c = well_curves(days, last, elpro, group_of | {x: (data.mapping.get(x, {}) or {}).get('group', '') for x in days.well.unique()}, w)
-        x = c.index.to_numpy()
-        chart = Chart(f'gdi-due-{w}', f'№ {w}: расход, давление и раскрытие КРУ по ЭЛПРО ({last})', Axis('Дата', scale='time'), Axis('Расход', 'тыс. м³/сут', from_zero=True))
+        by_cum = params.get('xaxis') == 'cumulative'
+        x = c.cum_obj.to_numpy(float) if by_cum else c.index.to_numpy()
+        x_axis = Axis('Накопленный отбор объекта за сезон', 'млн м³', from_zero=True, step=x_step(float(c.cum_obj.max()))) if by_cum else Axis('Дата', scale='time')
+        grp = data.mapping.get(w, {}).get('group', '') or 'группа'
+        chart = Chart(f'gdi-due-{w}', f'№ {w}: расход, группа, объект, давление и раскрытие КРУ ({last})', x_axis, Axis('Расход скважины', 'тыс. м³/сут', from_zero=True),
+                      y2=Axis('Расход группы', 'тыс. м³/сут', from_zero=True, color=COLORS[3]), y3=Axis('Расход объекта', 'тыс. м³/сут', from_zero=True, color='#7a8a90'))
         chart.series += [
             Series('Скважина', x, c.q.to_numpy(float), 'line', group='Скважина', color=COLORS[0], width=2.2),
-            Series('Объект (динамика, 7 сут)', x, c.obj_q.to_numpy(float), 'line', group='Объект', color='#7a8a90', dash='dash', width=1.8),
-            Series('Группа (динамика, 7 сут)', x, c.grp_q.to_numpy(float), 'line', group='Группа', color=COLORS[3], dash='dot', width=1.8)]
+            Series(f'Группа ({grp})', x, c.grp_q.to_numpy(float), 'line', group='Группа', color=COLORS[3], width=1.8, axis='y2'),
+            Series('Объект', x, c.obj_q.to_numpy(float), 'line', group='Объект', color='#7a8a90', width=1.8, axis='y3')]
         extra = []
         if c.p.notna().any():
             extra.append((Axis('Давление (ЭЛПРО)', UNITS['pressure'], color=COLORS[2]), Series('Давление (ЭЛПРО)', x, c.p.to_numpy(float), 'line', group='Давление', color=COLORS[2], width=1.8)))
         if c.open.notna().any():
             extra.append((Axis('Раскрытие КРУ', '%', from_zero=True, color=COLORS[4]), Series('Раскрытие КРУ', x, c.open.to_numpy(float), 'line', group='КРУ', color=COLORS[4], width=1.5, step=True)))
-        for (axis, series), name in zip(extra, ('y2', 'y3')):
+        for (axis, series), name in zip(extra, ('y4', 'y5')):
             setattr(chart, name, axis)
             series.axis = name
             chart.series.append(series)
         mine = iv[iv.well.eq(w)]
         if not mine.empty:
-            chart.style = {'annotations': [{'kind': 'vband', 'value': f'{r.start:%Y-%m-%d}', 'to': f'{r.end:%Y-%m-%d}', 'color': '#c0392b',
+            at = (lambda t: f'{c.cum_obj.get(t, np.nan):.3f}') if by_cum else (lambda t: f'{t:%Y-%m-%d}')
+            chart.style = {'annotations': [{'kind': 'vband', 'value': at(r.start), 'to': at(r.end), 'color': '#c0392b',
                                             'text': f'Снижение продуктивности, −{r.depth:.0f}%'} for r in mine.itertuples()]}
         charts.append(chart)
     return charts
@@ -267,8 +273,11 @@ class GdiDueModule(Module):
             Param('prod_signals', 'Снижение продуктивности: сигналов не меньше', 'choice', default=2, section=SECTION,
                   options=(Option(1, '1'), Option(2, '2'), Option(3, '3'), Option(4, '4')),
                   help='Для второй таблицы: скважина попадает в неё при интервале снижения или при стольких совпавших сигналах: расход и накопленный отбор против группы, динамика против объекта, отдача на раскрытие КРУ, ГДИ.'),
+            Param('xaxis', 'Ось X графиков', 'choice', default='date', section='Графики',
+                  options=(Option('date', 'Дата'), Option('cumulative', 'Накопленный отбор объекта за сезон')),
+                  help='Как в «Производительности скважин»: по дате или по накопленному отбору объекта с начала сезона.'),
             Param('show', 'Графики для скважин', 'multi', default=[], source=Source(GDI, 'well'), section='Графики', wells_picker=True, empty='первые 6 из списка',
-                  help='Не выбрано ничего — графики для первых шести скважин списка. На графике: расход, динамика группы и объекта, давление и раскрытие КРУ из ЭЛПРО; красным подсвечены интервалы снижения продуктивности.'),
+                  help='Не выбрано ничего — графики для первых шести скважин списка. На графике: суточные расходы скважины, группы и объекта, давление и раскрытие КРУ из ЭЛПРО; красным подсвечены интервалы снижения продуктивности.'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01, setting='r2_threshold', section=SECTION,
                   help='Общая настройка проекта: исследования с R² ниже порога не считаются надёжными.'),
             Param('change', 'Порог ухудшения ГДИ', 'number', default=10.0, minimum=1, maximum=80, step=1, unit='%', section=SECTION,
