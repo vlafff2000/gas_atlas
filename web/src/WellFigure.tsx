@@ -61,8 +61,12 @@ export function WellSchematic({ s }: { s: Schematic }) {
   const y = (m: number) => 12 + (m - v0) / (v1 - v0) * (H - 24)
   const x = (u: number) => cx + u * scaleX
   const step = [1, 2, 5, 10, 20, 50, 100].find(k => (v1 - v0) / k <= 7) ?? 100
-  const ticks: number[] = []
-  for (let t = Math.ceil(v0 / step) * step; t <= v1; t += step) ticks.push(t)
+  const ticks: [number, number][] = []      // [позиция в координатах схемы, подпись]
+  if (s.ticks) {
+    for (const [pos, real] of s.ticks) if (pos >= v0 && pos <= v1) ticks.push([pos, real])
+  } else {
+    for (let t = Math.ceil(v0 / step) * step; t <= v1; t += step) ticks.push([t, t])
+  }
   return (
     <svg ref={zoom.ref} className="well-schematic zoomable" viewBox={`0 0 ${W} ${H}`} role="img"
          aria-label="Схема забойной части: эксплуатационная колонна, НКТ, фильтр, интервалы расширки, забой">
@@ -79,9 +83,9 @@ export function WellSchematic({ s }: { s: Schematic }) {
       </defs>
       <clipPath id={clip}><rect x="0" y="6" width={W} height={H - 12} /></clipPath>
       <rect x="0" y="0" width={W} height={H} rx="8" className="schematic-bg" />
-      {ticks.map(t => (
-        <g key={t}><line x1={left - 6} x2={left} y1={y(t)} y2={y(t)} className="schematic-tick" />
-          <text x={left - 9} y={y(t)} className="schematic-tick-text" textAnchor="end" dominantBaseline="middle">{t}</text></g>))}
+      {ticks.map(([pos, real]) => (
+        <g key={pos}><line x1={left - 6} x2={left} y1={y(pos)} y2={y(pos)} className="schematic-tick" />
+          <text x={left - 9} y={y(pos)} className="schematic-tick-text" textAnchor="end" dominantBaseline="middle">{real}</text></g>))}
       <text x={left - 9} y="10" className="schematic-tick-text" textAnchor="end">м</text>
       <g clipPath={`url(#${clip})`}>
       {s.shapes.map((f, i) => f.t === 'poly'

@@ -52,7 +52,60 @@ def _date(value: Any) -> str:
     return '' if value is None or pd.isna(value) else pd.Timestamp(value).strftime('%d.%m.%Y')
 
 
-def schematic(construction: pd.DataFrame, bottom_m: float | None) -> dict[str, Any]:
+BREAK_M = 50.0          # пустой участок длиннее этого (м) на схеме сжимается; 0 — не сжимать (ручной режим)
+BREAK_KEEP_M = 12.0     # высота сжатого участка на схеме, м (подписи — реальные глубины)
+FOCUS = ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'artificial', 'bottom')
+
+
+def _gaps(items: list[dict[str, Any]], top: float, low: float, threshold: float, pad: float = 6.0) -> list[tuple[float, float]]:
+    """Участки окна без элементов фокуса (фильтр, перфорация, расширка, пакер, пласт, мост, пробка, забой) длиннее порога."""
+    spans = sorted((max(i['top'] - pad, top), min(i['bottom'] + pad, low)) for i in items
+                   if i['kind'] in FOCUS and i['top'] <= low and i['bottom'] >= top)
+    merged: list[list[float]] = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    gaps, start = [], top
+    for a, b in merged:
+        if a - start > threshold:
+            gaps.append((start, a))
+        start = max(start, b)
+    if low - start > threshold:
+        gaps.append((start, low))
+    return gaps
+
+
+def _mapper(gaps: list[tuple[float, float]], keep: float):
+    """Монотонное преобразование глубины: каждый пустой участок сжат до keep, остальные глубины на месте."""
+    def f(d: float) -> float:
+        shift = 0.0
+        for g0, g1 in gaps:
+            length = g1 - g0
+            if d <= g0:
+                break
+            if d < g1:
+                return g0 - shift + (d - g0) * keep / length
+            shift += length - keep
+        return d - shift
+    return f
+
+
+def _ticks(top: float, low: float, gaps: list[tuple[float, float]], f) -> list[list[float]]:
+    """Отметки оси в реальных глубинах; внутри сжатого участка отметок нет."""
+    span = low - top
+    step = next((k for k in (1, 2, 5, 10, 20, 50, 100) if span / k <= 7), 100)
+    out = []
+    t = math.ceil(top / step) * step
+    while t <= low:
+        if not any(g0 < t < g1 for g0, g1 in gaps):
+            out.append([round(f(t), 2), float(t)])
+        t += step
+    return out
+
+
+def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M) -> dict[str, Any]:
     """Забойная часть: интервалы по типам, окно глубин и пояснение, чего не хватает. Глубины — метры от одного нуля."""
     items: list[dict[str, Any]] = []
     skipped: list[str] = []
@@ -93,6 +146,29 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None) -> dict[str, A
         out['notes'].append(f'Отбитый забой {bottom_m:g} м выше низа фильтра/перфорации {filter_end:g} м: '
                             f'перекрыто {filter_end - bottom_m:g} м (песчаная пробка).')
     out['shapes'], out['labels'] = shapes(out)
+    out['ticks'] = None
+    gaps = _gaps(out['items'], out['top'], out['bottom'], break_m) if break_m and break_m > 0 else []
+    if gaps:
+        f = _mapper(gaps, BREAK_KEEP_M)
+        for sh in out['shapes']:
+            for key in ('y0', 'y1'):
+                if key in sh:
+                    sh[key] = round(f(sh[key]), 3)
+            if 'pts' in sh:
+                sh['pts'] = [[u, round(f(m), 3)] for u, m in sh['pts']]
+        for lab in out['labels']:
+            lab['y'] = round(f(lab['y']), 3)
+            lab['at'] = round(f(lab['at']), 3)
+        for g0, g1 in gaps:
+            mid = f(g0) + BREAK_KEEP_M / 2
+            for dy in (-1.2, 1.2):
+                out['shapes'].append({'t': 'line', 'x0': -2.2, 'x1': 2.2, 'y0': mid + dy - .6, 'y1': mid + dy + .6,
+                                      'stroke': '#6b7280', 'width': 1.2, 'name': 'break'})
+        out['breaks'] = [{'from': round(g0, 1), 'to': round(g1, 1)} for g0, g1 in gaps]
+        out['ticks'] = _ticks(out['top'], out['bottom'], gaps, f)
+        out['top'], out['bottom'] = round(f(out['top']), 3), round(f(out['bottom']), 3)
+        out['notes'].append('Разрыв на схеме: участки без элементов длиннее %g м сжаты (%s). Подписи — реальные глубины.'
+                            % (break_m, '; '.join('%g–%g м' % (g[0], g[1]) for g in gaps)))
     return out
 
 
