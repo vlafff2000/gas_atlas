@@ -117,7 +117,7 @@ function binned(rows: unknown[][], bins: number) {
 }
 const dashOf = (s: Series) => DASH[s.look?.dash || s.dash || (s.dashed ? 'dash' : 'solid')]
 
-function colorOf(chart: Chart) {
+export function colorOf(chart: Chart) {
   const groups = [...new Set(chart.series.map(key))]
   const p = palette()
   // год и сезон берут цвет по своему году: тот же год — тот же цвет на любом графике, даже когда набор рядов меняется

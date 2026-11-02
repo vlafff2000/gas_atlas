@@ -342,3 +342,13 @@ def test_xlsx_notes_that_axis_break_is_not_supported(env):
     assert any('Разрыв оси в Excel' in n for n in notes)
     _, _, _, plain = export(chart, {'format': 'xlsx'})
     assert not any('Разрыв оси' in n for n in plain)
+
+
+def test_special_chart_has_live_view_for_format_panel(env):
+    """Спец-график (столбцы с сегментами) отдаётся и для живого вида: панель «Формат» работает с ним так же, как с обычным."""
+    client, pid = env
+    params = {'kind': 'withdrawal', 'periods': ['2023-2024']}
+    found = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'an_report', 'params': params}).json()['charts']
+    special = next(c for c in found if c['special'])
+    r = client.post(f'/api/projects/{pid}/export/any/chart', json={'module': 'an_report', 'params': params, 'chart': special['id'], 'settings': {}})
+    assert r.status_code == 200 and r.json()['series'], r.text
