@@ -58,24 +58,29 @@ def _weekly_sync(a: pd.Series, b: pd.Series) -> float:
 
 
 def cumulative(days: pd.DataFrame, last: str | None, prev: str | None, group_of: dict[str, str]) -> pd.DataFrame:
-    """Накопленный расход скважины (млн м³) за один и тот же отрезок от начала сезона: последний и предыдущий сезоны, изменение и отставание от группы."""
+    """Накопленный расход скважины (млн м³) за один и тот же отрезок от СТАРТА скважины в сезоне (первая дата с часами работы не 0, иначе с расходом):
+    последний и предыдущий сезоны, изменение и отставание от группы. Длина отрезка у скважины одна для обоих сезонов: сезон мог ещё идти, а скважина стартовать позже начала сезона."""
     cols = ['well', 'cum_last', 'cum_prev', 'cum_days', 'cum_change', 'cum_group_change', 'cum_gap']
     if last is None:
         return pd.DataFrame(columns=cols)
-    span = {}
-    for p in (last, prev):
-        if p is not None:
-            d = days[days.period.eq(p)].date
-            span[p] = (d.min(), (d.max() - d.min()).days + 1)
-    n = min(v[1] for v in span.values())            # сезон может ещё идти: сравниваем одинаковое число суток от начала
+    seasons = [p for p in (last, prev) if p is not None]
+    begin, left = {}, {}
+    for p in seasons:
+        d = days[days.period.eq(p)]
+        starts = work_starts(days, p)
+        begin[p] = starts
+        left[p] = (d.date.max() - starts).dt.days + 1                      # сколько суток есть у скважины от её старта до конца данных сезона
+    wells = sorted(days.well.unique())
+    n = pd.Series({w: min(int(left[p].get(w, 0)) for p in seasons) for w in wells})
     total = {}
-    for p, (start, _) in span.items():
-        d = days[days.period.eq(p) & days.date.lt(start + pd.Timedelta(days=n))]
-        total[p] = d.groupby('well').q.sum() / 1e3
-    out = pd.DataFrame({'well': sorted(days.well.unique())})
+    for p in seasons:
+        d = days[days.period.eq(p)]
+        lim = d.well.map(begin[p]) + pd.to_timedelta(d.well.map(n).fillna(0), unit='D')
+        total[p] = d[d.date.lt(lim)].groupby('well').q.sum() / 1e3
+    out = pd.DataFrame({'well': wells})
     out['cum_last'] = out.well.map(total[last])
     out['cum_prev'] = out.well.map(total[prev]) if prev is not None else np.nan
-    out['cum_days'] = n
+    out['cum_days'] = out.well.map(n)
     out['cum_change'] = (out.cum_last - out.cum_prev) / out.cum_prev * 100
     out['cum_group_change'] = out.assign(g=out.well.map(lambda w: group_of.get(w, ''))).groupby('g').cum_change.transform('median')
     out['cum_gap'] = out.cum_change - out.cum_group_change

@@ -232,3 +232,17 @@ def test_interval_without_kru_data_is_shown_but_not_a_sign():
     assert not bool(t.at['3', 'f_int']) and 'не подтверждён' in t.at['3', 'reason']
     t = build(nd, {**PARAMS, 'need_open': 0}).set_index('well')
     assert bool(t.at['3', 'f_int'])
+
+
+def test_cumulative_counts_from_well_start_not_season_start():
+    from atlas.modules._gdi_due_metrics import cumulative, last_two, withdrawal_days
+    rows = []
+    for period, start in (('2024-2025', '2024-11-01'), ('2025-2026', '2025-11-01')):
+        for w, shift in (('1', 0), ('3', 40 if period == '2025-2026' else 0)):
+            for d in pd.date_range(pd.Timestamp(start) + pd.Timedelta(days=shift), periods=100 - shift):
+                rows.append(dict(well=w, date=d, q=100e3, kind='withdrawal', period=period, hours=24.0))
+    days = withdrawal_days(pd.DataFrame(rows))
+    last, prev = last_two(days)
+    c = cumulative(days, last, prev, {'1': 'A', '3': 'A'}).set_index('well')
+    assert c.at['1', 'cum_days'] == 100 and c.at['3', 'cum_days'] == 60
+    assert c.at['3', 'cum_change'] == pytest.approx(0)          # поздний старт — не снижение отбора
