@@ -238,7 +238,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
     excel=look=='excel'
     if excel and font=='default':font='calibri'
     font,font_size=check(font,font_size)
-    base=font_size or (7 if compact else 9);k=base/(7 if compact else 9)
+    base=font_size or (9.5 if compact else 12);k=base/(7 if compact else 9)
     traces=[t for t in fig.data if t.visible not in (False,'legendonly')]
     legend=[t for t in traces if t.showlegend is not False and t.name]
     if fig.layout.showlegend is False:legend=[]

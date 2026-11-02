@@ -497,7 +497,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <Check {...F} field="fmt_tick_bold" label="Деления осей жирным" def={false} />
           <Check {...F} field="fmt_tick_italic" label="Деления осей курсивом" def={false} />
           <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
-            options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as [number, string])]} />
+            options={[[null, 'Авто (12)'], ...[8, 9, 10, 11, 12, 14, 16, 18].map(n => [n, String(n)] as [number, string])]} />
           <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
           <Check {...F} field="raw" label="Добавить нормализованные данные" def={false} />
           {(['points', 'legend', 'grid'] as const).map(f => (
