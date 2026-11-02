@@ -157,7 +157,8 @@ def object_pressure_of(data: Data, source: str) -> tuple[pd.DataFrame | None, pd
 
 def neutral_days_before(prod: pd.DataFrame, start: Any) -> int | None:
     """Календарные сутки последнего нейтрального периода до даты ``start``; None, если его нет в данных."""
-    neutral = prod[prod.period.astype(str).str.startswith(NEUTRAL_PREFIXES) & prod.date.lt(pd.Timestamp(start))]
+    names = [x for x in prod.period.unique() if str(x).startswith(NEUTRAL_PREFIXES)]     # по уникальным названиям, не по миллиону строк
+    neutral = prod[prod.period.isin(names) & prod.date.lt(pd.Timestamp(start))]
     if neutral.empty:
         return None
     span = neutral.groupby('period').date.agg(['min', 'max']).sort_values('max')
@@ -222,7 +223,7 @@ def injection_group_table(prod: pd.DataFrame, plan: pd.DataFrame | None, mapping
 
     Пустая таблица, если в закачке нет скважин группы ``group``. Рекомендованный объём — NaN, если плана за сезон нет.
     """
-    d = prod[prod.kind.eq('injection')][['well', 'period', 'q']].copy()
+    d = an_wells.kind_rows(prod, 'injection')
     if d.empty:
         return pd.DataFrame(columns=INJECTION_COLS)
     d['well'] = d.well.astype(str)
@@ -256,7 +257,7 @@ def season_report(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], 
     ``water`` — «Вынос воды по объекту» (см. ``water_table``); учитывается только для отбора.
     Возвращает (сводка или None, если в сезоне нет суток с расходом; таблица средних: scope, period, days, mean).
     """
-    d = prod[prod.kind.eq(kind) & prod.period.eq(period)][['well', 'date', 'q']].copy()
+    d = an_wells.season_rows(prod, kind, period)
     d['well'] = d.well.astype(str)
     scopes = well_scopes(mapping, ordered(d.well.unique())) if not d.empty else {}
     daily = daily_rates(d, scopes)
@@ -309,7 +310,7 @@ def injection_class_table(wells: pd.DataFrame, scopes: Mapping[str, str], edges:
 
 def monthly_wells(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], period: str) -> tuple[pd.DataFrame, list[Any]]:
     """Табл. 2.2: по группам — фонд сезона и число скважин с расходом в каждом месяце; months — месяцы в порядке дат."""
-    d = prod[prod.kind.eq('injection') & prod.period.eq(period)][['well', 'date', 'q']].copy()
+    d = an_wells.season_rows(prod, 'injection', period)
     d['well'] = d.well.astype(str)
     scopes = well_scopes(mapping, ordered(d.well.unique())) if not d.empty else {}
     d = d.assign(group=d.well.map(scopes), month=d.date.dt.to_period('M').dt.to_timestamp())
@@ -646,7 +647,7 @@ class AuthorReportModule(Module):
         def group_rates() -> pd.DataFrame:
             if not rates:
                 d = data[PRODUCTION]
-                d = d[d.kind.eq(kind) & d.period.eq(period)][['well', 'date', 'q']].copy()
+                d = an_wells.season_rows(d, kind, period)
                 d['well'] = d.well.astype(str)
                 rates.append(daily_rates(d, well_scopes(data.mapping, ordered(d.well.unique()))))
             return rates[0]

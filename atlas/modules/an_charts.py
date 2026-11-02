@@ -27,7 +27,8 @@ MONTHS = ('январь', 'февраль', 'март', 'апрель', 'май'
 
 def daily_of(prod: pd.DataFrame, kind: str, period: str) -> tuple[pd.Series, pd.Series]:
     """Суточный расход объекта (м³/сут) и число работающих скважин по датам сезона; только сутки с расходом."""
-    pos = prod[prod.kind.eq(kind) & prod.period.eq(period) & prod.q.gt(0)]
+    pos = an_wells.season_rows(prod, kind, period)
+    pos = pos[pos.q.gt(0)]
     return pos.groupby('date').q.sum().sort_index(), pos.groupby('date').well.nunique()
 
 

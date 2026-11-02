@@ -354,6 +354,10 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
         </div>
       )}
       {error && <div className="note warning" role="alert">{error}</div>}
+      {busy === 'charts' && (
+        <div className="note info pulse">Считаю список графиков раздела: на больших данных это может занять минуту. Готовые расчёты запоминаются, повторный выбор будет быстрее.{' '}
+          <button type="button" onClick={() => { seq.current++; setBusy(null); setCharts([]); setNote('Расчёт списка отменён. Измените параметры или выберите раздел заново.') }}>Отменить</button></div>
+      )}
       {moduleId && !busy && charts.length === 0 && !error && <div className="note info">{note || 'Графиков нет.'}</div>}
 
       {chart && (
