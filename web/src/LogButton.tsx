@@ -2,6 +2,7 @@
 // Подключение: mountLogButton() в main.tsx.
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { collectReport, trackRequests } from './problemReport'
 
 interface Info { dir: string; files: { name: string; size: number }[]; current: string }
 interface Bundle { name: string; path: string; size: number; url: string; error?: string }
@@ -12,6 +13,8 @@ function LogButton() {
   const [bundle, setBundle] = useState<Bundle | null>(null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  const [text, setText] = useState('')
+  const [withCharts, setWithCharts] = useState(true)
 
   const toggle = async () => {
     const next = !open
@@ -25,6 +28,16 @@ function LogButton() {
       const b = (await (await fetch('/api/log/bundle', { method: 'POST' })).json()) as Bundle
       if (b.error) setNote(b.error); else setBundle(b)
     } catch { setNote('Не удалось собрать пакет.') }
+    setBusy(false)
+  }
+  const sendReport = async () => {
+    setBusy(true); setNote(''); setBundle(null)
+    try {
+      const r = await fetch('/api/log/report', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(collectReport(text, withCharts)) })
+      const b = (await r.json()) as Bundle
+      if (b.error) setNote(b.error); else setBundle(b)
+    } catch { setNote('Не удалось собрать отчёт.') }
     setBusy(false)
   }
   const openFolder = async () => {
@@ -45,6 +58,14 @@ function LogButton() {
             <button type="button" onClick={openFolder}>Открыть папку</button>
             <button type="button" className="primary" onClick={pack} disabled={busy}>{busy ? 'Собираю…' : 'Собрать пакет для отправки'}</button>
           </div>
+          <b className="pxg-log-sub">Сообщить о проблеме</b>
+          <textarea className="pxg-log-text" rows={3} value={text} onChange={e => setText(e.target.value)}
+            placeholder="Что делали и что пошло не так?" />
+          <label className="pxg-log-check"><input type="checkbox" checked={withCharts} onChange={e => setWithCharts(e.target.checked)} />
+            Приложить графики на экране (настройки и снимок)</label>
+          <div className="pxg-log-row">
+            <button type="button" className="primary" onClick={sendReport} disabled={busy || !text.trim()}>{busy ? 'Собираю…' : 'Собрать отчёт о проблеме'}</button>
+          </div>
           {bundle && <p>Готово: <a href={bundle.url} download>{bundle.name}</a> ({Math.max(1, Math.round(bundle.size / 1024))} КБ).
             Лежит в <code>{bundle.path}</code>. Загрузите этот файл в чат проекта.</p>}
           {note && <p className="pxg-log-note">{note}</p>}
@@ -55,6 +76,7 @@ function LogButton() {
 }
 
 export function mountLogButton() {
+  trackRequests()
   const el = document.createElement('div')
   document.body.appendChild(el)
   createRoot(el).render(<LogButton />)
