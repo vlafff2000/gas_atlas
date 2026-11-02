@@ -14,7 +14,7 @@
 .planshet-track { fill: none; stroke: #9ca3af; }
 .planshet-grid { stroke: #e5e7eb; stroke-width: .6; }
 .planshet-cutoff { stroke: #9ca3af; stroke-dasharray: 3 3; }
-.planshet-gvk { font-size: 12px; fill: #0369a1; }
+.planshet-gvk { font-size: 12px; fill: #dc2626; }
 .figure-chart .figure-body { overflow-x: auto; padding: 6px 0; }
 .figure-chart .well-schematic { margin: 0 auto; }
 svg.zoomable { cursor: grab; touch-action: none; user-select: none; }

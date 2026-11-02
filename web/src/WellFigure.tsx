@@ -161,8 +161,8 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
                 <title>{`${b.pack}: ${ru(b.top)}–${ru(b.bottom)} м, Кг ${b.kg === null ? 'нет' : ru(b.kg, 2)}${b.gas ? '' : ' (не выше порога)'}`}</title></rect>))}
             {t.packs.map((m, i) => m.gvk === null ? null : (
               <g key={i}>
-                <line x1={x0} x2={x0 + TW} y1={y(m.gvk)} y2={y(m.gvk)} stroke="#0369a1" strokeWidth="2" strokeDasharray="6 3" />
-                <text x={x0 + TW - 3} y={y(m.gvk) - 3} textAnchor="end" className="planshet-gvk" stroke="#fff" strokeWidth="3" paintOrder="stroke">
+                <line x1={x0} x2={x0 + TW} y1={y(m.gvk)} y2={y(m.gvk)} stroke="#dc2626" strokeWidth="2" strokeDasharray="6 3" />
+                <text x={x0 + TW - 3} y={y(m.gvk) - 3} textAnchor="end" className="planshet-gvk" fill="#dc2626" stroke="#fff" strokeWidth="3" paintOrder="stroke">
                   {`ГВК ${ru(m.gvk)} м${m.gvk_abs !== null ? ` (${ru(m.gvk_abs)} а.о.)` : ''}`}</text>
               </g>))}
             </g>
@@ -190,7 +190,7 @@ export function FigureView({ chart }: { chart: Chart }) {
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
     const css = 'text{font-family:Arial,sans-serif}.schematic-bg{fill:#fff;stroke:#d1d5db}.schematic-tick{stroke:#6b7280;stroke-width:.8}' +
       '.schematic-tick-text{font-size:14px;fill:#6b7280}.schematic-label{font-size:16px;font-weight:600}.planshet-head{font-size:14px;font-weight:600;fill:#111827}' +
-      '.planshet-track{fill:none;stroke:#9ca3af}.planshet-grid{stroke:#e5e7eb;stroke-width:.6}.planshet-cutoff{stroke:#9ca3af;stroke-dasharray:3 3}.planshet-gvk{font-size:12px;fill:#0369a1}'
+      '.planshet-track{fill:none;stroke:#9ca3af}.planshet-grid{stroke:#e5e7eb;stroke-width:.6}.planshet-cutoff{stroke:#9ca3af;stroke-dasharray:3 3}.planshet-gvk{font-size:12px;fill:#dc2626}'
     const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
     style.textContent = css
     clone.insertBefore(style, clone.firstChild)
