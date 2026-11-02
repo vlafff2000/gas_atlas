@@ -412,6 +412,9 @@ class AuthorReportModule(Module):
                   'работавшие и простаивавшие скважины объекта по месяцам сезона, под графиком — таблица по группам.'),
             Param('pressure_source', 'Давление объекта', 'choice', default='auto', section='Выбор данных',
                   options=PRESSURE_SOURCES, help='Откуда берётся Рпл объекта и динамика по группам. «Авто» — столбец БД, иначе опорная сетка.'),
+            Param('group_x', 'Ось X пластового давления по группам', 'choice', default='date', section='Вид',
+                  options=(Option('date', 'Дата'), Option('cumulative', 'Накопленный отбор объекта за сезон')),
+                  help='Как в «Производительности скважин» и в анализе ГДИ: по дате или по накопленному отбору объекта с начала сезона.'),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
                   show_if={'view': 'canvas'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.SHOW)),
             Param('show_curve', 'Ряды на графике «от накопленного объёма»', 'multi', default=list(an_charts.CURVE_SHOW_DEFAULT),
@@ -484,7 +487,9 @@ class AuthorReportModule(Module):
             self.fund_details(result, data, kind, period, summary, fund, classes, wet, counts, params.get('class_chart') or 'none',
                               params.get('month_chart') or 'none', month_tables, edges=edges)
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
-            group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'])
+            by_cum = params.get('group_x') == 'cumulative'
+            group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'],
+                                                            an_charts.daily_of(data[PRODUCTION], kind, period)[0] if by_cum else None)
             if group_pressure is not None:
                 result.charts.append(group_pressure)
             self.plan_details(result, data, kind, period)
