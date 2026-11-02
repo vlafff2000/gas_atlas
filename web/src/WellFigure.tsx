@@ -93,7 +93,7 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
             <text x={x0 + TW / 2} y={HEAD - 28} className="planshet-head" textAnchor="middle">{t.title}</text>
             <text x={x0 + TW / 2} y={HEAD - 10} className="schematic-tick-text" textAnchor="middle">замер {t.date}</text>
             <line x1={kx(d.cutoff)} x2={kx(d.cutoff)} y1={HEAD} y2={HEAD + H} className="planshet-cutoff" />
-            {[0, 0.5, 1].map(v => <text key={v} x={kx(v)} y={HEAD + H + 10} className="schematic-tick-text" textAnchor="middle" style={{ fontSize: 11 }}>{v}</text>)}
+            {[0, 0.5, 1].map(v => <text key={v} x={kx(v)} y={HEAD + H + 10} className="schematic-tick-text" textAnchor="middle" style={{ fontSize: 13 }}>{v}</text>)}
             {t.bars.map((b, i) => (
               <rect key={i} x={x0} y={y(b.top)} width={Math.max(((b.kg ?? 0) * TW), 1)} height={Math.max(y(b.bottom) - y(b.top) - 1, 1)}
                     fill={b.gas ? color(b.pack) : GRAY} opacity={b.kg === null ? .25 : .9}>
@@ -105,13 +105,13 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
                   {`ГВК ${ru(m.gvk)} м${m.gvk_abs !== null ? ` (${ru(m.gvk_abs)} а.о.)` : ''}`}</text>
               </g>))}
             {t.packs.filter(m => m.h_eff !== null).map((m, i) => (
-              <text key={i} x={x0 + 4} y={HEAD + H + 24 + i * 13} className="schematic-tick-text" style={{ fontSize: 11 }}>{`${m.pack}: hг эф ${ru(m.h_eff!)} м`}</text>))}
+              <text key={i} x={x0 + 4} y={HEAD + H + 24 + i * 13} className="schematic-tick-text" style={{ fontSize: 13 }}>{`${m.pack}: hг эф ${ru(m.h_eff!)} м`}</text>))}
           </g>)
       })}
       {packs.map((p, i) => (
-        <g key={p}><rect x={W - 142} y={HEAD + i * 20} width="12" height="12" fill={color(p)} /><text x={W - 124} y={HEAD + i * 20 + 10} className="schematic-tick-text" style={{ fontSize: 12 }}>{p}</text></g>))}
+        <g key={p}><rect x={W - 142} y={HEAD + i * 20} width="12" height="12" fill={color(p)} /><text x={W - 124} y={HEAD + i * 20 + 10} className="schematic-tick-text" style={{ fontSize: 14 }}>{p}</text></g>))}
       <g><rect x={W - 142} y={HEAD + packs.length * 20} width="12" height="12" fill={GRAY} />
-        <text x={W - 124} y={HEAD + packs.length * 20 + 10} className="schematic-tick-text" style={{ fontSize: 12 }}>{`Кг ≤ ${d.cutoff}`}</text></g>
+        <text x={W - 124} y={HEAD + packs.length * 20 + 10} className="schematic-tick-text" style={{ fontSize: 14 }}>{`Кг ≤ ${d.cutoff}`}</text></g>
     </svg>
   )
 }

@@ -44,6 +44,8 @@ export function chartTokens(el: Element): ChartTokens {
   }
 }
 
+/** Размеры подписей и чисел по умолчанию (px): одни на все графики; индивидуальные размеры в настройках графика сильнее. */
+export const SIZE = { tick: 14, title: 15, legend: 14, label: 14, small: 13, callout: 15, callDot: 11 }
 export const FONT = "'PT Sans', 'Segoe UI', system-ui, sans-serif"
 
 /** Шрифты, которые можно выбрать для графика (те же, что в выгрузке, atlas/engine/core/fonts.py): подпись и семейство CSS. */

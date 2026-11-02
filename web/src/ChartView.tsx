@@ -10,7 +10,7 @@ import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, Wind
 import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
 import { echartsRich, plainRich, richHtml } from './richText'
 import { RichText } from './RichField'
-import { alpha, chartTokens, FONT, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
+import { alpha, chartTokens, FONT, SIZE, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
@@ -276,7 +276,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const dual = alignedYAxes(chart, base)
   const twin = yCount(chart) > 1 && Y_NAMES.slice(0, yCount(chart)).every((_, i) => yAxisAt(chart, i).scale === 'value')      // ручные границы тоже делятся на 5
   const manyRight = rightAxes(chart).length > 1
-  const rightNames = yAxesOf(chart).map(a => fitAxisName(plainRich(a.label), shownUnit(a), Y_BAND - 8, a.style?.title_size ?? 12))
+  const rightNames = yAxesOf(chart).map(a => fitAxisName(plainRich(a.label), shownUnit(a), Y_BAND - 8, a.style?.title_size ?? SIZE.title))
   const nameLines = manyRight ? Math.max(...rightNames.slice(1).map(n => n.lines)) : 1
   const axis = (a: Axis, position: 'x' | YName) => {
     const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position !== 'x' ? dual?.[position] : undefined
@@ -312,7 +312,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     const ink = a.color || cs.text_color || tk.muted
     const showGrid = !cs.grid || cs.grid === 'both' || cs.grid === (y ? 'h' : 'v')
     const dateFormat = as.date_format ? as.date_format.replace(/(dd|MM|yyyy)/g, '{$1}') : null
-    const nameRich = echartsRich(axisTitle(a.label, shownUnit(a)), as.title_size ?? 12)
+    const nameRich = echartsRich(axisTitle(a.label, shownUnit(a)), as.title_size ?? SIZE.title)
     const factor = unitFactor(a)
     const titleFont = { fontWeight: as.title_bold ? 700 : undefined, fontStyle: as.title_italic ? 'italic' : undefined }
     const along = as.title_place === 'middle'                // название вдоль оси: Y — повернуто, по середине; X — по середине
@@ -334,15 +334,15 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       ...(y && along ? { nameRotate: position === 'y' ? 90 : -90 } : {}),
       ...(narrow?.cut ? { triggerEvent: true, tooltip: { show: true, formatter: () => richHtml(axisTitle(a.label, shownUnit(a))) } } : {}),
       nameTextStyle: y && !along
-        ? { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, ...titleFont, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 15 } : {}), padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0], rich: nameRich.rich }
-        : { color: ink, fontSize: as.title_size ?? 12, fontFamily: family, ...titleFont, rich: nameRich.rich },
+        ? { color: ink, fontSize: as.title_size ?? SIZE.title, fontFamily: family, ...titleFont, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 15 } : {}), padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0], rich: nameRich.rich }
+        : { color: ink, fontSize: as.title_size ?? SIZE.title, fontFamily: family, ...titleFont, rich: nameRich.rich },
       axisLine: { show: as.line ?? (!y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color || !!as.line_color), lineStyle: { color: lineColor, width: as.line_width ?? 1 } },
       ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
       axisTick: tickOpt(as.ticks, lineColor, false, 5),
       ...(as.minor_ticks || minorGrid ? { minorTick: { ...tickOpt(as.minor_ticks ?? 'none', lineColor, false, 3), ...(minorBy ? { splitNumber: minorBy } : {}) } } : {}),
       ...(minorGrid ? { minorSplitLine: { show: true, lineStyle: { color: cs.minor_grid_color || tk.grid, width: cs.minor_grid_width ?? 0.5, type: DASH[cs.minor_grid_dash ?? 'dot'], opacity: 0.6 } } } : {}),
       axisLabel: {
-        color: ink, fontSize: as.tick_size ?? 11, fontFamily: family, hideOverlap: true, margin: 10,
+        color: ink, fontSize: as.tick_size ?? SIZE.tick, fontFamily: family, hideOverlap: true, margin: 10,
         fontWeight: as.tick_bold ? 700 : undefined, fontStyle: as.tick_italic ? 'italic' : undefined,
         ...(as.label_rotate ? { rotate: as.label_rotate } : {}),
         ...(a.scale === 'time'
@@ -371,8 +371,8 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     textStyle: { fontFamily: chart.style?.font ? fontCss(chart.style.font) : FONT, color: chart.style?.text_color || tk.ink },
     ...(colored.length ? { visualMap: { type: 'continuous', min: shadeLo, max: shadeHi === shadeLo ? shadeLo + 1 : shadeHi, dimension: 4, seriesIndex: colored.map(c => c.i),
       right: 4, top: 'middle', itemHeight: 150, itemWidth: 12, calculable: false, text: [`${shadeTitle}\n${shadeFmt(shadeHi)}`, shadeFmt(shadeLo)],
-      inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: 11 } } } : {}),
-    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 64, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 80 : 44,
+      inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: SIZE.small } } } : {}),
+    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 72, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 90 : 54,
       // область построения: фон и рамка (модель оформления: plot_background, plot_border_*)
       ...(chart.style?.plot_background || chart.style?.plot_border_color || chart.style?.plot_border_width ? { show: true,
         backgroundColor: chart.style.plot_background || 'transparent', borderColor: chart.style.plot_border_color || tk.axis,
@@ -415,7 +415,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         handleSize: '110%', handleStyle: { color: tk.surface, borderColor: tk.accent, borderWidth: 1.5 },
         moveHandleSize: 5, moveHandleStyle: { color: alpha(tk.accent, 0.45) },
         emphasis: { handleStyle: { borderColor: tk.ink }, moveHandleStyle: { color: tk.accent } },
-        textStyle: { color: tk.muted, fontSize: 11 },
+        textStyle: { color: tk.muted, fontSize: SIZE.small },
         labelFormatter: (v: number) => (time ? formatDate(new Date(v).toISOString().slice(0, 10)) : formatNumber(v)),
       }] : []),
     ],
@@ -435,7 +435,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       // граница маркера и подписи данных из оформления (модель v2): не заданное — как задано модулем
       const edge = (fallback: string, width: number) => ({ borderColor: L.marker_border ?? fallback, borderWidth: L.marker_border_width ?? width })
       const dataLabel = (position: string, fallbackDecimals: number | null) => ({
-        show: true, position: L.label_position ?? position, distance: 2, fontFamily: fontCss('times'), fontSize: L.label_size ?? 11, color: tk.ink,
+        show: true, position: L.label_position ?? position, distance: 2, fontFamily: fontCss('times'), fontSize: L.label_size ?? SIZE.label, color: tk.ink,
         formatter: (p: { value: unknown }) => { const v = Number(Array.isArray(p.value) ? p.value[1] : p.value)
           return Number.isFinite(v) ? formatNumber(v, L.label_decimals ?? fallbackDecimals) : '' } })
       const blur = total <= BLUR_LIMIT
@@ -467,12 +467,12 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           const items = rows.map((row, j) => {
             const text = s.segments?.[j] ?? '', v = Number(s.y[j])
             if (!text || !Number.isFinite(v)) return { value: row, label: { show: false } }
-            if (v / stackTop >= NARROW / 100) return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 14, color: onColor(c, tk.ink), formatter: text } }
-            if (chart.callouts === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: 9, color: onColor(c, tk.ink), formatter: /^\d+$/.test(text) ? '●'.repeat(Number(text)) : '●' } }
+            if (v / stackTop >= NARROW / 100) return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: SIZE.callout, color: onColor(c, tk.ink), formatter: text } }
+            if (chart.callouts === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: SIZE.callDot, color: onColor(c, tk.ink), formatter: /^\d+$/.test(text) ? '●'.repeat(Number(text)) : '●' } }
             const side = sides.get(`${si}:${j}`) ?? 'right'
-            const label = { show: true, position: side, distance: 1, fontFamily, fontSize: 13,
+            const label = { show: true, position: side, distance: 1, fontFamily, fontSize: SIZE.callout,
               formatter: side === 'right' ? `{ln|─}{bx|${text}}` : `{bx|${text}}{ln|─}`,
-              rich: { ln: { color: tk.faint, fontSize: 13 }, bx: { color: tk.ink, backgroundColor: tk.surface, borderColor: c, borderWidth: 1.5, borderRadius: 4, padding: [1, 4] } } }
+              rich: { ln: { color: tk.faint, fontSize: SIZE.callout }, bx: { color: tk.ink, backgroundColor: tk.surface, borderColor: c, borderWidth: 1.5, borderRadius: 4, padding: [1, 4] } } }
             return { value: row, label }
           })
           return { ...common, data: items, type: 'bar', barMaxWidth: 64, barGap: '12%', barCategoryGap: '55%', itemStyle: { color: c, borderColor: tk.ink, borderWidth: 0.4 }, emphasis: { focus: 'none', itemStyle: { color: c } } }
@@ -502,7 +502,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       // Подписи (например, причина отсутствия замера) — текст над точкой; индекс точки совпадает, т.к. пустых точек нет.
       const captions = s.captions ?? null
       const caption = captions ? {
-        show: true, position: 'top' as const, distance: 6, fontSize: 11, color: tk.ink, padding: [2, 5], borderRadius: 4,
+        show: true, position: 'top' as const, distance: 6, fontSize: SIZE.small, color: tk.ink, padding: [2, 5], borderRadius: 4,
         backgroundColor: tk.surface, borderColor: c, borderWidth: 1,
         formatter: (p: { dataIndex: number }) => captions[p.dataIndex] ?? '',
       } : undefined
@@ -560,7 +560,7 @@ function withBands(series: Record<string, unknown>[], chart: Chart, tk: { ink: s
   if (!bands.length || !series.length) return series
   const data = bands.map(b => [
     { xAxis: b.first - 0.5, name: b.label, itemStyle: { color: b.shaded ? 'rgba(128,128,128,0.16)' : 'rgba(0,0,0,0)' },
-      label: { show: true, position: 'top', color: tk.ink, fontWeight: 'bold', fontSize: 12 } },
+      label: { show: true, position: 'top', color: tk.ink, fontWeight: 'bold', fontSize: SIZE.small } },
     { xAxis: b.last + 0.5 }])
   const [head, ...rest] = series
   return [{ ...head, markArea: { silent: true, z: 0, data } }, ...rest]
@@ -697,7 +697,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
     let legendOpt: Record<string, unknown> = { show: false }
     if (pos !== 'hide' && items.length) {
       const side = pos === 'left' || pos === 'right'
-      const size = st?.legend_size ?? 12
+      const size = st?.legend_size ?? SIZE.legend
       // высота/ширина под легенду: число строк оцениваем по длине подписей (ECharts переносит пункты сам)
       const each = items.map(i => 36 + i.label.length * size * 0.5)
       const rows = side ? items.length : Math.max(1, Math.ceil(each.reduce((a, b) => a + b, 0) / Math.max(200, w - 20)))
