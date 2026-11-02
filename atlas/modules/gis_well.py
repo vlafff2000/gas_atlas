@@ -39,7 +39,7 @@ def _last_dates(frame: pd.DataFrame, well: str) -> pd.DataFrame:
 
 
 def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.DataFrame | None,
-                       packs: pd.DataFrame | None, with_gis: bool, geo: pd.DataFrame | None = None, perf_mode: str = 'auto') -> Chart:
+                       packs: pd.DataFrame | None, with_gis: bool, geo: pd.DataFrame | None = None, perf_mode: str = 'abs') -> Chart:
     """Схема забойной части скважины (конструкция из шаблона «Конструкция», отбитый забой и по желанию пачки ГИС)."""
     cons = construction[construction['well'].astype(str) == well] if construction is not None and len(construction) else pd.DataFrame()
     rows = cons.copy() if len(cons) else pd.DataFrame(columns=['element', 'top_m', 'bottom_m'])
@@ -90,27 +90,28 @@ def _altitude(well: str, geo: pd.DataFrame | None, packs: pd.DataFrame | None = 
     return None
 
 
-PERF_MODES = ('auto', 'abs', 'md')
-PERF_SOURCES = {'auto': 'отрицательные значения — а.о. как есть, положительные — глубина от стола (MD)',
-                'abs': 'все значения — а.о., положительным поставлен минус',
-                'md': 'все значения — MD (метры от стола)'}
+PERF_MODES = ('abs', 'md')
+PERF_SOURCES = {'abs': 'значения — а.о. (глубина ниже моря; без знака минус тоже а.о.), MD = альтитуда − а.о.',
+                'md': 'значения — MD (метры от стола), без пересчёта'}
+PERF_SOURCES = {k: v.rstrip('.') + '.' for k, v in PERF_SOURCES.items()}
 
 
 def _to_md(value: float, alt: float | None, mode: str) -> float | None:
-    """Глубина от стола из значения перфорации; None — а.о. есть, а альтитуды для пересчёта нет."""
-    is_md = mode == 'md' or (mode == 'auto' and value >= 0)
-    if is_md:
+    """Глубина от стола из значения перфорации; None — а.о. есть, а альтитуды для пересчёта нет.
+    Значение а.о. без знака минус (положительное) — та же глубина ниже моря: ему ставится минус, как в «Картах» и ГДМ."""
+    if mode == 'md':
         return value
-    return None if alt is None else alt - (value if value < 0 else -value)
+    return None if alt is None else alt + abs(value)
 
 
 def perforation(well: str, packs: pd.DataFrame | None, geo: pd.DataFrame | None, alt: float | None,
-                mode: str = 'auto') -> tuple[list[dict[str, float]], str]:
+                mode: str = 'abs') -> tuple[list[dict[str, float]], str]:
     """Перфорация в метрах от стола и пояснение (откуда и как прочитано).
 
     Значения «Базы ГИС» (perf_top_m/perf_bottom_m) и «Положения и перфорации» (perf_top/perf_bottom) заданы в а.о. (как в файле
-    «Глубины_перфораций»), поэтому по умолчанию отрицательное число — а.о., положительное — MD; режим выбирает инженер."""
-    mode = mode if mode in PERF_MODES else 'auto'
+    «Глубины_перфораций»), поэтому по умолчанию это а.о. (положительное число — а.о. без знака минус); если файл хранит MD,
+    инженер выбирает «MD»."""
+    mode = mode if mode in PERF_MODES else 'abs'
     found: tuple[float, float, str] | None = None
     if packs is not None and len(packs) and {'perf_top_m', 'perf_bottom_m'} <= set(packs.columns):
         part = packs[packs['well'].astype(str) == well]
@@ -131,11 +132,11 @@ def perforation(well: str, packs: pd.DataFrame | None, geo: pd.DataFrame | None,
     if top is None or low is None:
         return [], f'Перфорация скв. {well} ({found[2]}) в а.о., но альтитуды нет: пересчитать в MD нельзя, перфорация не показана.'
     top, low = sorted((top, low))
-    return [{'top': top, 'bottom': low}], f'Перфорация скв. {well}: {found[2]}, {PERF_SOURCES[mode]}.'
+    return [{'top': top, 'bottom': low}], f'Перфорация скв. {well}: {found[2]}, {PERF_SOURCES[mode]}'
 
 
 def planshet_chart(well: str, intervals: pd.DataFrame, packs: pd.DataFrame | None, geo: pd.DataFrame | None,
-                   labels: list[str], axis: str = 'md', perf_mode: str = 'auto') -> Chart | None:
+                   labels: list[str], axis: str = 'md', perf_mode: str = 'abs') -> Chart | None:
     """Планшет ГИС скважины по выбранным сезонам; None — по скважине нет замеров с интервалами."""
     cut = seasons_of.seasoned(intervals, keep=True)
     cut = cut[cut['season'].isin(labels)]
