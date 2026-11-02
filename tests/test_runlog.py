@@ -38,3 +38,22 @@ def test_bundle_and_requests(tmp_path, monkeypatch):
             if h not in old:
                 logger.removeHandler(h)
                 h.close()
+
+
+def test_problem_report(tmp_path, monkeypatch):
+    import base64
+    import json
+    monkeypatch.setattr(api_projects, 'LOG_DIR', tmp_path / 'logs')
+    c = TestClient(create_app(), raise_server_exceptions=False)
+    png = 'data:image/png;base64,' + base64.b64encode(b'\x89PNG-test').decode()
+    body = {'description': 'Не строится график', 'page': '#/production', 'viewport': '1200x800',
+            'requests': [{'method': 'POST', 'path': '/api/x', 'status': 500, 'ms': 12}],
+            'charts': [{'title': 'Закачка', 'option': {'series': [{'type': 'line'}]}, 'png': png}]}
+    r = c.post('/api/log/report', json=body).json()
+    z = zipfile.ZipFile(tmp_path / 'logs' / 'send' / r['name'])
+    assert {'report.txt', 'environment.txt', 'requests.json', 'chart_settings.json', 'chart_1.png'} <= set(z.namelist())
+    assert 'Не строится график' in z.read('report.txt').decode('utf8')
+    assert z.read('chart_1.png') == b'\x89PNG-test'
+    assert json.loads(z.read('chart_settings.json'))[0]['title'] == 'Закачка'
+    assert c.get(r['url']).status_code == 200
+    assert c.post('/api/log/report', content=b'[1]').status_code == 400

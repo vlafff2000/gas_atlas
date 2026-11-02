@@ -164,6 +164,65 @@ def make_bundle() -> Path:
     return path
 
 
+MAX_REPORT = 40 * 1024 ** 2
+
+
+def make_report(data: dict) -> Path:
+    """Отчёт о проблеме одним zip: описание, настройки графиков, снимки, последние запросы, окружение и лог."""
+    import base64
+    import json
+    import re
+    d = _log_dir()
+    out_dir = d / 'send'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for old in sorted(out_dir.glob('problem_*.zip'))[:-4]:
+        with contextlib.suppress(OSError):
+            old.unlink()
+    now = datetime.now()
+    path = out_dir / f'problem_{now:%Y%m%d_%H%M%S}.zip'
+    text = _clean(str(data.get('description') or '').strip()) or '(описание не заполнено)'
+    head = [f'Сообщение о проблеме от {now:%Y-%m-%d %H:%M:%S}', '', 'Описание:', text, '',
+            'Страница: ' + _clean(str(data.get('page') or '')),
+            'Окно: ' + _clean(str(data.get('viewport') or '')), '']
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('report.txt', '\n'.join(head))
+        z.writestr('environment.txt', environment_text() + f'\nСобрано: {now.isoformat(timespec="seconds")}\n')
+        z.writestr('requests.json', _clean(json.dumps(data.get('requests') or [], ensure_ascii=False, indent=1)))
+        settings = []
+        for i, ch in enumerate(data.get('charts') or [], 1):
+            if not isinstance(ch, dict):
+                continue
+            settings.append({'n': i, 'title': ch.get('title'), 'option': ch.get('option')})
+            m = re.match(r'data:image/png;base64,(.+)$', str(ch.get('png') or ''))
+            if m:
+                with contextlib.suppress(ValueError):
+                    z.writestr(f'chart_{i}.png', base64.b64decode(m.group(1)))
+        z.writestr('chart_settings.json', _clean(json.dumps(settings, ensure_ascii=False, default=str, indent=1)))
+        for f in sorted(d.glob('*.log*')):
+            if f.is_file():
+                size = f.stat().st_size
+                with open(f, 'rb') as fh:
+                    if size > BUNDLE_TAIL:
+                        fh.seek(size - BUNDLE_TAIL)
+                    z.writestr(f.name, fh.read())
+    log.info('собран отчёт о проблеме: %s', _clean(str(path)))
+    return path
+
+
+async def report(request: Request):
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise ValueError
+    except ValueError:
+        return JSONResponse({'error': 'Не удалось прочитать отчёт.'}, status_code=400)
+    try:
+        path = make_report(data)
+    except OSError as e:
+        return JSONResponse({'error': f'Не удалось собрать отчёт: {e}'}, status_code=500)
+    return JSONResponse({'name': path.name, 'path': str(path), 'size': path.stat().st_size, 'url': '/api/log/bundle/' + path.name})
+
+
 async def info(request: Request):
     d = _log_dir()
     files = [{'name': f.name, 'size': f.stat().st_size} for f in sorted(d.glob('*.log*')) if f.is_file()] if d.is_dir() else []
@@ -205,5 +264,6 @@ def routes() -> list[Route]:
         Route('/api/log/info', info),
         Route('/api/log/bundle', bundle, methods=['POST']),
         Route('/api/log/bundle/{name}', bundle_file),
+        Route('/api/log/report', report, methods=['POST']),
         Route('/api/log/open-folder', open_dir, methods=['POST']),
     ]
