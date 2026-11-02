@@ -9,6 +9,7 @@ import { projectFormats, usePref } from './chartPrefs'
 import type { AxisFormat, AxisName, ChartFormat } from './chartFormat'
 import { seriesLookKey, type Look } from './chartStyle'
 import { AxisStyleFields, ChartStyleFields, Commit, SeriesExtraFields, compact } from './FormatFields'
+import { pointKeys } from './labelPick'
 import type { FormatScope } from './projectLooks'
 
 const KIND: Record<Series['kind'], string> = { line: 'линия', points: 'точки', bar: 'столбцы', box: 'ящики' }
@@ -168,7 +169,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           {s && <>
             <h3>{s.name} <small>{KIND[s.kind]}</small></h3>
             <SeriesLookFields s={s} color={colorOf(s)} look={look} onChange={setLook} />
-            <SeriesExtraFields value={look} set={setLook} marker={s.kind === 'points' || (s.kind === 'line' && !s.fill)} labels={s.kind !== 'box'} trend={s.kind === 'points' || s.kind === 'line'} hatch={s.kind === 'bar'} />
+            <SeriesExtraFields value={look} set={setLook} marker={s.kind === 'points' || (s.kind === 'line' && !s.fill)} labels={s.kind !== 'box'} trend={s.kind === 'points' || s.kind === 'line'} hatch={s.kind === 'bar'} points={pointKeys(s)} />
             <p className="cs-hint">Вид ряда общий для проекта: тот же год, сезон или группа выглядит так же на всех графиках.</p>
             <div className="cs-actions">
               <Brush kind="series" value={looks[seriesLookKey(s)]} paste={v => setLook(v as Partial<Look>)} />

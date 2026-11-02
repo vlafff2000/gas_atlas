@@ -183,13 +183,23 @@ def manual_axes(ax,secondary,axes,date_axis,categorical):
     if secondary is not None and 'minor' in axes.get('y2',{}):secondary.tick_params(which='minor',length=2)
 
 
+def pick_key(v):
+    """Ключ точки для ручного выбора подписей (Look.label_pick): число без «.0», дата — как пришла из программы (ГГГГ-ММ-ДД)."""
+    if isinstance(v,(float,np.floating)) and float(v).is_integer():return str(int(v))
+    if isinstance(v,(pd.Timestamp,np.datetime64,datetime.datetime,datetime.date)):
+        t=pd.Timestamp(v);return t.strftime('%Y-%m-%d') if t==t.normalize() else t.isoformat()
+    return str(v)
+
+
 def point_labels(ax,x,y,family,size,opts):
     """Подписи значений у точек линии и облака (оформление ряда: положение, знаки, размер)."""
     place=opts.get('label_position','top');size=opts.get('label_size',size);decimals=opts.get('label_decimals')
     offset={'top':(0,4),'bottom':(0,-4),'left':(-4,0),'right':(4,0),'inside':(0,0),'center':(0,0)}.get(place,(0,4))
     ha={'left':'right','right':'left'}.get(place,'center');va={'top':'bottom','bottom':'top'}.get(place,'center')
+    pick=opts.get('label_pick');pick=None if pick is None else set(pick)
     for xi,v in zip(x,y):
         if v is None or not np.isfinite(v):continue
+        if pick is not None and pick_key(xi) not in pick:continue
         text=group_thousands(f'{v:.{decimals if decimals is not None else 1}f}' if decimals is not None else f'{v:g}').replace('.',',')
         angle=opts.get('label_angle')
         rot={'rotation':float(angle),'rotation_mode':'anchor'} if angle else {}
@@ -197,12 +207,14 @@ def point_labels(ax,x,y,family,size,opts):
         ax.annotate(text,(xi,v),xytext=offset,textcoords='offset points',ha=ha,va=va,fontsize=size,family=family,**rot)
 
 
-def value_labels(ax,bars,values,family,size,opts=None):
+def value_labels(ax,bars,values,family,size,opts=None,keys=None):
     """Подписи значений над столбцами: целые числа, строго над столбиком. Если текст шире столбца, он ставится вертикально, чтобы соседние подписи не налезали."""
     opts=opts or {};size=opts.get('label_size',size);decimals=opts.get('label_decimals',0)
     pts=ax.get_position().width*ax.figure.get_figwidth()*72/(abs(np.diff(ax.get_xlim())[0]) or 1)
-    for rect,v in zip(bars,values):
+    pick=opts.get('label_pick');pick=None if pick is None else set(pick)
+    for i,(rect,v) in enumerate(zip(bars,values)):
         if v is None or not np.isfinite(v):continue
+        if pick is not None and keys is not None and pick_key(keys[i]) not in pick:continue
         text=group_thousands(f'{v:.{decimals}f}' if decimals else f'{v:.0f}').replace('.',',');wide=len(text)*size*.5>rect.get_width()*pts
         angle=opts.get('label_angle');turn=float(angle) if angle is not None else (90 if wide else 0)
         up=v>=0;edge=rect.get_y()+rect.get_height() if up else rect.get_y()
@@ -318,7 +330,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     if isinstance(t.meta,dict) and t.meta.get('hatch'):
                         from .export_style import HATCH_MPL
                         for bar in drawn:bar.set_hatch(HATCH_MPL.get(t.meta['hatch'],'//'));bar.set_edgecolor(t.meta.get('hatch_color') or '#000000');bar.set_linewidth(0)     # штриховка для чёрно-белой печати
-                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y,t.meta))
+                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y,t.meta,x))
                 else:
                     # Plotly JSON serializes dates to strings. Preserve calendar spacing.
                     if x and (date_axis or isinstance(x[0],(pd.Timestamp,np.datetime64,datetime.datetime,datetime.date)) or isinstance(x[0],str) and re.match(r'^\d{4}-\d{2}-\d{2}',x[0])):
@@ -345,7 +357,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                     ln._own=own
                     if isinstance(t.meta,dict) and t.meta.get('value_labels'):point_labels(target,x,np.asarray(y,dtype=float),family_for('times'),max(5,base*.85),t.meta)
                     if target is not base_axes:ghost(base_axes,x,y)
-            for target,drawn,y,opts in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85),opts)
+            for target,drawn,y,opts,keys in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85),opts,keys)
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
             title=mpl_text(fig.layout.title.text or '')
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}

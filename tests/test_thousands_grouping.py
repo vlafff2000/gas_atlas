@@ -47,3 +47,20 @@ def test_label_angle_in_files():
 def test_label_angle_validated():
     from atlas.chart_style import clean_look
     assert clean_look({"valueLabels": True, "label_angle": 90}, 0).get('label_angle') == 90
+
+
+def test_label_pick_in_files():
+    fig, ax = plt.subplots()
+    point_labels(ax, ['2024-01-01', '2024-01-02', '2024-01-03'], np.array([1.0, 2.0, 3.0]), 'DejaVu Sans', 9, {'label_pick': ['2024-01-02']})
+    assert len(ax.texts) == 1
+    bars = ax.bar([1, 2], [3, 4])
+    value_labels(ax, bars, [3, 4], 'DejaVu Sans', 9, {'label_pick': ['2']}, keys=[1.0, 2.0])
+    assert [t.get_text() for t in ax.texts[1:]] == ['4']
+    point_labels(ax, [0], np.array([1.0]), 'DejaVu Sans', 9, {'label_pick': []})
+    assert len(ax.texts) == 2
+
+
+def test_label_pick_validated():
+    from atlas.chart_style import clean_look
+    assert clean_look({'valueLabels': True, 'label_pick': ['a', 5]}, 0)['label_pick'] == ['a', '5']
+    assert clean_look({'label_pick': []}, 0)['label_pick'] == []
