@@ -94,7 +94,7 @@
 .legend-item[aria-pressed='false'] .legend-key { opacity: .3; }
 .legend-item[aria-pressed='false'] span { text-decoration: line-through; text-decoration-color: var(--chart-axis); }
 .legend-key { width: 22px; height: 12px; flex-shrink: 0; overflow: visible; }
-.legend-more { border: 0; background: none; color: var(--accent-strong); font-size: 12px; padding: 2px 6px; cursor: pointer; }
+.legend-more { border: 0; background: none; color: var(--accent-strong); font-size: 14px; padding: 2px 6px; cursor: pointer; }
 .legend-more:hover { text-decoration: underline; }
 .atlas-tip.pinned { pointer-events: none; }
 .atlas-tip.pinned .pin-close, .atlas-tip.pinned .tip-go { pointer-events: auto; }
@@ -104,7 +104,7 @@
 
 /* пометка у графика: линии прорежены (М4), все точки — при увеличении */
 .chart-thin {
-  display: block; margin: -2px 0 4px 0; padding: 0 4px; font-size: 12px; font-weight: 400; color: var(--chart-muted, var(--muted, #6b7280));
+  display: block; margin: -2px 0 4px 0; padding: 0 4px; font-size: 14px; font-weight: 400; color: var(--chart-muted, var(--muted, #6b7280));
   white-space: nowrap; cursor: help;
 }
 .chart-thin.part { color: var(--chart-ink, inherit); }
@@ -118,7 +118,7 @@
 .axis-editor {
   position: absolute; z-index: 5; width: 220px; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
-  font-size: 12px;
+  font-size: 14px;
 }
 .axis-editor label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
 .axis-editor input { font: inherit; padding: 4px 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
@@ -186,7 +186,7 @@
 
 /* таблица под графиком (классы производительности, вариант «точка + таблица») */
 .chart-table-wrap { overflow-x: auto; margin-top: 6px; }
-.chart-table { width: max-content; border-collapse: collapse; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 17px; margin: 0 auto; }
+.chart-table { width: max-content; border-collapse: collapse; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 14px; margin: 0 auto; }
 .chart-table td:last-child { min-width: 0; white-space: nowrap; }
 .chart-table th, .chart-table td { border: 1px solid var(--chart-axis, #c9d4d7); padding: 2px 8px; text-align: center; white-space: nowrap; }
 .chart-table tbody th { text-align: left; font-weight: 400; }
@@ -219,12 +219,12 @@
 .strip-chip b { font-weight: 600; min-width: 24px; text-align: right; }
 .strip-chip em { font-style: normal; font-weight: 600; opacity: .7; }
 .strip-chip .dots { display: inline-flex; gap: 1px; }
-.strip-chip .dots i { width: 9px; height: 14px; border-radius: 1px; background: var(--chart-axis, #e4eaec); opacity: .45; }
+.strip-chip .dots i { width: 9px; height: 12px; border-radius: 1px; background: var(--chart-axis, #e4eaec); opacity: .45; }
 .strip-chip .dots i.on { opacity: 1; }
 .strip-chip .dots i.miss { background: repeating-linear-gradient(45deg, #fff4d6 0 2px, #8a5a00 2px 4px); outline: 1px solid #8a5a00; outline-offset: -1px; opacity: 1; }
 .strip-sub { font-weight: 600; margin: 0 0 4px; font-family: 'Times New Roman', 'Liberation Serif', serif; }
 .strip-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 14px; }
-.strip-legend i { display: inline-block; width: 14px; height: 12px; margin-right: 5px; border-radius: 2px; vertical-align: -2px; }
+.strip-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 5px; border-radius: 2px; vertical-align: -2px; }
 
 /* Мини-вариант графика (compact): подсказки на карте и карточки — тот же ChartView без заголовка, кнопок, легенды и навигатора */
 figure.chart.compact { border: 0; padding: 0; background: transparent; }
