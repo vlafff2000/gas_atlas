@@ -366,7 +366,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
               <Select {...F} field="font" label="Шрифт" def="default" options={FONTS} />
               <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
               <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
-                options={[[null, 'Авто (9)'], ...[7, 8, 9, 10, 11, 12, 14].map(n => [n, String(n)] as Opt)]} />
+                options={[[null, 'Авто (12)'], ...[8, 9, 10, 11, 12, 14, 16, 18].map(n => [n, String(n)] as Opt)]} />
               <Text {...F} field="title" label="Заголовок графика" def="" wide />
               <Select {...F} field="angle" label="Подписи оси X" def="auto"
                 options={[['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]} />

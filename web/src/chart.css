@@ -84,10 +84,10 @@
 .chart-legend-wrap.side .legend-row { display: grid; }
 .chart-legend-wrap.side .legend-item { white-space: normal; text-align: left; }
 .legend-row { display: flex; flex-wrap: wrap; align-items: center; column-gap: 4px; row-gap: 0; }
-.legend-title { font-size: var(--legend-size, 14px); color: var(--chart-muted); min-width: 74px; padding-right: 4px; }
+.legend-title { font-size: var(--legend-size, 16px); color: var(--chart-muted); min-width: 74px; padding-right: 4px; }
 .legend-item {
   display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 6px; border-radius: 4px;
-  font-size: var(--legend-size, 14px); color: var(--chart-ink); cursor: pointer; white-space: nowrap; font-family: inherit;
+  font-size: var(--legend-size, 16px); color: var(--chart-ink); cursor: pointer; white-space: nowrap; font-family: inherit;
 }
 .legend-item:hover { background: var(--chart-grid); }
 .legend-item[aria-pressed='false'] { color: var(--chart-faint); }
@@ -232,7 +232,7 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .chart.compact .chart-canvas { height: var(--chart-h, 104px); }
 
 /* Модель оформления v2: подзаголовок, колонки, рамка и фон легенды */
-.chart-subtitle { margin: -2px 4px 4px; font-size: 13px; color: var(--chart-muted); }
+.chart-subtitle { margin: -2px 4px 4px; font-size: 16px; color: var(--chart-muted); }
 .chart-legend.cols .legend-row { display: grid; grid-template-columns: repeat(var(--legend-cols, 1), max-content); column-gap: 10px; }
 .chart-legend.cols .legend-title { grid-column: 1 / -1; }
 .chart-legend.boxed { background: var(--legend-bg, transparent); border: 1px solid var(--chart-axis); border-radius: 4px; padding: 2px 6px; }

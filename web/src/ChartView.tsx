@@ -330,11 +330,11 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
       name: narrow ? narrow.text : nameRich.text,
       // подпись шкалы Y — горизонтально над осью, читается без наклона головы; «вдоль оси» — повернута, как в Excel
-      nameLocation: y ? (along ? 'middle' : a.inverse ? 'start' : 'end') : atEnd ? 'end' : 'middle', nameGap: y ? (along ? 46 : 14) : atEnd ? 8 : 30,
+      nameLocation: y ? (along ? 'middle' : a.inverse ? 'start' : 'end') : atEnd ? 'end' : 'middle', nameGap: y ? (along ? 58 : 14) : atEnd ? 8 : 30,
       ...(y && along ? { nameRotate: position === 'y' ? 90 : -90 } : {}),
       ...(narrow?.cut ? { triggerEvent: true, tooltip: { show: true, formatter: () => richHtml(axisTitle(a.label, shownUnit(a))) } } : {}),
       nameTextStyle: y && !along
-        ? { color: ink, fontSize: as.title_size ?? SIZE.title, fontFamily: family, ...titleFont, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 15 } : {}), padding: position === 'y' ? [0, 0, 0, -44] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0], rich: nameRich.rich }
+        ? { color: ink, fontSize: as.title_size ?? SIZE.title, fontFamily: family, ...titleFont, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 20 } : {}), padding: position === 'y' ? [0, 0, 0, -58] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0], rich: nameRich.rich }
         : { color: ink, fontSize: as.title_size ?? SIZE.title, fontFamily: family, ...titleFont, rich: nameRich.rich },
       axisLine: { show: as.line ?? (!y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color || !!as.line_color), lineStyle: { color: lineColor, width: as.line_width ?? 1 } },
       ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
@@ -372,7 +372,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     ...(colored.length ? { visualMap: { type: 'continuous', min: shadeLo, max: shadeHi === shadeLo ? shadeLo + 1 : shadeHi, dimension: 4, seriesIndex: colored.map(c => c.i),
       right: 4, top: 'middle', itemHeight: 150, itemWidth: 12, calculable: false, text: [`${shadeTitle}\n${shadeFmt(shadeHi)}`, shadeFmt(shadeLo)],
       inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: SIZE.small } } } : {}),
-    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 72, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(34, 22 + 15 * nameLines), bottom: navigator ? 90 : 54,
+    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 78, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(40, 24 + 20 * nameLines), bottom: navigator ? 90 : 54,
       // область построения: фон и рамка (модель оформления: plot_background, plot_border_*)
       ...(chart.style?.plot_background || chart.style?.plot_border_color || chart.style?.plot_border_width ? { show: true,
         backgroundColor: chart.style.plot_background || 'transparent', borderColor: chart.style.plot_border_color || tk.axis,
