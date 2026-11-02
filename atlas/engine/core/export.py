@@ -191,7 +191,10 @@ def point_labels(ax,x,y,family,size,opts):
     for xi,v in zip(x,y):
         if v is None or not np.isfinite(v):continue
         text=group_thousands(f'{v:.{decimals if decimals is not None else 1}f}' if decimals is not None else f'{v:g}').replace('.',',')
-        ax.annotate(text,(xi,v),xytext=offset,textcoords='offset points',ha=ha,va=va,fontsize=size,family=family)
+        angle=opts.get('label_angle')
+        rot={'rotation':float(angle),'rotation_mode':'anchor'} if angle else {}
+        if angle and place in('top','bottom'):ha='left' if (angle>0)==(place=='top') else 'right'
+        ax.annotate(text,(xi,v),xytext=offset,textcoords='offset points',ha=ha,va=va,fontsize=size,family=family,**rot)
 
 
 def value_labels(ax,bars,values,family,size,opts=None):
@@ -201,9 +204,10 @@ def value_labels(ax,bars,values,family,size,opts=None):
     for rect,v in zip(bars,values):
         if v is None or not np.isfinite(v):continue
         text=group_thousands(f'{v:.{decimals}f}' if decimals else f'{v:.0f}').replace('.',',');wide=len(text)*size*.5>rect.get_width()*pts
+        angle=opts.get('label_angle');turn=float(angle) if angle is not None else (90 if wide else 0)
         up=v>=0;edge=rect.get_y()+rect.get_height() if up else rect.get_y()
         ax.annotate(text,(rect.get_x()+rect.get_width()/2,edge),xytext=(0,2 if up else -2),textcoords='offset points',
-                    ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=90 if wide else 0)
+                    ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=turn,rotation_mode='anchor' if turn else 'default')
 
 def _legend_key(label):
     # подпись «дд.мм.гггг…» (даты исследований ГДИ) сортируется по году, месяцу, дню

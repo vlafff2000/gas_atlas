@@ -159,4 +159,5 @@ def style_series(one, look: Mapping[str, Any], category: bool, kind: str, color:
         one.dLbls = DataLabelList(showVal=True, showSerName=False, showCatName=False, showLegendKey=False, showPercent=False,
                                   dLblPos=LABEL.get(look.get('label_position'), 't') if not category or look.get('label_position') else None,
                                   numFmt=('#,##0' + ('.' + '0' * int(decimals) if decimals else '')) if decimals is not None else None,
-                                  txPr=RichText(p=[Paragraph(pPr=ParagraphProperties(defRPr=font), endParaRPr=font)]) if font.sz else None)
+                                  txPr=RichText(bodyPr=RichTextProperties(rot=int(float(look['label_angle']) * -60000), vert='horz') if look.get('label_angle') is not None else None,
+                                        p=[Paragraph(pPr=ParagraphProperties(defRPr=font), endParaRPr=font)]) if font.sz or look.get('label_angle') is not None else None)

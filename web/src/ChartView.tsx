@@ -435,7 +435,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       // граница маркера и подписи данных из оформления (модель v2): не заданное — как задано модулем
       const edge = (fallback: string, width: number) => ({ borderColor: L.marker_border ?? fallback, borderWidth: L.marker_border_width ?? width })
       const dataLabel = (position: string, fallbackDecimals: number | null) => ({
-        show: true, position: L.label_position ?? position, distance: 2, fontFamily: fontCss('times'), fontSize: L.label_size ?? SIZE.label, color: tk.ink,
+        show: true, position: L.label_position ?? position, distance: 2, fontFamily: fontCss('times'), fontSize: L.label_size ?? SIZE.label, color: tk.ink, ...(L.label_angle !== undefined ? { rotate: L.label_angle } : {}),
         formatter: (p: { value: unknown }) => { const v = Number(Array.isArray(p.value) ? p.value[1] : p.value)
           return Number.isFinite(v) ? formatNumber(v, L.label_decimals ?? fallbackDecimals) : '' } })
       const blur = total <= BLUR_LIMIT

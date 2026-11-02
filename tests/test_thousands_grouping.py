@@ -33,3 +33,17 @@ def test_cell_text_grouped_only_numbers():
     assert _g('12345,6') == f'12{NB}345,6'
     assert _g('нет данных') == 'нет данных'
     assert _g('') == ''
+
+
+def test_label_angle_in_files():
+    fig, ax = plt.subplots()
+    point_labels(ax, [0], np.array([5.0]), 'DejaVu Sans', 9, {'label_angle': 90})
+    assert ax.texts[0].get_rotation() == 90
+    bars = ax.bar([1], [3])
+    value_labels(ax, bars, [3], 'DejaVu Sans', 9, {'label_angle': -45})
+    assert ax.texts[-1].get_rotation() == 315 % 360 or ax.texts[-1].get_rotation() == -45
+
+
+def test_label_angle_validated():
+    from atlas.chart_style import clean_look
+    assert clean_look({"valueLabels": True, "label_angle": 90}, 0).get('label_angle') == 90
