@@ -7,7 +7,7 @@ import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent
 import { AxisBreak } from 'echarts/features'
 import { CanvasRenderer, SVGRenderer } from 'echarts/renderers'
 import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
-import { axisTitle, escapeHtml, formatDate, formatNumber } from './format'
+import { axisTitle, escapeHtml, formatDate, formatNumber, formatNumberUpTo } from './format'
 import { echartsRich, plainRich, richHtml } from './richText'
 import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, SIZE, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
@@ -363,7 +363,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const colored = chart.series.map((s, i) => ({ s, i })).filter(({ s }) => s.kind === 'points' && s.values?.some(v => v != null))
   const shades = colored.flatMap(({ s }) => (s.values ?? []).filter((v): v is number => v != null && Number.isFinite(v)))
   const shadeLo = shades.length ? shades.reduce((a, b) => Math.min(a, b)) : 0, shadeHi = shades.length ? shades.reduce((a, b) => Math.max(a, b)) : 1
-  const shadeFmt = (n: number) => n.toLocaleString('ru-RU', { maximumFractionDigits: 3 })
+  const shadeFmt = (n: number) => formatNumberUpTo(n, 3)
   const shadeTitle = [...new Set(colored.map(({ s }) => s.values_label).filter(Boolean))].join(' / ')
   return {
     animation: false,
@@ -999,7 +999,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
             if (!exact) extra.push(`<span class="tip-sub">Ближайший замер · ${escapeHtml(fmtX()(near))}</span>`)
             if (s.labels?.[j]) extra.push(...s.labels[j].split(' · ').map(escapeHtml))
           }
-          if (s.values?.[j] != null) extra.push(escapeHtml(`${s.values_label || 'Значение'}: ${Number(s.values[j]).toLocaleString('ru-RU', { maximumFractionDigits: 3 })}`))
+          if (s.values?.[j] != null) extra.push(escapeHtml(`${s.values_label || 'Значение'}: ${formatNumberUpTo(Number(s.values[j]), 3)}`))
           extra.push(...tipsOf(chart, s).map(escapeHtml))
         }
         extra.push(...events)
@@ -1907,7 +1907,7 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
   )
 }
 
-const count = (n: number) => n.toLocaleString('ru-RU')
+const count = (n: number) => formatNumberUpTo(n, 0)
 
 /** Пометка «показана часть точек»: линии прорежены методом М4 (пики и провалы сохранены), все точки — при увеличении. */
 function ThinNote({ chart, thinned, windowed, patch }: { chart: Chart; thinned: number[]; windowed: boolean; patch: Patch | null }) {

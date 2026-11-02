@@ -11,6 +11,7 @@ import datetime
 import numpy as np
 import pandas as pd
 from .export_combo import Areas,Bars,ghost,is_back,is_combo,overlay,sync
+from .export_style import ru_tick
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -138,7 +139,7 @@ def x_labels(ax,angle,width_mm,font_pt,date_axis,auto,categorical):
             ax.xaxis.set_major_formatter(DateFormatter({'day':'%d.%m.%Y','month':'%m.%Y','year':'%Y'}[unit]))
         else:
             count=next((c for c in range(60,2,-1) if fits(6,c)),3)
-            ax.xaxis.set_major_locator(MaxNLocator(nbins=count,steps=[1,2,2.5,5,10]));ax.xaxis.set_major_formatter(StrMethodFormatter('{x:.10g}'))
+            ax.xaxis.set_major_locator(MaxNLocator(nbins=count,steps=[1,2,2.5,5,10]));ax.xaxis.set_major_formatter(ru_tick('.10g'))
     ax.tick_params(axis='x',labelrotation=angle)
     for lab in ax.get_xticklabels():lab.set_ha('right' if 0<angle<90 else 'center')
     if angle==90:ax.tick_params(axis='x',labelrotation=90)
@@ -357,7 +358,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
             if not date_axis and isinstance(fig.layout.xaxis.dtick,(int,float)) and fig.layout.xaxis.dtick>0:
                 lo,hi=ax.get_xlim();step=fig.layout.xaxis.dtick
                 if (hi-lo)/step<=150:ax.xaxis.set_major_locator(MultipleLocator(step))
-                ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}' if step>=1 else '{x:.2f}'))
+                ax.xaxis.set_major_formatter(ru_tick('.0f' if step>=1 else '.2f'))
             if isinstance(fig.layout.yaxis.dtick,(int,float)) and fig.layout.yaxis.dtick>0:
                 lo,hi=ax.get_ylim();step=fig.layout.yaxis.dtick
                 if (hi-lo)/step<=150:ax.yaxis.set_major_locator(MultipleLocator(step))
@@ -396,7 +397,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 from matplotlib.ticker import MaxNLocator
                 for axis in (ax.xaxis,ax.yaxis)+tuple(twin.yaxis for twin in rights.values()):
                     if axis is ax.xaxis and date_axis:continue
-                    axis.set_major_locator(MaxNLocator(nbins=6 if width_mm>=120 else 5,steps=[1,2,2.5,5,10]));axis.set_major_formatter(StrMethodFormatter('{x:.10g}'))
+                    axis.set_major_locator(MaxNLocator(nbins=6 if width_mm>=120 else 5,steps=[1,2,2.5,5,10]));axis.set_major_formatter(ru_tick('.10g'))
                 if not excel:ax.grid(True,color='#c9ced6',linewidth=.5,linestyle='--');ax.tick_params(length=2.5,pad=2)
             if date_axis:
                 ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=5 if compact else 7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))

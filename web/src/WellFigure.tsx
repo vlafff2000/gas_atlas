@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { Chart, FigureData } from './api'
 import type { Schematic } from './api_passport'
 import { CopyButton, DownloadMenu } from './ChartView'
+import { formatNumberUpTo } from './format'
 
 /** Масштаб и сдвиг оси глубины: колесо — масштаб около курсора, перетаскивание — сдвиг, двойной щелчок — сброс (как у остальных графиков).
  *  Окно не выходит за полный диапазон ``full``; ``g`` — геометрия поля графика в единицах viewBox. */
@@ -103,7 +104,7 @@ export function WellSchematic({ s }: { s: Schematic }) {
 
 const PACK_COLORS = ['#2a6f97', '#3a9d5d', '#7b4fa3', '#e0a100', '#2b9aa0', '#8c5a3c', '#5b6c8f', '#a3a33a']
 const GRAY = '#b8bec6'
-const ru = (x: number, d = 1) => x.toLocaleString('ru-RU', { maximumFractionDigits: d })
+const ru = (x: number, d = 1) => formatNumberUpTo(x, d)
 
 /** Планшет ГИС по глубине: слева перфорация, дальше трек на сезон — полосы интервалов длиной по Кг (серые — Кг не выше порога),
  *  линия ГВК пачки и подпись hг эф. Глубины — метры от стола, ось вниз. */

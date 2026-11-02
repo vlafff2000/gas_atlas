@@ -17,6 +17,7 @@ from xml.sax.saxutils import escape
 import pandas as pd
 
 from . import parallel
+from .engine.core.export_style import group_thousands
 from .modules._ggh import GAS, PARAMS, TICKS, caption, cell, gas_axis, rows_for, well_horizon
 
 COLORS = {key: color for key, (_, color, _) in PARAMS.items()}
@@ -95,7 +96,7 @@ def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'time
             low, high = gas_axis(pd.Series(gas[ok]))
             ax2.set_ylim(low, high)
             ax2.yaxis.set_major_locator(FixedLocator(np.linspace(low, high, TICKS)))
-            ax2.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{int(round(v))}' if abs(v) >= 0.5 else '0'))
+            ax2.yaxis.set_major_formatter(FuncFormatter(lambda v, _: group_thousands(f'{int(round(v))}') if abs(v) >= 0.5 else '0'))
             size = shown['size'] if shown['size'] is not None else SIZES['gas']
             ax2.plot(dates[ok], gas[ok], color=shown['color'], marker=MARKERS['gas'] if size > 0 else None, markersize=size, linewidth=shown['width'], linestyle='-')
         ax.set_xlabel(names.get('x') or 'Год', fontsize=14 * k, fontweight='bold', labelpad=10)
