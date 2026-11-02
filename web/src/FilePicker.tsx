@@ -52,7 +52,39 @@ function crumbs(path: string): { name: string; path: string }[] {
 }
 
 const fmtSize = (n: number) => (n < 1024 ? n + ' Б' : n < 1048576 ? (n / 1024).toFixed(0) + ' КБ' : (n / 1048576).toFixed(1) + ' МБ')
-const icon = (it: Item) => (it.dir ? '📁' : /^(xlsx|xlsm|xls|ods)$/.test(it.ext) ? '📗' : /^(csv|txt|dat)$/.test(it.ext) ? '📄' : '▫️')
+// Иконки — встроенные SVG (без эмодзи и внешних шрифтов: на РЕД ОС без интернета эмодзи рисуются «квадратом с крестом»)
+const FILE_KINDS: [RegExp, string, string][] = [
+  [/^(xlsx|xlsm|xls|ods)$/, '#1f7a45', 'XLS'],
+  [/^csv$/, '#2a9d8f', 'CSV'],
+  [/^(docx|doc|odt|rtf)$/, '#2b5fb4', 'DOC'],
+  [/^pdf$/, '#c0392b', 'PDF'],
+  [/^(txt|log|md)$/, '#7a828e', 'TXT'],
+  [/^(dat|las|inc|grdecl|data)$/, '#b8741a', ''],
+  [/^(zip|7z|rar|tar|gz)$/, '#8e5aa8', 'ZIP'],
+  [/^(json|xml|yaml|yml)$/, '#5b6b8c', ''],
+  [/^(png|jpg|jpeg|gif|bmp|svg)$/, '#3a8fb7', 'IMG'],
+]
+const svgp = { xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': true as const, focusable: 'false' as const }
+function FileIcon({ it }: { it: Item }) {
+  if (it.dir) return <svg className="fp-ic" viewBox="0 0 24 20" width="22" height="19" {...svgp}><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h6l2 2.5h11A1.5 1.5 0 0 1 23 6v11.5a1.5 1.5 0 0 1-1.5 1.5h-19A1.5 1.5 0 0 1 1 17.5z" fill="#e8b339" /><path d="M1 8h22v9.5a1.5 1.5 0 0 1-1.5 1.5h-19A1.5 1.5 0 0 1 1 17.5z" fill="#f4c95d" /></svg>
+  const ext = (it.ext || '').toLowerCase().replace(/^\./, '')
+  const kind = FILE_KINDS.find(k => k[0].test(ext))
+  const color = kind ? kind[1] : '#8a929d'
+  const label = (kind && kind[2]) || ext.slice(0, 4).toUpperCase()
+  return <svg className="fp-ic" viewBox="0 0 20 24" width="21" height="25" {...svgp}>
+    <path d="M2 1.5h11l5 5V22a.5.5 0 0 1-.5.5h-15A.5.5 0 0 1 2 22z" fill="#fff" stroke={color} strokeWidth="1.4" strokeLinejoin="round" />
+    <path d="M13 1.5v5h5" fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" />
+    {label && <><rect x="2.7" y="12.5" width="14.6" height="7" rx="1" fill={color} /><text x="10" y="18.2" textAnchor="middle" fontSize={label.length > 3 ? 5 : 5.6} fontWeight="700" fill="#fff" fontFamily="Arial, Helvetica, sans-serif">{label}</text></>}
+  </svg>
+}
+function PlaceIcon({ kind }: { kind: string }) {
+  if (kind === 'drive') return <svg className="fp-ic" viewBox="0 0 24 20" width="22" height="19" {...svgp}><rect x="1.5" y="5" width="21" height="11" rx="2" fill="#9aa3af" /><rect x="1.5" y="5" width="21" height="4" rx="2" fill="#b9c0ca" /><circle cx="18.5" cy="13" r="1.2" fill="#2f9e5b" /></svg>
+  if (kind === 'network') return <svg className="fp-ic" viewBox="0 0 24 20" width="22" height="19" {...svgp}><g fill="none" stroke="#3a7bd5" strokeWidth="1.6"><circle cx="12" cy="10" r="8" /><ellipse cx="12" cy="10" rx="3.6" ry="8" /><path d="M4 10h16" /></g></svg>
+  return <FileIcon it={{ name: '', dir: true, size: 0, mtime: '', ext: '', locked: false }} />
+}
+const Star = () => <svg className="fp-ic" viewBox="0 0 20 20" width="12" height="12" {...svgp}><path d="M10 1.5l2.6 5.6 6 .7-4.5 4.1 1.2 6L10 15l-5.3 2.9 1.2-6L1.4 7.8l6-.7z" fill="#e8b339" /></svg>
+const Clock = () => <svg className="fp-ic" viewBox="0 0 20 20" width="13" height="13" {...svgp}><g fill="none" stroke="#7a828e" strokeWidth="1.8" strokeLinecap="round"><circle cx="10" cy="10" r="8" /><path d="M10 5v5l3 2" /></g></svg>
+const Pencil = () => <svg className="fp-ic" viewBox="0 0 20 20" width="12" height="12" {...svgp}><path d="M3 17l1-4 9-9 3 3-9 9zM12 5l3 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
 
 function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) => void }) {
   const folderMode = opts.mode === 'folder'
@@ -338,7 +370,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
           <div className="fp-side">
             <div className="fp-cap">Места</div>
             {places.map(p => <button key={p.path} className={list?.path === p.path ? 'on' : ''} onClick={() => open(p.path)} title={p.name + '\n' + p.path}>
-              <span className="fp-pn">{p.kind === 'drive' ? '💽' : p.kind === 'network' ? '🌐' : '📁'} {p.name}</span>
+              <span className="fp-pn"><PlaceIcon kind={p.kind} /> {p.name}</span>
               {(p.kind === 'drive' || p.kind === 'network') && <span className="fp-pp">{p.path}</span>}</button>)}
             <div className="fp-cap">Избранное</div>
             {favs.favorites.map(f => editFav?.path === f.path ? (
@@ -348,9 +380,9 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
             ) : (
               <div key={f.path} className="fp-fav">
                 <button className={list?.path === f.path ? 'on' : ''} onClick={() => open(f.path)} title={f.name + '\n' + f.path}>
-                  <span className="fp-pn">{f.network ? '🌐' : '⭐'} {f.name}</span><span className="fp-pp">{f.path}</span></button>
+                  <span className="fp-pn">{f.network ? <PlaceIcon kind="network" /> : <Star />} {f.name}</span><span className="fp-pp">{f.path}</span></button>
                 <span className="fp-fa">
-                  <i onMouseDown={e => e.preventDefault()} onClick={() => setEditFav({ path: f.path, name: f.name })} title="Переименовать">✎</i>
+                  <i onMouseDown={e => e.preventDefault()} onClick={() => setEditFav({ path: f.path, name: f.name })} title="Переименовать"><Pencil /></i>
                   <i onClick={() => void favAction('remove', f.path)} title="Убрать из избранного">✕</i>
                 </span>
               </div>))}
@@ -360,21 +392,21 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
               <button type="submit" title="Добавить путь">＋</button>
             </form>
             <button disabled={!list?.path || list.error !== '' || favs.favorites.some(f => f.path === list.path)}
-              onClick={() => list && void favAction('add', list.path)}>⭐ Добавить текущую папку</button>
+              onClick={() => list && void favAction('add', list.path)}><Star /> Добавить текущую папку</button>
             {favs.frequent.length > 0 && <>
               <div className="fp-cap">Часто посещаемые</div>
               {favs.frequent.map(f => (
                 <div key={f.path} className="fp-fav">
-                  <button onClick={() => open(f.path)} title={f.path + '\nзаходов: ' + f.n}><span className="fp-pn">{f.network ? '🌐' : '🔁'} {f.name}</span><span className="fp-pp">{f.path}</span></button>
+                  <button onClick={() => open(f.path)} title={f.path + '\nзаходов: ' + f.n}><span className="fp-pn">{f.network ? <PlaceIcon kind="network" /> : <Clock />} {f.name}</span><span className="fp-pp">{f.path}</span></button>
                   <span className="fp-fa">
-                    <i onClick={() => void favAction('add', f.path)} title="В избранное">⭐</i>
+                    <i onClick={() => void favAction('add', f.path)} title="В избранное"><Star /></i>
                     <i onClick={() => void favAction('hide', f.path)} title="Убрать из подсказок">✕</i>
                   </span>
                 </div>))}
             </>}
             {!folderMode && !saveMode && recent.length > 0 && <>
               <div className="fp-cap">Недавние файлы</div>
-              {recent.map(f => <button key={f} onClick={() => choose(f)} title={f}>🕘 {baseName(f)}</button>)}
+              {recent.map(f => <button key={f} onClick={() => choose(f)} title={f}><Clock /> {baseName(f)}</button>)}
             </>}
           </div>
           <div className="fp-list" ref={box} tabIndex={0} role="listbox" aria-multiselectable={multi} onPointerDown={bandStart}>
@@ -393,7 +425,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
                 onClick={e => { if (dragged.current) return; rowClick(e, i, it) }}
                 onDoubleClick={() => { if (saveMode && !it.dir) save(it.name); else if (multi && !it.dir) { setMarked([it.name]); if (list) { void remember({ dir: list.path, file: join(list.path, it.name) }); done(join(list.path, it.name)) } } else activate(it) }}>
                 <span className="fp-n" title={it.name}>{multi && !it.dir && <input type="checkbox" checked={marked.includes(it.name)}
-                  onChange={() => { toggle(it.name); anchor.current = i }} onClick={e => e.stopPropagation()} />} {icon(it)} {it.name}{it.locked ? ' (нет доступа)' : ''}</span>
+                  onChange={() => { toggle(it.name); anchor.current = i }} onClick={e => e.stopPropagation()} />} <FileIcon it={it} /> {it.name}{it.locked ? ' (нет доступа)' : ''}</span>
                 <span className="fp-d">{it.mtime}</span>
                 <span className="fp-s">{it.dir ? '' : fmtSize(it.size)}</span>
               </div>))}
