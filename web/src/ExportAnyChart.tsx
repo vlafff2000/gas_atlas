@@ -1,12 +1,13 @@
 // Экспорт → «Любой график»: выбрать график любого раздела и выгрузить его с полной ручной настройкой (atlas/export_any.py).
 // Пустое поле — «авто» (как задал модуль): всё, что поменял инженер, главнее.
 // Выбор и настройки каждого графика хранятся в проекте (``settings.export_any``); график без своих настроек берёт вид с экрана.
+import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { saveFileWithPicker } from './desktopDownload'
 import { api, defaults, type Chart, type ModuleSpec, type Params, type Project } from './api'
-import { ChartView } from './ChartView'
+import { ChartView, colorOf } from './ChartView'
+import { FormatPane, type FormatElement } from './FormatPane'
 import type { ChartFormat } from './chartFormat'
-import { ChartStyleFields, compact } from './FormatFields'
 import { ParamBar } from './ParamBar'
 import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import { savedRanges, seriesLooks } from './chartPrefs'
@@ -98,6 +99,8 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const [settings, setSettings] = useState<AnySettings>({})
   const [image, setImage] = useState<string | null>(null)
   const [live, setLive] = useState<Chart | null>(null)
+  const [fmtOpen, setFmtOpen] = useState(false)             // панель «Формат» у графиков, которые рисуются только в файле
+  const [fmtElement, setFmtElement] = useState<FormatElement>('chart')
   const [notes, setNotes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -228,7 +231,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const { doc: _doc, ...formSettings } = settings as AnySettings & { doc?: unknown }
   const formKey = JSON.stringify(formSettings)
   useEffect(() => {
-    if (!moduleId || !chart?.id || chart.special) { setLive(null); return }
+    if (!moduleId || !chart?.id) { setLive(null); return }
     let alive = true
     const timer = setTimeout(() => {
       anyApi.chart(project.id, moduleId, params, chart.id, formSettings).then(c => alive && setLive(c)).catch(e => alive && setError((e as Error).message))
@@ -461,13 +464,17 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
             </details>
           )}
           {special && (
-            <details className="table-block" open>
-              <summary className="block-head"><h3>Оформление графика</h3></summary>
-              <p className="muted pad">Легенда, заголовок, текст, сетка и фон — те же поля, что в панели «Формат» обычных графиков.</p>
-              <div className="pad cs-editor">
-                <ChartStyleFields value={doc.chart ?? {}} set={patch => onDoc({ ...doc, chart: compact({ ...doc.chart, ...patch }) })} />
+            <section className="table-block">
+              <div className="pad">
+                <p className="muted small-text">Этот вид графика рисуется только в файле (предпросмотр ниже). Заголовок, легенда, фон, шрифты и цвета рядов настраиваются в той же панели «Формат», что и у остальных графиков.</p>
+                <button type="button" disabled={!live} onClick={() => setFmtOpen(true)}>Формат…</button>
               </div>
-            </details>
+              {fmtOpen && live && createPortal(
+                <FormatPane chart={live} element={fmtElement} onElement={setFmtElement} scope="project" onScope={() => {}} scopeLabel="этот график" plain
+                  doc={doc} onDoc={onDoc} colorOf={colorOf(live)} looks={doc.series ?? {}}
+                  onLooks={series => onDoc({ ...doc, series: Object.keys(series).length ? series : undefined })}
+                  onReplace={onDoc} onClose={() => setFmtOpen(false)} />, document.body)}
+            </section>
           )}
           {!special && (
             <section className="table-block">
