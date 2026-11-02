@@ -402,9 +402,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       },
     },
     dataZoom: category ? [] : [
-      // Ctrl + колесо — масштаб, перетаскивание — сдвиг; страница при этом прокручивается колесом как обычно
-      { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false },
-      ...(time ? [] : [{ type: 'inside', yAxisIndex: yCount(chart) > 1 ? Array.from({ length: yCount(chart) }, (_, i) => i) : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true, preventDefaultMouseMove: false }]),
+      // Ctrl + колесо — масштаб; сдвиг полем (ЛКМ) — свой обработчик ниже, одинаковый по X и Y для любых графиков; страница при этом прокручивается колесом как обычно
+      { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false },
+      ...(time ? [] : [{ type: 'inside', yAxisIndex: yCount(chart) > 1 ? Array.from({ length: yCount(chart) }, (_, i) => i) : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false }]),
       // навигатор: весь период тенью и выбранное окно, его края и середину можно тянуть
       ...(navigator ? [{
         type: 'slider', xAxisIndex: 0, filterMode: 'none', height: 22, bottom: 8, left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20,
@@ -1300,15 +1300,24 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       const next = zoomRange(r, a === 'x' ? vx : vy, wheelFactor(e.deltaY), ax.scale === 'log')
       if (next) apply(a, next)
     }
-    let pan: { axis: AxisName; start: Range; from: number; id: number; moved: boolean } | null = null
+    type Pan = { axis: AxisName | null; starts: { axis: AxisName; start: Range }[]; from: number; fromY: number; id: number; moved: boolean }
+    let pan: Pan | null = null
     const onAxisDown = (e: PointerEvent) => {
       if (e.button !== 0) return
       const box = host.getBoundingClientRect()
       const px = e.clientX - box.left, py = e.clientY - box.top
       const a = zone(px, py)
-      const r = a && rangeOf(a)
-      if (!a || !r) return
-      pan = { axis: a, start: r, from: a === 'x' ? px : py, id: e.pointerId, moved: false }
+      if (a) {
+        const r = rangeOf(a)
+        if (r) pan = { axis: a, starts: [{ axis: a, start: r }], from: a === 'x' ? px : py, fromY: py, id: e.pointerId, moved: false }
+        return
+      }
+      // поле графика: левая кнопка тянет окно сразу по X и по всем шкалам Y (режим «Выделение» — кнопка рядом — отдаёт левую кнопку рамке)
+      const g = gridRect()
+      if (boxRef.current || st.chart.x.scale === 'category' || !g || px < g.x || px > g.x + g.width || py < g.y || py > g.y + g.height) return
+      const names: AxisName[] = ['x', ...Y_NAMES.slice(0, yCount(st.chart))]
+      const starts = names.flatMap(n => { const r = rangeOf(n); return r ? [{ axis: n, start: r }] : [] })
+      if (starts.length) pan = { axis: null, starts, from: px, fromY: py, id: e.pointerId, moved: false }
     }
     const onAxisMove = (e: PointerEvent) => {
       const box = host.getBoundingClientRect()
@@ -1319,20 +1328,31 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         return
       }
       if (e.pointerId !== pan.id) return
-      const r = gridRect(), ax = axisOf(pan.axis)
+      const r = gridRect()
       if (!r) return
-      const d = (pan.axis === 'x' ? px : py) - pan.from
+      const dx = px - pan.from, dy = py - pan.fromY
+      const d = pan.axis ? (pan.axis === 'x' ? dx : dy) : Math.hypot(dx, dy)
       if (!pan.moved && Math.abs(d) < 4) return
       if (!pan.moved) host.setPointerCapture(e.pointerId)
       pan.moved = true
+      if (!pan.axis) host.style.cursor = 'grabbing'
       // подписи тянем за мышью: вправо — окно X уходит влево, вниз — окно Y уходит вверх по значениям
-      const frac = (pan.axis === 'x' ? -d / r.width : d / r.height) * (ax.inverse ? -1 : 1)
-      const next = shiftRange(pan.start, frac, ax.scale === 'log')
-      if (next) apply(pan.axis, next)
+      const ranges = { ...st.ranges }
+      let ys = false
+      for (const { axis, start } of pan.starts) {
+        const ax = axisOf(axis)
+        const frac = (axis === 'x' ? -dx / r.width : dy / r.height) * (ax.inverse ? -1 : 1)
+        const next = shiftRange(start, frac, ax.scale === 'log')
+        if (!next) continue
+        if (axis === 'x') apply('x', next)
+        else { ranges[axis] = next; ys = true }
+      }
+      if (ys) st.setRanges(ranges)
     }
     const onAxisUp = (e: PointerEvent) => {
       if (!pan || e.pointerId !== pan.id) return
       if (pan.moved && host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId)
+      if (!pan.axis) host.style.cursor = ''
       pan = null
     }
     host.addEventListener('wheel', onAxisWheel, { passive: false, capture: true })
@@ -1597,7 +1617,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
           {chart.x.scale !== 'category' && <>
             <span className="chart-tools">
               <button type="button" className={'icon' + (boxZoom ? ' on' : '')} aria-pressed={boxZoom} onClick={toggleBoxZoom}
-                title="Увеличить область: выделите её мышью. Ещё: Ctrl + колесо — масштаб, перетаскивание — сдвиг">
+                title="Режим «Выделение»: левая кнопка рисует рамку увеличения. Когда выключен — левая кнопка двигает график (сдвиг по X и Y). Ctrl + колесо — масштаб">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" strokeDasharray="2.5 2" /><path d="M8 5.5v5M5.5 8h5" /></svg>
               </button>
               {chart.x.scale === 'time' && <button type="button" className={'icon' + (syncZoom ? ' on' : '')} aria-pressed={syncZoom}
