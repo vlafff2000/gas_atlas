@@ -134,3 +134,92 @@ def kru_response(elpro: pd.DataFrame | None, days: pd.DataFrame, last: str | Non
     corr = el.groupby('well').apply(lambda g: g.q.corr(g.y) if len(g) >= DAYS_MIN and g.y.nunique() > 1 else np.nan, include_groups=False)
     out['open_corr'] = out.well.map(corr)
     return out[cols]
+
+
+BASE_DAYS = 14        # опорный уровень «скважина к объекту» — медиана первых двух недель сезона
+OPEN_TOL = 0.05       # раскрытие КРУ считается не уменьшенным, если оно не ниже опорного больше чем на 5%
+
+
+def _season_wide(days: pd.DataFrame, last: str | None) -> pd.DataFrame:
+    """Индекс расхода (сутки / среднее скважины за сезон) по календарным дням последнего сезона; пропуск дня — NaN."""
+    d = days[days.period.eq(last)]
+    wide = d.assign(idx=d.q / d.groupby('well').q.transform('mean')).pivot_table(index='date', columns='well', values='idx', aggfunc='mean').sort_index()
+    return wide.reindex(pd.date_range(wide.index.min(), wide.index.max()))
+
+
+def _smooth(x: pd.DataFrame | pd.Series):
+    return x.rolling(7, min_periods=3).mean()
+
+
+def _open_wide(elpro: pd.DataFrame | None, index: pd.DatetimeIndex, last_days: pd.DataFrame) -> pd.DataFrame | None:
+    """Раскрытие КРУ (``y``), нормированное на среднее скважины за сезон, на тех же днях; нет ЭЛПРО — None."""
+    if elpro is None or elpro.empty or 'y' not in elpro:
+        return None
+    e = elpro[elpro.kind.eq('withdrawal')] if 'kind' in elpro else elpro
+    e = e.assign(well=e.well.astype(str), date=pd.to_datetime(e.date).dt.normalize())
+    e = e[e.y.gt(0) & e.date.between(index.min(), index.max())]
+    if e.empty:
+        return None
+    e = e.assign(idx=e.y / e.groupby('well').y.transform('mean'))
+    return e.pivot_table(index='date', columns='well', values='idx', aggfunc='mean').reindex(index)
+
+
+def _runs(mask: pd.Series, min_days: int) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    out, start = [], None
+    for day, on in mask.items():
+        if on and start is None:
+            start = day
+        if not on and start is not None:
+            if (day - start).days >= min_days:
+                out.append((start, day - pd.Timedelta(days=1)))
+            start = None
+    if start is not None and (mask.index[-1] - start).days + 1 >= min_days:
+        out.append((start, mask.index[-1]))
+    return out
+
+
+def productivity_intervals(days: pd.DataFrame, last: str | None, elpro: pd.DataFrame | None, min_days: int = 14, drop: float = 15.0) -> pd.DataFrame:
+    """Интервалы последнего сезона, где продуктивность скважины реально снизилась: расход (сглаженный за 7 суток) относительно объекта ниже
+    опорного уровня первых двух недель больше чем на ``drop`` %, держится не меньше ``min_days`` суток, а раскрытие КРУ при этом не уменьшено.
+    Столбцы: well, start, end, days, depth (максимальное падение, %)."""
+    cols = ['well', 'start', 'end', 'days', 'depth']
+    if last is None:
+        return pd.DataFrame(columns=cols)
+    wide = _season_wide(days, last)
+    sm = _smooth(wide)
+    obj = sm.mean(axis=1)
+    opening = _open_wide(elpro, wide.index, days)
+    rows = []
+    for w in wide.columns:
+        rel = (sm[w] / obj).where(sm[w].notna())
+        base = rel.dropna().iloc[:BASE_DAYS].median()
+        if not np.isfinite(base) or base <= 0:
+            continue
+        low = rel < base * (1 - drop / 100)
+        if opening is not None and w in opening and opening[w].notna().sum() >= BASE_DAYS:
+            o = _smooth(opening[w])
+            o_base = o.dropna().iloc[:BASE_DAYS].median()
+            low &= ~(o < o_base * (1 - OPEN_TOL))       # раскрытие уменьшили — падение расхода объясняется режимом, не продуктивностью
+        for start, end in _runs(low.fillna(False), int(min_days)):
+            depth = (1 - (rel[start:end] / base).min()) * 100
+            rows.append((w, start, end, (end - start).days + 1, float(depth)))
+    return pd.DataFrame(rows, columns=cols)
+
+
+def well_curves(days: pd.DataFrame, last: str | None, elpro: pd.DataFrame | None, group_of: dict[str, str], well: str) -> pd.DataFrame:
+    """Ряды для графика скважины за последний сезон: q (факт), obj_q и grp_q (динамика объекта и группы в масштабе скважины, сглаж. 7 сут),
+    cum (накопленный отбор, млн м³), open (раскрытие КРУ, %). Индекс — календарные дни."""
+    wide = _season_wide(days, last)
+    d = days[days.period.eq(last) & days.well.eq(well)].set_index('date').q
+    mean = d.mean()
+    q = (d / 1e3).reindex(wide.index)
+    sm = _smooth(wide)
+    peers = [w for w in wide.columns if group_of.get(w, '') == group_of.get(well, '')] or list(wide.columns)
+    out = pd.DataFrame({'q': q, 'obj_q': sm.mean(axis=1) * mean / 1e3, 'grp_q': sm[peers].mean(axis=1) * mean / 1e3,
+                        'cum': q.fillna(0).cumsum() / 1e3})
+    out['open'] = np.nan
+    if elpro is not None and not elpro.empty and 'y' in elpro:
+        e = elpro[elpro.well.astype(str).eq(well)]
+        e = e.assign(date=pd.to_datetime(e.date).dt.normalize()).groupby('date').y.mean()
+        out['open'] = e.reindex(out.index).where(lambda s: s > 0)
+    return out

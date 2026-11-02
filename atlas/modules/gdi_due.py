@@ -12,9 +12,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Source, Stat, Table
+from ..contract import Axis, Chart, Series, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Source, Stat, Table
 from ..domain import DatasetKind
-from ._gdi_due_metrics import METRIC_COLUMNS, cumulative, dynamics, kru_response, last_two, withdrawal_days
+from atlas.engine.core.config import COLORS
+from ._gdi_due_metrics import METRIC_COLUMNS, productivity_intervals, well_curves, cumulative, dynamics, kru_response, last_two, withdrawal_days
 from .gdi import well_key
 from .gdi_trend import VERDICTS, histories, rating
 
@@ -87,6 +88,12 @@ def build(data: Data, params: dict[str, Any]) -> pd.DataFrame:
     elpro = data[ELPRO] if ELPRO in data else None
     for part in (cumulative(days, last_p, prev_p, group_of), dynamics(days, last_p, group_of), kru_response(elpro, days, last_p, prev_p, group_of)):
         table = table.merge(part, on='well', how='left')
+    iv = productivity_intervals(days, last_p, elpro, int(params.get('min_days', 14)), float(params.get('interval_drop', 15)))
+    table['int_count'] = table.well.map(iv.groupby('well').size()).fillna(0).astype(int)
+    last_iv = iv.sort_values('end').drop_duplicates('well', keep='last').set_index('well') if not iv.empty else pd.DataFrame(columns=['start', 'end', 'days', 'depth'])
+    for c in ('days', 'depth'):
+        table['int_' + c] = table.well.map(last_iv[c]) if not iv.empty else np.nan
+    table['int_last'] = table.well.map(lambda w: f"{last_iv.at[w, 'start']:%d.%m}–{last_iv.at[w, 'end']:%d.%m.%Y}" if w in last_iv.index else '')
     for c in METRIC_COLUMNS:
         if c not in table:
             table[c] = np.nan
@@ -100,8 +107,9 @@ def build(data: Data, params: dict[str, Any]) -> pd.DataFrame:
     table['f_cum'] = table.cum_gap.le(-params.get('cum_gap', 15))
     table['f_sync'] = table.sync_obj.lt(params.get('sync', 50)) & table.slope_gap_obj.le(-params.get('slope', 5))
     table['f_open'] = table.eff_gap.le(-params.get('open_drop', 15))
+    table['f_int'] = table.int_count.gt(0)
     table['f_kru'] = table.kr_priority.le(params['kru_priority']) & table.kr_priority.notna()
-    table['score'] = table[['f_age', 'f_flow', 'f_trend', 'f_kru', 'f_cum', 'f_sync', 'f_open']].sum(axis=1).astype(int)
+    table['score'] = table[['f_age', 'f_flow', 'f_trend', 'f_kru', 'f_cum', 'f_sync', 'f_open', 'f_int']].sum(axis=1).astype(int)
     table['reason'] = table.apply(lambda r: reasons(r, params), axis=1)
     return table
 
@@ -118,6 +126,8 @@ def reasons(r: pd.Series, params: dict[str, Any]) -> str:
         out.append(f'динамика внутри сезона не совпадает с объектом: совпало {r.sync_obj:.0f}% недельных шагов, тренд {r.slope_well:+.0f}% против {r.slope_obj:+.0f}% за 30 сут')
     if r.f_open:
         out.append(f'расход на 1% раскрытия КРУ {r.eff_change:+.0f}% при раскрытии {r.open_change:+.0f}%: на {-r.eff_gap:.0f} п.п. хуже медианы группы')
+    if r.f_int:
+        out.append(f'интервал снижения продуктивности {r.int_last} ({int(r.int_days)} сут): расход на {r.int_depth:.0f}% ниже относительно объекта при неуменьшенном раскрытии КРУ')
     if r.f_trend:
         out.append('динамика ГДИ: ухудшение отдачи')
     if r.f_kru:
@@ -136,6 +146,38 @@ def apply_manual(table: pd.DataFrame, add: list[str], remove: list[str]) -> pd.D
     out['_k'] = out.well.map(well_key)
     out = out.sort_values(['in_list', 'score', 'years', '_k'], ascending=[False, False, False, True], na_position='first', kind='stable')
     return out.drop(columns='_k').reset_index(drop=True)
+
+
+def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> list[Chart]:
+    """График на скважину: расход, динамика группы и объекта, накопленный отбор, раскрытие КРУ; красным — интервалы снижения продуктивности."""
+    days = withdrawal_days(data[PRODUCTION] if PRODUCTION in data else pd.DataFrame())
+    last, _ = last_two(days)
+    if last is None:
+        return []
+    elpro = data[ELPRO] if ELPRO in data else None
+    chosen = [str(w) for w in (params.get('show') or [])] or listed.well.astype(str).tolist()[:6]
+    group_of = {w: (data.mapping.get(w, {}) or {}).get('group', '') for w in chosen}
+    iv = productivity_intervals(days, last, elpro, int(params.get('min_days', 14)), float(params.get('interval_drop', 15)))
+    charts = []
+    for w in sorted(set(chosen) & set(days.well), key=well_key):
+        c = well_curves(days, last, elpro, group_of | {x: (data.mapping.get(x, {}) or {}).get('group', '') for x in days.well.unique()}, w)
+        x = c.index.to_numpy()
+        chart = Chart(f'gdi-due-{w}', f'№ {w}: расход, накопленный отбор, раскрытие КРУ ({last})', Axis('Дата', scale='time'), Axis('Расход', 'тыс. м³/сут', from_zero=True),
+                      y2=Axis('Накопленный отбор', 'млн м³', from_zero=True, color=COLORS[2]))
+        chart.series += [
+            Series('Скважина', x, c.q.to_numpy(float), 'line', group='Скважина', color=COLORS[0], width=2.2),
+            Series('Объект (динамика, 7 сут)', x, c.obj_q.to_numpy(float), 'line', group='Объект', color='#7a8a90', dash='dash', width=1.8),
+            Series('Группа (динамика, 7 сут)', x, c.grp_q.to_numpy(float), 'line', group='Группа', color=COLORS[3], dash='dot', width=1.8),
+            Series('Накопленный отбор', x, c.cum.to_numpy(float), 'line', group='Накопленный', color=COLORS[2], width=1.8, axis='y2')]
+        if c.open.notna().any():
+            chart.y3 = Axis('Раскрытие КРУ', '%', from_zero=True, color=COLORS[4])
+            chart.series.append(Series('Раскрытие КРУ', x, c.open.to_numpy(float), 'line', group='КРУ', color=COLORS[4], width=1.5, step=True, axis='y3'))
+        mine = iv[iv.well.eq(w)]
+        if not mine.empty:
+            chart.style = {'annotations': [{'kind': 'vband', 'value': f'{r.start:%Y-%m-%d}', 'to': f'{r.end:%Y-%m-%d}', 'color': '#c0392b',
+                                            'text': f'Снижение продуктивности, −{r.depth:.0f}%'} for r in mine.itertuples()]}
+        charts.append(chart)
+    return charts
 
 
 class GdiDueModule(Module):
@@ -162,6 +204,12 @@ class GdiDueModule(Module):
                   help='Наклон расхода скважины внутри сезона (в % от её среднего) хуже наклона объекта на столько и больше.'),
             Param('open_drop', 'Падение отдачи на раскрытие КРУ', 'number', default=15.0, minimum=1, maximum=80, step=1, unit='п.п.', section=SECTION,
                   help='Расход на 1% раскрытия КРУ (ЭЛПРО) изменился хуже медианы по группе на столько п.п. и больше: при большем раскрытии расход должен быть больше. Нужны данные ЭЛПРО.'),
+            Param('min_days', 'Интервал снижения: не короче', 'number', default=14, minimum=7, maximum=90, step=1, unit='сут', section=SECTION,
+                  help='Расход скважины относительно объекта держится ниже опорного уровня не меньше стольких суток подряд.'),
+            Param('interval_drop', 'Интервал снижения: падение', 'number', default=15.0, minimum=5, maximum=80, step=1, unit='%', section=SECTION,
+                  help='Расход скважины (сглаженный за 7 суток) относительно объекта ниже уровня первых двух недель сезона на столько процентов и больше. Если раскрытие КРУ уменьшили, интервал не отмечается.'),
+            Param('show', 'Графики для скважин', 'multi', default=[], source=Source(GDI, 'well'), section='Графики', wells_picker=True, empty='первые 6 из списка',
+                  help='Не выбрано ничего — графики для первых шести скважин списка. На графике: расход, динамика группы и объекта, накопленный отбор, раскрытие КРУ; красным подсвечены интервалы снижения продуктивности.'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01, setting='r2_threshold', section=SECTION,
                   help='Общая настройка проекта: исследования с R² ниже порога не считаются надёжными.'),
             Param('change', 'Порог ухудшения ГДИ', 'number', default=10.0, minimum=1, maximum=80, step=1, unit='%', section=SECTION,
@@ -212,4 +260,5 @@ class GdiDueModule(Module):
             Column('open_last', 'Раскрытие КРУ, посл. сезон', '%', 0, 'number'), Column('open_change', 'Раскрытие КРУ: изменение', '%', 0, 'number'),
             Column('eff_change', 'Расход на 1% раскрытия: изменение', '%', 0, 'number'), Column('eff_gap', 'Отдача КРУ: отставание от группы', 'п.п.', 0, 'number')],
             note='Вверху — скважины в списке, затем по числу признаков и давности ГДИ. «Решение» показывает, правил ли список инженер.'))
+        result.charts.extend(well_charts(data, params, listed))
         return result

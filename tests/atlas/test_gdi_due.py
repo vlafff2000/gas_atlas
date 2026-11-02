@@ -119,3 +119,27 @@ def _no_elpro(d):
     n = Data({P: d[P]})
     n.mapping, n.wells = d.mapping, d.wells
     return n
+
+
+def test_interval_marks_only_declining_well_and_charts_are_built():
+    from atlas.modules._gdi_due_metrics import last_two, productivity_intervals, withdrawal_days
+    d = seasonal()
+    days = withdrawal_days(d[P])
+    iv = productivity_intervals(days, last_two(days)[0], d[DatasetKind.ELPRO])
+    assert iv.well.unique().tolist() == ['3'] and (iv.days >= 14).all() and (iv.depth > 15).all()
+    t = build(d, PARAMS).set_index('well')
+    assert bool(t.at['3', 'f_int']) and 'интервал снижения продуктивности' in t.at['3', 'reason'] and not bool(t.at['1', 'f_int'])
+    charts = GdiDueModule().run(d, {**PARAMS, 'show': ['3', '1']}).charts
+    by = {c.id: c for c in charts}
+    assert set(by) == {'gdi-due-1', 'gdi-due-3'}
+    assert by['gdi-due-3'].style['annotations'][0]['kind'] == 'vband' and not by['gdi-due-1'].style
+    assert by['gdi-due-3'].y2 is not None and by['gdi-due-3'].y3 is not None            # накопленный и КРУ на своих шкалах
+
+
+def test_kru_cut_explains_the_drop():
+    from atlas.modules._gdi_due_metrics import last_two, productivity_intervals, withdrawal_days
+    d = seasonal()
+    e = d[DatasetKind.ELPRO]
+    e.loc[e.well.eq('3') & e.date.ge('2025-12-01'), 'y'] = 20.0          # раскрытие уменьшили вдвое: падение расхода — режим
+    days = withdrawal_days(d[P])
+    assert productivity_intervals(days, last_two(days)[0], e).empty
