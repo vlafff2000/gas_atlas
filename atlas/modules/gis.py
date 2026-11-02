@@ -65,6 +65,10 @@ class GisModule(Module):
                 Option('md', 'MD, м от стола'), Option('abs', 'а.о., м (альтитуда − MD)')),
                   help='MD — метры от стола, как в таблицах ГИС. а.о. — абсолютная отметка со знаком минус; нужна альтитуда скважины '
                        '(из «Базы ГИС» или «Положения и перфорации»), без неё остаётся MD.'),
+            Param('cons_dates', 'Даты конструкции', 'multi', default=[], dynamic=True, empty='последняя', section='Схема скважины',
+                  show_if={'view': 'construction'},
+                  help='Конструкция скважины на дату исследования (из файла «Конструкции из Word» или шаблона «Конструкция»). Пусто — самая '
+                       'поздняя. Несколько дат — схемы рядом для сравнения; если у скважины нет снимка на дату, она пропускается.'),
             Param('perf_depth', 'Перфорация задана в', 'choice', default='abs', section=SECTION, show_if={'view': ['construction', 'planshet']},
                   options=(Option('abs', 'а.о. (отметка ниже моря)'), Option('md', 'MD (метры от стола)')), aliases={'auto': 'abs'},
                   help='Перфорация из «Базы ГИС» и «Положения и перфорации» задана в а.о. (как в файле «Глубины_перфораций»): положительное '
@@ -105,6 +109,13 @@ class GisModule(Module):
             if INTERVALS not in data or data[INTERVALS].empty:
                 return []
             return gis_hikg.season_order(gis_hikg.prepare(data[INTERVALS])['season'].dropna().astype(str).unique())
+        if name == 'cons_dates':
+            cons = data.get(DatasetKind.CONSTRUCTION)
+            if cons is None or cons.empty:
+                return []
+            wells = set(params.get('wells') or [])
+            part = cons[cons['well'].astype(str).isin(wells)] if wells else cons
+            return [f'{d:%d.%m.%Y}' for d in sorted(part['date'].dropna().unique(), reverse=True)]
         df = data[GIS]
         if name == 'wells':
             return ordered(df['well'].astype(str).unique())
@@ -172,9 +183,16 @@ class GisModule(Module):
             if cons is None or cons.empty:
                 result.notes.append(Note('Нет конструкции скважин: загрузите шаблон «Конструкция» (Импорт данных). '
                                          'Без неё на схеме будут только пачки ГИС.', level='warning'))
+            wanted = [pd.to_datetime(x, format='%d.%m.%Y') for x in params.get('cons_dates') or []]
             for well in wells:
-                result.charts.append(gis_well.construction_chart(well, cons, data.get(DatasetKind.BOTTOM), data[GIS], bool(params['scheme_gis']),
-                                                                  data.get(DatasetKind.WELL_GEO), params.get('perf_depth', 'abs')))
+                have = set(cons[cons['well'].astype(str) == well]['date']) if cons is not None and not cons.empty else set()
+                dates = sorted(d for d in wanted if d in have) if wanted else [None]
+                if wanted and not dates:
+                    result.notes.append(Note(f'Скважина {well}: нет конструкции ни на одну из выбранных дат.', level='warning'))
+                    continue
+                for date in dates:
+                    result.charts.append(gis_well.construction_chart(well, cons, data.get(DatasetKind.BOTTOM), data[GIS], bool(params['scheme_gis']),
+                                                                      data.get(DatasetKind.WELL_GEO), params.get('perf_depth', 'abs'), date))
             result.notes.extend(Note(n) for n in dict.fromkeys(c.figure.data['perf_note'] for c in result.charts if c.figure.data['perf_note']))
             result.notes.append(Note('Схема забоя та же, что в паспорте скважины: показаны эксплуатационная колонна, НКТ, фильтр, перфорация, '
                                      'расширка, пакер и забой. Ширина условная, диаметры — в подписях.'))
