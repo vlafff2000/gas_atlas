@@ -208,18 +208,20 @@ def productivity_intervals(days: pd.DataFrame, last: str | None, elpro: pd.DataF
 
 def well_curves(days: pd.DataFrame, last: str | None, elpro: pd.DataFrame | None, group_of: dict[str, str], well: str) -> pd.DataFrame:
     """Ряды для графика скважины за последний сезон: q (факт), obj_q и grp_q (динамика объекта и группы в масштабе скважины, сглаж. 7 сут),
-    cum (накопленный отбор, млн м³), open (раскрытие КРУ, %). Индекс — календарные дни."""
+    p (давление ЭЛПРО, кгс/см² абс.), open (раскрытие КРУ, %). Индекс — календарные дни."""
     wide = _season_wide(days, last)
     d = days[days.period.eq(last) & days.well.eq(well)].set_index('date').q
     mean = d.mean()
     q = (d / 1e3).reindex(wide.index)
     sm = _smooth(wide)
     peers = [w for w in wide.columns if group_of.get(w, '') == group_of.get(well, '')] or list(wide.columns)
-    out = pd.DataFrame({'q': q, 'obj_q': sm.mean(axis=1) * mean / 1e3, 'grp_q': sm[peers].mean(axis=1) * mean / 1e3,
-                        'cum': q.fillna(0).cumsum() / 1e3})
-    out['open'] = np.nan
-    if elpro is not None and not elpro.empty and 'y' in elpro:
+    out = pd.DataFrame({'q': q, 'obj_q': sm.mean(axis=1) * mean / 1e3, 'grp_q': sm[peers].mean(axis=1) * mean / 1e3})
+    out['p'] = out['open'] = np.nan
+    if elpro is not None and not elpro.empty:
         e = elpro[elpro.well.astype(str).eq(well)]
-        e = e.assign(date=pd.to_datetime(e.date).dt.normalize()).groupby('date').y.mean()
-        out['open'] = e.reindex(out.index).where(lambda s: s > 0)
+        e = e[e.kind.eq('withdrawal')] if 'kind' in e else e
+        e = e.assign(date=pd.to_datetime(e.date).dt.normalize())
+        for col, name in (('p', 'p'), ('y', 'open')):
+            if col in e:
+                out[name] = e.groupby('date')[col].mean().reindex(out.index).where(lambda s: s > 0)
     return out

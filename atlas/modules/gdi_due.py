@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from ..contract import Axis, Chart, Series, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Source, Stat, Table
-from ..domain import DatasetKind
+from ..domain import UNITS, DatasetKind
 from atlas.engine.core.config import COLORS
 from ._gdi_due_metrics import METRIC_COLUMNS, productivity_intervals, well_curves, cumulative, dynamics, kru_response, last_two, withdrawal_days
 from .gdi import well_key
@@ -149,7 +149,7 @@ def apply_manual(table: pd.DataFrame, add: list[str], remove: list[str]) -> pd.D
 
 
 def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> list[Chart]:
-    """График на скважину: расход, динамика группы и объекта, накопленный отбор, раскрытие КРУ; красным — интервалы снижения продуктивности."""
+    """График на скважину: расход, динамика группы и объекта, давление и раскрытие КРУ (ЭЛПРО); красным — интервалы снижения продуктивности."""
     days = withdrawal_days(data[PRODUCTION] if PRODUCTION in data else pd.DataFrame())
     last, _ = last_two(days)
     if last is None:
@@ -162,16 +162,20 @@ def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> lis
     for w in sorted(set(chosen) & set(days.well), key=well_key):
         c = well_curves(days, last, elpro, group_of | {x: (data.mapping.get(x, {}) or {}).get('group', '') for x in days.well.unique()}, w)
         x = c.index.to_numpy()
-        chart = Chart(f'gdi-due-{w}', f'№ {w}: расход, накопленный отбор, раскрытие КРУ ({last})', Axis('Дата', scale='time'), Axis('Расход', 'тыс. м³/сут', from_zero=True),
-                      y2=Axis('Накопленный отбор', 'млн м³', from_zero=True, color=COLORS[2]))
+        chart = Chart(f'gdi-due-{w}', f'№ {w}: расход, давление и раскрытие КРУ по ЭЛПРО ({last})', Axis('Дата', scale='time'), Axis('Расход', 'тыс. м³/сут', from_zero=True))
         chart.series += [
             Series('Скважина', x, c.q.to_numpy(float), 'line', group='Скважина', color=COLORS[0], width=2.2),
             Series('Объект (динамика, 7 сут)', x, c.obj_q.to_numpy(float), 'line', group='Объект', color='#7a8a90', dash='dash', width=1.8),
-            Series('Группа (динамика, 7 сут)', x, c.grp_q.to_numpy(float), 'line', group='Группа', color=COLORS[3], dash='dot', width=1.8),
-            Series('Накопленный отбор', x, c.cum.to_numpy(float), 'line', group='Накопленный', color=COLORS[2], width=1.8, axis='y2')]
+            Series('Группа (динамика, 7 сут)', x, c.grp_q.to_numpy(float), 'line', group='Группа', color=COLORS[3], dash='dot', width=1.8)]
+        extra = []
+        if c.p.notna().any():
+            extra.append((Axis('Давление (ЭЛПРО)', UNITS['pressure'], color=COLORS[2]), Series('Давление (ЭЛПРО)', x, c.p.to_numpy(float), 'line', group='Давление', color=COLORS[2], width=1.8)))
         if c.open.notna().any():
-            chart.y3 = Axis('Раскрытие КРУ', '%', from_zero=True, color=COLORS[4])
-            chart.series.append(Series('Раскрытие КРУ', x, c.open.to_numpy(float), 'line', group='КРУ', color=COLORS[4], width=1.5, step=True, axis='y3'))
+            extra.append((Axis('Раскрытие КРУ', '%', from_zero=True, color=COLORS[4]), Series('Раскрытие КРУ', x, c.open.to_numpy(float), 'line', group='КРУ', color=COLORS[4], width=1.5, step=True)))
+        for (axis, series), name in zip(extra, ('y2', 'y3')):
+            setattr(chart, name, axis)
+            series.axis = name
+            chart.series.append(series)
         mine = iv[iv.well.eq(w)]
         if not mine.empty:
             chart.style = {'annotations': [{'kind': 'vband', 'value': f'{r.start:%Y-%m-%d}', 'to': f'{r.end:%Y-%m-%d}', 'color': '#c0392b',
@@ -264,7 +268,7 @@ class GdiDueModule(Module):
                   options=(Option(1, '1'), Option(2, '2'), Option(3, '3'), Option(4, '4')),
                   help='Для второй таблицы: скважина попадает в неё при интервале снижения или при стольких совпавших сигналах: расход и накопленный отбор против группы, динамика против объекта, отдача на раскрытие КРУ, ГДИ.'),
             Param('show', 'Графики для скважин', 'multi', default=[], source=Source(GDI, 'well'), section='Графики', wells_picker=True, empty='первые 6 из списка',
-                  help='Не выбрано ничего — графики для первых шести скважин списка. На графике: расход, динамика группы и объекта, накопленный отбор, раскрытие КРУ; красным подсвечены интервалы снижения продуктивности.'),
+                  help='Не выбрано ничего — графики для первых шести скважин списка. На графике: расход, динамика группы и объекта, давление и раскрытие КРУ из ЭЛПРО; красным подсвечены интервалы снижения продуктивности.'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01, setting='r2_threshold', section=SECTION,
                   help='Общая настройка проекта: исследования с R² ниже порога не считаются надёжными.'),
             Param('change', 'Порог ухудшения ГДИ', 'number', default=10.0, minimum=1, maximum=80, step=1, unit='%', section=SECTION,

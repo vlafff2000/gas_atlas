@@ -91,7 +91,7 @@ def seasonal(decline_well='3', days=60):
                 trend = (-0.5 if w == decline_well else 0.5) * i / days if k else 0.0
                 q, y = (100 * (1 + trend)) * 1e3, 40 + 20 * k
                 prod.append(dict(well=w, date=d, q=q, kind='withdrawal', period=period))
-                elpro.append(dict(well=w, date=d, q=q / 1e3, y=y, kind='withdrawal'))
+                elpro.append(dict(well=w, date=d, q=q / 1e3, y=y, p=80 - 10 * k, kind='withdrawal'))
     d = Data({P: pd.DataFrame(prod), DatasetKind.ELPRO: pd.DataFrame(elpro)})
     d.mapping = {w: {'group': 'ГСП-1'} for w in '1234'}
     d.wells = list('1234')
@@ -133,7 +133,8 @@ def test_interval_marks_only_declining_well_and_charts_are_built():
     by = {c.id: c for c in charts}
     assert set(by) == {'gdi-due-1', 'gdi-due-3'}
     assert by['gdi-due-3'].style['annotations'][0]['kind'] == 'vband' and not by['gdi-due-1'].style
-    assert by['gdi-due-3'].y2 is not None and by['gdi-due-3'].y3 is not None            # накопленный и КРУ на своих шкалах
+    assert by['gdi-due-3'].y2.label == 'Давление (ЭЛПРО)' and by['gdi-due-3'].y3.label == 'Раскрытие КРУ'   # давление и КРУ на своих шкалах
+    assert not any('Накопленный' in x.name for x in by['gdi-due-3'].series)
 
 
 def test_kru_cut_explains_the_drop():
