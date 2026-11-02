@@ -254,3 +254,12 @@ def test_title_align_does_not_duplicate_title():
         ax = fig.axes[0]
         assert [t.get_text() for t in (ax._left_title, ax.title, ax._right_title) if t.get_text()] == [chart.title]
         plt.close('all')
+
+
+def test_season_rows_is_cached_and_returns_independent_copies():
+    prod = pd.DataFrame({'kind': ['injection', 'injection', 'withdrawal'], 'period': ['2024', '2024', '2024'],
+                         'well': ['1', '2', '3'], 'date': pd.to_datetime(['2024-05-01'] * 3), 'q': [1.0, 2.0, 3.0]})
+    first = an_wells.season_rows(prod, 'injection', '2024')
+    first['well'] = 'x'                                     # правка копии не портит память
+    again = an_wells.season_rows(prod, 'injection', '2024')
+    assert list(again.well) == ['1', '2'] and list(an_wells.kind_rows(prod, 'withdrawal').well) == ['3']

@@ -72,9 +72,35 @@ CLASS_NAMES = class_labels(DEFAULT_EDGES)
 CLASS_KEYS = class_keys(DEFAULT_EDGES)
 
 
+_ROWS: dict[tuple, tuple[Any, pd.DataFrame]] = {}
+
+
+def season_rows(prod: pd.DataFrame, kind: str, period: str) -> pd.DataFrame:
+    """Строки сезона (well, date, q) — копия. Выбор по миллиону строк делается один раз на набор данных и сезон: раздел считается заново
+    для каждого вида графика, и без памяти каждый вид повторял бы одно и то же сравнение строк."""
+    key = (id(prod), kind, period)
+    hit = _ROWS.get(key)
+    if hit is None or hit[0] is not prod:
+        if len(_ROWS) > 48:
+            _ROWS.clear()
+        hit = _ROWS[key] = (prod, prod[prod.kind.eq(kind) & prod.period.eq(period)][['well', 'date', 'q']])
+    return hit[1].copy()
+
+
+def kind_rows(prod: pd.DataFrame, kind: str) -> pd.DataFrame:
+    """Строки режима по всем сезонам (well, period, q) — копия; выбор помнится так же, как у ``season_rows``."""
+    key = (id(prod), kind, None)
+    hit = _ROWS.get(key)
+    if hit is None or hit[0] is not prod:
+        if len(_ROWS) > 48:
+            _ROWS.clear()
+        hit = _ROWS[key] = (prod, prod[prod.kind.eq(kind)][['well', 'period', 'q']])
+    return hit[1].copy()
+
+
 def season_wells(prod: pd.DataFrame, kind: str, period: str) -> pd.DataFrame:
     """Скважины сезона: well, days (сутки с расходом), gas (м³ за сезон), rate (м³/сут, среднее по суткам с расходом)."""
-    d = prod[prod.kind.eq(kind) & prod.period.eq(period)][['well', 'date', 'q']].copy()
+    d = season_rows(prod, kind, period)
     d['well'] = d.well.astype(str)
     fund = pd.DataFrame({'well': ordered(d.well.unique())})
     pos = d[d.q.gt(0)].groupby('well').q.agg(days='count', gas='sum', rate='mean').reset_index()
@@ -122,7 +148,7 @@ def month_working(prod: pd.DataFrame, kind: str, period: str, scopes: Mapping[st
     """Табл. 1.4 отчёта: по группам — фонд сезона и число скважин, работавших в каждом месяце (хотя бы одни сутки с расходом).
 
     Строка «Всего» — первая; колонки ``m0``…``m{n-1}`` идут по месяцам сезона, подписи месяцев — во втором результате («Ноя.24»)."""
-    d = prod[prod.kind.eq(kind) & prod.period.eq(period)][['well', 'date', 'q']].copy()
+    d = season_rows(prod, kind, period)
     d['well'] = d.well.astype(str)
     d['group'] = d.well.map(scopes)
     d['month'] = d.date.dt.to_period('M')
@@ -140,7 +166,7 @@ def month_working(prod: pd.DataFrame, kind: str, period: str, scopes: Mapping[st
 
 def month_peaks(prod: pd.DataFrame, kind: str, period: str) -> list[tuple[int, Any]]:
     """Максимум скважин, работавших одновременно в одни сутки, по месяцам сезона (те же месяцы, что в ``month_working``): (число, дата первых суток с максимумом)."""
-    d = prod[prod.kind.eq(kind) & prod.period.eq(period)][['well', 'date', 'q']]
+    d = season_rows(prod, kind, period)
     if d.empty:
         return []
     days = d[d.q.gt(0)].assign(date=lambda x: x.date.dt.normalize()).groupby('date').well.nunique()
