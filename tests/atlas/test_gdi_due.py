@@ -80,3 +80,42 @@ def test_module_runs_and_empty_project_is_a_note():
     assert table.well.tolist()[0] in {'2', '3', '4'} and len(table) == 4
     empty = GdiDueModule().run(Data({}), PARAMS)
     assert not empty.tables and empty.notes
+
+
+def seasonal(decline_well='3', days=60):
+    """Два сезона по 60 суток; в последнем расход объекта растёт, у скважины decline_well падает; КРУ растёт у всех."""
+    prod, elpro = [], []
+    for w in ('1', '2', '3', '4'):
+        for period, start, k in (('2024-2025', '2024-11-01', 0), ('2025-2026', '2025-11-01', 1)):
+            for i, d in enumerate(pd.date_range(start, periods=days)):
+                trend = (-0.5 if w == decline_well else 0.5) * i / days if k else 0.0
+                q, y = (100 * (1 + trend)) * 1e3, 40 + 20 * k
+                prod.append(dict(well=w, date=d, q=q, kind='withdrawal', period=period))
+                elpro.append(dict(well=w, date=d, q=q / 1e3, y=y, kind='withdrawal'))
+    d = Data({P: pd.DataFrame(prod), DatasetKind.ELPRO: pd.DataFrame(elpro)})
+    d.mapping = {w: {'group': 'ГСП-1'} for w in '1234'}
+    d.wells = list('1234')
+    return d
+
+
+def test_cumulative_dynamics_and_kru_flags():
+    t = build(seasonal(), PARAMS).set_index('well')
+    assert t.at['3', 'cum_days'] == 60
+    assert t.at['3', 'cum_change'] < 0 < t.at['1', 'cum_change']                  # падает против растущих
+    assert bool(t.at['3', 'f_cum']) and not bool(t.at['1', 'f_cum'])
+    assert t.at['3', 'slope_well'] < 0 < t.at['3', 'slope_obj'] + 20               # тренд скважины хуже объекта
+    assert t.at['3', 'sync_obj'] < 50 and bool(t.at['3', 'f_sync']) and 'не совпадает' in t.at['3', 'reason']
+    assert t.at['1', 'sync_obj'] > 50 and not bool(t.at['1', 'f_sync'])
+    assert t.at['3', 'open_change'] == pytest.approx(50)                          # раскрытие 40 → 60%
+    assert bool(t.at['3', 'f_open']) and not bool(t.at['1', 'f_open'])            # раскрыли больше, а расход упал
+
+
+def test_without_elpro_kru_metrics_are_gaps_not_flags():
+    t = build(_no_elpro(seasonal()), PARAMS)
+    assert not t.f_open.any() and t.open_change.isna().all()
+
+
+def _no_elpro(d):
+    n = Data({P: d[P]})
+    n.mapping, n.wells = d.mapping, d.wells
+    return n
