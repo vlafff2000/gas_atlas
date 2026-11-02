@@ -43,7 +43,7 @@ INPUT_LABELS = {'well': 'Скважина', 'date': 'Дата', 'kind': 'Тип'
                 'water_rate': 'Расход воды, м³/сут', 'water_flag': 'Вода', 'bottom_m': 'Низ / забой, м',
                 'top_m': 'Верх, м', 'tool_diameter_mm': 'Диаметр шаблона, мм', 'element': 'Элемент',
                 'diameter_mm': 'Наружный диаметр, мм', 'inner_diameter_mm': 'Внутренний диаметр, мм',
-                'comment': 'Комментарий'}
+                'resource': 'Ресурс', 'kit': 'Комплект', 'comment': 'Комментарий'}
 GDI_HISTORY_LABELS = {'date': 'Дата', 'method': 'Метод', 'study': 'Исследование', 'a': 'a', 'b': 'b', 'r2': 'R²',
                       'distinct_q': 'Разных Q', 'reliable': 'Достаточно данных', 'reference_dp2': 'Общий ΔP²',
                       'q_reference': 'Q при общем ΔP², тыс. м³/сут', 'q_free': 'Формальный Qсв', 'note': 'Примечание'}

@@ -23,7 +23,7 @@ LABELS = {'well': 'Скважина', 'date': 'Дата', 'kind': 'Тип', 'hor
           'bottom_m': 'Низ / забой, м', 'top_m': 'Верх, м', 'tool_diameter_mm': 'Диаметр шаблона, мм',
           'fact': 'Фактическое давление', 'model': 'Модельное давление', 'scenario': 'Сценарий', 'object': 'Объект',
           'fond': 'Фонд', 'element': 'Элемент', 'diameter_mm': 'Наружный диаметр, мм',
-          'inner_diameter_mm': 'Внутренний диаметр, мм', 'comment': 'Комментарий'}
+          'inner_diameter_mm': 'Внутренний диаметр, мм', 'resource': 'Ресурс', 'kit': 'Комплект', 'comment': 'Комментарий'}
 METRICS = {'level': 'Уровень жидкости', 'pressure': 'Приведенное давление'}
 SERVICE = ('id', 'module', 'metric', 'reason', 'excluded_utc', 'batch')
 NUMERIC = ('q', 'dp2', 'level', 'pressure', '_row', 'work_hours', 'gas_volume_m3', 'water_volume_m3', 'water_rate',
