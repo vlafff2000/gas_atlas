@@ -10,7 +10,7 @@ export const GRID_OPTIONS: Opt[] = [['', 'Авто'], ['both', 'Обе'], ['h', 
 export const MINOR_GRID_OPTIONS: Opt[] = [['', 'Как в графике'], ['show', 'Показывать'], ['hide', 'Скрыть']]
 
 export type Opt = [unknown, string]
-export interface FieldProps { form: Form; set: (field: string, value: unknown) => void; choices?: ExportChoices }
+export interface FieldProps { form: Form; set: (field: string, value: unknown) => void; choices?: ExportChoices; projectId?: string }
 // Популярные форматы: ширина × высота, мм. Без высоты — подбирается по ширине и легенде.
 export const SIZES: [string, string, number | null][] = [
   ['auto', 'Авто (220 мм по ширине)', null],

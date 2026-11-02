@@ -276,7 +276,7 @@ export function ChartBuilder({ project, revision, value, onChange }:
           </div>
         )}
         {layout.series.map((r, i) => (
-          <RowCard key={r.id} index={i} row={r} catalog={catalog} datasets={datasets} open={r.id === active}
+          <RowCard key={r.id} project={project} index={i} row={r} catalog={catalog} datasets={datasets} open={r.id === active}
             others={layout.series.map((o, k) => ({ ref: letter(k + 1), title: o.name || rowLabel(o), hidden: !!o.hidden, self: k === i }))}
             check={checks.get(r.id) ?? ''}
             onOpen={() => setActive(r.id === active ? null : r.id)} onChange={patch => setRow(r.id, patch)}
@@ -325,8 +325,8 @@ function LabelInput({ label, value, auto, onChange }: { label: string; value: st
 
 }
 
-function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, onChange, onPickY, onDuplicate, onRemove }: {
-  index: number; row: BuilderRow; catalog: BuilderCatalog | null; datasets: Map<string, BuilderDataset>; open: boolean
+function RowCard({ project, index, row, catalog, datasets, open, others, check, onOpen, onChange, onPickY, onDuplicate, onRemove }: {
+  project: string; index: number; row: BuilderRow; catalog: BuilderCatalog | null; datasets: Map<string, BuilderDataset>; open: boolean
   others: { ref: string; title: string; hidden: boolean; self: boolean }[]; check: string
   onOpen: () => void; onChange: (patch: Partial<BuilderRow>) => void; onPickY: (f: BuilderField) => void
   onDuplicate: () => void; onRemove: () => void
@@ -518,11 +518,11 @@ function RowCard({ index, row, catalog, datasets, open, others, check, onOpen, o
             <>
               <label className="field date">
                 <span className="field-label">Период с</span>
-                <PeriodDate value={row.date_from} end={false} onChange={v => onChange({ date_from: v ?? '' })} />
+                <PeriodDate value={row.date_from} end={false} project={project} onChange={v => onChange({ date_from: v ?? '' })} />
               </label>
               <label className="field date">
                 <span className="field-label">по</span>
-                <PeriodDate value={row.date_to} end onChange={v => onChange({ date_to: v ?? '' })} />
+                <PeriodDate value={row.date_to} end project={project} onChange={v => onChange({ date_to: v ?? '' })} />
               </label>
             </>
           )}

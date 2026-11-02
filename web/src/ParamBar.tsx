@@ -320,7 +320,7 @@ function Field({ param: p, project, value, options, onChange }:
     return (
       <label className="field date" title={p.help}>
         <span className="field-label">{p.label}</span>
-        <PeriodDate value={(value as string | null) ?? null} end={isEndParam(p.name)} onChange={onChange} />
+        <PeriodDate value={(value as string | null) ?? null} end={isEndParam(p.name)} onChange={onChange} project={project} />
       </label>
     )
   }
