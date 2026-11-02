@@ -135,9 +135,31 @@ def total_memory_bytes() -> Optional[int]:
     return None
 
 
+def _children_cpu() -> float:
+    """Процессорное время рабочих процессов расчётов: уже завершённых (os.times) и ещё работающих (/proc, только Linux)."""
+    t = os.times()
+    total = t.children_user + t.children_system
+    if os.path.isdir("/proc/self"):
+        me, ticks = os.getpid(), os.sysconf("SC_CLK_TCK")
+        try:
+            for pid in os.listdir("/proc"):
+                if not pid.isdigit():
+                    continue
+                try:
+                    with open("/proc/%s/stat" % pid, encoding="ascii", errors="replace") as f:
+                        fields = f.read().rsplit(")", 1)[1].split()
+                    if int(fields[1]) == me:          # родитель — эта программа
+                        total += (int(fields[11]) + int(fields[12])) / ticks      # utime + stime
+                except (OSError, ValueError, IndexError):
+                    continue
+        except OSError:
+            pass
+    return total
+
+
 def cpu_busy() -> float:
-    """Сколько потоков процессора занято программой: рост процессорного времени / прошедшее время между запросами."""
-    wall, cpu = time.monotonic(), time.process_time()
+    """Сколько потоков процессора занято программой: рост процессорного времени (своего и рабочих процессов) / время между запросами."""
+    wall, cpu = time.monotonic(), time.process_time() + _children_cpu()
     with _lock:
         if _cpu["wall"] and wall - _cpu["wall"] >= 0.5:
             _cpu["busy"] = max(0.0, (cpu - _cpu["cpu"]) / (wall - _cpu["wall"]))
