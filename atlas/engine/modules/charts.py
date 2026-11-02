@@ -229,6 +229,18 @@ def tight_axis(values,mults=PRESSURE_MULTS,lower=None):
     if not v.size:return None
     return nice_axis(float(v.min()),float(v.max()),.02,.98,lower=lower,mults=mults)
 
+def zero_axis(lo,hi,n=TICKS):
+    """Шкала для столбцов и областей: ноль на делении, ``n`` равных делений круглого шага (1, 2, 5 · 10^k), все значения внутри.
+    ``lo`` / ``hi`` — наименьшее и наибольшее значения (стопки — суммы); ноль в шкалу входит всегда."""
+    lo,hi=min(float(lo),0.),max(float(hi),0.)
+    if hi==lo:hi=lo+1.
+    step=10.0**np.floor(np.log10((hi-lo)/n))
+    while True:
+        for m in PRESSURE_MULTS+(10,):
+            size=m*step;bottom=np.floor(lo/size+1e-9)*size
+            if bottom+n*size>=hi-size*1e-9:return float(bottom),float(bottom+n*size)
+        step*=10
+
 def separated_ranges(pressure,level,band='below'):
     """Границы двух шкал Y так, чтобы кривые давления и уровня жидкости занимали разные полосы поля.
     ``pressure`` / ``level`` — значения кривых; возвращает ``((p_низ, p_верх), (l_верх, l_низ))`` — уровень по обратной шкале
