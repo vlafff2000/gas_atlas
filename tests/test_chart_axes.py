@@ -74,3 +74,23 @@ def test_x_labels_fit_by_angle():
     finally:
         export.x_labels = original
     assert seen[0.0] <= seen[45.0] <= seen[90.0] and seen[0.0] < seen[90.0]
+
+
+def test_pressure_axis_is_tight_and_round():
+    """Давление 44–87: шкала не от нуля вверх «с запасом», все точки внутри, шаг 1, 2 или 5 · 10^k, начало на сетке шага."""
+    import numpy as np
+    for lo, hi in ((45, 50), (44.3, 87.2), (101, 118), (52, 63)):
+        p = np.linspace(lo, hi, 20)
+        (p0, p1), _ = separated_ranges(p, np.linspace(100, 600, 20), 'auto')
+        step = (p1 - p0) / 5
+        assert p0 <= lo and p1 >= hi
+        assert any(abs(step / 10 ** np.floor(np.log10(step)) - m) < 1e-9 for m in (1, 2, 5, 10))
+        assert abs(p0 / step - round(p0 / step)) < 1e-9
+    assert separated_ranges(np.linspace(52, 63, 20), np.linspace(5, 30, 20), 'auto')[0][0] >= 30
+
+
+def test_tight_axis_single_scale():
+    from atlas.engine.modules.charts import tight_axis
+    lo, hi = tight_axis([44.3, 60, 87.2], lower=0)
+    assert (lo, hi) == (40.0, 90.0)
+    assert tight_axis([]) is None and tight_axis([float('nan')]) is None

@@ -14,7 +14,7 @@ import pandas as pd
 
 from atlas.engine.core import exclusions
 from atlas.engine.core.config import ordered
-from atlas.engine.modules.charts import separated_ranges, well_colors, well_title
+from atlas.engine.modules.charts import separated_ranges, tight_axis, well_colors, well_title
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)
@@ -125,6 +125,11 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
             (p0, p1), (top, bottom) = apart
             chart.y.minimum, chart.y.maximum = p0, p1
             chart.y2.minimum, chart.y2.maximum = top, bottom
+    elif metric in ('pressure', 'level'):      # одна шкала: круглые границы по данным (давление — шаги 1, 2, 5; не от нуля)
+        values = [v for s in chart.series for v in s.y]
+        bounds = tight_axis(values, lower=0) if metric == 'pressure' else tight_axis(values, lower=None, mults=(1, 2, 2.5, 4, 5))
+        if bounds:
+            chart.y.minimum, chart.y.maximum = bounds
     return chart
 
 

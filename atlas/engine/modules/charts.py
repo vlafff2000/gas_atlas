@@ -173,9 +173,19 @@ def style_figure(figure,style=None,copy_figure=True):
 # и допуск — в этих пределах кривая может сдвинуться, когда границы шкал подбираются «круглыми» (по 5 одинаковых делений).
 # «below» — уровень отдельной полосой ниже давлений, «above» — выше; «auto» — выбирается по данным (см. ``auto_band``);
 # «overlay» — обе шкалы на всю высоту, как раньше (5.8).
-LEVEL_BANDS={'below':((.44,.96),(.04,.34)),'above':((.04,.56),(.66,.96))}
-BAND_LIMITS={'below':((.40,.98),(.02,.38)),'above':((.02,.60),(.62,.98))}
+LEVEL_BANDS={'below':((.36,.96),(.04,.46)),'above':((.04,.64),(.54,.96))}
+BAND_LIMITS={'below':((.30,.98),(.02,.50)),'above':((.02,.70),(.50,.98))}
 TICKS=5
+PRESSURE_MULTS=(1,2,5)           # шаг шкалы давления 1, 2, 5 · 10^k: основные деления кратны 5 или 10 (без 2,5 и 4)
+
+def pressure_grids(step):
+    """Сетки начала шкалы давления: сам шаг и его половина, если она тоже круглая (10 → 5, 20 → 10, но не 5 → 2,5); начало
+    на сетке шага, поэтому подписи остаются круглыми (35, 45, 55 при шаге 10)."""
+    return [g for g in (step,step/2) if round_step(g)]
+
+def round_step(v):
+    """Шаг вида 1, 2, 5 · 10^k."""
+    m=v/10.0**np.floor(np.log10(v));return any(abs(m-x)<1e-9 for x in (1,2,5,10))
 
 def auto_band(pressure,level):
     """«below» (уровень внизу) или «above» (вверху): уровень ставится туда, где давление в среднем дальше от края поля —
@@ -184,7 +194,7 @@ def auto_band(pressure,level):
     if p.size<2 or p.max()<=p.min():return 'below'
     return 'below' if float(p.mean())>=(float(p.max())+float(p.min()))/2 else 'above'
 
-def nice_axis(lo,hi,low,high,n=TICKS,lower=None,upper=None):
+def nice_axis(lo,hi,low,high,n=TICKS,lower=None,upper=None,mults=(1,2,2.5,4,5)):
     """Шкала из ``n`` равных делений с «круглым» шагом (1, 2, 2.5, 5 · 10^k) и началом на сетке шага или полушага, в которую
     данные ``lo…hi`` ложатся в доле ``low…high`` высоты. ``lower`` / ``upper`` — границы, за которые шкала не заходит (давление
     не бывает отрицательным: ``lower=0``); когда полоса не помещается в них, шкала прижимается к границе. ``None``, если не нашлось."""
@@ -192,16 +202,18 @@ def nice_axis(lo,hi,low,high,n=TICKS,lower=None,upper=None):
     if hi<=lo:lo,hi=lo-width/2,hi+width/2
     raw=width/(high-low)/n
     base=10.0**np.floor(np.log10(raw))
-    steps=sorted(m*base*10**e for e in (0,1) for m in (1,2,2.5,4,5))
+    steps=sorted(m*base*10**e for e in (0,1) for m in mults)
     for step in steps:
         if step<raw*(1-1e-9) or step>raw*4:continue
         length=step*n
         first,last=hi-high*length,lo-low*length             # допустимое начало шкалы
         if lower is not None:first=max(first,lower)
         if upper is not None:last=min(last,upper-length)
-        for grid in (step,step/2):
+        for grid in (pressure_grids(step) if mults==PRESSURE_MULTS else (step,step/2)):
             k=np.ceil(first/grid-1e-9)
-            if k*grid<=last+1e-9:return float(k*grid),float(k*grid+length)
+            if k*grid<=last+1e-9:
+                k=min(max(np.round((first+last)/2/grid),k),np.floor(last/grid+1e-9))     # середина допуска: данные не прижаты к краю поля
+                return float(k*grid),float(k*grid+length)
     if lower is not None:                                   # прижато к границе: самый мелкий круглый шаг, в который помещаются данные
         for step in sorted(m*base*10**e for e in (-1,0,1,2) for m in (1,2,2.5,4,5)):
             if lower+n*step>=hi-1e-9:return float(lower),float(lower+n*step)
@@ -209,6 +221,13 @@ def nice_axis(lo,hi,low,high,n=TICKS,lower=None,upper=None):
         for step in sorted(m*base*10**e for e in (-1,0,1,2) for m in (1,2,2.5,4,5)):
             if upper-n*step<=lo+1e-9:return float(upper-n*step),float(upper)
     return None
+
+def tight_axis(values,mults=PRESSURE_MULTS,lower=None):
+    """Границы одной шкалы Y из 5 круглых делений: все значения внутри, пустого места не больше одного шага
+    (давление 45–50 → шкала от 40, а не от 0). ``None``, если значений нет."""
+    v=np.asarray(values,dtype=float);v=v[np.isfinite(v)]
+    if not v.size:return None
+    return nice_axis(float(v.min()),float(v.max()),.02,.98,lower=lower,mults=mults)
 
 def separated_ranges(pressure,level,band='below'):
     """Границы двух шкал Y так, чтобы кривые давления и уровня жидкости занимали разные полосы поля.
@@ -226,7 +245,7 @@ def separated_ranges(pressure,level,band='below'):
     sp,pmin,pmax=span(p,p_hi-p_lo);p_bottom=(pmin if pmax>pmin else pmin-(sp*(p_hi-p_lo))/2)-sp*p_lo
     sl,lmin,lmax=span(l,l_hi-l_lo);l_bottom=(lmax if lmax>lmin else lmax+(sl*(l_hi-l_lo))/2)+sl*l_lo
     exact_p,exact_l=(p_bottom,p_bottom+sp),(l_bottom-sl,l_bottom)
-    nice_p=nice_axis(float(p.min()),float(p.max()),pl,ph,lower=0 if p.min()>=0 else None)       # давление не бывает отрицательным
+    nice_p=nice_axis(float(p.min()),float(p.max()),pl,ph,lower=0 if p.min()>=0 else None,mults=PRESSURE_MULTS)       # давление не бывает отрицательным
     nice_l=nice_axis(-float(l.max()),-float(l.min()),ll,lh)         # уровень растёт вниз: считаем по обратным значениям; запас шкалы за нулём подписан, как в образце
     return nice_p or exact_p,(-nice_l[1],-nice_l[0]) if nice_l else exact_l
 
