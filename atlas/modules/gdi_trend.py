@@ -27,7 +27,7 @@ VERDICTS = {'down': 'Ухудшение', 'up': 'Улучшение', 'same': '�
 
 
 _MEMO: dict[tuple, pd.DataFrame] = {}
-PARALLEL_ROWS = 20000          # меньше строк ГДИ — считаем в этом же процессе: запуск процессов дороже расчёта
+PARALLEL_ROWS = 50000            # меньше строк ГДИ процессы не окупаются: запуск пула с pandas и scipy занимает секунды
 
 
 def _fingerprint(frame: pd.DataFrame) -> tuple:
