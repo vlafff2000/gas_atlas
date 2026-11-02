@@ -14,6 +14,7 @@ import pandas as pd
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series, Stat, Table
 from ..domain import DatasetKind
 from . import _seasonal as S
+from ._rows import rows_of
 from ._production import PRODUCTION
 from .an_report import object_pressure_of, pressure_near
 
@@ -77,7 +78,7 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
     entry = _manual_for(manual, row.period)
     start = _date(entry, 'start', row.period, row.start)
     end = _date(entry, 'end', row.period, row.end)
-    daily = S._daily(df[df.kind.eq('injection') & df.period.eq(row.period)])
+    daily = S._daily(rows_of(df, 'injection', row.period))
     daily = daily[(daily.index >= start) & (daily.index <= end)]
     flow = daily[daily > 0]
     # Максимум — только внутри сезона; на графики идут и замеры в первые сутки после окончания закачки.

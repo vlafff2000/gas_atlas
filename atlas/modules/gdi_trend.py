@@ -26,19 +26,56 @@ NOTE = ('Сравниваются первое и последнее надёж�
 VERDICTS = {'down': 'Ухудшение', 'up': 'Улучшение', 'same': 'Без изменений', 'few': 'Недостаточно надёжных исследований'}
 
 
+_MEMO: dict[tuple, pd.DataFrame] = {}
+PARALLEL_ROWS = 50000            # меньше строк ГДИ процессы не окупаются: запуск пула с pandas и scipy занимает секунды
+
+
+def _fingerprint(frame: pd.DataFrame) -> tuple:
+    """Отпечаток таблицы: размер, колонки и сумма хэшей строк (на 100 тыс. строк — десятки миллисекунд)."""
+    if frame.empty:
+        return (0, tuple(frame.columns), 0)
+    hashed = pd.util.hash_pandas_object(frame.reset_index(drop=True), index=False)
+    return (len(frame), tuple(map(str, frame.columns)), int(hashed.astype('uint64').sum()) & 0xFFFFFFFFFFFFFFFF)
+
+
+def _history_chunk(job: tuple[list[tuple[str, pd.DataFrame]], float]) -> list[tuple[str, pd.DataFrame]]:
+    """Расчёт ``gdi_history`` 5.8 для пачки скважин (функция верхнего уровня: её можно отдать процессу)."""
+    chunk, threshold = job
+    return [(well, legacy.gdi_history(group, threshold)) for well, group in chunk]
+
+
 def histories(gdi: pd.DataFrame, threshold: float, methods: list[str]) -> pd.DataFrame:
-    """Исследования всех выбранных скважин: a, b, R², надёжность, расход при общем ΔP² (``gdi_history`` 5.8 по скважине)."""
-    parts = []
+    """Исследования всех выбранных скважин: a, b, R², надёжность, расход при общем ΔP² (``gdi_history`` 5.8 по скважине).
+
+    Раздел и его соседи (ГДИ «сроки», динамика, рейтинг) просят одну и ту же историю по несколько раз — результат помнится для
+    последнего набора данных. Скважины считаются процессами, если строк много; математика не менялась, порядок результата тот же."""
+    key = (_fingerprint(gdi), float(threshold), tuple(methods))      # по содержимому: раздел часто отбирает свою копию таблицы
+    hit = _MEMO.get(key)
+    if hit is not None:
+        return hit.copy()
+    items = []
     for well, group in gdi.groupby(gdi.well.astype(str), sort=False):
         if methods and 'method' in group:
             group = group[group.method.astype(str).isin(methods)]
-        if group.empty:
-            continue
-        h = legacy.gdi_history(group, threshold)
+        if not group.empty:
+            items.append((well, group))
+    if len(gdi) >= PARALLEL_ROWS and len(items) >= 16:
+        from ..parallel import map_jobs, default_workers
+        size = max(4, -(-len(items) // (default_workers(300) * 3)))
+        done = map_jobs(_history_chunk, [(items[k:k + size], threshold) for k in range(0, len(items), size)], 300)
+        computed = [pair for part in done for pair in part]
+    else:
+        computed = _history_chunk((items, threshold))
+    parts = []
+    for well, h in computed:
         if not h.empty:
             h['well'] = well
             parts.append(h)
-    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    out = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    if len(_MEMO) >= 4:
+        _MEMO.clear()
+    _MEMO[key] = out
+    return out.copy()
 
 
 def quality_filter(history: pd.DataFrame, mode: str, threshold: float) -> pd.DataFrame:

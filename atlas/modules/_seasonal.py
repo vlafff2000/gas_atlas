@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from ._production import NEUTRAL_PREFIXES
+from ._rows import rows_of
 
 KINDS = ('injection', 'withdrawal')
 KIND_LABEL = {'injection': 'Закачка', 'withdrawal': 'Отбор'}
@@ -71,7 +72,7 @@ def season_table(df: pd.DataFrame, ref: pd.DataFrame | None = None, source: str 
     источник объёма, объём по обоим источникам, расхождение, Δ к прошлому сезону того же вида."""
     rows: list[dict[str, Any]] = []
     for kind in KINDS:
-        part = df[df.kind.eq(kind)]
+        part = rows_of(df, kind)
         refd = None
         if ref is not None and len(ref):
             r = ref[ref.kind.eq(kind)]
@@ -79,7 +80,7 @@ def season_table(df: pd.DataFrame, ref: pd.DataFrame | None = None, source: str 
         for period in real_periods(part):
             if periods is not None and period not in periods:
                 continue
-            rows_p = part[part.period.eq(period)]
+            rows_p = rows_of(df, kind, period)
             wells = _stats(_daily(rows_p))
             if not wells:
                 continue
@@ -111,7 +112,7 @@ def group_table(df: pd.DataFrame, seasons: pd.DataFrame, group_of: Mapping[str, 
     cols = ['kind', 'period', 'group', 'days', 'volume', 'share', 'mean', 'max']
     rows: list[dict[str, Any]] = []
     for s in seasons.itertuples():
-        part = df[df.kind.eq(s.kind) & df.period.eq(s.period)]
+        part = rows_of(df, s.kind, s.period)
         part = part.assign(group=part.well.map(lambda w: group_of.get(str(w), 'Без группы')))
         found = []
         for name, g in part.groupby('group', sort=True):
@@ -176,7 +177,7 @@ def month_table(df: pd.DataFrame, seasons: pd.DataFrame, ref: pd.DataFrame | Non
         if s.source == SOURCE_LABEL[SOURCE_REF]:
             daily = _ref_daily(ref, s.kind)
         else:
-            daily = _daily(df[df.kind.eq(s.kind) & df.period.eq(s.period)])
+            daily = _daily(rows_of(df, s.kind, s.period))
         if daily is None:
             continue
         rows += [{'kind': s.kind, 'period': s.period, **r} for r in _month_rows(daily, s.start, s.end)]
@@ -197,7 +198,7 @@ def month_group_table(df: pd.DataFrame, seasons: pd.DataFrame, group_of: Mapping
     """Объём (млн м³) по группам и месяцам каждого сезона; группы — по скважинам."""
     rows: list[dict[str, Any]] = []
     for s in seasons.itertuples():
-        part = df[df.kind.eq(s.kind) & df.period.eq(s.period)]
+        part = rows_of(df, s.kind, s.period)
         part = part.assign(group=part.well.map(lambda w: group_of.get(str(w), 'Без группы')))
         for name, g in part.groupby('group', sort=True):
             if groups and name not in groups:
