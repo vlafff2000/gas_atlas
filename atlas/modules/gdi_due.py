@@ -28,6 +28,13 @@ NOTE = ('Список — подсказка: причины видны в та�
         'Сравнение расходов — только сезон отбора с сезоном отбора; сезон без данных не считается нулевым.')
 
 
+def interval_args(params: dict[str, Any]) -> dict[str, Any]:
+    """Пороги интервала снижения продуктивности из параметров раздела (общие для таблицы и графиков)."""
+    return {'min_days': int(params.get('min_days', 14)), 'drop': float(params.get('interval_drop', 15)), 'tail_days': int(params.get('tail_days', 14)),
+            'ramp_days': int(params.get('ramp_days', 7)), 'low_share': float(params.get('low_share', 20)), 'confirm': int(params.get('confirm', 2)),
+            'need_open': int(params.get('need_open', 1)) == 1}
+
+
 def season_flows(prod: pd.DataFrame) -> pd.DataFrame:
     """Средний расход скважины в днях с расходом за два последних сезона отбора: well, last, prev (тыс. м³/сут), сезоны — в attrs."""
     cols = ['well', 'last', 'prev', 'last_period', 'prev_period']
@@ -89,9 +96,13 @@ def build(data: Data, params: dict[str, Any]) -> pd.DataFrame:
     elpro = data[ELPRO] if ELPRO in data else None
     for part in (cumulative(days, last_p, prev_p, group_of), dynamics(days, last_p, group_of), kru_response(elpro, days, last_p, prev_p, group_of)):
         table = table.merge(part, on='well', how='left')
-    iv = productivity_intervals(days, last_p, elpro, int(params.get('min_days', 14)), float(params.get('interval_drop', 15)))
+    iv = productivity_intervals(days, last_p, elpro, **interval_args(params))
+    weak = iv[~iv.confirmed.astype(bool)] if not iv.empty else iv
+    iv = iv[iv.confirmed.astype(bool)] if not iv.empty else iv
     table['int_count'] = table.well.map(iv.groupby('well').size()).fillna(0).astype(int)
     last_iv = iv.sort_values('end').drop_duplicates('well', keep='last').set_index('well') if not iv.empty else pd.DataFrame(columns=['start', 'end', 'days', 'depth'])
+    weak_iv = weak.sort_values('end').drop_duplicates('well', keep='last').set_index('well') if not weak.empty else pd.DataFrame(columns=['start', 'end', 'days', 'depth', 'why'])
+    table['int_weak'] = table.well.map(lambda w: f"{weak_iv.at[w, 'start']:%d.%m}–{weak_iv.at[w, 'end']:%d.%m.%Y}, −{weak_iv.at[w, 'depth']:.0f}%: {weak_iv.at[w, 'why']}" if w in weak_iv.index else '')
     for c in ('days', 'depth'):
         table['int_' + c] = table.well.map(last_iv[c]) if not iv.empty else np.nan
     table['int_last'] = table.well.map(lambda w: f"{last_iv.at[w, 'start']:%d.%m}–{last_iv.at[w, 'end']:%d.%m.%Y}" if w in last_iv.index else '')
@@ -127,6 +138,8 @@ def reasons(r: pd.Series, params: dict[str, Any]) -> str:
         out.append(f'динамика внутри сезона не совпадает с объектом: совпало {r.sync_obj:.0f}% недельных шагов, тренд {r.slope_well:+.0f}% против {r.slope_obj:+.0f}% за 30 сут')
     if r.f_open:
         out.append(f'расход на 1% раскрытия КРУ {r.eff_change:+.0f}% при раскрытии {r.open_change:+.0f}%: на {-r.eff_gap:.0f} п.п. хуже медианы группы')
+    if not r.f_int and r.get('int_weak'):
+        out.append(f'интервал снижения {r.int_weak} — не считается признаком, пока не подтверждён')
     if r.f_int:
         out.append(f'интервал снижения продуктивности {r.int_last} ({int(r.int_days)} сут): расход на {r.int_depth:.0f}% ниже относительно объекта при неуменьшенном раскрытии КРУ')
     if r.f_trend:
@@ -158,7 +171,7 @@ def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> lis
     elpro = data[ELPRO] if ELPRO in data else None
     chosen = [str(w) for w in (params.get('show') or [])] or listed.well.astype(str).tolist()[:6]
     group_of = {w: (data.mapping.get(w, {}) or {}).get('group', '') for w in chosen}
-    iv = productivity_intervals(days, last, elpro, int(params.get('min_days', 14)), float(params.get('interval_drop', 15)))
+    iv = productivity_intervals(days, last, elpro, **interval_args(params))
     charts = []
     for w in sorted(set(chosen) & set(days.well), key=well_key):
         c = well_curves(days, last, elpro, group_of | {x: (data.mapping.get(x, {}) or {}).get('group', '') for x in days.well.unique()}, w)
@@ -184,8 +197,9 @@ def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> lis
         mine = iv[iv.well.eq(w)]
         if not mine.empty:
             at = (lambda t: f'{c.cum_obj.get(t, np.nan):.3f}') if by_cum else (lambda t: f'{t:%Y-%m-%d}')
-            chart.style = {'annotations': [{'kind': 'vband', 'value': at(r.start), 'to': at(r.end), 'color': '#c0392b',
-                                            'text': f'Снижение продуктивности, −{r.depth:.0f}%'} for r in mine.itertuples()]}
+            chart.style = {'annotations': [{'kind': 'vband', 'value': at(r.start), 'to': at(r.end),
+                                            'text': f'Снижение продуктивности, −{r.depth:.0f}%' + ('' if r.confirmed else ' (не подтверждено)'),
+                                            'color': '#c0392b' if r.confirmed else '#e0a39b'} for r in mine.itertuples()]}
         charts.append(chart)
     return charts
 
@@ -270,6 +284,18 @@ class GdiDueModule(Module):
                   help='Расход скважины относительно объекта держится ниже опорного уровня не меньше стольких суток подряд.'),
             Param('interval_drop', 'Интервал снижения: падение', 'number', default=15.0, minimum=5, maximum=80, step=1, unit='%', section=SECTION,
                   help='Расход скважины (сглаженный за 7 суток) относительно объекта ниже уровня первых двух недель сезона на столько процентов и больше. Если раскрытие КРУ уменьшили, интервал не отмечается.'),
+            Param('tail_days', 'Интервал снижения: не оценивать конец ряда', 'number', default=14, minimum=0, maximum=60, step=1, unit='сут', section=SECTION,
+                  help='Последние сутки работы скважины (остановка, закрытие, конец сезона) не участвуют в поиске интервала: падение расхода там — режим, а не продуктивность.'),
+            Param('ramp_days', 'Интервал снижения: выход на режим после старта', 'number', default=7, minimum=0, maximum=30, step=1, unit='сут', section=SECTION,
+                  help='Старт скважины — первая дата, когда часы работы в БД расходов не равны нулю. Эти сутки и столько дней после старта не оцениваются, опорный уровень берётся уже после них.'),
+            Param('low_share', 'Интервал снижения: малые дебиты', 'number', default=20, minimum=0, maximum=60, step=5, unit='% от медианы', section=SECTION,
+                  help='Дни с расходом ниже этой доли медианы скважины за сезон (пуск, прикрытие, остановка в течение суток) не оцениваются.'),
+            Param('confirm', 'Интервал снижения: подтверждение, окон не меньше', 'choice', default=2, section=SECTION,
+                  options=(Option(1, '1'), Option(2, '2'), Option(3, '3')),
+                  help='Интервал считается признаком, если он не короче этого числа окон по «не короче» суток подряд: единичный провал не подтверждает снижение.'),
+            Param('need_open', 'Интервал снижения: нужны данные раскрытия КРУ', 'choice', default=1, section=SECTION,
+                  options=(Option(1, 'Да'), Option(0, 'Нет')),
+                  help='Да: без данных раскрытия КРУ (ЭЛПРО) режимы не сопоставить, интервал остаётся в таблице как неподтверждённый. Нет: достаточно расхода.'),
             Param('prod_signals', 'Снижение продуктивности: сигналов не меньше', 'choice', default=2, section=SECTION,
                   options=(Option(1, '1'), Option(2, '2'), Option(3, '3'), Option(4, '4')),
                   help='Для второй таблицы: скважина попадает в неё при интервале снижения или при стольких совпавших сигналах: расход и накопленный отбор против группы, динамика против объекта, отдача на раскрытие КРУ, ГДИ.'),

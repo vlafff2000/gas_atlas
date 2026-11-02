@@ -123,7 +123,7 @@ def _no_elpro(d):
 
 def test_interval_marks_only_declining_well_and_charts_are_built():
     from atlas.modules._gdi_due_metrics import last_two, productivity_intervals, withdrawal_days
-    d = seasonal()
+    d = seasonal(days=120)
     days = withdrawal_days(d[P])
     iv = productivity_intervals(days, last_two(days)[0], d[DatasetKind.ELPRO])
     assert iv.well.unique().tolist() == ['3'] and (iv.days >= 14).all() and (iv.depth > 15).all()
@@ -189,3 +189,46 @@ def test_curves_are_real_daily_flows_and_x_axis_can_be_object_cumulative():
     assert c.cum_obj.iloc[-1] == pytest.approx(c.obj_q.sum() / 1e3)                                       # накопленный отбор объекта, млн м³
     by = {x.id: x for x in GdiDueModule().run(d, {**PARAMS, 'show': ['3'], 'xaxis': 'cumulative'}).charts}['gdi-due-3']
     assert by.x.unit == 'млн м³' and by.x.scale == 'value' and float(by.style['annotations'][0]['value']) > 0
+
+
+def _season(tail_drop=False, start_shift=0, days=120, hours=True):
+    """4 ровные скважины; у скважины 3 — либо провал только в последние 10 суток (закрытие), либо поздний старт."""
+    prod, elpro = [], []
+    for w in '1234':
+        for i, d in enumerate(pd.date_range('2025-11-01', periods=days)):
+            if w == '3' and i < start_shift:
+                continue
+            q = 100.0
+            if w == '3' and tail_drop and i >= days - 10:
+                q = 40.0
+            if w == '3' and start_shift and i < start_shift + 7:
+                q = 30.0                                             # выход на режим после позднего старта
+            prod.append(dict(well=w, date=d, q=q * 1e3, kind='withdrawal', period='2025-2026', hours=24.0 if hours else float('nan')))
+            elpro.append(dict(well=w, date=d, q=q, y=50.0, p=80.0, kind='withdrawal'))
+    d = Data({P: pd.DataFrame(prod), DatasetKind.ELPRO: pd.DataFrame(elpro)})
+    d.mapping = {w: {'group': 'ГСП-1'} for w in '1234'}
+    d.wells = list('1234')
+    return d
+
+
+def test_tail_of_season_and_late_start_are_not_decline():
+    from atlas.modules._gdi_due_metrics import last_two, productivity_intervals, withdrawal_days, work_starts
+    for kw in ({'tail_drop': True}, {'start_shift': 40}):
+        d = _season(**kw)
+        days = withdrawal_days(d[P])
+        last = last_two(days)[0]
+        assert productivity_intervals(days, last, d[DatasetKind.ELPRO], tail_days=0, ramp_days=0).shape[0] >= 0   # без защит интервал может появиться
+        assert productivity_intervals(days, last, d[DatasetKind.ELPRO]).empty, kw
+    days = withdrawal_days(_season(start_shift=40)[P])
+    assert work_starts(days, '2025-2026')['3'] == pd.Timestamp('2025-11-01') + pd.Timedelta(days=40)
+
+
+def test_interval_without_kru_data_is_shown_but_not_a_sign():
+    d = _season()
+    p = d[P]
+    p.loc[p.well.eq('3') & p.date.ge('2026-01-01') & p.date.lt('2026-02-20'), 'q'] = 50e3          # устойчивое падение на 50 суток
+    nd = _no_elpro(d)
+    t = build(nd, PARAMS).set_index('well')
+    assert not bool(t.at['3', 'f_int']) and 'не подтверждён' in t.at['3', 'reason']
+    t = build(nd, {**PARAMS, 'need_open': 0}).set_index('well')
+    assert bool(t.at['3', 'f_int'])

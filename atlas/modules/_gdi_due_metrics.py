@@ -19,16 +19,17 @@ FLAT = 0.01           # недельное изменение индекса м�
 
 
 def withdrawal_days(prod: pd.DataFrame) -> pd.DataFrame:
-    """Дни отбора с расходом > 0 и названием сезона; столбец сезона — ``period``."""
+    """Дни отбора с расходом > 0 и названием сезона; столбец сезона — ``period``, ``hours`` — часы работы (NaN, если их нет в БД)."""
     if prod is None or prod.empty or 'q' not in prod:
-        return pd.DataFrame(columns=['well', 'date', 'q', 'period'])
+        return pd.DataFrame(columns=['well', 'date', 'q', 'period', 'hours'])
     col = 'period' if 'period' in prod else 'season'
     df = prod[prod.kind.eq('withdrawal') & prod.q.gt(0) & prod[col].notna()].copy()
     df = df[~df[col].astype(str).str.startswith(NEUTRAL_PREFIXES) & df[col].astype(str).ne('')]
     df['period'] = df[col].astype(str)
     df['well'] = df.well.astype(str)
     df['date'] = pd.to_datetime(df.date).dt.normalize()
-    return df[['well', 'date', 'q', 'period']]
+    df['hours'] = pd.to_numeric(df['hours'], errors='coerce') if 'hours' in df else np.nan       # часы работы из БД расходов (старт скважины)
+    return df[['well', 'date', 'q', 'period', 'hours']]
 
 
 def last_two(df: pd.DataFrame) -> tuple[str | None, str | None]:
@@ -176,14 +177,35 @@ def _runs(mask: pd.Series, min_days: int) -> list[tuple[pd.Timestamp, pd.Timesta
     return out
 
 
-def productivity_intervals(days: pd.DataFrame, last: str | None, elpro: pd.DataFrame | None, min_days: int = 14, drop: float = 15.0) -> pd.DataFrame:
-    """Интервалы последнего сезона, где продуктивность скважины реально снизилась: расход (сглаженный за 7 суток) относительно объекта ниже
+def work_starts(days: pd.DataFrame, last: str | None) -> pd.Series:
+    """Старт работы скважины в сезоне: первая дата, когда часы работы из БД расходов не равны нулю; нет часов — первая дата с расходом."""
+    d = days[days.period.eq(last)]
+    any_day = d.groupby('well').date.min()
+    return d[d.hours.fillna(0).gt(0)].groupby('well').date.min().reindex(any_day.index).fillna(any_day).rename('start')
+
+
+def productivity_intervals(days: pd.DataFrame, last: str | None, elpro: pd.DataFrame | None, min_days: int = 14, drop: float = 15.0,
+                           tail_days: int = 14, ramp_days: int = 7, low_share: float = 20.0, confirm: int = 2, need_open: bool = True) -> pd.DataFrame:
+    """Интервалы последнего сезона, где продуктивность скважины, возможно, снизилась: расход (сглаженный за 7 суток) относительно объекта ниже
     опорного уровня первых двух недель больше чем на ``drop`` %, держится не меньше ``min_days`` суток, а раскрытие КРУ при этом не уменьшено.
-    Столбцы: well, start, end, days, depth (максимальное падение, %)."""
-    cols = ['well', 'start', 'end', 'days', 'depth']
+    Чтобы не принимать за снижение переходные режимы, из ряда исключаются: дни до старта скважины (первые часы работы не равны нулю) и ``ramp_days`` суток после
+    него (выход на режим), последние ``tail_days`` суток ряда (остановка, закрытие, конец сезона), дни с расходом ниже ``low_share`` % от медианы скважины.
+    ``confirmed`` — интервал не короче ``confirm`` × ``min_days`` суток и (при ``need_open``) подтверждён данными раскрытия КРУ (иначе режим не сопоставим).
+    Столбцы: well, start, end, days, depth (максимальное падение, %), confirmed, why (чего не хватает для подтверждения)."""
+    cols = ['well', 'start', 'end', 'days', 'depth', 'confirmed', 'why']
     if last is None:
         return pd.DataFrame(columns=cols)
     wide = _season_wide(days, last)
+    starts = work_starts(days, last)
+    for w in wide.columns:                                                  # переходные режимы не участвуют ни в объекте, ни в скважине
+        col = wide[w]
+        valid = col.dropna()
+        if valid.empty:
+            continue
+        begin = starts.get(w, valid.index[0]) + pd.Timedelta(days=int(ramp_days))
+        finish = valid.index[-1] - pd.Timedelta(days=int(tail_days))
+        keep = (col.index >= begin) & (col.index <= finish) & (col >= valid.median() * low_share / 100)
+        wide[w] = col.where(keep)
     sm = _smooth(wide)
     obj = sm.mean(axis=1)
     opening = _open_wide(elpro, wide.index, days)
@@ -194,13 +216,20 @@ def productivity_intervals(days: pd.DataFrame, last: str | None, elpro: pd.DataF
         if not np.isfinite(base) or base <= 0:
             continue
         low = rel < base * (1 - drop / 100)
-        if opening is not None and w in opening and opening[w].notna().sum() >= BASE_DAYS:
+        has_open = opening is not None and w in opening and opening[w].notna().sum() >= BASE_DAYS
+        if has_open:
             o = _smooth(opening[w])
             o_base = o.dropna().iloc[:BASE_DAYS].median()
             low &= ~(o < o_base * (1 - OPEN_TOL))       # раскрытие уменьшили — падение расхода объясняется режимом, не продуктивностью
         for start, end in _runs(low.fillna(False), int(min_days)):
             depth = (1 - (rel[start:end] / base).min()) * 100
-            rows.append((w, start, end, (end - start).days + 1, float(depth)))
+            n = (end - start).days + 1
+            why = []
+            if n < int(confirm) * int(min_days):
+                why.append(f'короче {int(confirm) * int(min_days)} сут')
+            if need_open and not has_open:
+                why.append('нет данных раскрытия КРУ: режим не сопоставлен')
+            rows.append((w, start, end, n, float(depth), not why, '; '.join(why)))
     return pd.DataFrame(rows, columns=cols)
 
 
