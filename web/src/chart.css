@@ -41,16 +41,16 @@
 .tip-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; column-gap: 6px; padding: 1px 0; }
 .tip-row .tip-name { color: var(--chart-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tip-row .tip-value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tip-row .tip-value small { color: var(--chart-muted); font-size: 11px; }
+.tip-row .tip-value small { color: var(--chart-muted); font-size: 13px; }
 .tip-row.strong { padding: 2px 0 4px; }
 .tip-row.strong .tip-name { color: var(--chart-ink); font-weight: 700; }
-.tip-row.strong .tip-value b { font-size: 15px; }
+.tip-row.strong .tip-value b { font-size: 17px; }
 .tip-key { display: block; width: 14px; height: 0; border-top: 2.5px solid var(--c); border-radius: 2px; }
 .tip-key.dashed { border-top-style: dashed; }
 .tip-dot { display: block; width: 9px; height: 9px; border-radius: 50%; margin-left: 2px; }
 .tip-extra { color: var(--chart-muted); margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--chart-grid); }
-.tip-sub { color: var(--chart-faint); font-size: 11px; }
-.tip-foot { margin-top: 5px; color: var(--chart-faint); font-size: 11px; }
+.tip-sub { color: var(--chart-faint); font-size: 13px; }
+.tip-foot { margin-top: 5px; color: var(--chart-faint); font-size: 13px; }
 .exclude-mode .tip-foot { color: var(--danger); font-weight: 700; }
 
 /* закреплённые подсказки: номер, крестик, разница с первой */
@@ -84,17 +84,17 @@
 .chart-legend-wrap.side .legend-row { display: grid; }
 .chart-legend-wrap.side .legend-item { white-space: normal; text-align: left; }
 .legend-row { display: flex; flex-wrap: wrap; align-items: center; column-gap: 4px; row-gap: 0; }
-.legend-title { font-size: var(--legend-size, 12px); color: var(--chart-muted); min-width: 74px; padding-right: 4px; }
+.legend-title { font-size: var(--legend-size, 14px); color: var(--chart-muted); min-width: 74px; padding-right: 4px; }
 .legend-item {
   display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 6px; border-radius: 4px;
-  font-size: var(--legend-size, 12px); color: var(--chart-ink); cursor: pointer; white-space: nowrap; font-family: inherit;
+  font-size: var(--legend-size, 14px); color: var(--chart-ink); cursor: pointer; white-space: nowrap; font-family: inherit;
 }
 .legend-item:hover { background: var(--chart-grid); }
 .legend-item[aria-pressed='false'] { color: var(--chart-faint); }
 .legend-item[aria-pressed='false'] .legend-key { opacity: .3; }
 .legend-item[aria-pressed='false'] span { text-decoration: line-through; text-decoration-color: var(--chart-axis); }
 .legend-key { width: 22px; height: 12px; flex-shrink: 0; overflow: visible; }
-.legend-more { border: 0; background: none; color: var(--accent-strong); font-size: 12px; padding: 2px 6px; cursor: pointer; }
+.legend-more { border: 0; background: none; color: var(--accent-strong); font-size: 14px; padding: 2px 6px; cursor: pointer; }
 .legend-more:hover { text-decoration: underline; }
 .atlas-tip.pinned { pointer-events: none; }
 .atlas-tip.pinned .pin-close, .atlas-tip.pinned .tip-go { pointer-events: auto; }
@@ -104,7 +104,7 @@
 
 /* пометка у графика: линии прорежены (М4), все точки — при увеличении */
 .chart-thin {
-  display: block; margin: -2px 0 4px 0; padding: 0 4px; font-size: 12px; font-weight: 400; color: var(--chart-muted, var(--muted, #6b7280));
+  display: block; margin: -2px 0 4px 0; padding: 0 4px; font-size: 14px; font-weight: 400; color: var(--chart-muted, var(--muted, #6b7280));
   white-space: nowrap; cursor: help;
 }
 .chart-thin.part { color: var(--chart-ink, inherit); }
@@ -118,7 +118,7 @@
 .axis-editor {
   position: absolute; z-index: 5; width: 220px; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
-  font-size: 12px;
+  font-size: 14px;
 }
 .axis-editor label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
 .axis-editor input { font: inherit; padding: 4px 6px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
@@ -194,13 +194,13 @@
 
 /* тепловая карта (ГСП × сезоны) */
 .heat-wrap { overflow-x: auto; padding: 4px 0 8px; }
-.heat-table { border-collapse: separate; border-spacing: 2px; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 13px; margin: 0 auto; }
+.heat-table { border-collapse: separate; border-spacing: 2px; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 16px; margin: 0 auto; }
 .heat-table th { font-weight: 600; padding: 3px 8px; white-space: nowrap; }
 .heat-table tbody th { text-align: right; }
 .heat-table td:last-child { white-space: nowrap; }
 .heat-table td { min-width: 72px; height: 30px; text-align: center; border-radius: 3px; }
-.heat-table .heat-missing { color: var(--chart-muted, #5f7178); font-size: 11px; background: repeating-linear-gradient(135deg, #eceff0 0 4px, #dfe4e6 4px 8px); }
-.heat-scale { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 8px; font-size: 12px; color: var(--chart-muted, #5f7178); }
+.heat-table .heat-missing { color: var(--chart-muted, #5f7178); font-size: 13px; background: repeating-linear-gradient(135deg, #eceff0 0 4px, #dfe4e6 4px 8px); }
+.heat-scale { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 8px; font-size: 14px; color: var(--chart-muted, #5f7178); }
 .heat-scale i { width: 220px; height: 10px; border-radius: 3px; }
 .heat-ends { width: 220px; display: flex; justify-content: space-between; }
 
@@ -215,7 +215,7 @@
 .strip-panels { display: block; }
 .strip-group { margin-bottom: 8px; }
 .strip-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; }
-.strip-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 5px; border: 1px solid var(--chart-axis, #c9d4d7); border-radius: 4px; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 12px; }
+.strip-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 5px; border: 1px solid var(--chart-axis, #c9d4d7); border-radius: 4px; font-family: 'Times New Roman', 'Liberation Serif', serif; font-size: 14px; }
 .strip-chip b { font-weight: 600; min-width: 24px; text-align: right; }
 .strip-chip em { font-style: normal; font-weight: 600; opacity: .7; }
 .strip-chip .dots { display: inline-flex; gap: 1px; }
@@ -223,7 +223,7 @@
 .strip-chip .dots i.on { opacity: 1; }
 .strip-chip .dots i.miss { background: repeating-linear-gradient(45deg, #fff4d6 0 2px, #8a5a00 2px 4px); outline: 1px solid #8a5a00; outline-offset: -1px; opacity: 1; }
 .strip-sub { font-weight: 600; margin: 0 0 4px; font-family: 'Times New Roman', 'Liberation Serif', serif; }
-.strip-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+.strip-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 14px; }
 .strip-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 5px; border-radius: 2px; vertical-align: -2px; }
 
 /* Мини-вариант графика (compact): подсказки на карте и карточки — тот же ChartView без заголовка, кнопок, легенды и навигатора */

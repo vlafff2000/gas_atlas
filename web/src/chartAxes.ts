@@ -30,7 +30,7 @@ export const rightOffset = (index: number) => Math.max(0, index - 1) * Y_BAND
 export type Range = [number, number]
 export interface Rect { x: number; y: number; width: number; height: number }
 
-export const Y_BAND = 64      // ширина полосы подписей одной правой оси Y, пикселей
+export const Y_BAND = 72      // ширина полосы подписей одной правой оси Y, пикселей
 const BELT = 30      // высота полосы подписей оси X под сеткой, пикселей
 
 /** Какая ось под курсором: подписи слева — Y, справа — вторая шкала, под сеткой — X. */
