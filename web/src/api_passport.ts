@@ -20,6 +20,8 @@ export interface Schematic {
   items: { kind: string; label: string; top: number; bottom: number }[]
   notes: string[]; skipped: string[]; top: number; bottom: number; bottom_m: number | null
   shapes?: Shape[]; labels?: Tag[]; covered_m?: number
+  ticks?: [number, number][] | null     // [позиция на схеме, реальная глубина] — при сжатых участках
+  breaks?: { from: number; to: number }[]
 }
 export interface Kpi { label: string; value: number | null; text?: string; unit?: string; digits?: number; hint?: string; extra?: string }
 export interface SeasonRow { kind: 'withdrawal' | 'injection'; period: string; volume: number | null; days: number; max_rate: number | null

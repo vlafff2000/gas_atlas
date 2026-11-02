@@ -34,12 +34,17 @@ def draw_schematic(ax, sch: dict[str, Any]) -> None:
     for label in sch['labels']:
         ax.annotate(label['text'], xy=(1.0, label['y']), xytext=(3.2, label['at']), fontsize=8, color=label['color'], va='center',
                     arrowprops={'arrowstyle': '-', 'color': label['color'], 'linewidth': .6, 'shrinkA': 0, 'shrinkB': 0})
-    step = max(int((sch['bottom'] - sch['top']) / 5 / 10) * 10, 5)
-    y = (int(sch['top']) // step + 1) * step
-    while y < sch['bottom']:
-        ax.plot([-3.0, -2.8], [y, y], color=MUTED, linewidth=.6)
-        ax.text(-3.05, y, f'{y:g}', fontsize=7, color=MUTED, ha='right', va='center')
-        y += step
+    if sch.get('ticks'):                       # сжатые участки: отметки в реальных глубинах на своих позициях
+        for pos, real in sch['ticks']:
+            ax.plot([-3.0, -2.8], [pos, pos], color=MUTED, linewidth=.6)
+            ax.text(-3.05, pos, f'{real:g}', fontsize=7, color=MUTED, ha='right', va='center')
+    else:
+        step = max(int((sch['bottom'] - sch['top']) / 5 / 10) * 10, 5)
+        y = (int(sch['top']) // step + 1) * step
+        while y < sch['bottom']:
+            ax.plot([-3.0, -2.8], [y, y], color=MUTED, linewidth=.6)
+            ax.text(-3.05, y, f'{y:g}', fontsize=7, color=MUTED, ha='right', va='center')
+            y += step
     ax.text(-3.0, sch['top'], 'м', fontsize=7, color=MUTED, ha='left', va='bottom')
 
 

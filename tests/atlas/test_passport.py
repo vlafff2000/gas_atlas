@@ -164,3 +164,26 @@ def test_artificial_bottom_is_drawn_separately_from_measured():
     assert any('Искусственный забой 790 м' == lab['text'] for lab in sch['labels'])
     assert any(s.get('name') == 'bottom' for s in sch['shapes'])
     assert any('искусственный' in n.lower() for n in sch['notes'])
+
+
+def test_empty_depth_gap_is_compressed_but_labels_stay_real():
+    """Пустой участок между колонной и перфорацией сжимается; подписи и отметки оси — реальные глубины."""
+    import pandas as pd
+    from atlas import passport_card
+    cons = pd.DataFrame([
+        {'element': 'Эксплуатационная колонна', 'top_m': 0.0, 'bottom_m': 900.0, 'diameter_mm': 168.0, 'inner_diameter_mm': None, 'comment': ''},
+        {'element': 'Перфорация', 'top_m': 800.0, 'bottom_m': 810.0, 'diameter_mm': None, 'inner_diameter_mm': None, 'comment': ''},
+    ])
+    flat = passport_card.schematic(cons, None, break_m=0)
+    sch = passport_card.schematic(cons, None)
+    assert flat['ticks'] is None and sch['ticks']
+    assert sch['breaks'] and sch['breaks'][0]['to'] - sch['breaks'][0]['from'] > 50
+    assert sch['bottom'] - sch['top'] < flat['bottom'] - flat['top']
+    real = [t for _, t in sch['ticks']]
+    assert all(not (b['from'] < t < b['to']) for b in sch['breaks'] for t in real)
+    perf = [s for s in sch['shapes'] if s.get('name') == 'perf']
+    assert perf
+    for s in perf:
+        ys = [m for _, m in s['pts']] if 'pts' in s else [s['y0'], s['y1']]
+        assert all(sch['top'] <= y <= sch['bottom'] for y in ys)
+    assert any('Перфорация 800–810 м' == lab['text'] for lab in sch['labels'])
