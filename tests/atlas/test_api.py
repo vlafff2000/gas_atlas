@@ -160,3 +160,14 @@ def test_group_list_and_manual_group_colors(env, monkeypatch, tmp_path):
     assert r.status_code == 200 and isinstance(r.json()['groups'], list)
     assert client.post('/api/group-colors', json={'group': 'ГСП 1', 'color': '#aabbcc'}).json() == {'overrides': {'гсп 1': '#aabbcc'}}
     assert client.get('/api/group-colors').json()['overrides'] == {'гсп 1': '#aabbcc'}
+
+
+def test_project_seasons_for_period_picker(env):
+    """Список сезонов для общего выбора периода: подпись, начало и конец, свежие сверху."""
+    client, pid, _ = env
+    r = client.get(f'/api/projects/{pid}/seasons')
+    assert r.status_code == 200
+    seasons = r.json()['seasons']
+    assert seasons and all({'kind', 'label', 'start', 'end'} <= set(s) for s in seasons)
+    assert all(s['start'] <= s['end'] for s in seasons) and [s['start'] for s in seasons] == sorted((s['start'] for s in seasons), reverse=True)
+    assert all(s['label'].startswith(('Отбор ', 'Закачка ')) for s in seasons)

@@ -234,6 +234,7 @@ export const api = {
     request<string[]>(`/api/projects/${project}/options?dataset=${encodeURIComponent(dataset)}&column=${encodeURIComponent(column)}`
       + (filter ? `&filter=${encodeURIComponent(JSON.stringify(filter))}` : '')),
   projectGroups: (project: string) => request<{ groups: string[] }>(`/api/projects/${project}/group-list`).then(r => r.groups),
+  projectSeasons: (project: string) => request<{ seasons: { kind: string; label: string; start: string; end: string }[] }>(`/api/projects/${project}/seasons`).then(r => r.seasons),
   projectWells: (project: string) => request<{ wells: string[] }>(`/api/projects/${project}/wells`).then(r => r.wells),
   appLinks: () => request<{ maps_url: string }>('/api/app/links'),
   run: (module: string, project: string, params: Params, signal?: AbortSignal, thin = true) =>
