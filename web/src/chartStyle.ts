@@ -18,7 +18,7 @@ export interface Look {
   valueLabels?: boolean   // подписи значений над столбцами (целые, Times New Roman)
   // модель v2 (atlas/chart_style.py): граница маркера, полый маркер, подписи данных, имя в легенде
   marker_border?: string; marker_border_width?: number; hollow?: boolean
-  label_position?: 'top' | 'bottom' | 'left' | 'right' | 'inside' | 'center'; label_decimals?: number; label_size?: number
+  label_position?: 'top' | 'bottom' | 'left' | 'right' | 'inside' | 'center'; label_decimals?: number; label_size?: number; label_angle?: number
   legend_name?: string
   // линия тренда ряда (web/src/trend.ts, atlas/trend.py)
   trend?: 'linear' | 'poly' | 'log' | 'power' | 'exp' | 'moving'; trend_order?: number; trend_period?: number

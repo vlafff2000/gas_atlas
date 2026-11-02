@@ -301,6 +301,12 @@ export function SeriesExtraFields({ value: look, set, marker, labels, trend = fa
             <Num label="Знаков" value={look.label_decimals} min={0} max={8} onChange={v => set({ label_decimals: v })} />
             <Num label="Размер" value={look.label_size} min={5} max={30} onChange={v => set({ label_size: v })} />
           </div>
+          <Num label="Угол, °" value={look.label_angle} min={-90} max={90} unit="°" onChange={v => set({ label_angle: v })} />
+          <div className="cs-actions">
+            <button type="button" onClick={() => set({ label_angle: 0 })}>Горизонтально</button>
+            <button type="button" onClick={() => set({ label_angle: 90 })}>Вертикально</button>
+            <button type="button" onClick={() => set({ label_angle: undefined })} disabled={look.label_angle === undefined}>Авто</button>
+          </div>
         </>}
       </fieldset>}
       {hatch && <fieldset>

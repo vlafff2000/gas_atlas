@@ -102,7 +102,7 @@ LABELS = {
     'minor_grid': 'доп. линии сетки', 'minor_grid_color': 'цвет доп. линий', 'minor_grid_width': 'толщина доп. линий',
     'title_bold': 'жирный', 'title_italic': 'курсив', 'tick_bold': 'жирные подписи', 'tick_italic': 'курсивные подписи',
     'marker_border': 'граница маркера', 'marker_border_width': 'толщина границы маркера', 'hollow': 'полый маркер',
-    'label_position': 'положение подписей данных', 'label_decimals': 'знаков в подписях данных', 'label_size': 'размер подписей данных',
+    'label_position': 'положение подписей данных', 'label_decimals': 'знаков в подписях данных', 'label_size': 'размер подписей данных', 'label_angle': 'угол подписей данных',
     'legend_name': 'имя в легенде', 'ticks': 'основные деления', 'minor_ticks': 'доп. деления', 'line': 'линия оси',
     'line_color': 'цвет линии оси', 'line_width': 'толщина линии оси', 'label_rotate': 'поворот подписей', 'units': 'единицы отображения',
     'title_place': 'положение названия', 'minor_step': 'доп. шаг', 'cross': 'пересечение', 'subtitle': 'подзаголовок',
@@ -116,7 +116,7 @@ LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DAS
         'size': ('num', 2, 24), 'markerColor': 'color', 'opacity': ('num', 0.05, 1), 'valueLabels': 'bool',
         # модель v2: граница маркера, полый маркер, подписи данных, имя в легенде
         'marker_border': 'color', 'marker_border_width': ('num', 0, 6), 'hollow': 'bool',
-        'label_position': LABEL_PLACES, 'label_decimals': ('int', 0, 8), 'label_size': ('num', 5, 30), 'legend_name': 'text',
+        'label_position': LABEL_PLACES, 'label_decimals': ('int', 0, 8), 'label_size': ('num', 5, 30), 'label_angle': ('num', -90, 90), 'legend_name': 'text',
         # линия тренда ряда (atlas/trend.py): вид, степень полинома, окно скользящего, подпись с уравнением и R², цвет и толщина
         'trend': TRENDS, 'trend_order': ('int', 2, 6), 'trend_period': ('int', 2, 60), 'trend_label': 'bool', 'trend_color': 'color',
         'trend_width': ('num', 0.5, 12),
