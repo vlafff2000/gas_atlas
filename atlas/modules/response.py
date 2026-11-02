@@ -21,6 +21,7 @@ from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Opt
                         Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
 from ._events import regime_events
+from .an_report import object_pressure_of
 
 RESPONSE, OBJECT, PRODUCTION = DatasetKind.RESPONSE, DatasetKind.OBJECT_PRESSURE, DatasetKind.PRODUCTION
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
@@ -91,6 +92,17 @@ def with_gaps(dates: pd.Series, values: pd.Series, ids: list | None, labels: lis
             np.insert(np.array(labels, dtype=object), long, '').tolist())
 
 
+def object_pressure_for(frame: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame:
+    """Кривая давления объекта для графика: один набор данных на все скважины. Если в таблице есть горизонты, берутся горизонты графика
+    (нет совпадений — вся таблица); несколько значений на одну дату усредняются, чтобы кривая не пилила."""
+    if 'horizon' in frame:
+        sub = frame[frame.horizon.astype(str).isin(set(part.horizon.astype(str)))]
+        frame = sub if not sub.empty else frame
+    if frame.date.duplicated().any():
+        frame = frame.groupby('date', as_index=False).pressure.mean()
+    return frame
+
+
 def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, palette: Mapping[str, str],
                    object_pressure: pd.DataFrame | None, manometer: set[str], by_well: bool,
                    pressure_horizons: set[str], level_band: str = 'auto', gap_days: int = GAP_DAYS) -> Chart:
@@ -131,7 +143,7 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
             legends.add(legend_key)
     if pressure_enabled and metric in ('pressure', 'combined') and object_pressure is not None \
             and not object_pressure.empty:
-        data = object_pressure.sort_values('date')
+        data = object_pressure_for(object_pressure, part).sort_values('date')
         data = data[data.date.between(part.date.min(), part.date.max())]
         if not data.empty:
             x, yv, ids, _ = with_gaps(data.date, data.pressure, data['_point_id'].astype(str).tolist() if '_point_id' in data else None,
@@ -298,7 +310,7 @@ class ResponseModule(Module):
         pressure_horizons = set(ordered(raw.loc[raw.pressure.notna(), 'horizon'])) if 'pressure' in raw else set()
         palette = well_colors(sel.df.well)
         manometer = {str(w) for w in data.settings.get('manometer_wells', [])}
-        object_pressure = data[OBJECT] if OBJECT in data else None
+        object_pressure = object_pressure_of(data, 'auto')[0]      # тот же источник, что в «Авторском надзоре»: столбец из БД, иначе опорная сетка
         column = 'horizon' if split == 'horizon' else 'well'
         sets = ({'Все выбранные': f} if split == 'all' else    # естественный порядок: 31, 45, 132
                 {label: f[f[column].astype(str).eq(label)] for label in ordered(f[column])})

@@ -291,3 +291,14 @@ def test_curve_breaks_after_long_pause():
     assert ids == ['a', 'b', '', 'c', 'd', 'e'] and labels == list('vw') + [''] + list('xyz')
     assert len(with_gaps(dates, values, None, list('vwxyz'), 0)[0]) == 5
     assert len(with_gaps(dates, values, None, list('vwxyz'), 400)[0]) == 5
+
+
+def test_object_pressure_curve_one_source_per_horizon():
+    import pandas as pd
+    from atlas.modules.response import object_pressure_for
+    frame = pd.DataFrame({'date': pd.to_datetime(['2024-01-01'] * 2 + ['2024-02-01']), 'horizon': ['A', 'B', 'A'], 'pressure': [50., 70., 52.]})
+    part = pd.DataFrame({'horizon': ['A']})
+    assert object_pressure_for(frame, part).pressure.tolist() == [50., 52.]            # только горизонт графика
+    both = object_pressure_for(frame, pd.DataFrame({'horizon': ['A', 'B']}))
+    assert both.pressure.tolist() == [60., 52.]                                         # одна точка на дату
+    assert len(object_pressure_for(frame, pd.DataFrame({'horizon': ['Z']}))) == 2        # нет совпадений — вся таблица, без дублей дат
