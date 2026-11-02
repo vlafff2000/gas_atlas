@@ -165,6 +165,16 @@ def latest_snapshot(df,well,asof):
     d=select_wells(df,[well]);d=d[d.date.le(pd.Timestamp(asof))]
     return d[d.date.eq(d.date.max())].copy() if not d.empty else d
 
+def resource_info(frames,well,asof=None):
+    """Пометка «Ресурс» в конструкциях скважины по всем датам: {'flag','kits','dates'}. Подсказка из загруженных данных, не расчёт."""
+    df=frames.get('construction')
+    if df is None or df.empty or 'resource' not in df:return {'flag':False,'kits':[],'dates':[]}
+    d=select_wells(df,[well])
+    if asof is not None:d=d[d.date.le(pd.Timestamp(asof))]
+    hit=d[d.resource.fillna('').astype(str).str.strip().str.lower().isin(['да','yes','true','1','ресурс'])]
+    kits=sorted({str(k) for k in hit.get('kit',pd.Series(dtype=str)).dropna() if str(k).strip()})
+    return {'flag':not hit.empty,'kits':kits,'dates':sorted({x.strftime('%d.%m.%Y') for x in hit.date.dropna()})}
+
 def water_observations(frames,well,asof):
     parts=[]
     for module in ('operations','water'):
@@ -180,7 +190,7 @@ def water_observations(frames,well,asof):
                           'Единица':'м³ за сутки' if module=='operations' else 'м³/сут','Противоречие':flag=='Нет' and pd.notna(amount) and amount>0})
     return pd.DataFrame(parts).sort_values('Дата') if parts else pd.DataFrame(columns=['Дата','Источник','Состояние','Признак','Величина','Единица','Противоречие'])
 
-def signals(d,stats,history,water,bottom,construction,threshold=10):
+def signals(d,stats,history,water,bottom,construction,threshold=10,resource=None):
     out=[]
     def add(topic,fact,interpretation,next_step='Проверить исходные измерения и режим работы.'):
         out.append({'Раздел':topic,'Факт':fact,'Вывод':interpretation,'Что проверить':next_step})
@@ -230,6 +240,9 @@ def signals(d,stats,history,water,bottom,construction,threshold=10):
     elif len(bottom)>=2:
         b=bottom.sort_values('date');change=b.iloc[-1].bottom_m-b.iloc[-2].bottom_m
         if change<0:add('Забой',f'Последний отбитый забой на {abs(change):.1f} м выше предыдущего.','Возможны заполнение забоя или различие условий замера.','Сверить метод, диаметр шаблона и результаты очистки.')
+    if resource and resource['flag']:
+        kit=', '.join(resource['kits']) or 'Ресурс'
+        add('Конструкция',f'В конструкциях есть пометка «Ресурс» ({kit}); даты: {", ".join(resource["dates"][-3:])}.','Нормальное ГДИ на скважине невозможно.','Учесть при составлении программы ГДИ.')
     if construction.empty:add('Конструкция','Конструкция не загружена на выбранную дату.','Схема и положение интервалов недоступны.','Загрузить полный снимок конструкции с датой.')
     elif not bottom.empty:
         depth=bottom.sort_values('date').iloc[-1].bottom_m
@@ -284,9 +297,10 @@ def _analyze(frames,settings,mapping,well,kind='withdrawal',periods=None,delta=N
     bottom=select_wells(frames['bottom'],[well]) if 'bottom' in frames else pd.DataFrame()
     if not bottom.empty:bottom=bottom[bottom.date.le(asof)].sort_values('date')
     construction=latest_snapshot(frames.get('construction',pd.DataFrame()),well,asof)
+    resource=resource_info(frames,well,asof)
     water=water_observations(frames,well,asof)
     return {'well':well,'kind':kind,'daily':d,'seasons':stats,'gdi':gd,'gdi_history':history,'bottom':bottom,
-            'construction':construction,'water':water,'signals':signals(d,stats,history,water,bottom,construction,threshold),
+            'construction':construction,'water':water,'signals':signals(d,stats,history,water,bottom,construction,threshold,resource),'resource':resource,
             'asof':asof,'periods':[] if d.empty else ordered(d.period)}
 
 

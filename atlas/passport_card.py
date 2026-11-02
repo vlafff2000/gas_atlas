@@ -353,6 +353,10 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
         {'label': 'Вода по последнему контролю', 'value': None, 'text': 'нет данных' if water.empty else str(water.iloc[-1]['Состояние']),
          'hint': '' if water.empty else _date(water.iloc[-1]['Дата'])},
     ]
+    res = first.get('resource') or {'flag': False}
+    if res['flag']:
+        kpi.append({'label': 'Пометка «Ресурс»', 'value': None, 'text': 'есть', 'hint': ', '.join(res['kits']),
+                    'extra': 'нормальное ГДИ невозможно'})
     notes = list(notes_check)         # пояснения по конструкции и КРС показываются в своих блоках, здесь не повторяются
     if not seasons:
         notes.append('Нет данных по сезонам эксплуатации: загрузите динамику или суточную эксплуатацию.')

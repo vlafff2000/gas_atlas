@@ -20,6 +20,8 @@ ALIASES={
  'p_line':['Давление в шлейфе','p_line'],
  'temperature':['Температура','temperature'],
  'status':['Состояние','Статус','status'],
+ 'resource':['Ресурс','Пометка Ресурс','resource'],
+ 'kit':['Комплект','Комплект оборудования','kit'],
  'comment':['Комментарий','Примечание','comment']}
 REQUIRED={'operations':{'well','date'},'water':{'well','date'},
           'bottom':{'well','date','bottom_m'},'construction':{'well','date','element','top_m','bottom_m'}}
