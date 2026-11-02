@@ -39,13 +39,22 @@ def _last_dates(frame: pd.DataFrame, well: str) -> pd.DataFrame:
 
 
 def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.DataFrame | None,
-                       packs: pd.DataFrame | None, with_gis: bool, geo: pd.DataFrame | None = None, perf_mode: str = 'abs') -> Chart:
-    """Схема забойной части скважины (конструкция из шаблона «Конструкция», отбитый забой и по желанию пачки ГИС)."""
+                       packs: pd.DataFrame | None, with_gis: bool, geo: pd.DataFrame | None = None, perf_mode: str = 'abs',
+                       date: pd.Timestamp | None = None) -> Chart:
+    """Схема забойной части скважины (конструкция из шаблона «Конструкция», отбитый забой и по желанию пачки ГИС).
+    ``date`` — снимок конструкции; без неё самый поздний. Забой: у последнего снимка — последний замер, у прежнего — не позже его даты."""
     cons = construction[construction['well'].astype(str) == well] if construction is not None and len(construction) else pd.DataFrame()
+    latest = bool(len(cons)) and (date is None or pd.Timestamp(date) >= cons['date'].max())
+    if len(cons):
+        date = cons['date'].max() if date is None else pd.Timestamp(date)
+        cons = cons[cons['date'] == date]
     rows = cons.copy() if len(cons) else pd.DataFrame(columns=['element', 'top_m', 'bottom_m'])
+    resource = bool(len(cons)) and 'resource' in cons and cons['resource'].fillna('').astype(str).str.strip().str.lower().eq('да').any()
     bottom_m = None
     if bottom is not None and len(bottom):
         b = bottom[bottom['well'].astype(str) == well].sort_values('date')
+        if len(b) and len(cons) and not latest:
+            b = b[b['date'] <= date]
         bottom_m = _num(b.iloc[-1]['bottom_m']) if len(b) else None
     gis_rows = []
     if with_gis and packs is not None and len(packs) and {'top_m', 'bottom_m'} <= set(packs.columns):
@@ -62,8 +71,11 @@ def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.
     if gis_rows:
         rows = pd.concat([rows, pd.DataFrame(gis_rows)], ignore_index=True)
     scheme = passport_card.schematic(rows, bottom_m)
-    chart = Chart(f'gis-construction-{well}', f'Скважина №{well}: конструкция у забоя', Axis('', ''), Axis('Глубина', 'м', inverse=True))
-    chart.figure = Figure('construction', {'well': well, 'scheme': scheme, 'gis': bool(gis_rows), 'perf_note': perf_note})
+    stamp = f' на {date:%d.%m.%Y}' if len(cons) else ''
+    chart = Chart(f'gis-construction-{well}-{date:%Y%m%d}' if len(cons) else f'gis-construction-{well}',
+                  f'Скважина №{well}: конструкция у забоя{stamp}' + (' · «Ресурс»' if resource else ''), Axis('', ''), Axis('Глубина', 'м', inverse=True))
+    chart.figure = Figure('construction', {'well': well, 'scheme': scheme, 'gis': bool(gis_rows), 'perf_note': perf_note,
+                                           'date': f'{date:%d.%m.%Y}' if len(cons) else '', 'resource': resource})
     return chart
 
 
