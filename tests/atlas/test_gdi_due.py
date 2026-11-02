@@ -167,3 +167,11 @@ def test_productivity_table_signals():
     result = GdiDueModule().run(seasonal(), PARAMS)
     t = next(x for x in result.tables if x.id == 'gdi-productivity').frame.set_index('well')
     assert t.index[t.in_table].tolist() == ['3'] and t.at['3', 'signals'] >= 2
+
+
+def test_kru_response_uses_production_flow_not_elpro_flow():
+    d = seasonal()
+    base = build(d, PARAMS).set_index('well')
+    d[DatasetKind.ELPRO]['q'] = 1.0                              # расход в ЭЛПРО испорчен: на результат влиять не должен
+    t = build(d, PARAMS).set_index('well')
+    assert t.at['3', 'eff_change'] == pytest.approx(base.at['3', 'eff_change']) and bool(t.at['3', 'f_open'])
