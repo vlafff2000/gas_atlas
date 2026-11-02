@@ -40,7 +40,7 @@ def _last_dates(frame: pd.DataFrame, well: str) -> pd.DataFrame:
 
 def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.DataFrame | None,
                        packs: pd.DataFrame | None, with_gis: bool, geo: pd.DataFrame | None = None, perf_mode: str = 'abs',
-                       date: pd.Timestamp | None = None) -> Chart:
+                       date: pd.Timestamp | None = None, artificial: bool = True) -> Chart:
     """Схема забойной части скважины (конструкция из шаблона «Конструкция», отбитый забой и по желанию пачки ГИС).
     ``date`` — снимок конструкции; без неё самый поздний. Забой: у последнего снимка — последний замер, у прежнего — не позже его даты."""
     cons = construction[construction['well'].astype(str) == well] if construction is not None and len(construction) else pd.DataFrame()
@@ -49,6 +49,8 @@ def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.
         date = cons['date'].max() if date is None else pd.Timestamp(date)
         cons = cons[cons['date'] == date]
     rows = cons.copy() if len(cons) else pd.DataFrame(columns=['element', 'top_m', 'bottom_m'])
+    if not artificial and len(rows):
+        rows = rows[~rows['element'].astype(str).str.contains('искусствен', case=False)]      # настройка «Искусственный забой на схеме»
     resource = bool(len(cons)) and 'resource' in cons and cons['resource'].fillna('').astype(str).str.strip().str.lower().eq('да').any()
     bottom_m = None
     if bottom is not None and len(bottom):
