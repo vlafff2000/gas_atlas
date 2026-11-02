@@ -6,6 +6,8 @@ from typing import Any
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
 
+from .rich_text import mpl_text
+
 INK, MUTED, LINE, PANEL = '#1f2937', '#6b7280', '#d1d5db', '#f3f4f6'
 
 
@@ -78,7 +80,7 @@ def draw_charts_page(card: dict[str, Any], pdf) -> None:
                 xs = np.linspace(0, max(q) * 1.05, 41)
                 ax.plot(xs, g['a'] * xs + g['b'] * xs ** 2, color=color, linewidth=1.1, linestyle='-' if g['reliable'] else '--')
         ax.set_xlabel('Дебит q, тыс. м³/сут', fontsize=8)
-        ax.set_ylabel('Δp² = p_пл² − p_заб²', fontsize=8)
+        ax.set_ylabel(mpl_text('Δp² = p<sub>пл</sub>² − p<sub>заб</sub>²'), fontsize=8)
         ax.tick_params(labelsize=7)
         ax.grid(alpha=.3)
         if diagrams:

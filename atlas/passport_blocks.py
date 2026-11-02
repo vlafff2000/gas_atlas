@@ -55,7 +55,7 @@ def gdi_chart(items: list[dict[str, Any]]) -> Chart | None:
     if not items:
         return None
     chart = Chart('passport-gdi', 'Индикаторные диаграммы ГДИ', Axis('Дебит q', 'тыс. м³/сут', from_zero=True),
-                  Axis('Δp² = p_пл² − p_заб²', '(кгс/см²)²', from_zero=True))
+                  Axis('Δp² = p<sub>пл</sub>² − p<sub>заб</sub>²', '(кгс/см²)²', from_zero=True))
     for g in items:
         name = g['date'] + (' · ' + g['method'] if g['method'] else '') + ('' if g['reliable'] else ' (ненадёжное)')
         qs = [p[0] for p in g['points']]
