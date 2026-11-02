@@ -66,7 +66,7 @@ class GisModule(Module):
                 Option('md', 'MD, м от стола'), Option('abs', 'а.о., м (альтитуда − MD)')),
                   help='MD — метры от стола, как в таблицах ГИС. а.о. — абсолютная отметка со знаком минус; нужна альтитуда скважины '
                        '(из «Базы ГИС» или «Положения и перфорации»), без неё остаётся MD.'),
-            Param('cons_dates', 'Даты конструкции', 'multi', default=[], dynamic=True, empty='последняя', section='Схема скважины',
+            Param('cons_dates', 'Даты конструкции', 'multi', default=[], dynamic=True, empty='последняя', section='Схема скважины', depends=('wells',),
                   show_if={'view': 'construction'},
                   help='Конструкция скважины на дату исследования (из файла «Конструкции из Word» или шаблона «Конструкция»). Пусто — самая '
                        'поздняя. Несколько дат — схемы рядом для сравнения; если у скважины нет снимка на дату, она пропускается.'),
@@ -119,8 +119,8 @@ class GisModule(Module):
             cons = data.get(DatasetKind.CONSTRUCTION)
             if cons is None or cons.empty:
                 return []
-            wells = set(params.get('wells') or [])
-            part = cons[cons['well'].astype(str).isin(wells)] if wells else cons
+            wells = {str(w) for w in params.get('wells') or []}
+            part = cons[cons['well'].astype(str).isin(wells)] if wells else cons.iloc[0:0]          # даты только выбранных скважин
             return [f'{d:%d.%m.%Y}' for d in sorted(part['date'].dropna().unique(), reverse=True)]
         df = data[GIS]
         if name == 'wells':

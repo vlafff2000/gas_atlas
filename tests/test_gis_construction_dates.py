@@ -58,3 +58,22 @@ def test_view_cons_compare(tmp_path):
     res = GisModule.run_cons_compare({DatasetKind.CONSTRUCTION: cons()}, {'cons_other': str(path), 'cons_tol': 0.5, 'wells': []})
     assert len(res.tables) == 1 and set(res.tables[0].frame['Расхождение']) == {'глубины различаются'} and len(res.tables[0].frame) == 1
     assert 'решает инженер' in res.notes[0].text
+
+
+def test_dates_only_for_selected_wells_and_result_is_json():
+    """Даты в списке — только выбранных скважин (параметр зависит от «Скважины»); результат сериализуется в JSON (раньше numpy.bool_ давал 500)."""
+    import json
+    from atlas.domain import DatasetKind
+    from atlas.modules.gis import GisModule
+    c = pd.concat([cons(), cons().assign(well='600', date=pd.Timestamp('2020-02-02'))])
+    mod = GisModule()
+    spec = next(p for p in mod.spec.params if p.name == 'cons_dates')
+    assert 'wells' in spec.depends
+    data = {DatasetKind.CONSTRUCTION: c}
+    assert mod.options('cons_dates', data, {'wells': ['600']}) == ['02.02.2020']
+    assert mod.options('cons_dates', data, {'wells': ['500']}) == ['10.06.2016', '29.05.2013']
+    chart = gis_well.construction_chart('500', c, bottoms(), None, False)
+    json.dumps(chart.figure.data['resource'])
+    for date in (None, pd.Timestamp('2013-05-29')):
+        json.dumps(gis_well.construction_chart('500', c, bottoms(), None, False, date=date).figure.data, default=str)
+        assert type(gis_well.construction_chart('500', c, bottoms(), None, False, date=date).figure.data['resource']) is bool
