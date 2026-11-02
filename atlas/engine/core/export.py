@@ -11,7 +11,7 @@ import datetime
 import numpy as np
 import pandas as pd
 from .export_combo import Areas,Bars,ghost,is_back,is_combo,overlay,sync
-from .export_style import ru_tick
+from .export_style import group_thousands,ru_tick
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -190,7 +190,7 @@ def point_labels(ax,x,y,family,size,opts):
     ha={'left':'right','right':'left'}.get(place,'center');va={'top':'bottom','bottom':'top'}.get(place,'center')
     for xi,v in zip(x,y):
         if v is None or not np.isfinite(v):continue
-        text=f'{v:.{decimals if decimals is not None else 1}f}'.replace('.',',') if decimals is not None else f'{v:g}'.replace('.',',')
+        text=group_thousands(f'{v:.{decimals if decimals is not None else 1}f}' if decimals is not None else f'{v:g}').replace('.',',')
         ax.annotate(text,(xi,v),xytext=offset,textcoords='offset points',ha=ha,va=va,fontsize=size,family=family)
 
 
@@ -200,7 +200,7 @@ def value_labels(ax,bars,values,family,size,opts=None):
     pts=ax.get_position().width*ax.figure.get_figwidth()*72/(abs(np.diff(ax.get_xlim())[0]) or 1)
     for rect,v in zip(bars,values):
         if v is None or not np.isfinite(v):continue
-        text=f'{v:.{decimals}f}'.replace('.',',') if decimals else f'{v:.0f}';wide=len(text)*size*.5>rect.get_width()*pts
+        text=group_thousands(f'{v:.{decimals}f}' if decimals else f'{v:.0f}').replace('.',',');wide=len(text)*size*.5>rect.get_width()*pts
         up=v>=0;edge=rect.get_y()+rect.get_height() if up else rect.get_y()
         ax.annotate(text,(rect.get_x()+rect.get_width()/2,edge),xytext=(0,2 if up else -2),textcoords='offset points',
                     ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=90 if wide else 0)
