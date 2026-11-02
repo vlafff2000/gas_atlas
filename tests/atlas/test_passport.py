@@ -145,3 +145,22 @@ def test_card_has_diagrams_daily_and_chronology(env):
 def pd_date(text):
     import datetime
     return datetime.datetime.strptime(text, '%d.%m.%Y')
+
+
+def test_artificial_bottom_is_drawn_separately_from_measured():
+    """Искусственный забой (пробка) — фиолетовая линия с подписью; отбитый забой по замеру остаётся красным."""
+    import pandas as pd
+    from atlas import passport_card
+    assert passport_card.classify('Искусственный забой') == 'artificial'
+    assert passport_card.classify('Забой') == 'bottom'
+    cons = pd.DataFrame([
+        {'element': 'Эксплуатационная колонна', 'top_m': 0.0, 'bottom_m': 800.0, 'diameter_mm': 168.0, 'inner_diameter_mm': None, 'comment': ''},
+        {'element': 'Фильтр', 'top_m': 785.0, 'bottom_m': 795.0, 'diameter_mm': None, 'inner_diameter_mm': None, 'comment': ''},
+        {'element': 'Искусственный забой', 'top_m': 790.0, 'bottom_m': 790.0, 'diameter_mm': None, 'inner_diameter_mm': None, 'comment': ''},
+    ])
+    sch = passport_card.schematic(cons, 796.4)
+    artificial = [s for s in sch['shapes'] if s.get('name') == 'artificial']
+    assert len(artificial) == 1 and artificial[0]['y0'] == 790.0
+    assert any('Искусственный забой 790 м' == lab['text'] for lab in sch['labels'])
+    assert any(s.get('name') == 'bottom' for s in sch['shapes'])
+    assert any('искусственный' in n.lower() for n in sch['notes'])

@@ -20,13 +20,16 @@ RULES = (('reaming', r'расшир|подзабой|каверн'), ('filter', 
          ('tubing', r'нкт|лифт|насосно'), ('pay', r'пласт|коллектор|продуктив'),
          ('casing', r'эксплуатационн|э/?к\b'))
 KIND_LABELS = {'casing': 'Эксплуатационная колонна', 'tubing': 'НКТ', 'filter': 'Фильтр', 'perf': 'Перфорация',
-               'reaming': 'Расширка', 'packer': 'Пакер', 'bridge': 'Цементный мост', 'pay': 'Пласт', 'bottom': 'Забой'}
+               'reaming': 'Расширка', 'packer': 'Пакер', 'bridge': 'Цементный мост', 'pay': 'Пласт', 'bottom': 'Забой',
+               'artificial': 'Искусственный забой'}
 SKIPPED = r'кондуктор|направлени|потайн|хвостовик|техническ'
 
 
 def classify(element: str) -> str | None:
     """Тип элемента схемы по названию из шаблона конструкции; None — элемент на схему не выносится."""
     text = str(element).lower()
+    if re.search(r'искусствен', text):
+        return 'artificial'
     if re.search(r'забой', text):
         return 'bottom'
     if re.search(SKIPPED, text) and not re.search(r'фильтр|перфор|расшир', text):
@@ -67,6 +70,8 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None) -> dict[str, A
         return {'items': [], 'notes': ['Нет конструкции на схему: загрузите снимок конструкции (шаблон «Конструкция»).'],
                 'skipped': skipped, 'top': 0, 'bottom': 0, 'bottom_m': bottom_m}
     kinds = {i['kind'] for i in items}
+    if 'artificial' in kinds:
+        notes.append('Фиолетовая линия — искусственный забой (пробка, глубина от стола); красная — отбитый забой по замеру.')
     if 'casing' not in kinds:
         notes.append('В конструкции нет эксплуатационной колонны: колонна на схеме не показана.')
     if not kinds & {'filter', 'perf'}:
@@ -160,6 +165,10 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
     for i in by['bridge']:
         rect(-1.0, 1.0, i['top'], i['bottom'], '#9ca3af', 'cement', 'bridge')
         tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"Цементный мост {i['top']:g}–{i['bottom']:g} м", '#4b5563')
+    for i in by['artificial']:
+        if top <= i['top'] <= low:
+            out.append({'t': 'line', 'x0': -1.7, 'x1': 1.7, 'y0': i['top'], 'y1': i['top'], 'stroke': '#7c3aed', 'width': 2.5, 'name': 'artificial'})
+            tag(i['top'], f"Искусственный забой {i['top']:g} м", '#6d28d9')
     cover, bottom_m = sch.get('covered_m'), sch.get('bottom_m')
     if cover and bottom_m:
         rect(-.95, .95, bottom_m, bottom_m + cover, '#e8c987', 'sand', 'fill')

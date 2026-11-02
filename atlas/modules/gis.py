@@ -80,6 +80,8 @@ class GisModule(Module):
                   help='Перфорация из «Базы ГИС» и «Положения и перфорации» задана в а.о. (как в файле «Глубины_перфораций»): положительное '
                        'число без знака минус тоже а.о. Пересчёт в MD — альтитуда − а.о. Если в вашем файле метры от стола, выберите MD. '
                        'Выбор запоминается в проекте для этого раздела.'),
+            Param('scheme_artificial', 'Искусственный забой на схеме', 'boolean', default=True, section='Схема скважины', show_if={'view': 'construction'},
+                  help='Пробка (искусственный забой) из конструкции: фиолетовая линия с глубиной от стола. Отбитый забой по замеру выводится всегда. Выключите, если пробка не нужна на схеме.'),
             Param('scheme_gis', 'Пачки ГИС на схеме', 'boolean', default=True, section='Схема скважины', show_if={'view': 'construction'},
                   help='Показать на схеме интервалы пачек (последний замер каждой пачки) из «Базы ГИС» (кровля и подошва). Выключите, чтобы остались только колонна, НКТ, фильтр и перфорация.'),
             Param('an_base', 'Новый сезон', 'choice', default='', dynamic=True, auto='last:1', section='Таблицы АН', show_if={'view': 'an'},
@@ -231,7 +233,8 @@ class GisModule(Module):
                     continue
                 for date in dates:
                     result.charts.append(gis_well.construction_chart(well, cons, data.get(DatasetKind.BOTTOM), data[GIS], bool(params['scheme_gis']),
-                                                                      data.get(DatasetKind.WELL_GEO), params.get('perf_depth', 'abs'), date))
+                                                                      data.get(DatasetKind.WELL_GEO), params.get('perf_depth', 'abs'), date,
+                                                                      artificial=bool(params.get('scheme_artificial', True))))
             result.notes.extend(Note(n) for n in dict.fromkeys(c.figure.data['perf_note'] for c in result.charts if c.figure.data['perf_note']))
             result.notes.append(Note('Схема забоя та же, что в паспорте скважины: показаны эксплуатационная колонна, НКТ, фильтр, перфорация, '
                                      'расширка, пакер и забой. Ширина условная, диаметры — в подписях.'))
