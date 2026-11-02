@@ -65,6 +65,10 @@ class GisModule(Module):
                 Option('md', 'MD, м от стола'), Option('abs', 'а.о., м (альтитуда − MD)')),
                   help='MD — метры от стола, как в таблицах ГИС. а.о. — абсолютная отметка со знаком минус; нужна альтитуда скважины '
                        '(из «Базы ГИС» или «Положения и перфорации»), без неё остаётся MD.'),
+            Param('perf_depth', 'Перфорация задана в', 'choice', default='auto', section='Перфорация', show_if={'view': ['construction', 'planshet']}, options=(
+                Option('auto', 'авто: минус — а.о., плюс — MD'), Option('abs', 'а.о. (все значения)'), Option('md', 'MD, метры от стола')),
+                  help='Перфорация из «Базы ГИС» и «Положения и перфорации» обычно задана в а.о. Авто: отрицательное число — а.о., '
+                       'положительное — глубина от стола. Если все значения а.о. без знака минус, выберите «а.о.». Пересчёт в MD — альтитуда − а.о.'),
             Param('scheme_gis', 'Пачки ГИС на схеме', 'boolean', default=True, section='Схема скважины', show_if={'view': 'construction'},
                   help='Показать на схеме интервалы пачек (последний замер каждой пачки) из «Базы ГИС» (кровля и подошва). Выключите, чтобы остались только колонна, НКТ, фильтр и перфорация.'),
             Param('an_base', 'Новый сезон', 'choice', default='', dynamic=True, auto='last:1', section='Таблицы АН', show_if={'view': 'an'},
@@ -168,7 +172,9 @@ class GisModule(Module):
                 result.notes.append(Note('Нет конструкции скважин: загрузите шаблон «Конструкция» (Импорт данных). '
                                          'Без неё на схеме будут только пачки ГИС.', level='warning'))
             for well in wells:
-                result.charts.append(gis_well.construction_chart(well, cons, data.get(DatasetKind.BOTTOM), data[GIS], bool(params['scheme_gis'])))
+                result.charts.append(gis_well.construction_chart(well, cons, data.get(DatasetKind.BOTTOM), data[GIS], bool(params['scheme_gis']),
+                                                                  data.get(DatasetKind.WELL_GEO), params.get('perf_depth', 'auto')))
+            result.notes.extend(Note(n) for n in dict.fromkeys(c.figure.data['perf_note'] for c in result.charts if c.figure.data['perf_note']))
             result.notes.append(Note('Схема забоя та же, что в паспорте скважины: показаны эксплуатационная колонна, НКТ, фильтр, перфорация, '
                                      'расширка, пакер и забой. Ширина условная, диаметры — в подписях.'))
             return result
@@ -183,12 +189,14 @@ class GisModule(Module):
             result.notes.append(Note('В таблице интервалов нет замеров с датой.'))
             return result
         for well in wells:
-            chart = gis_well.planshet_chart(well, data[INTERVALS], data[GIS], data.get(DatasetKind.WELL_GEO), labels, params.get('depth_axis', 'md'))
+            chart = gis_well.planshet_chart(well, data[INTERVALS], data[GIS], data.get(DatasetKind.WELL_GEO), labels, params.get('depth_axis', 'md'), params.get('perf_depth', 'auto'))
             if chart is not None:
                 result.charts.append(chart)
         if not result.charts:
             result.notes.append(Note('За выбранные скважины и сезоны интервалов нет.'))
             return result
+        result.notes.extend(Note(n, level='warning' if 'не показана' in n else 'info')
+                            for n in dict.fromkeys(c.figure.data['perf_note'] for c in result.charts if c.figure.data['perf_note']))
         if params.get('depth_axis', 'md') == 'abs':
             lacking = [c.figure.data['well'] for c in result.charts if c.figure.data['axis'] != 'abs']
             if lacking:

@@ -31,7 +31,7 @@ function autoPick(rule: string, options: string[]): string[] {
 }
 
 const visible = (p: Param, values: Params) =>
-  !p.show_if || Object.entries(p.show_if).every(([k, v]) => values[k] === v)
+  !p.show_if || Object.entries(p.show_if).every(([k, v]) => (Array.isArray(v) ? v.includes(values[k]) : values[k] === v))
 
 /** Одна строка-сводка свёрнутой панели: «№ 31, 45, 540 · Отбор · 2023-2024 – 2025-2026 · Q / дата». */
 export function paramSummary(params: Param[], values: Params, options: Record<string, string[] | undefined>): string[] {

@@ -17,3 +17,5 @@
 .planshet-gvk { font-size: 12px; fill: #0369a1; }
 .figure-chart .figure-body { overflow-x: auto; padding: 6px 0; }
 .figure-chart .well-schematic { margin: 0 auto; }
+svg.zoomable { cursor: grab; touch-action: none; user-select: none; }
+svg.zoomable:active { cursor: grabbing; }

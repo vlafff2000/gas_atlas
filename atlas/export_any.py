@@ -221,7 +221,7 @@ def routes(projects, E, compute) -> list:
             now = {**base, **over}
             out.append((over, label))
             for p in kinds:
-                if p.show_if and any(now.get(k) != v for k, v in p.show_if.items()):
+                if p.show_if and any((now.get(k) not in v) if isinstance(v, (list, tuple)) else now.get(k) != v for k, v in p.show_if.items()):
                     continue
                 for o in p.options:
                     if o.value != now.get(p.name):
