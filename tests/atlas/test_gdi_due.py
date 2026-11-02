@@ -257,3 +257,15 @@ def test_only_production_fund_by_default_and_manual_return():
     assert set(build(d, {**PARAMS, 'fund_scope': 'all'}).well) == {'1', '2', '3', '4'}
     note = ' '.join(n.text for n in GdiDueModule().run(d, {**PARAMS}).notes)
     assert 'вне эксплуатационного фонда' in note and '3 (контрольная)' in note
+
+
+def test_analysis_season_is_selectable():
+    d = data()
+    last = build(d, PARAMS).set_index('well')
+    assert last.at['3', 'last_period'] == '2025-2026' and last.at['3', 'change'] == pytest.approx(-40)
+    first = build(d, {**PARAMS, 'season': '2024-2025'}).set_index('well')
+    assert first.at['3', 'last_period'] == '2024-2025' and pd.isna(first.at['3', 'change'])    # раньше сезона нет — пропуск, не нуль
+    m = GdiDueModule()
+    assert m.options('season', d, {}) == ['2024-2025', '2025-2026']
+    stats = {s.label: s.value for s in m.run(d, {**PARAMS, 'season': '2024-2025'}).summary}
+    assert stats['Сезон анализа'] == '2024-2025'
