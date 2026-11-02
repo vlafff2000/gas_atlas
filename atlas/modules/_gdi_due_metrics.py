@@ -32,12 +32,18 @@ def withdrawal_days(prod: pd.DataFrame) -> pd.DataFrame:
     return df[['well', 'date', 'q', 'period', 'hours']]
 
 
-def last_two(df: pd.DataFrame) -> tuple[str | None, str | None]:
-    """Названия последнего и предыдущего сезонов отбора по дате начала."""
-    if df.empty:
+def season_order(df: pd.DataFrame) -> list[str]:
+    """Сезоны отбора по дате начала (от раннего к позднему)."""
+    return [] if df.empty else df.groupby('period').date.min().sort_values().index.tolist()
+
+
+def last_two(df: pd.DataFrame, base: str | None = None) -> tuple[str | None, str | None]:
+    """Сезон анализа и предыдущий за ним. ``base`` — выбранный инженером сезон; не задан или без данных — самый поздний."""
+    order = season_order(df)
+    if not order:
         return None, None
-    order = df.groupby('period').date.min().sort_values().index.tolist()
-    return order[-1], (order[-2] if len(order) > 1 else None)
+    i = order.index(str(base)) if base is not None and str(base) in order else len(order) - 1
+    return order[i], (order[i - 1] if i > 0 else None)
 
 
 def _slope_pct(index: pd.Series) -> float:

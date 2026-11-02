@@ -16,7 +16,7 @@ from ..contract import Axis, Chart, Series, Column, Data, Module, ModuleSpec, No
 from ..domain import UNITS, DatasetKind
 from atlas.engine.core.config import COLORS
 from ._production import x_step
-from ._gdi_due_metrics import METRIC_COLUMNS, productivity_intervals, well_curves, cumulative, dynamics, kru_response, last_two, withdrawal_days
+from ._gdi_due_metrics import METRIC_COLUMNS, season_order, productivity_intervals, well_curves, cumulative, dynamics, kru_response, last_two, withdrawal_days
 from .gdi import well_key
 from atlas import well_funds
 from .gdi_trend import VERDICTS, histories, rating
@@ -36,13 +36,13 @@ def interval_args(params: dict[str, Any]) -> dict[str, Any]:
             'need_open': int(params.get('need_open', 1)) == 1}
 
 
-def season_flows(prod: pd.DataFrame) -> pd.DataFrame:
+def season_flows(prod: pd.DataFrame, base: str | None = None) -> pd.DataFrame:
     """Средний расход скважины в днях с расходом за два последних сезона отбора: well, last, prev (тыс. м³/сут), сезоны — в attrs."""
     cols = ['well', 'last', 'prev', 'last_period', 'prev_period']
     df = withdrawal_days(prod)
     if df.empty:
         return pd.DataFrame(columns=cols)
-    last, prev = last_two(df)
+    last, prev = last_two(df, base)
     mean = df.groupby(['well', 'period']).q.mean() / 1e3
     out = pd.DataFrame({'well': sorted(df.well.unique(), key=well_key)})
     out['last'] = out.well.map(lambda w: mean.get((w, last), np.nan))
@@ -105,12 +105,12 @@ def build(data: Data, params: dict[str, Any]) -> pd.DataFrame:
     today = pd.Timestamp(params.get('today') or pd.Timestamp.today().normalize())
     table['years'] = (today - pd.to_datetime(table.last_gdi)).dt.days / 365.25
     # расход относительно группы
-    flows = relative_drop(season_flows(prod), group_of)
+    flows = relative_drop(season_flows(prod, params.get('season')), group_of)
     keep = ['well', 'last', 'prev', 'change', 'group_change', 'gap', 'last_period', 'prev_period']
     table = table.merge(flows[keep] if not flows.empty else pd.DataFrame(columns=keep), on='well', how='left')
     # накопленный расход, динамика внутри сезона против группы и объекта, отклик на раскрытие КРУ
     days = withdrawal_days(prod)
-    last_p, prev_p = last_two(days)
+    last_p, prev_p = last_two(days, params.get('season'))
     elpro = data[ELPRO] if ELPRO in data else None
     for part in (cumulative(days, last_p, prev_p, group_of), dynamics(days, last_p, group_of), kru_response(elpro, days, last_p, prev_p, group_of)):
         table = table.merge(part, on='well', how='left')
@@ -183,7 +183,7 @@ def apply_manual(table: pd.DataFrame, add: list[str], remove: list[str]) -> pd.D
 def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> list[Chart]:
     """График на скважину: суточные расходы скважины, группы и объекта, давление и раскрытие КРУ (ЭЛПРО); красным — интервалы снижения продуктивности."""
     days = withdrawal_days(data[PRODUCTION] if PRODUCTION in data else pd.DataFrame())
-    last, _ = last_two(days)
+    last, _ = last_two(days, params.get('season'))
     if last is None:
         return []
     elpro = data[ELPRO] if ELPRO in data else None
@@ -322,6 +322,9 @@ class GdiDueModule(Module):
                   help='Как в «Производительности скважин»: по дате или по накопленному отбору объекта с начала сезона.'),
             Param('show', 'Графики для скважин', 'multi', default=[], source=Source(GDI, 'well'), section='Графики', wells_picker=True, empty='первые 6 из списка',
                   help='Не выбрано ничего — графики для первых шести скважин списка. На графике: суточные расходы скважины, группы и объекта, давление и раскрытие КРУ из ЭЛПРО; красным подсвечены интервалы снижения продуктивности.'),
+            Param('season', 'Сезон анализа', 'choice', default='', dynamic=True, auto='last:1', section='Сезон',
+                  help='Сезон отбора, относительно которого идёт анализ: расход, накопленный отбор, динамика внутри сезона, КРУ и интервалы снижения берутся за него, '
+                       'сравнение — с предыдущим сезоном. Не выбран — самый поздний сезон с отбором.'),
             Param('fund_scope', 'Фонд скважин', 'choice', default='production', section=SECTION,
                   options=(Option('production', 'Только эксплуатационный'), Option('all', 'Все скважины')),
                   help='Контрольные, наблюдательные и геофизические скважины в анализ не входят. Фонд скважины задаётся в проекте (инженер правит вручную); '
@@ -340,6 +343,11 @@ class GdiDueModule(Module):
         ),
     )
 
+    def options(self, name: str, data: Data, params: dict[str, Any]) -> list[str]:
+        if name == 'season':
+            return season_order(withdrawal_days(data[PRODUCTION] if PRODUCTION in data else pd.DataFrame()))
+        return super().options(name, data, params)
+
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         result = Result()
         if not any(k in data and not data[k].empty for k in (GDI, PRODUCTION)):
@@ -349,6 +357,7 @@ class GdiDueModule(Module):
         table = apply_manual(build(data, params), params.get('add') or [], params.get('remove') or [])
         listed = table[table.in_list]
         result.summary = [
+            Stat('Сезон анализа', str(table.last_period.dropna().iloc[0]) if table.last_period.notna().any() else '—', 'Сравнивается с предыдущим сезоном отбора'),
             Stat('Скважин в проекте', str(len(table))),
             Stat('В списке на ГДИ', str(len(listed)), 'Есть признак по расчёту или добавлены вручную'),
             Stat('Без надёжного ГДИ', str(int(table.last_gdi.isna().sum()))),
