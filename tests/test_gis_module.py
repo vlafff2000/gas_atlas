@@ -474,19 +474,21 @@ def _perf_data(mode, top, bottom, altitude=50.0, **kw):
 
 
 def test_perforation_in_abs_is_converted_by_altitude_not_read_as_md():
-    perf, res = _perf_data('auto', -751.0, -760.0)
+    perf, res = _perf_data('abs', -751.0, -760.0)
     assert perf == [{'top': 801.0, 'bottom': 810.0}]
     assert any('а.о.' in n.text for n in res.notes)
 
 
-def test_perforation_positive_values_follow_the_chosen_mode():
-    assert _perf_data('auto', 801.0, 810.0)[0] == [{'top': 801.0, 'bottom': 810.0}]       # положительные в авто — MD
-    assert _perf_data('abs', 751.0, 760.0)[0] == [{'top': 801.0, 'bottom': 810.0}]        # а.о. без знака минус
-    assert _perf_data('md', -751.0, -760.0, altitude=None)[0] == [{'top': -760.0, 'bottom': -751.0}]
+def test_perforation_abs_without_minus_sign_is_still_abs_and_old_auto_means_abs():
+    """Реальный случай: отметки перфорации в файле положительные (глубина ниже моря без знака), это а.о., а не MD."""
+    assert _perf_data('abs', 751.0, 760.0)[0] == [{'top': 801.0, 'bottom': 810.0}]
+    assert GisModule().spec.coerce({'perf_depth': 'auto'})['perf_depth'] == 'abs'
+    assert _perf_data('md', 801.0, 810.0)[0] == [{'top': 801.0, 'bottom': 810.0}]
+    assert _perf_data('md', 751.0, 760.0, altitude=None)[0] == [{'top': 751.0, 'bottom': 760.0}]
 
 
 def test_perforation_in_abs_without_altitude_is_not_drawn_and_says_why():
-    perf, res = _perf_data('auto', -751.0, -760.0, altitude=None)
+    perf, res = _perf_data('abs', -751.0, -760.0, altitude=None)
     assert perf == [] and any('альтитуды нет' in n.text for n in res.notes)
 
 
@@ -499,3 +501,10 @@ def test_scheme_takes_perforation_from_gis_when_construction_has_none():
     res = GisModule().run({GIS: packs, DatasetKind.CONSTRUCTION: cons}, _params(wells=['115'], view='construction', scheme_gis=False))
     perf = [i for i in res.charts[0].figure.data['scheme']['items'] if i['kind'] == 'perf']
     assert [(i['top'], i['bottom']) for i in perf] == [(801.0, 810.0)]
+
+
+def test_perforation_from_well_geo_positive_abs_is_converted_too():
+    geo = pd.DataFrame({'well': ['115'], 'altitude': [50.0], 'perf_top': [751.0], 'perf_bottom': [760.0]})
+    res = GisModule().run({GIS: _frame(), DatasetKind.GIS_INTERVALS: _intervals(), DatasetKind.WELL_GEO: geo},
+                          _params(wells=['115'], view='planshet', seasons=[], perf_depth='abs'))
+    assert res.charts[0].figure.data['perf'] == [{'top': 801.0, 'bottom': 810.0}]
