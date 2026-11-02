@@ -108,27 +108,25 @@ def dynamics(days: pd.DataFrame, last: str | None, group_of: dict[str, str]) -> 
 
 
 def kru_response(elpro: pd.DataFrame | None, days: pd.DataFrame, last: str | None, prev: str | None, group_of: dict[str, str]) -> pd.DataFrame:
-    """Раскрытие КРУ (ЭЛПРО, ``y``, %) и отклик расхода: среднее раскрытие по сезонам, «расход на 1% раскрытия», его изменение и отставание от медианы группы (расход от раскрытия нелинеен, поэтому сравнение с группой).
+    """Раскрытие КРУ (ЭЛПРО, ``y``, %) и отклик расхода (расход — из БД суточных расходов, не из ЭЛПРО): среднее раскрытие по сезонам, «расход на 1% раскрытия», его изменение и отставание от медианы группы (расход от раскрытия нелинеен, поэтому сравнение с группой).
     Больше раскрытие — должен быть больше расход; если расход падает при том же или большем раскрытии, продуктивность снизилась."""
     cols = ['well', 'open_last', 'open_prev', 'open_change', 'eff_last', 'eff_prev', 'eff_change', 'eff_gap', 'open_corr']
     if elpro is None or elpro.empty or 'y' not in elpro or last is None:
         return pd.DataFrame(columns=cols)
     e = elpro[elpro.kind.eq('withdrawal')] if 'kind' in elpro else elpro
     e = e.assign(well=e.well.astype(str), date=pd.to_datetime(e.date).dt.normalize())
-    e = e[e.y.gt(0) & e.q.gt(0)]
+    e = e[e.y.gt(0)].drop_duplicates(['well', 'date'])[['well', 'date', 'y']]
 
     def window(p):
-        if p is None:
-            return e.iloc[0:0]
-        r = days[days.period.eq(p)].date
-        return e[e.date.between(r.min(), r.max())]
+        """Дни сезона: расход — из нормированной БД суточных расходов (как в модуле производительности), раскрытие КРУ — из ЭЛПРО."""
+        return days[days.period.eq(p)].merge(e, on=['well', 'date']) if p is not None else days.iloc[0:0].assign(y=np.nan)
     el, ep = window(last), window(prev)
     out = pd.DataFrame({'well': sorted(el.well.unique())})
     out['open_last'] = out.well.map(el.groupby('well').y.mean())
     out['open_prev'] = out.well.map(ep.groupby('well').y.mean()) if not ep.empty else np.nan
     out['open_change'] = (out.open_last - out.open_prev) / out.open_prev * 100
-    out['eff_last'] = out.well.map(el.groupby('well').q.mean()) / out.open_last
-    out['eff_prev'] = out.well.map(ep.groupby('well').q.mean()) / out.open_prev if not ep.empty else np.nan
+    out['eff_last'] = out.well.map(el.groupby('well').q.mean()) / 1e3 / out.open_last
+    out['eff_prev'] = out.well.map(ep.groupby('well').q.mean()) / 1e3 / out.open_prev if not ep.empty else np.nan
     out['eff_change'] = (out.eff_last - out.eff_prev) / out.eff_prev * 100
     out['eff_gap'] = out.eff_change - out.assign(g=out.well.map(lambda w: group_of.get(w, ''))).groupby('g').eff_change.transform('median')
     corr = el.groupby('well').apply(lambda g: g.q.corr(g.y) if len(g) >= DAYS_MIN and g.y.nunique() > 1 else np.nan, include_groups=False)
