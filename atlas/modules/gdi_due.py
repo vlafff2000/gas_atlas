@@ -18,6 +18,7 @@ from atlas.engine.core.config import COLORS
 from ._production import x_step
 from ._gdi_due_metrics import METRIC_COLUMNS, productivity_intervals, well_curves, cumulative, dynamics, kru_response, last_two, withdrawal_days
 from .gdi import well_key
+from atlas import well_funds
 from .gdi_trend import VERDICTS, histories, rating
 
 GDI, PRODUCTION, PRIORITY_K, ELPRO = DatasetKind.GDI, DatasetKind.PRODUCTION, DatasetKind.KRS_PRIORITY, DatasetKind.ELPRO
@@ -61,14 +62,31 @@ def relative_drop(flows: pd.DataFrame, group_of: dict[str, str]) -> pd.DataFrame
     return out
 
 
+def out_of_fund(data: Data, wells: set[str], params: dict[str, Any]) -> dict[str, str]:
+    """Скважины вне эксплуатационного фонда (контрольные, наблюдательные, геофизические): скважина → название фонда.
+
+    Фонд берётся из проекта (ручной выбор инженера важнее подсказки). Скважина без признаков фонда не скрывается;
+    скважины из «Добавить вручную» остаются всегда. Параметр «Фонд скважин» = «Все» отключает отбор."""
+    if params.get('fund_scope', 'production') == 'all':
+        return {}
+    frames = {k.value if isinstance(k, DatasetKind) else str(k): v for k, v in data.raw.items()}
+    groups = {w: (m or {}).get('group', '') for w, m in data.mapping.items()}
+    rows = well_funds.table(frames, groups, data.settings or {})
+    fund = {r['well']: r['fund'] for r in rows}
+    keep = {well_funds.norm(w) for w in params.get('add') or []}
+    return {w: well_funds.LABEL[fund[well_funds.norm(w)]] for w in wells
+            if fund.get(well_funds.norm(w), '') not in ('', 'production') and well_funds.norm(w) not in keep}
+
+
 def build(data: Data, params: dict[str, Any]) -> pd.DataFrame:
-    """Таблица скважин с признаками и причинами (без ручных правок)."""
+    """Таблица скважин с признаками и причинами (без ручных правок). Только эксплуатационный фонд (см. ``out_of_fund``)."""
     gdi = data[GDI] if GDI in data else pd.DataFrame()
     prod = data[PRODUCTION] if PRODUCTION in data else pd.DataFrame()
     wells = set(data.wells or [])
     for frame in (gdi, prod):
         if not frame.empty and 'well' in frame:
             wells |= set(frame.well.astype(str))
+    wells -= set(out_of_fund(data, wells, params))
     group_of = {w: (data.mapping.get(w, {}) or {}).get('group', '') for w in wells}
     table = pd.DataFrame({'well': sorted(wells, key=well_key)})
     table['group'] = table.well.map(group_of)
@@ -304,6 +322,10 @@ class GdiDueModule(Module):
                   help='Как в «Производительности скважин»: по дате или по накопленному отбору объекта с начала сезона.'),
             Param('show', 'Графики для скважин', 'multi', default=[], source=Source(GDI, 'well'), section='Графики', wells_picker=True, empty='первые 6 из списка',
                   help='Не выбрано ничего — графики для первых шести скважин списка. На графике: суточные расходы скважины, группы и объекта, давление и раскрытие КРУ из ЭЛПРО; красным подсвечены интервалы снижения продуктивности.'),
+            Param('fund_scope', 'Фонд скважин', 'choice', default='production', section=SECTION,
+                  options=(Option('production', 'Только эксплуатационный'), Option('all', 'Все скважины')),
+                  help='Контрольные, наблюдательные и геофизические скважины в анализ не входят. Фонд скважины задаётся в проекте (инженер правит вручную); '
+                       'отдельную скважину можно вернуть через «Добавить вручную».'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01, setting='r2_threshold', section=SECTION,
                   help='Общая настройка проекта: исследования с R² ниже порога не считаются надёжными.'),
             Param('change', 'Порог ухудшения ГДИ', 'number', default=10.0, minimum=1, maximum=80, step=1, unit='%', section=SECTION,
@@ -333,6 +355,11 @@ class GdiDueModule(Module):
             Stat(f'Старше {params["years"]:g} лет', str(int(table.years.ge(params['years']).sum()))),
             Stat('Изменено вручную', str(int(table.state.ne(STATE_AUTO).sum())))]
         result.notes.append(Note(NOTE))
+        skipped = out_of_fund(data, set(data.wells or []) | {str(w) for k in (GDI, PRODUCTION) if k in data and 'well' in data[k] for w in data[k].well}, params)
+        if skipped:
+            names = ', '.join(f'{w} ({f.lower()})' for w, f in sorted(skipped.items(), key=lambda x: well_key(x[0])))
+            result.notes.append(Note(f'Не рассматриваются скважины вне эксплуатационного фонда ({len(skipped)}): {names}. Фонд скважины меняется в проекте; '
+                                     'вернуть скважину можно параметром «Добавить вручную» или выбрав «Все скважины» в «Фонд скважин».'))
         if GDI not in data or data[GDI].empty:
             result.notes.append(Note('Данных ГДИ в проекте нет: все скважины считаются без надёжного исследования.', 'warning'))
         if ELPRO not in data or data[ELPRO].empty:

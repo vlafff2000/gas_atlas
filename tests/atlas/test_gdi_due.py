@@ -246,3 +246,14 @@ def test_cumulative_counts_from_well_start_not_season_start():
     c = cumulative(days, last, prev, {'1': 'A', '3': 'A'}).set_index('well')
     assert c.at['1', 'cum_days'] == 100 and c.at['3', 'cum_days'] == 60
     assert c.at['3', 'cum_change'] == pytest.approx(0)          # поздний старт — не снижение отбора
+
+
+def test_only_production_fund_by_default_and_manual_return():
+    d = data()
+    d.settings = {'well_funds': {'3': 'control', '2': 'observation'}}
+    t = build(d, PARAMS)
+    assert set(t.well) == {'1', '4'}                                    # контрольная и наблюдательная скважины не рассматриваются
+    assert set(build(d, {**PARAMS, 'add': ['3']}).well) == {'1', '3', '4'}   # ручное решение возвращает скважину
+    assert set(build(d, {**PARAMS, 'fund_scope': 'all'}).well) == {'1', '2', '3', '4'}
+    note = ' '.join(n.text for n in GdiDueModule().run(d, {**PARAMS}).notes)
+    assert 'вне эксплуатационного фонда' in note and '3 (контрольная)' in note
