@@ -213,12 +213,17 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
         ax.set_ylim(chart.y.minimum or 0, chart.y.maximum)
     from atlas.engine.core.export import sort_legend
     handles, labels = sort_legend(*ax.get_legend_handles_labels())
+    st = o.get('style') or {}
+    kw = {'frameon': bool(st.get('legend_border') or st.get('legend_background')), 'fontsize': float(st.get('legend_size') or base - 1)}
+    if st.get('legend_background'):
+        kw['facecolor'] = st['legend_background']
+    cols = int(st.get('legend_columns') or 0)
     if legend == 'right':
-        ax.legend(handles, labels, bbox_to_anchor=(1.01, 1), loc='upper left', frameon=False, fontsize=base - 1)
+        ax.legend(handles, labels, bbox_to_anchor=(1.01, 1), loc='upper left', ncol=cols or 1, **kw)
     elif legend == 'top':
-        ax.legend(handles, labels, bbox_to_anchor=(0, 1.02), loc='lower left', frameon=False, fontsize=base - 1, ncol=max(1, len(bars)))
+        ax.legend(handles, labels, bbox_to_anchor=(0, 1.02), loc='lower left', ncol=cols or max(1, len(bars)), **kw)
     elif legend == 'bottom':
-        fig.legend(handles, labels, loc='lower center', frameon=False, fontsize=base - 1, ncol=max(1, min(len(labels), 6)))
+        fig.legend(handles, labels, loc='lower center', ncol=cols or max(1, min(len(labels), 6)), **kw)
     ax.tick_params(labelsize=base - 1)
     ax.set_title(chart.title, fontsize=base + 1, y=1.0 if legend != 'top' else 1.08)
     if table and table.aligned:
