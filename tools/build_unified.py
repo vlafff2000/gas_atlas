@@ -152,6 +152,28 @@ def write_update_note(folder, target):
         (folder / 'ОБНОВЛЕНИЕ.txt').write_text(UPDATE_NOTE, encoding='utf-8')
 
 
+def git_head(repo):
+    """Коммит репозитория, из которого собран архив; «неизвестно», если это не git-репозиторий."""
+    try:
+        return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=str(repo), text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return 'неизвестно'
+
+
+def write_build_info(folder, scripts):
+    """ВЕРСИЯ_СБОРКИ.txt: коммиты обоих репозиториев и файл интерфейса Атласа, чтобы сверить архив с ветками."""
+    index = (ROOT / 'atlas' / 'web' / 'dist' / 'index.html').read_bytes()
+    bundles = sorted(set(re.findall(rb'assets/[^"\']+\.js', index)))
+    text = ('Сборка архива ПХГ\n'
+            'Газовый атлас (gas_atlas): %s\n'
+            'Остальные приложения (all_scripts): %s\n'
+            'Интерфейс Атласа, index.html (sha256): %s\n'
+            'Файлы интерфейса: %s\n') % (
+        git_head(ROOT), git_head(scripts), hashlib.sha256(index).hexdigest(),
+        ', '.join(b.decode('ascii') for b in bundles))
+    (folder / 'ВЕРСИЯ_СБОРКИ.txt').write_text(text, encoding='utf-8')
+
+
 def installed_dists(site):
     """Пакеты в папке site: {имя в нижнем регистре: (имя из METADATA, версия, папка .dist-info)}."""
     found = {}
@@ -351,6 +373,7 @@ def main(argv=None):
         copy_scripts(scripts, folder)
         write_launchers(args.target, folder, sp)
         write_update_note(folder, args.target)
+        write_build_info(folder, scripts)
         compile_check(folder)
         for cache in folder.rglob('__pycache__'):
             shutil.rmtree(str(cache), ignore_errors=True)
@@ -375,6 +398,7 @@ def main(argv=None):
     copy_scripts(scripts, folder)
     write_launchers(args.target, folder, sp)
     check_runtime(folder, args.target)
+    write_build_info(folder, scripts)
     if (args.target == 'windows') == (os.name == 'nt'):
         smoke_test(folder)
         shutil.rmtree(str(folder / 'logs'), ignore_errors=True)
