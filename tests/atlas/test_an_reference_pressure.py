@@ -71,3 +71,14 @@ def test_pressure_is_not_taken_from_a_measurement_more_than_30_days_away():
     assert an_report.pressure_near(pressure, '2025-11-20') == 90.0
     assert an_report.pressure_near(pressure, '2025-10-20') == 95.0
     assert an_report.pressure_near(pressure, '2026-03-01') is None
+
+
+def test_group_pressure_x_axis_cumulative_object_volume_or_date_by_default():
+    # объект за сезон: 220 000 м³ в первые сутки, 190 000 во вторые → накопленный 0,22 и 0,41 млн м³
+    by_date = group_chart(run({DatasetKind.RESPONSE: RESPONSE}))
+    assert by_date.x.scale == 'time'
+    by_cum = group_chart(run({DatasetKind.RESPONSE: RESPONSE}, {'group_x': 'cumulative'}))
+    assert by_cum.x.scale == 'value' and by_cum.x.unit == 'млн м³'
+    xs = {s.name: [round(float(v), 2) for v in s.x] for s in by_cum.series}
+    assert xs == {'ГСП 1': [0.22, 0.41], 'ГСП 3': [0.22, 0.41]}
+    assert {s.name: list(s.y) for s in by_cum.series} == {'ГСП 1': [91.0, 88.0], 'ГСП 3': [70.0, 72.0]}
