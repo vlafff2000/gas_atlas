@@ -16,7 +16,7 @@ from atlas.engine.modules import gis_hikg
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series, Stat, Table
 from ..domain import DatasetKind
-from . import gis_an_tables, gis_tiles, gis_well
+from . import gis_an_tables, gis_cons_compare, gis_tiles, gis_well
 
 GIS = DatasetKind.GIS_PACKS
 INTERVALS = DatasetKind.GIS_INTERVALS
@@ -60,7 +60,8 @@ class GisModule(Module):
                 Option('all', 'Все три'), *(Option(k, v[3]) for k, v in METRICS.items()),
                 Option('combo', 'Кривая hэф и столбцы Кг'), Option('svod', 'Свод по пачкам, все скважины'),
                 Option('tile', 'Плитка ГНТ и Кг по скважинам'), Option('hikg', 'Σ hi × Кг по исследованиям'), Option('an', 'Таблицы главы 5 АН (5.4–5.8)'),
-                Option('construction', 'Конструкция скважины'), Option('planshet', 'Планшет ГИС'))),
+                Option('construction', 'Конструкция скважины'), Option('cons_compare', 'Сравнение конструкций с другим файлом'),
+                Option('planshet', 'Планшет ГИС'))),
             Param('depth_axis', 'Глубина по оси', 'choice', default='md', section=SECTION, show_if={'view': 'planshet'}, options=(
                 Option('md', 'MD, м от стола'), Option('abs', 'а.о., м (альтитуда − MD)')),
                   help='MD — метры от стола, как в таблицах ГИС. а.о. — абсолютная отметка со знаком минус; нужна альтитуда скважины '
@@ -69,6 +70,11 @@ class GisModule(Module):
                   show_if={'view': 'construction'},
                   help='Конструкция скважины на дату исследования (из файла «Конструкции из Word» или шаблона «Конструкция»). Пусто — самая '
                        'поздняя. Несколько дат — схемы рядом для сравнения; если у скважины нет снимка на дату, она пропускается.'),
+            Param('cons_other', 'Другой файл конструкций', 'file', default='', extensions='xlsx', section='Сравнение конструкций',
+                  show_if={'view': 'cons_compare'},
+                  help='Excel в формате шаблона конструкции (например, из «Работы с исходными данными»). Сверяется с конструкцией проекта по скважине, '
+                       'дате и элементу. Свести две базы в одну можно там же: «Сведение баз конструкций».'),
+            Param('cons_tol', 'Допуск глубин, м', 'number', default=0.5, section='Сравнение конструкций', show_if={'view': 'cons_compare'}),
             Param('perf_depth', 'Перфорация задана в', 'choice', default='abs', section=SECTION, show_if={'view': ['construction', 'planshet']},
                   options=(Option('abs', 'а.о. (отметка ниже моря)'), Option('md', 'MD (метры от стола)')), aliases={'auto': 'abs'},
                   help='Перфорация из «Базы ГИС» и «Положения и перфорации» задана в а.о. (как в файле «Глубины_перфораций»): положительное '
@@ -129,6 +135,8 @@ class GisModule(Module):
             return self.run_an(data, params)
         if params['view'] == 'tile':
             return self.run_tile(data, params)
+        if params['view'] == 'cons_compare':
+            return self.run_cons_compare(data, params)
         if params['view'] in ('construction', 'planshet'):
             return self.run_well(data, params)
         if params['view'] == 'hikg':
@@ -165,6 +173,37 @@ class GisModule(Module):
         result.summary = [Stat('Скважин', str(len(wells))), Stat('Замеров', str(len(part)))]
         result.notes.append(Note('Треугольник — весенний замер (после отбора), круг — осенний (после закачки). Замеры без сезона '
                                  'показаны кругом. Точку можно исключить щелчком, как в других разделах.'))
+        return result
+
+    @staticmethod
+    def run_cons_compare(data: Data, params: dict[str, Any]) -> Result:
+        """Конструкции проекта против другого файла: таблица расхождений, без правки данных."""
+        from atlas.engine.core import loader
+        result = Result()
+        cons = data.get(DatasetKind.CONSTRUCTION)
+        if cons is None or cons.empty:
+            result.notes.append(Note('В проекте нет конструкции скважин: загрузите её (Импорт данных) и выберите файл для сравнения.'))
+            return result
+        path = (params.get('cons_other') or '').strip()
+        if not path:
+            result.notes.append(Note('Выберите другой файл конструкций для сравнения.'))
+            return result
+        try:
+            other = loader.load_file(path).frames.get('construction')
+        except (ValueError, OSError) as err:
+            result.notes.append(Note(f'Файл не прочитан: {err}', level='warning'))
+            return result
+        if other is None or other.empty:
+            result.notes.append(Note('В файле не найдена таблица конструкции (шаблон «Конструкция»).', level='warning'))
+            return result
+        diff = gis_cons_compare.compare(cons, other, float(params.get('cons_tol') or 0.5), list(params['wells']) or None)
+        if diff.empty:
+            result.notes.append(Note('Конструкции совпадают в пределах допуска.'))
+            return result
+        counts = diff['Расхождение'].value_counts()
+        result.notes.append(Note('Расхождений: ' + ', '.join(f'{k} — {v}' for k, v in counts.items()) + '. Это подсказка: какая база верна, решает инженер. '
+                                 'Свести базы в одну — «Работа с исходными данными» → «Сведение баз конструкций».', level='warning'))
+        result.tables.append(Table('cons-compare', 'Расхождения конструкций', diff))
         return result
 
     @staticmethod
