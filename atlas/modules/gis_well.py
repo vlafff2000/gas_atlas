@@ -51,7 +51,7 @@ def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.
     rows = cons.copy() if len(cons) else pd.DataFrame(columns=['element', 'top_m', 'bottom_m'])
     if not artificial and len(rows):
         rows = rows[~rows['element'].astype(str).str.contains('искусствен', case=False)]      # настройка «Искусственный забой на схеме»
-    resource = bool(len(cons)) and 'resource' in cons and cons['resource'].fillna('').astype(str).str.strip().str.lower().eq('да').any()
+    resource = bool(len(cons) and 'resource' in cons and cons['resource'].fillna('').astype(str).str.strip().str.lower().eq('да').any())       # bool, не numpy: уходит в JSON
     bottom_m = None
     if bottom is not None and len(bottom):
         b = bottom[bottom['well'].astype(str) == well].sort_values('date')
