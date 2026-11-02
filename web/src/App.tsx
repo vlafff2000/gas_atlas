@@ -277,7 +277,7 @@ function ModuleView({ spec, project, onProject }: { spec: ModuleSpec; project: P
 /** Вид графиков раздела — в верхнем тулбаре, чтобы сразу было видно, что можно построить. */
 function ChartKinds({ spec, values, onChange }: { spec: ModuleSpec; values: Params; onChange: (v: Params) => void }) {
   const kinds = spec.params.filter(p => p.chart_kind && p.options.length > 1
-    && (!p.show_if || Object.entries(p.show_if).every(([k, v]) => values[k] === v)))
+    && (!p.show_if || Object.entries(p.show_if).every(([k, v]) => (Array.isArray(v) ? v.includes(values[k]) : values[k] === v))))
   if (!kinds.length) return null
   return (
     <div className="chart-kinds">

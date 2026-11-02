@@ -1,19 +1,69 @@
-import { useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { Chart, FigureData } from './api'
 import type { Schematic } from './api_passport'
 import { CopyButton, DownloadMenu } from './ChartView'
 
+/** Масштаб и сдвиг оси глубины: колесо — масштаб около курсора, перетаскивание — сдвиг, двойной щелчок — сброс (как у остальных графиков).
+ *  Окно не выходит за полный диапазон ``full``; ``g`` — геометрия поля графика в единицах viewBox. */
+function useDepthView(full: [number, number], g: { vbH: number; y0: number; h: number }) {
+  const [view, setView] = useState<[number, number] | null>(null)
+  const [el, setEl] = useState<SVGSVGElement | null>(null)
+  const cur: [number, number] = view ?? full
+  const live = useRef({ cur, full, g })
+  live.current = { cur, full, g }
+  useEffect(() => setView(null), [full[0], full[1]])
+  useEffect(() => {
+    if (!el) return
+    const fit = (lo: number, span: number): [number, number] | null => {
+      const [f0, f1] = live.current.full
+      if (span >= f1 - f0 - 1e-9) return null
+      const a = Math.max(f0, Math.min(lo, f1 - span))
+      return [a, a + span]
+    }
+    const zAt = (clientY: number) => {
+      const r = el.getBoundingClientRect(), { cur: c, g: geo } = live.current
+      return c[0] + ((clientY - r.top) / r.height * geo.vbH - geo.y0) / geo.h * (c[1] - c[0])
+    }
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const { cur: c, full: f } = live.current
+      const z = zAt(e.clientY), span = Math.min(Math.max((c[1] - c[0]) * (e.deltaY > 0 ? 1.25 : 0.8), (f[1] - f[0]) / 200), f[1] - f[0])
+      setView(fit(z - (z - c[0]) / (c[1] - c[0]) * span, span))
+    }
+    let drag: { y: number; lo: number; span: number } | null = null
+    const down = (e: PointerEvent) => { drag = { y: e.clientY, lo: live.current.cur[0], span: live.current.cur[1] - live.current.cur[0] }; el.setPointerCapture(e.pointerId) }
+    const move = (e: PointerEvent) => {
+      if (!drag) return
+      const r = el.getBoundingClientRect(), geo = live.current.g
+      setView(fit(drag.lo - (e.clientY - drag.y) / r.height * geo.vbH / geo.h * drag.span, drag.span))
+    }
+    const up = () => { drag = null }
+    const reset = () => setView(null)
+    el.addEventListener('wheel', wheel, { passive: false })
+    el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move)
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('dblclick', reset)
+    return () => {
+      el.removeEventListener('wheel', wheel); el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); el.removeEventListener('dblclick', reset)
+    }
+  }, [el])
+  return { ref: setEl, view: cur, zoomed: view !== null }
+}
+
 /** Забойная часть: рисуется по фигурам ядра (те же, что на странице PDF), глубина вниз. */
 export function WellSchematic({ s }: { s: Schematic }) {
-  if (!s.shapes || s.items.length === 0) return <p className="muted">{s.notes[0] ?? 'Нет конструкции.'}</p>
   const W = 720, H = 500, left = 46, scaleX = 68, cx = left + 3.2 * scaleX
-  const y = (m: number) => 12 + (m - s.top) / (s.bottom - s.top) * (H - 24)
+  const zoom = useDepthView([s.top, s.bottom], { vbH: H, y0: 12, h: H - 24 })
+  const clip = useId()
+  if (!s.shapes || s.items.length === 0) return <p className="muted">{s.notes[0] ?? 'Нет конструкции.'}</p>
+  const [v0, v1] = zoom.view
+  const y = (m: number) => 12 + (m - v0) / (v1 - v0) * (H - 24)
   const x = (u: number) => cx + u * scaleX
-  const step = Math.max(Math.round((s.bottom - s.top) / 5 / 10) * 10, 5)
+  const step = [1, 2, 5, 10, 20, 50, 100].find(k => (v1 - v0) / k <= 7) ?? 100
   const ticks: number[] = []
-  for (let t = (Math.floor(s.top / step) + 1) * step; t < s.bottom; t += step) ticks.push(t)
+  for (let t = Math.ceil(v0 / step) * step; t <= v1; t += step) ticks.push(t)
   return (
-    <svg className="well-schematic" viewBox={`0 0 ${W} ${H}`} role="img"
+    <svg ref={zoom.ref} className="well-schematic zoomable" viewBox={`0 0 ${W} ${H}`} role="img"
          aria-label="Схема забойной части: эксплуатационная колонна, НКТ, фильтр, интервалы расширки, забой">
       <defs>
         <pattern id="pp-slots" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -26,11 +76,13 @@ export function WellSchematic({ s }: { s: Schematic }) {
           <rect width="5" height="5" fill="#e8c987" /><circle cx="1.5" cy="1.5" r=".8" fill="#a8791f" /><circle cx="4" cy="4" r=".8" fill="#a8791f" />
         </pattern>
       </defs>
+      <clipPath id={clip}><rect x="0" y="6" width={W} height={H - 12} /></clipPath>
       <rect x="0" y="0" width={W} height={H} rx="8" className="schematic-bg" />
       {ticks.map(t => (
         <g key={t}><line x1={left - 6} x2={left} y1={y(t)} y2={y(t)} className="schematic-tick" />
           <text x={left - 9} y={y(t)} className="schematic-tick-text" textAnchor="end" dominantBaseline="middle">{t}</text></g>))}
       <text x={left - 9} y="10" className="schematic-tick-text" textAnchor="end">м</text>
+      <g clipPath={`url(#${clip})`}>
       {s.shapes.map((f, i) => f.t === 'poly'
         ? <polyline key={i} points={f.pts!.map(([u, m]) => `${x(u)},${y(m)}`).join(' ')} fill="none" stroke={f.stroke} strokeWidth={f.width} strokeLinejoin="miter" />
         : f.t === 'rect'
@@ -44,6 +96,7 @@ export function WellSchematic({ s }: { s: Schematic }) {
                     fill="none" stroke={l.color} strokeWidth=".8" />
           <text x={x(2.65)} y={y(l.at)} fill={l.color} className="schematic-label" dominantBaseline="middle">{l.text}</text>
         </g>))}
+      </g>
     </svg>
   )
 }
@@ -58,23 +111,27 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
   const AXIS = 50, PERF = 24, TW = 170, PAD = 12, HEAD = 56, H = 520
   const packs = [...new Set(d.tracks.flatMap(t => t.bars.map(b => b.pack)))]
   const color = (p: string) => PACK_COLORS[Math.max(packs.indexOf(p), 0) % PACK_COLORS.length]
-  const y = (m: number) => HEAD + (m - d.top) / (d.bottom - d.top) * H
+  const zoom = useDepthView([d.top, d.bottom], { vbH: HEAD + H + 12, y0: HEAD, h: H })
+  const clip = useId()
+  const [v0, v1] = zoom.view
+  const y = (m: number) => HEAD + (m - v0) / (v1 - v0) * H
   const abs = d.axis === 'abs' && d.alt !== null
   const toV = (m: number) => (abs ? (d.alt as number) - m : m)          // MD → значение на оси (а.о. = альтитуда − MD)
   const toM = (v: number) => (abs ? (d.alt as number) - v : v)
-  const vLo = Math.min(toV(d.top), toV(d.bottom)), vHi = Math.max(toV(d.top), toV(d.bottom))
+  const vLo = Math.min(toV(v0), toV(v1)), vHi = Math.max(toV(v0), toV(v1))
   const step = [1, 2, 5, 10, 20, 50, 100].find(s => (vHi - vLo) / s <= 14) ?? 100
   const ticks: number[] = []
   for (let t = Math.ceil(vLo / step) * step; t <= vHi; t += step) ticks.push(t)
   const W = AXIS + PERF + 8 + d.tracks.length * (TW + PAD) + 150
   const gx = (ti: number) => AXIS + PERF + 8 + ti * (TW + PAD)
   return (
-    <svg className="well-planshet" viewBox={`0 0 ${W} ${HEAD + H + 12}`} role="img" aria-label="Планшет ГИС по глубине">
+    <svg ref={zoom.ref} className="well-planshet zoomable" viewBox={`0 0 ${W} ${HEAD + H + 12}`} role="img" aria-label="Планшет ГИС по глубине">
       <defs>
         <pattern id="pl-perf" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <rect width="6" height="6" fill="#fecdd3" /><line x1="0" y1="0" x2="0" y2="6" stroke="#e11d48" strokeWidth="2" />
         </pattern>
       </defs>
+      <clipPath id={clip}><rect x="0" y={HEAD} width={W} height={H} /></clipPath>
       <rect x="0" y="0" width={W} height={HEAD + H + 12} rx="8" className="schematic-bg" />
       <text x={AXIS - 9} y={HEAD - 8} className="schematic-tick-text" textAnchor="end">{abs ? 'а.о.' : 'MD'}</text>
       {ticks.map(t => (
@@ -82,9 +139,11 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
           <text x={AXIS - 9} y={y(toM(t))} className="schematic-tick-text" textAnchor="end" dominantBaseline="middle">{t}</text>
           <line x1={AXIS + PERF + 4} x2={W - 150} y1={y(toM(t))} y2={y(toM(t))} className="planshet-grid" /></g>))}
       <text x={AXIS + PERF / 2} y={HEAD - 8} className="planshet-head" textAnchor="middle">Перф.</text>
+      <g clipPath={`url(#${clip})`}>
       {d.perf.map((p, i) => (
         <rect key={i} x={AXIS} y={y(p.top)} width={PERF} height={Math.max(y(p.bottom) - y(p.top), 1)} fill="url(#pl-perf)" stroke="#be123c">
           <title>{`Перфорация ${ru(p.top)}–${ru(p.bottom)} м`}</title></rect>))}
+      </g>
       {d.tracks.map((t, ti) => {
         const x0 = gx(ti), kx = (kg: number) => x0 + Math.min(Math.max(kg, 0), 1) * TW
         return (
@@ -94,6 +153,7 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
             <text x={x0 + TW / 2} y={HEAD - 10} className="schematic-tick-text" textAnchor="middle">замер {t.date}</text>
             <line x1={kx(d.cutoff)} x2={kx(d.cutoff)} y1={HEAD} y2={HEAD + H} className="planshet-cutoff" />
             {[0, 0.5, 1].map(v => <text key={v} x={kx(v)} y={HEAD + H + 10} className="schematic-tick-text" textAnchor="middle" style={{ fontSize: 13 }}>{v}</text>)}
+            <g clipPath={`url(#${clip})`}>
             {t.bars.map((b, i) => (
               <rect key={i} x={x0} y={y(b.top)} width={Math.max(((b.kg ?? 0) * TW), 1)} height={Math.max(y(b.bottom) - y(b.top) - 1, 1)}
                     fill={b.gas ? color(b.pack) : GRAY} opacity={b.kg === null ? .25 : .9}>
@@ -104,6 +164,7 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
                 <text x={x0 + TW - 3} y={y(m.gvk) - 3} textAnchor="end" className="planshet-gvk" stroke="#fff" strokeWidth="3" paintOrder="stroke">
                   {`ГВК ${ru(m.gvk)} м${m.gvk_abs !== null ? ` (${ru(m.gvk_abs)} а.о.)` : ''}`}</text>
               </g>))}
+            </g>
             {t.packs.filter(m => m.h_eff !== null).map((m, i) => (
               <text key={i} x={x0 + 4} y={HEAD + H + 24 + i * 13} className="schematic-tick-text" style={{ fontSize: 13 }}>{`${m.pack}: hг эф ${ru(m.h_eff!)} м`}</text>))}
           </g>)

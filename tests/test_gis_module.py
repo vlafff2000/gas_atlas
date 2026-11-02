@@ -415,7 +415,7 @@ def _intervals():
 def test_planshet_has_track_per_season_gray_below_cutoff_and_perforation_from_gis():
     packs = _frame()
     packs['altitude_m'] = 50.0
-    packs['perf_top_m'], packs['perf_bottom_m'] = 801.0, 810.0
+    packs['perf_top_m'], packs['perf_bottom_m'] = -751.0, -760.0      # а.о., как в файле «Глубины_перфораций»
     res = GisModule().run({GIS: packs, DatasetKind.GIS_INTERVALS: _intervals()}, _params(wells=['115'], view='planshet', seasons=[]))
     fig = res.charts[0].figure
     assert fig.kind == 'planshet' and len(fig.data['tracks']) == 2
@@ -461,3 +461,41 @@ def test_planshet_depth_axis_abs_needs_altitude_and_falls_back_to_md():
     assert data['axis'] == 'abs' and data['alt'] == 50.0
     res = GisModule().run({GIS: _frame(), DatasetKind.GIS_INTERVALS: _intervals()}, _params(**base, depth_axis='abs'))
     assert res.charts[0].figure.data['axis'] == 'md' and any('альтитуд' in n.text for n in res.notes)
+
+
+def _perf_data(mode, top, bottom, altitude=50.0, **kw):
+    packs = _frame()
+    if altitude is not None:
+        packs['altitude_m'] = altitude
+    packs['perf_top_m'], packs['perf_bottom_m'] = top, bottom
+    res = GisModule().run({GIS: packs, DatasetKind.GIS_INTERVALS: _intervals()},
+                          _params(wells=['115'], view='planshet', seasons=[], perf_depth=mode, **kw))
+    return res.charts[0].figure.data['perf'], res
+
+
+def test_perforation_in_abs_is_converted_by_altitude_not_read_as_md():
+    perf, res = _perf_data('auto', -751.0, -760.0)
+    assert perf == [{'top': 801.0, 'bottom': 810.0}]
+    assert any('а.о.' in n.text for n in res.notes)
+
+
+def test_perforation_positive_values_follow_the_chosen_mode():
+    assert _perf_data('auto', 801.0, 810.0)[0] == [{'top': 801.0, 'bottom': 810.0}]       # положительные в авто — MD
+    assert _perf_data('abs', 751.0, 760.0)[0] == [{'top': 801.0, 'bottom': 810.0}]        # а.о. без знака минус
+    assert _perf_data('md', -751.0, -760.0, altitude=None)[0] == [{'top': -760.0, 'bottom': -751.0}]
+
+
+def test_perforation_in_abs_without_altitude_is_not_drawn_and_says_why():
+    perf, res = _perf_data('auto', -751.0, -760.0, altitude=None)
+    assert perf == [] and any('альтитуды нет' in n.text for n in res.notes)
+
+
+def test_scheme_takes_perforation_from_gis_when_construction_has_none():
+    cons = pd.DataFrame({'well': ['115'], 'date': pd.to_datetime(['2024-01-01']), 'element': ['Эксплуатационная колонна'],
+                         'top_m': [0.0], 'bottom_m': [820.0]})
+    packs = _frame()
+    packs['altitude_m'] = 50.0
+    packs['perf_top_m'], packs['perf_bottom_m'] = -751.0, -760.0
+    res = GisModule().run({GIS: packs, DatasetKind.CONSTRUCTION: cons}, _params(wells=['115'], view='construction', scheme_gis=False))
+    perf = [i for i in res.charts[0].figure.data['scheme']['items'] if i['kind'] == 'perf']
+    assert [(i['top'], i['bottom']) for i in perf] == [(801.0, 810.0)]
