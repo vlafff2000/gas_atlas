@@ -75,8 +75,8 @@ export function BuilderModels({ project, notes, onChange }: { project: string; n
       )}
       {chosen > 0 && list?.cubes && (
         <div className="check" title="Читаются только рестарты в этих датах: чем уже период, тем быстрее. Пусто — без границы.">
-          Рестарты с <PeriodDate value={list.cubes_from} end={false} disabled={busy} onChange={v => setCubes({ cubes_from: v ?? '' })} label="Рестарты с" />
-          {' '}по <PeriodDate value={list.cubes_to} end disabled={busy} onChange={v => setCubes({ cubes_to: v ?? '' })} label="Рестарты по" />
+          Рестарты с <PeriodDate value={list.cubes_from} end={false} project={project} disabled={busy} onChange={v => setCubes({ cubes_from: v ?? '' })} label="Рестарты с" />
+          {' '}по <PeriodDate value={list.cubes_to} end project={project} disabled={busy} onChange={v => setCubes({ cubes_to: v ?? '' })} label="Рестарты по" />
           {' '}<button type="button" className="kind" disabled={busy} onClick={refresh}
             title="Сбросить сохранённые шаги и прочитать кубы заново: если модель пересчитали с теми же сеткой и началом рестарта.">Пересчитать заново</button>
         </div>

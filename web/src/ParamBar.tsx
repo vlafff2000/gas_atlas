@@ -1,6 +1,7 @@
 import { PeriodDate, isEndParam } from './PeriodDate'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Icon } from './Icon'
+import { groupSections } from './paramSections'
 import { api, type ModuleSpec, type Param, type Params } from './api'
 import { MultiSelect } from './MultiSelect'
 import { wellPresets } from './api_wells'
@@ -103,13 +104,8 @@ export function ParamBar({ spec, project, panel, values, onChange, revision = 0 
     onChange(latest.current)
   }
 
-  const sections: [string, Param[]][] = []
-  for (const p of spec.params) {
-    if (p.chart_kind || p.kind === 'json' || !visible(p, values)) continue    // json — макет раздела, правится его интерфейсом
-    if (p.requires_dataset && hasData[p.name] !== true) continue
-    const last = sections[sections.length - 1]
-    if (last && last[0] === p.section) last[1].push(p); else sections.push([p.section, [p]])
-  }
+  const sections = groupSections(spec.params.filter(p => !(p.chart_kind || p.kind === 'json' || !visible(p, values))
+    && !(p.requires_dataset && hasData[p.name] !== true)))
 
   const summary = [filterSummary(values.well_filter as Filter | null), ...paramSummary(spec.params, values, { ...options, ...dynamic })].filter(Boolean)
   const setFilter = (v: Filter | null) => set('well_filter', v)
@@ -320,7 +316,7 @@ function Field({ param: p, project, value, options, onChange }:
     return (
       <label className="field date" title={p.help}>
         <span className="field-label">{p.label}</span>
-        <PeriodDate value={(value as string | null) ?? null} end={isEndParam(p.name)} onChange={onChange} />
+        <PeriodDate value={(value as string | null) ?? null} end={isEndParam(p.name)} onChange={onChange} project={project} />
       </label>
     )
   }

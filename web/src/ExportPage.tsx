@@ -10,6 +10,7 @@ import { Toast, type PageProps } from './ProjectPage'
 import { wellPresetApi, type WellPreset } from './api_wells'
 import { ExportAnyChart } from './ExportAnyChart'
 import { ResizableFrame } from './ResizableFrame'
+import { PeriodDate } from './PeriodDate'
 import { Check, Color, GRID_OPTIONS, MINOR_GRID_OPTIONS, Num, Opt, Section, Select, SizePick, Text, type FieldProps as SharedFieldProps } from './exportFields'
 
 /** Поля формы раздела «Экспорт»: общие поля получают ещё и перечень выбора (choices). */
@@ -518,7 +519,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         </>
       ) : (
         <div className="param-bar">
-          <ModuleTab key={current} module={current} label={choices.modules.find(m => m.id === current)!.label}
+          <ModuleTab key={current} projectId={project.id} module={current} label={choices.modules.find(m => m.id === current)!.label}
             enabled={modules.includes(current)} adoptPanels={adoptPanels} {...F}
             onEnable={on => setEnabled(current, on)} />
         </div>
@@ -748,11 +749,12 @@ function Outcome({ title, result, pid, word, pack, ggh }: { title: string; resul
 // ---------- поля формы ----------
 
 
-function DateField({ form, set, field, label, def }: FieldProps & { field: string; label: string; def: string }) {
+function DateField({ form, set, field, label, def, projectId }: FieldProps & { field: string; label: string; def: string }) {
   return (
     <label className="field date">
       <span className="field-label">{label}</span>
-      <input type="date" value={((form[field] as string | undefined) ?? def).slice(0, 10)} onChange={e => e.target.value && set(field, e.target.value)} />
+      <PeriodDate value={((form[field] as string | undefined) ?? def).slice(0, 10) || null} end={field === 'd1'} project={projectId}
+        onChange={v => v && set(field, v)} />
     </label>
   )
 }

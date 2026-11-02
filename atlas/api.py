@@ -175,6 +175,19 @@ def create_app(projects: Projects | None = None) -> Starlette:
     def project_wells(request, body):
         return {'wells': projects.wells(request.path_params['pid'])}
 
+    def project_seasons(request, body):
+        """Сезоны отбора и закачки проекта с границами: список для выбора периода (общий компонент `PeriodDate`)."""
+        from .modules import _seasonal as seasonal
+        from .modules._production import PRODUCTION
+        data = projects.data(request.path_params['pid'])
+        if PRODUCTION not in data or data[PRODUCTION].empty:
+            return {'seasons': []}
+        table = seasonal.season_table(data[PRODUCTION], data[DatasetKind.GAS_DB] if DatasetKind.GAS_DB in data else None)
+        fmt = season_format.format_of(data.settings)
+        return {'seasons': [{'kind': r.kind, 'label': f'{seasonal.KIND_LABEL[r.kind]} {season_format.text(str(r.period), fmt)}',
+                             'start': r.start.strftime('%Y-%m-%d'), 'end': r.end.strftime('%Y-%m-%d')}
+                            for r in table.sort_values('start', ascending=False).itertuples()]}
+
     def project_groups(request, body):
         mapping = projects.data(request.path_params['pid']).mapping
         return {'groups': group_colors.sort_groups(v['group'] for v in mapping.values() if v.get('group'))}
@@ -383,6 +396,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/projects/{pid}/settings', E(settings), methods=['PATCH']),
         Route('/api/projects/{pid}/options', E(options)),
         Route('/api/projects/{pid}/wells', E(project_wells)),
+        Route('/api/projects/{pid}/seasons', E(project_seasons)),
         Route('/api/projects/{pid}/group-list', E(project_groups)),
         Route('/api/app/links', E(app_links)),
         Route('/api/app/maps', maps_open),
