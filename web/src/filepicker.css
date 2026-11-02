@@ -55,3 +55,4 @@
 .fp-favadd input, .fp-favedit input { flex: 1; min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 3px 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; }
 .fp-favadd button { width: auto; padding: 2px 8px; border: 1px solid var(--line-strong); }
 .fp-note.small { padding: 4px 8px; font-size: 12px; }
+.fp-ic { vertical-align: -5px; flex: none; margin-right: 2px; }
