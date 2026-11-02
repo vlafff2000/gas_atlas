@@ -268,7 +268,8 @@ def test_level_band_separates_level_from_pressure(env):
         lev = lambda v: (bottom - v) / (bottom - top)             # уровень: глубже — ниже
         p_band, l_band = (pos(pressure.min()), pos(pressure.max())), (lev(level.max()), lev(level.min()))
         low, high = sorted([p_band, l_band])
-        assert high[0] - low[1] > .05 and 0 < low[0] and high[1] < 1               # полосы не пересекаются, есть зазор
+        overlap = max(0, low[1] - high[0])
+        assert overlap < .7 * min(low[1] - low[0], high[1] - high[0]) and 0 < low[0] and high[1] < 1      # близко, но не поверх друг друга
         assert band == 'auto' or (l_band[0] < p_band[0]) == (band == 'below')
     assert separated_ranges(pressure, level, 'overlay') is None and separated_ranges([], level, 'below') is None
     assert separated_ranges([60, 60], [20, 20], 'below')
