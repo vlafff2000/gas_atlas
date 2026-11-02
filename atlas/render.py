@@ -157,7 +157,7 @@ def labels_meta(look: dict) -> dict:
     """Подписи данных (``valueLabels``, ``label_*``): положение, знаки и размер — рисует ``atlas/engine/core/export.py``."""
     if not look.get('valueLabels'):
         return {}
-    return {'value_labels': True, **{k: look[k] for k in ('label_position', 'label_decimals', 'label_size', 'label_angle') if k in look}}
+    return {'value_labels': True, **{k: look[k] for k in ('label_position', 'label_decimals', 'label_size', 'label_angle', 'label_pick') if k in look}}
 
 
 def style_meta(chart: Chart) -> dict:

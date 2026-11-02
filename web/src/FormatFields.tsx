@@ -4,6 +4,7 @@ import { LINE_STYLES, type Look } from './chartStyle'
 import { HEX } from './ChartSettings'
 import { FONT_CHOICES } from './chartTheme'
 import { RichField } from './RichField'
+import { labelPicker, pointText, usePicking } from './labelPick'
 
 // Общие поля настройки оформления: используются панелью «Формат» на графике (FormatPane) и окнами конструктора.
 // Всё необязательно: пустое поле — авто, в документе оформления его нет.
@@ -281,7 +282,44 @@ const TRENDS: { value: NonNullable<Look['trend']>; label: string }[] = [
   { value: 'power', label: 'Степенная' }, { value: 'exp', label: 'Экспоненциальная' }, { value: 'moving', label: 'Скользящее среднее' },
 ]
 
-export function SeriesExtraFields({ value: look, set, marker, labels, trend = false, hatch = false }: Setter<Look> & { marker: boolean; labels: boolean; trend?: boolean; hatch?: boolean }) {
+const LIST_LIMIT = 300
+
+/** Выбор точек, у которых показана подпись данных: «все», «ни одной», список с флажками и выбор щелчком по графику. */
+function LabelPoints({ look, set, points }: { look: Look; set: (p: Partial<Look>) => void; points: string[] }) {
+  const picking = usePicking()
+  const [find, setFind] = useState('')
+  const shown = look.label_pick ? new Set(look.label_pick) : null
+  const count = shown ? points.filter(k => shown.has(k)).length : points.length
+  const list = points.filter(k => !find || pointText(k).toLowerCase().includes(find.toLowerCase()))
+  const flip = (k: string, on: boolean) => {
+    const now = look.label_pick ?? points
+    const next = on ? [...now, k] : now.filter(x => x !== k)
+    set({ label_pick: next.length >= points.length ? undefined : next })
+  }
+  return (
+    <fieldset>
+      <legend>Подписи у точек</legend>
+      <p className="cs-hint">Подписано точек: {count} из {points.length}. Ручной выбор главнее общего переключателя.</p>
+      <div className="cs-actions">
+        <button type="button" onClick={() => set({ label_pick: undefined })} disabled={!look.label_pick}>У всех</button>
+        <button type="button" onClick={() => set({ label_pick: [] })} disabled={look.label_pick?.length === 0}>Ни у одной</button>
+        <button type="button" aria-pressed={picking} onClick={() => labelPicker.set(!picking)}
+          title="Пока включено, щелчок по точке на графике показывает или убирает её подпись">{picking ? 'Выбор щелчком: включён' : 'Выбрать щелчком по графику'}</button>
+      </div>
+      {points.length > 1 && <details>
+        <summary>Список точек</summary>
+        <input value={find} placeholder="Найти точку" aria-label="Найти точку" onChange={e => setFind(e.target.value)} />
+        <div className="cs-pointlist" style={{ maxHeight: 180, overflow: 'auto' }}>
+          {list.slice(0, LIST_LIMIT).map(k => (
+            <label key={k} className="cs-flag"><input type="checkbox" checked={!shown || shown.has(k)} onChange={e => flip(k, e.target.checked)} /> {pointText(k)}</label>))}
+          {list.length > LIST_LIMIT && <p className="cs-hint">Показаны первые {LIST_LIMIT} из {list.length}: уточните поиск.</p>}
+        </div>
+      </details>}
+    </fieldset>
+  )
+}
+
+export function SeriesExtraFields({ value: look, set, marker, labels, trend = false, hatch = false, points }: Setter<Look> & { marker: boolean; labels: boolean; trend?: boolean; hatch?: boolean; points?: string[] }) {
   return (
     <>
       {marker && <fieldset>
@@ -301,6 +339,7 @@ export function SeriesExtraFields({ value: look, set, marker, labels, trend = fa
             <Num label="Знаков" value={look.label_decimals} min={0} max={8} onChange={v => set({ label_decimals: v })} />
             <Num label="Размер" value={look.label_size} min={5} max={30} onChange={v => set({ label_size: v })} />
           </div>
+          {points && points.length > 0 && <LabelPoints look={look} set={set} points={points} />}
           <Num label="Угол, °" value={look.label_angle} min={-90} max={90} unit="°" onChange={v => set({ label_angle: v })} />
           <div className="cs-actions">
             <button type="button" onClick={() => set({ label_angle: 0 })}>Горизонтально</button>

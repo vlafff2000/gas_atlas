@@ -17,6 +17,8 @@ import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoo
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { applyFormat, mergeFormats, type ChartFormat } from './chartFormat'
 import { FormatPane, type FormatElement } from './FormatPane'
+import { compact as clean } from './FormatFields'
+import { labelPicker, pointKey, pointKeys, togglePick } from './labelPick'
 import { formatDoc, setFormatDoc, type FormatScope } from './projectLooks'
 import { nextSyncId, pinShared, publish, publishZoom, sharedPins, sharedZoom, subscribe, subscribeZoom, synced, unpinShared } from './chartSync'
 import { saveFileWithPicker } from './desktopDownload'
@@ -434,9 +436,14 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       const hollow = L.hollow ?? s.hollow
       // граница маркера и подписи данных из оформления (модель v2): не заданное — как задано модулем
       const edge = (fallback: string, width: number) => ({ borderColor: L.marker_border ?? fallback, borderWidth: L.marker_border_width ?? width })
+      // ручной выбор подписей (Look.label_pick): у остальных точек подпись не рисуется; ключ — исходное значение X
+      const pick = L.label_pick ? new Set(L.label_pick) : null
+      const rawKey = pick && time ? new Map(s.x.map(v => [toNumber(v, 'time'), pointKey(v)] as const)) : null
+      const picked = (row: unknown) => !pick || pick.has(rawKey ? rawKey.get(Number(row)) ?? '' : pointKey(row))
       const dataLabel = (position: string, fallbackDecimals: number | null) => ({
         show: true, position: L.label_position ?? position, distance: 2, fontFamily: fontCss('times'), fontSize: L.label_size ?? SIZE.label, color: tk.ink, ...(L.label_angle !== undefined ? { rotate: L.label_angle } : {}),
-        formatter: (p: { value: unknown }) => { const v = Number(Array.isArray(p.value) ? p.value[1] : p.value)
+        formatter: (p: { value: unknown; name?: string }) => { const v = Number(Array.isArray(p.value) ? p.value[1] : p.value)
+          if (pick && !picked(Array.isArray(p.value) ? p.value[0] : p.name)) return ''
           return Number.isFinite(v) ? formatNumber(v, L.label_decimals ?? fallbackDecimals) : '' } })
       const blur = total <= BLUR_LIMIT
       const emphasis = { focus: blur ? 'series' : 'none', blurScope: 'coordinateSystem' }
@@ -651,7 +658,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
     applyZoom: (() => {}) as () => void,
-    excludeMode, onExclude, onConfirm, pending: null as null | { id: string; dataset: string; timer: number }, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
+    excludeMode, onExclude, onConfirm, pickPoint: (_s: Series, _i: number) => {}, pending: null as null | { id: string; dataset: string; timer: number }, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: Y_NAMES.map(() => (v: number) => v) as ((v: number) => number)[] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1, y3: 1, y4: 1, y5: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
@@ -683,6 +690,14 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
     const own = new Set(given.series.map(seriesLookKey))
     const rest = Object.fromEntries(Object.entries(seriesLooks.get()).filter(([k]) => !own.has(k)))
     seriesLooks.set({ ...rest, ...next })
+  }
+  /** Щелчок по точке в режиме «Выбор подписей»: переключает подпись этой точки (хранится в виде ряда, как остальное оформление). */
+  const pickPoint = (s: Series, i: number) => {
+    const k = seriesLookKey(s)
+    const next = togglePick(s.look, pointKeys(s), pointKey(s.x[i]))
+    const put = (l: Look | undefined): Look => clean({ ...l, label_pick: next })
+    if (format) format.onDoc({ ...format.doc, series: { ...format.doc.series, [k]: put(format.doc.series?.[k]) } })
+    else setLooks({ ...looks, [k]: put(looks?.[k]) })
   }
   /** Что видит инженер: личный вид рядов, ручные границы Y, текущее окно по X, скрытые пункты легенды. */
   /** «Скачать как на экране»: поле графика рисует сам ECharts, легенду (она на странице — разметка) добавляем его же компонентом, чтобы она попала в файл. */
@@ -808,6 +823,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
   state.current.excludeMode = excludeMode
   state.current.mode = mode
   state.current.onExclude = onExclude
+  state.current.pickPoint = pickPoint
   state.current.onConfirm = onConfirm
   state.current.onOpenWell = onOpenWell
   state.current.mapLink = mapLink
@@ -1231,7 +1247,9 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       st.down = null
       const moved = !d || Math.hypot(e.offsetX - d[0], e.offsetY - d[1]) > 4
       const h = st.current, p = h?.point
-      if (!moved && p && st.excludeMode && p.track.series.dataset && p.track.series.ids) {
+      if (!moved && p && labelPicker.get() && p.track.series.look?.valueLabels) {
+        st.pickPoint(p.track.series, p.track.src[p.k])
+      } else if (!moved && p && st.excludeMode && p.track.series.dataset && p.track.series.ids) {
         const id = p.track.series.ids[p.track.src[p.k]]
         if (id && p.track.series.suspect) suspectClick(st, p.track.series.dataset, id)
         else if (id) st.onExclude(p.track.series.dataset, id)
