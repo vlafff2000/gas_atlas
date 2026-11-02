@@ -225,7 +225,7 @@ def test_real_svg_export_contains_every_point(env):
     result = registry.get('response').run(data, registry.get('response').spec.coerce(PARAMS))
     chart = next(c for c in result.charts if c.id.endswith('-pressure'))
     figure = render.to_plotly(chart)
-    assert [len(t.x) for t in figure.data] == [N] * len(WELLS)
+    assert [len(t.x) for t in figure.data][:len(WELLS)] == [N] * len(WELLS)      # дальше может идти кривая давления объекта (опорная сетка)
 
 
 def test_table_exports_equal_raw_data(env):
