@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+import numpy as np
 import pandas as pd
 
 from atlas.engine.core import exclusions
@@ -20,6 +21,7 @@ from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Opt
                         Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
 from ._events import regime_events
+from .an_report import object_pressure_of
 
 RESPONSE, OBJECT, PRODUCTION = DatasetKind.RESPONSE, DatasetKind.OBJECT_PRESSURE, DatasetKind.PRODUCTION
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
@@ -72,9 +74,38 @@ class Selection:
         return between(part, self.start, self.end)
 
 
+GAP_DAYS = 120      # пауза между замерами, после которой кривая прерывается, сут (0 — не прерывать)
+
+
+def with_gaps(dates: pd.Series, values: pd.Series, ids: list | None, labels: list, gap_days: int):
+    """Между замерами дальше ``gap_days`` суток вставляется пустая точка: кривая прерывается,
+    а не тянется линией по несуществующим данным (как у уровня жидкости). 0 — без разрывов. Возвращает x, y, ids, labels."""
+    x, y = dates.to_numpy(), values.to_numpy(float)      # пустые значения остаются: исключённая точка — тоже разрыв
+    if not gap_days or len(x) < 2:
+        return x, y, ids, labels
+    long = np.flatnonzero(np.diff(x).astype('timedelta64[D]').astype(float) > gap_days) + 1
+    if not len(long):
+        return x, y, ids, labels
+    middle = x[long - 1] + (x[long] - x[long - 1]) // 2
+    return (np.insert(x, long, middle), np.insert(y, long, np.nan),
+            None if ids is None else np.insert(np.array(ids, dtype=object), long, '').tolist(),
+            np.insert(np.array(labels, dtype=object), long, '').tolist())
+
+
+def object_pressure_for(frame: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame:
+    """Кривая давления объекта для графика: один набор данных на все скважины. Если в таблице есть горизонты, берутся горизонты графика
+    (нет совпадений — вся таблица); несколько значений на одну дату усредняются, чтобы кривая не пилила."""
+    if 'horizon' in frame:
+        sub = frame[frame.horizon.astype(str).isin(set(part.horizon.astype(str)))]
+        frame = sub if not sub.empty else frame
+    if frame.date.duplicated().any():
+        frame = frame.groupby('date', as_index=False).pressure.mean()
+    return frame
+
+
 def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, palette: Mapping[str, str],
                    object_pressure: pd.DataFrame | None, manometer: set[str], by_well: bool,
-                   pressure_horizons: set[str], level_band: str = 'auto') -> Chart:
+                   pressure_horizons: set[str], level_band: str = 'auto', gap_days: int = GAP_DAYS) -> Chart:
     """Перенос ``charts.response_chart``: те же серии, цвета, маркеры и оси; точки — все (прореживает только выдача на экран)."""
     wells = ordered(part.well)
     pressure_enabled = bool(set(part.horizon).intersection(pressure_horizons)) if not part.empty else False
@@ -102,22 +133,24 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
                      if semantic else palette[w])
             name = suffix.capitalize() if by_well and len(wells) == 1 else f'№ {w}'
             legend_key = (h, w, field) if by_well else w
+            x, yv, ids, labels = with_gaps(data.date, data[field], ids, [f'{h} · скв. {w} · {suffix}'] * len(data), gap_days)
             chart.series.append(Series(
-                name, data.date.to_numpy(), data[field].to_numpy(float), 'line', group=name, color=color,
+                name, x, yv, 'line', group=name, color=color,
                 dash='solid', width=2.0, markers=True, symbol='circle' if field == 'level' else 'diamond',
                 hollow=field == 'level' and semantic, legend=legend_key not in legends,
                 axis='y2' if dual and field == 'level' else 'y',
-                labels=[f'{h} · скв. {w} · {suffix}'] * len(data), ids=ids, dataset=RESPONSE))
+                labels=labels, ids=ids, dataset=RESPONSE))
             legends.add(legend_key)
     if pressure_enabled and metric in ('pressure', 'combined') and object_pressure is not None \
             and not object_pressure.empty:
-        data = object_pressure.sort_values('date')
+        data = object_pressure_for(object_pressure, part).sort_values('date')
         data = data[data.date.between(part.date.min(), part.date.max())]
         if not data.empty:
+            x, yv, ids, _ = with_gaps(data.date, data.pressure, data['_point_id'].astype(str).tolist() if '_point_id' in data else None,
+                                      [''] * len(data), gap_days)
             chart.series.append(Series(
-                'Пластовое давление объекта', data.date.to_numpy(), data.pressure.to_numpy(float), 'line',
-                color=OBJECT_COLOR, dash='solid', width=2.0, markers=True,
-                ids=data['_point_id'].astype(str).tolist() if '_point_id' in data else None, dataset=OBJECT))
+                'Пластовое давление объекта', x, yv, 'line',
+                color=OBJECT_COLOR, dash='solid', width=2.0, markers=True, ids=ids, dataset=OBJECT))
     if dual:      # шкалы разнесены автоматически: кривая уровня стоит отдельной полосой, а не поверх давлений (charts.separated_ranges)
         apart = separated_ranges([v for s in chart.series if s.axis != 'y2' for v in s.y],
                                  [v for s in chart.series if s.axis == 'y2' for v in s.y], level_band)
@@ -226,6 +259,9 @@ class ResponseModule(Module):
             Param('date_to', 'по', 'date', default=None, section=SECTION_DATA, help='Пусто — до последнего замера'),
             Param('view', 'Вид графиков', 'choice', default='separate', options=VIEWS, section=SECTION_VIEW, chart_kind=True),
             Param('split', 'Построение', 'choice', default='horizon', options=SPLITS, section=SECTION_VIEW),
+            Param('gap_days', 'Прерывать кривую при паузе более, сут', 'integer', default=GAP_DAYS, minimum=0, maximum=3650,
+                  unit='сут', section=SECTION_VIEW,
+                  help='Если между замерами прошло больше суток, чем здесь, кривая прерывается, а не тянется линией. 0 — не прерывать'),
         ),
     )
 
@@ -256,7 +292,7 @@ class ResponseModule(Module):
                 Stat('Действующих уровней', str(level)), Stat('Замеров давления', str(pressure)),
                 Stat('Исключено точек', str(excluded), 'Уровень и давление одного замера считаются отдельно')]
             result.notes.append(Note(VIEW_NOTE))
-            result.charts.extend(self.charts(data, sel, f, params['view'], params['split']))
+            result.charts.extend(self.charts(data, sel, f, params['view'], params['split'], gap_days=params['gap_days']))
             result.tables.append(measurements_table(f))
         for field in ('level', 'pressure'):
             table = point_table(original, field, data.excluded)
@@ -269,12 +305,12 @@ class ResponseModule(Module):
         return result
 
     @staticmethod
-    def charts(data: Data, sel: Selection, f: pd.DataFrame, view: str, split: str, level_band: str = 'auto') -> list[Chart]:
+    def charts(data: Data, sel: Selection, f: pd.DataFrame, view: str, split: str, level_band: str = 'auto', gap_days: int = GAP_DAYS) -> list[Chart]:
         raw = sel.raw
         pressure_horizons = set(ordered(raw.loc[raw.pressure.notna(), 'horizon'])) if 'pressure' in raw else set()
         palette = well_colors(sel.df.well)
         manometer = {str(w) for w in data.settings.get('manometer_wells', [])}
-        object_pressure = data[OBJECT] if OBJECT in data else None
+        object_pressure = object_pressure_of(data, 'auto')[0]      # тот же источник, что в «Авторском надзоре»: столбец из БД, иначе опорная сетка
         column = 'horizon' if split == 'horizon' else 'well'
         sets = ({'Все выбранные': f} if split == 'all' else    # естественный порядок: 31, 45, 132
                 {label: f[f[column].astype(str).eq(label)] for label in ordered(f[column])})
@@ -287,7 +323,7 @@ class ResponseModule(Module):
                     continue
                 title = chart_title(ordered(part.well), label, split) + ' · ' + METRIC_WORDS[metric]
                 chart = response_chart(part, metric, title, f'response-{split}-{label}-{metric}', palette,
-                                       object_pressure, manometer, split == 'well', pressure_horizons, level_band)
+                                       object_pressure, manometer, split == 'well', pressure_horizons, level_band, gap_days)
                 chart.events = list(events)
                 out.append(chart)
         return out

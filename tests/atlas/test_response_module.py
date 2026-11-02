@@ -278,3 +278,27 @@ def test_level_band_separates_level_from_pressure(env):
     chart = body['charts'][0]
     assert chart['y']['minimum'] is not None and chart['y2']['minimum'] is not None and chart['y2']['inverse']
     assert chart['y']['maximum'] > chart['y']['minimum'] and chart['y2']['minimum'] < chart['y2']['maximum']
+
+
+def test_curve_breaks_after_long_pause():
+    """Между замерами дальше порога кривая прерывается пустой точкой (не интерполируется); 0 — без разрывов; пустые значения остаются (исключённая точка — разрыв)."""
+    import pandas as pd
+    from atlas.modules.response import with_gaps
+    dates = pd.Series(pd.to_datetime(['2024-01-01', '2024-01-20', '2024-09-01', '2024-09-10', '2024-09-15']))
+    values = pd.Series([1.0, 2.0, 3.0, 4.0, np.nan])
+    x, y, ids, labels = with_gaps(dates, values, list('abcde'), list('vwxyz'), 120)
+    assert len(x) == 6 and np.isnan(y[2]) and y[1] == 2.0 and y[3] == 3.0       # пустая точка между 20.01 и 01.09
+    assert ids == ['a', 'b', '', 'c', 'd', 'e'] and labels == list('vw') + [''] + list('xyz')
+    assert len(with_gaps(dates, values, None, list('vwxyz'), 0)[0]) == 5
+    assert len(with_gaps(dates, values, None, list('vwxyz'), 400)[0]) == 5
+
+
+def test_object_pressure_curve_one_source_per_horizon():
+    import pandas as pd
+    from atlas.modules.response import object_pressure_for
+    frame = pd.DataFrame({'date': pd.to_datetime(['2024-01-01'] * 2 + ['2024-02-01']), 'horizon': ['A', 'B', 'A'], 'pressure': [50., 70., 52.]})
+    part = pd.DataFrame({'horizon': ['A']})
+    assert object_pressure_for(frame, part).pressure.tolist() == [50., 52.]            # только горизонт графика
+    both = object_pressure_for(frame, pd.DataFrame({'horizon': ['A', 'B']}))
+    assert both.pressure.tolist() == [60., 52.]                                         # одна точка на дату
+    assert len(object_pressure_for(frame, pd.DataFrame({'horizon': ['Z']}))) == 2        # нет совпадений — вся таблица, без дублей дат
