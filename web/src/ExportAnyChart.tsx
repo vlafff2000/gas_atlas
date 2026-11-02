@@ -6,6 +6,7 @@ import { saveFileWithPicker } from './desktopDownload'
 import { api, defaults, type Chart, type ModuleSpec, type Params, type Project } from './api'
 import { ChartView } from './ChartView'
 import type { ChartFormat } from './chartFormat'
+import { ChartStyleFields, compact } from './FormatFields'
 import { ParamBar } from './ParamBar'
 import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import { savedRanges, seriesLooks } from './chartPrefs'
@@ -453,6 +454,15 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
                   })}
                 </Box>
               ))}
+            </details>
+          )}
+          {special && (
+            <details className="table-block" open>
+              <summary className="block-head"><h3>Оформление графика</h3></summary>
+              <p className="muted pad">Легенда, заголовок, текст, сетка и фон — те же поля, что в панели «Формат» обычных графиков.</p>
+              <div className="pad cs-editor">
+                <ChartStyleFields value={doc.chart ?? {}} set={patch => onDoc({ ...doc, chart: compact({ ...doc.chart, ...patch }) })} />
+              </div>
             </details>
           )}
           {!special && (

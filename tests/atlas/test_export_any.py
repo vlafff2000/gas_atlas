@@ -224,6 +224,21 @@ def test_special_chart_legend_position_applies(env):
     assert len(set(sizes.values())) == 3
 
 
+def test_special_chart_legend_style_from_doc(env):
+    """Оформление легенды столбцов с сегментами (размер, колонки, рамка) приходит из doc.chart — поля формы «Оформление графика»."""
+    client, pid = env
+    params = {'kind': 'withdrawal', 'periods': ['2025-2026'], 'class_chart': 'box'}
+    found = client.post(f'/api/projects/{pid}/export/any/charts', json={'module': 'an_report', 'params': params}).json()['charts']
+    chart = next(c['id'] for c in found if '::an-class-share' in c['id'])
+    shots = set()
+    for style in ({}, {'legend': 'bottom', 'legend_size': 20}, {'legend': 'bottom', 'legend_columns': 1, 'legend_border': True}):
+        r = client.post(f'/api/projects/{pid}/export/any/file', json={'module': 'an_report', 'params': params, 'chart': chart,
+                                                                      'settings': {'dpi': 150, 'doc': {'chart': style}}})
+        assert r.status_code == 200, r.text
+        shots.add(r.content)
+    assert len(shots) == 3
+
+
 def test_all_views_in_one_flat_list_and_each_exports(env):
     """Виды графиков раздела (переключатели chart_kind) не прячут графики: все они в одном списке, и каждый выгружается."""
     client, pid = env
