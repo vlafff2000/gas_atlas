@@ -12,6 +12,8 @@ from openpyxl.chart.title import Title
 from openpyxl.drawing.line import LineProperties
 from openpyxl.drawing.text import CharacterProperties, Font, Paragraph, ParagraphProperties, RegularTextRun, RichTextProperties
 
+from .rich_text import plain
+
 PX = 9525                                                      # EMU в пикселе (толщина линий в оформлении — px)
 DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'sysDot', 'dashdot': 'dashDot', 'longdash': 'lgDash'}
 TICK = {'out': 'out', 'in': 'in', 'cross': 'cross', 'none': 'none'}
@@ -104,7 +106,7 @@ def style_chart(part, base: Mapping[str, Any], title: str) -> None:
     fmt = {'bold': base.get('title_bold', True), 'color': base.get('title_color') or base.get('text_color'), 'font': base.get('title_font') or base.get('font'),
            'size': base.get('title_size')}
     sub = {'size': base.get('subtitle_size') or 10, 'color': base.get('text_color') or '667085', 'font': base.get('font')}
-    part.title = title_of([(title, fmt), (base.get('subtitle', ''), sub)])
+    part.title = title_of([(plain(title), fmt), (plain(base.get('subtitle', '')), sub)])
     legend = base.get('legend')
     if legend == 'hide':
         part.legend = None

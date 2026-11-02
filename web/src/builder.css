@@ -165,6 +165,8 @@ details.builder-recipes > summary { cursor: pointer; font-weight: 700; font-size
 .rich-input:empty::before { content: attr(data-placeholder); color: var(--muted); }
 .rich-input sup, .rich-text sup { font-size: 70%; line-height: 0; vertical-align: super; }
 .rich-input sub, .rich-text sub { font-size: 70%; line-height: 0; vertical-align: sub; }
+.rich-script { min-width: 30px; height: 30px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+.rich-script:hover, .rich-symbols:hover { border-color: var(--accent); }
 .rich-symbols { min-width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
 .rich-symbols[aria-expanded='true'] { border-color: var(--accent); }
 .rich-popup { margin-top: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 18px rgb(0 0 0 / 12%); display: grid; gap: 6px; position: relative; z-index: 5; }

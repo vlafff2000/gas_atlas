@@ -123,11 +123,17 @@ export function RichField({ label, value, placeholder, onChange, width }: {
       if (e.key === 'Enter') { e.preventDefault(); el?.blur() }
       return
     }
-    const plus = e.code === 'Equal' || e.code === 'NumpadAdd'
-    const minus = e.code === 'Minus' || e.code === 'NumpadSubtract'
-    if (!plus && !minus) return
+    if (e.code !== 'Equal' && e.code !== 'NumpadAdd') return
     e.preventDefault()                          // иначе браузер масштабирует страницу
-    toggleScript(el, plus ? 'SUP' : 'SUB')
+    // как в Excel и Word: Ctrl+= — нижний индекс, Ctrl+Shift+= — верхний
+    apply(e.shiftKey ? 'SUP' : 'SUB')
+  }
+
+  /** Кнопки x² и x₂ и сочетания клавиш: включают или снимают индекс у выделения. */
+  const apply = (tag: 'SUP' | 'SUB') => {
+    const el = ref.current
+    if (!el) return
+    toggleScript(el, tag)
     commit()
   }
 
@@ -153,6 +159,10 @@ export function RichField({ label, value, placeholder, onChange, width }: {
         <div ref={ref} className="rich-input" role="textbox" aria-label={label} aria-multiline="false" data-placeholder={placeholder}
           contentEditable suppressContentEditableWarning spellCheck={false}
           onInput={commit} onKeyDown={onKeyDown} onPaste={onPaste} onBlur={commit} />
+        <button type="button" className="rich-script" aria-label="Верхний индекс" title="Верхний индекс (Ctrl+Shift+=)"
+          onMouseDown={e => e.preventDefault()} onClick={() => apply('SUP')}>x²</button>
+        <button type="button" className="rich-script" aria-label="Нижний индекс" title="Нижний индекс (Ctrl+=)"
+          onMouseDown={e => e.preventDefault()} onClick={() => apply('SUB')}>x₂</button>
         <button type="button" className="rich-symbols" aria-label="Вставить символ" aria-expanded={open} title="Вставить символ"
           onMouseDown={e => e.preventDefault()} onClick={() => setOpen(o => !o)}>Ω</button>
       </div>
@@ -166,7 +176,7 @@ export function RichField({ label, value, placeholder, onChange, width }: {
               </div>
             </div>
           ))}
-          <p className="rich-hint">Ctrl+«+» — верхний индекс, Ctrl+«-» — нижний</p>
+          <p className="rich-hint">Ctrl+Shift+«=» — верхний индекс, Ctrl+«=» — нижний (как в Excel)</p>
         </div>
       )}
     </div>

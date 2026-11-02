@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from .contract import Chart
+from .rich_text import mpl_text
 
 NARROW = 5      # узкий сегмент: число не помещается внутрь (как на экране)
 SERIF = ['Times New Roman', 'Liberation Serif', 'DejaVu Serif']
@@ -93,7 +94,7 @@ def _dress(fig: Any, chart: Chart, o: dict[str, Any]) -> None:
         ax.set_axisbelow(True)
     # модель v2 (atlas/chart_style.py): подзаголовок, рамки рисунка и области построения
     if st.get('subtitle'):
-        ax.annotate(st['subtitle'], (0, 1), xycoords='axes fraction', xytext=(0, 2), textcoords='offset points', va='bottom',
+        ax.annotate(mpl_text(st['subtitle']), (0, 1), xycoords='axes fraction', xytext=(0, 2), textcoords='offset points', va='bottom',
                     fontsize=float(st.get('subtitle_size') or base - 1), color=st.get('text_color') or '#667085')
     if st.get('border_color') or st.get('border_width'):
         fig.patch.set_edgecolor(st.get('border_color') or '#888888')
