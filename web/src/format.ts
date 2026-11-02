@@ -1,18 +1,31 @@
 import type { Cell, Column } from './api'
 
+/** Разряды: неразрывный пробел (U+00A0), как в Python-выгрузке (atlas/engine/core/export_style.py: THOUSANDS_SEP). */
+export const THOUSANDS_SEP = ' '
+
 const cache = new Map<string, Intl.NumberFormat>()
-function numberFormat(decimals: number | null) {
-  const key = String(decimals)
-  if (!cache.has(key)) {
-    cache.set(key, new Intl.NumberFormat('ru-RU', decimals === null
-      ? { maximumSignificantDigits: 6 }
-      : { minimumFractionDigits: decimals, maximumFractionDigits: decimals }))
-  }
+function numberFormat(key: string, options: Intl.NumberFormatOptions) {
+  if (!cache.has(key)) cache.set(key, new Intl.NumberFormat('ru-RU', { ...options, useGrouping: false }))
   return cache.get(key)!
 }
 
+/** Группировка разрядов в целой части: 1000 → «1 000», 1234567,5 → «1 234 567,5» (запятая дроби не трогается). */
+function grouped(text: string) {
+  return text.replace(/^([-−]?)(\d+)/, (_, sign: string, digits: string) =>
+    sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, THOUSANDS_SEP))
+}
+
+/** Число для подписей, таблиц и всплывающих подсказок: decimals знаков, null — до 6 значащих цифр. */
 export function formatNumber(value: number, decimals: number | null = null) {
-  return numberFormat(decimals).format(value)
+  const text = decimals === null
+    ? numberFormat('sig', { maximumSignificantDigits: 6 }).format(value)
+    : numberFormat(`d${decimals}`, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(value)
+  return grouped(text)
+}
+
+/** Число без лишних нулей, до maxDecimals знаков после запятой (замена toLocaleString('ru-RU', …)). */
+export function formatNumberUpTo(value: number, maxDecimals: number) {
+  return grouped(numberFormat(`u${maxDecimals}`, { maximumFractionDigits: maxDecimals }).format(value))
 }
 
 export function formatDate(iso: string) {

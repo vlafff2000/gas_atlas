@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping
 
 import pandas as pd
@@ -33,7 +34,22 @@ TICK_DIRECTION = {'out': {'direction': 'out', 'length': 3.5}, 'in': {'direction'
 def ru_format(decimals: int, divisor: float = 1.0):
     """Число по-русски: пробел между тысячами, запятая в дроби."""
     from matplotlib.ticker import FuncFormatter
-    return FuncFormatter(lambda v, _: f'{v / divisor:,.{decimals}f}'.replace(',', ' ').replace('.', ','))
+    return FuncFormatter(lambda v, _: group_thousands(f'{v / divisor:.{decimals}f}').replace('.', ','))
+
+
+THOUSANDS_SEP = '\u00a0'                  # неразрывный пробел, как в веб-графиках (web/src/format.ts: THOUSANDS_SEP)
+_INT_PART = re.compile(r'^([-−]?)(\d+)')
+
+
+def group_thousands(text: str) -> str:
+    """Разряды в целой части: «1000» → «1 000», «1234567.5» → «1 234 567.5». Десятичный знак не меняется."""
+    return _INT_PART.sub(lambda m: m.group(1) + re.sub(r'(?<=\d)(?=(?:\d{3})+$)', THOUSANDS_SEP, m.group(2)), text, count=1)
+
+
+def ru_tick(spec: str):
+    """Подпись деления оси: формат Python (например '.10g'), разряды через group_thousands."""
+    from matplotlib.ticker import FuncFormatter
+    return FuncFormatter(lambda v, _: group_thousands(format(v, spec)))
 
 
 def _limit(value: float, date: bool) -> Any:
