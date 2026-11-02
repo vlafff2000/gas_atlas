@@ -13,7 +13,13 @@ from typing import Any
 import numpy as np
 
 from .contract import Chart
+from .engine.core.export_style import group_thousands, ru_format
 from .rich_text import mpl_text
+
+
+def _g(text: str) -> str:
+    """Подпись-число с разрядами («12345,6» → «12 345,6»); любой другой текст остаётся как есть."""
+    return group_thousands(text) if text and text.replace(',', '').replace('.', '').replace('-', '').isdigit() else text
 
 NARROW = 5      # узкий сегмент: число не помещается внутрь (как на экране)
 SERIF = ['Times New Roman', 'Liberation Serif', 'DejaVu Serif']
@@ -184,6 +190,7 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
         ax.bar(range(len(cats)), values, bottom=below, width=0.62, color=color, label=s.name, edgecolor='#222', linewidth=0.4)
         for j, (v, text) in enumerate(zip(values, s.segments or [])):
             middle = below[j] + v / 2
+            text = _g(text or '')
             if text and v / top >= NARROW / 100:
                 ax.text(j, middle, text, ha='center', va='center', fontsize=float(o.get('segment_size') or base - 1), color='white' if _luma(color) < 140 else '#111')
             elif text and chart.callouts == 'dot':
@@ -323,13 +330,15 @@ def _heat_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
     ax.tick_params(length=0)
     for i, row in enumerate(h.values):
         for j, v in enumerate(row):
-            text = h.texts[i][j]
+            text = _g(h.texts[i][j] or '')
             if v is None:
                 ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, hatch='///', ec='#aaa', lw=0))
                 ax.text(j, i, text or h.missing_text, ha='center', va='center', fontsize=cell, color='#555')
             elif text:
                 ax.text(j, i, text, ha='center', va='center', fontsize=cell, color='white' if v > top * 0.55 else '#111')
-    fig.colorbar(image, ax=ax, label=h.unit)
+    bar = fig.colorbar(image, ax=ax, label=h.unit)
+    bar.formatter = ru_format(0 if top >= 10 else 1)
+    bar.update_ticks()
     ax.set_title(chart.title, fontsize=base + 3)
     return fig
 

@@ -158,5 +158,5 @@ def style_series(one, look: Mapping[str, Any], category: bool, kind: str, color:
         font = _chars(look.get('label_size'))
         one.dLbls = DataLabelList(showVal=True, showSerName=False, showCatName=False, showLegendKey=False, showPercent=False,
                                   dLblPos=LABEL.get(look.get('label_position'), 't') if not category or look.get('label_position') else None,
-                                  numFmt=('0' + ('.' + '0' * int(decimals) if decimals else '')) if decimals is not None else None,
+                                  numFmt=('#,##0' + ('.' + '0' * int(decimals) if decimals else '')) if decimals is not None else None,
                                   txPr=RichText(p=[Paragraph(pPr=ParagraphProperties(defRPr=font), endParaRPr=font)]) if font.sz else None)
