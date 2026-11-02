@@ -53,6 +53,6 @@ def test_bar_value_labels_follow_view_and_export():
     from atlas import render
     bars = Chart('t-2', 'Столбцы', Axis('Группа', scale='category', categories=['ГСП 1', 'ГСП 2']), Axis('Объём', 'млн м³', from_zero=True),
                  [Series('План', ['ГСП 1', 'ГСП 2'], [12.4, 1234.6], kind='bar')])
-    assert b'>1235<' not in render.chart_file(bars, 'svg', 150)[0]
+    assert '1\u00a0235'.encode() not in render.chart_file(bars, 'svg', 150)[0]
     shown = render.chart_file(apply_view(bars, {'looks': {'План|bar': {'valueLabels': True}}}), 'svg', 150)[0]
-    assert b'>1235<' in shown and b'>12<' in shown       # целые числа, без знаков после запятой
+    assert '>1\u00a0235<'.encode() in shown and b'>12<' in shown       # целые числа с разрядами, без знаков после запятой
