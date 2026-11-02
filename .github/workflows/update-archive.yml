@@ -79,6 +79,30 @@ jobs:
               assert need in names, need
           print(len(names), 'записей; новые библиотеки:', sum(n.startswith(site) and n.endswith('.dist-info/METADATA') for n in names))
           PYEOF
+      - name: В архиве тот интерфейс, который собран из этого коммита (сверка index.html и его файлов)
+        run: |
+          cd gas_atlas/dist
+          FILE=$(ls PXG_Unified_code_update_*)
+          python - "$FILE" ../atlas/web/dist/index.html <<'PYEOF'
+          import hashlib, re, sys, tarfile, zipfile
+          path, built = sys.argv[1], sys.argv[2]
+          if path.endswith('.zip'):
+              z = zipfile.ZipFile(path)
+              names = set(z.namelist())
+              read = z.read
+          else:
+              t = tarfile.open(path)
+              names = set(t.getnames())
+              read = lambda name: t.extractfile(name).read()
+          index = read('atlas/web/dist/index.html')
+          want = open(built, 'rb').read()
+          assert index == want, 'в архиве другой index.html, чем собранный из этого коммита'
+          for bundle in set(re.findall(rb'assets/[^"\']+\.js', index)):
+              assert 'atlas/web/dist/' + bundle.decode() in names, bundle
+          info = read('ВЕРСИЯ_СБОРКИ.txt').decode('utf-8')
+          print(info)
+          print('Интерфейс в архиве совпадает со сборкой:', hashlib.sha256(index).hexdigest())
+          PYEOF
       - name: Целостность архива и контрольная сумма (sha256, в отдельный файл рядом)
         run: |
           cd gas_atlas/dist
