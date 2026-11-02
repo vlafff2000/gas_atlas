@@ -143,3 +143,26 @@ def test_kru_cut_explains_the_drop():
     e.loc[e.well.eq('3') & e.date.ge('2025-12-01'), 'y'] = 20.0          # раскрытие уменьшили вдвое: падение расхода — режим
     days = withdrawal_days(d[P])
     assert productivity_intervals(days, last_two(days)[0], e).empty
+
+
+def test_no_gdi_five_years_table_uses_all_studies_and_calculated_ab():
+    result = GdiDueModule().run(data(), PARAMS)
+    t = next(x for x in result.tables if x.id == 'gdi-no-5y').frame.set_index('well')
+    assert set(t.index[t.in_table]) == {'2', '4'}                       # ГДИ 2018 года и исследований нет вообще
+    assert t.at['2', 'years_any'] > 5 and pd.isna(t.at['4', 'last_any']) and t.at['4', 'n_all'] == 0
+    assert t.at['2', 'a_calc'] == pytest.approx(0.7, rel=0.05) and t.at['2', 'b_calc'] == pytest.approx(0.012, rel=0.05)   # расчёт по точкам
+    detail = next(x for x in result.tables if x.id == 'gdi-no-5y-studies').frame
+    assert set(detail.well) == {'2'}
+
+
+def test_manual_decision_applies_to_new_tables():
+    result = GdiDueModule().run(data(), {**PARAMS, 'add': ['1'], 'remove': ['2']})
+    t = next(x for x in result.tables if x.id == 'gdi-no-5y').frame.set_index('well')
+    assert t.at['1', 'state'] == STATE_ADDED and t.at['2', 'state'] == STATE_REMOVED and not t.at['2', 'in_table']
+    assert t.index.tolist().index('2') > t.index.tolist().index('4')   # убранная внизу
+
+
+def test_productivity_table_signals():
+    result = GdiDueModule().run(seasonal(), PARAMS)
+    t = next(x for x in result.tables if x.id == 'gdi-productivity').frame.set_index('well')
+    assert t.index[t.in_table].tolist() == ['3'] and t.at['3', 'signals'] >= 2

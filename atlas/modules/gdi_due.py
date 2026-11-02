@@ -180,6 +180,58 @@ def well_charts(data: Data, params: dict[str, Any], listed: pd.DataFrame) -> lis
     return charts
 
 
+def studies_calc(data: Data, params: dict[str, Any]) -> pd.DataFrame:
+    """Все исследования скважин (любого качества) с коэффициентами a и b, посчитанными по точкам, а не взятыми из БД. Пусто — нет ГДИ."""
+    gdi = data[GDI] if GDI in data else pd.DataFrame()
+    h = histories(gdi, params['threshold'], []) if not gdi.empty else pd.DataFrame()
+    if h.empty:
+        return h
+    for c in ('a_calc', 'b_calc', 'r2_calc', 'fit_points', 'distinct_q'):
+        if c not in h:
+            h[c] = np.nan
+    h['reliable_calc'] = (h.r2_calc.ge(params['threshold']) & h.distinct_q.ge(3) & h.a_calc.ge(0) & h.b_calc.ge(0)).map({True: 'да', False: 'нет'})
+    return h
+
+
+def choose(table: pd.DataFrame, mask: pd.Series, add: list[str], remove: list[str]) -> pd.DataFrame:
+    """Строки по признаку; ручное решение главнее: добавленные остаются в таблице всегда, убранные — внизу с пометкой."""
+    out = table[mask | table.well.isin(add) | table.well.isin(remove)].copy()
+    auto = mask.loc[out.index].astype(bool)
+    out['in_table'] = (auto | out.well.isin(add)) & ~out.well.isin(remove)
+    out['state'] = np.where(out.well.isin(remove), STATE_REMOVED, np.where(out.well.isin(add) & ~auto, STATE_ADDED, STATE_AUTO))
+    return out.sort_values('in_table', ascending=False, kind='stable')
+
+
+def stale_table(table: pd.DataFrame, studies: pd.DataFrame, gdi: pd.DataFrame, params: dict[str, Any]) -> pd.DataFrame:
+    """Скважины без ГДИ дольше порога: учитываются все исследования, даже плохие; a, b, R² — расчётные по последнему исследованию."""
+    today = pd.Timestamp(params.get('today') or pd.Timestamp.today().normalize())
+    out = table[['well', 'group']].copy()
+    dates = pd.to_datetime(gdi.date) if not gdi.empty and 'date' in gdi else pd.Series(dtype='datetime64[ns]')
+    last = dates.groupby(gdi.well.astype(str)).max() if len(dates) else pd.Series(dtype='datetime64[ns]')
+    out['last_any'] = out.well.map(last) if len(last) else pd.NaT
+    out['years_any'] = (today - out.last_any).dt.days / 365.25
+    out['n_all'] = out.well.map(studies.groupby('well').size()).fillna(0).astype(int) if not studies.empty else 0
+    cols = ['method', 'study', 'a_calc', 'b_calc', 'r2_calc', 'reliable_calc']
+    if studies.empty:
+        for c in cols:
+            out[c] = np.nan
+    else:
+        pick = studies[studies.date.notna()].sort_values(['date', 'r2_calc']).drop_duplicates('well', keep='last').set_index('well')
+        for c in cols:
+            out[c] = out.well.map(pick[c])
+    out['stale'] = out.last_any.isna() | out.years_any.ge(params['years'])
+    return out
+
+
+def drop_table(table: pd.DataFrame, params: dict[str, Any]) -> pd.DataFrame:
+    """Скважины со снижением продуктивности: интервал снижения или не меньше N совпавших сигналов динамики (расход к группе, накопленный, согласованность, КРУ, ГДИ)."""
+    flags = ['f_flow', 'f_cum', 'f_sync', 'f_open', 'f_trend']
+    out = table.copy()
+    out['signals'] = out[flags].sum(axis=1).astype(int) + out.f_int.astype(int)
+    out['flag'] = out.f_int | out.signals.ge(int(params.get('prod_signals', 2)))
+    return out
+
+
 class GdiDueModule(Module):
     spec = ModuleSpec(
         id='gdi_due',
@@ -208,6 +260,9 @@ class GdiDueModule(Module):
                   help='Расход скважины относительно объекта держится ниже опорного уровня не меньше стольких суток подряд.'),
             Param('interval_drop', 'Интервал снижения: падение', 'number', default=15.0, minimum=5, maximum=80, step=1, unit='%', section=SECTION,
                   help='Расход скважины (сглаженный за 7 суток) относительно объекта ниже уровня первых двух недель сезона на столько процентов и больше. Если раскрытие КРУ уменьшили, интервал не отмечается.'),
+            Param('prod_signals', 'Снижение продуктивности: сигналов не меньше', 'choice', default=2, section=SECTION,
+                  options=(Option(1, '1'), Option(2, '2'), Option(3, '3'), Option(4, '4')),
+                  help='Для второй таблицы: скважина попадает в неё при интервале снижения или при стольких совпавших сигналах: расход и накопленный отбор против группы, динамика против объекта, отдача на раскрытие КРУ, ГДИ.'),
             Param('show', 'Графики для скважин', 'multi', default=[], source=Source(GDI, 'well'), section='Графики', wells_picker=True, empty='первые 6 из списка',
                   help='Не выбрано ничего — графики для первых шести скважин списка. На графике: расход, динамика группы и объекта, накопленный отбор, раскрытие КРУ; красным подсвечены интервалы снижения продуктивности.'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01, setting='r2_threshold', section=SECTION,
@@ -260,5 +315,36 @@ class GdiDueModule(Module):
             Column('open_last', 'Раскрытие КРУ, посл. сезон', '%', 0, 'number'), Column('open_change', 'Раскрытие КРУ: изменение', '%', 0, 'number'),
             Column('eff_change', 'Расход на 1% раскрытия: изменение', '%', 0, 'number'), Column('eff_gap', 'Отдача КРУ: отставание от группы', 'п.п.', 0, 'number')],
             note='Вверху — скважины в списке, затем по числу признаков и давности ГДИ. «Решение» показывает, правил ли список инженер.'))
+        add, remove = [str(w) for w in params.get('add') or []], [str(w) for w in params.get('remove') or []]
+        studies = studies_calc(data, params)
+        st = stale_table(table, studies, data[GDI] if GDI in data else pd.DataFrame(), params)
+        stale = choose(st, st.stale, add, remove)
+        stale = stale.sort_values(['in_table', 'years_any'], ascending=[False, False], na_position='first', kind='stable')
+        result.tables.append(Table('gdi-no-5y', f'ГДИ: скважины без исследований дольше {params["years"]:g} лет', stale, [
+            Column('well', 'Скважина'), Column('group', 'Группа'), Column('state', 'Решение'),
+            Column('last_any', 'Последнее ГДИ (любое)', kind='date'), Column('years_any', 'Лет назад', 'лет', 1, 'number'),
+            Column('n_all', 'Исследований всего', kind='number', decimals=0), Column('method', 'Метод'), Column('study', 'Исследование'),
+            Column('a_calc', 'a (расчёт)', decimals=5, kind='number'), Column('b_calc', 'b (расчёт)', decimals=5, kind='number'),
+            Column('r2_calc', 'R² (расчёт)', decimals=4, kind='number'), Column('reliable_calc', 'Надёжное по расчёту')],
+            note='Учитываются все исследования, в том числе плохие: инженер сам смотрит, какие были исследования, и делает вывод. '
+                 'a, b и R² посчитаны по точкам последнего исследования, из БД не берутся. Нет ГДИ вообще — вверху. Список всех исследований — в таблице ниже.'))
+        if not studies.empty:
+            detail = studies[studies.well.isin(stale.well)].copy()
+            detail['_k'] = detail.well.map(well_key)
+            detail = detail.sort_values(['_k', 'date']).drop(columns='_k')
+            result.tables.append(Table('gdi-no-5y-studies', 'Исследования скважин из таблицы выше', detail, [
+                Column('well', 'Скважина'), Column('date', 'Дата', kind='date'), Column('method', 'Метод'), Column('study', 'Исследование'),
+                Column('a_calc', 'a (расчёт)', decimals=5, kind='number'), Column('b_calc', 'b (расчёт)', decimals=5, kind='number'),
+                Column('r2_calc', 'R² (расчёт)', decimals=4, kind='number'), Column('fit_points', 'Точек', kind='number', decimals=0),
+                Column('reliable_calc', 'Надёжное по расчёту')], collapsed=True))
+        dt = drop_table(table, params)
+        drop = choose(dt, dt.flag, add, remove).sort_values(['in_table', 'signals'], ascending=[False, False], kind='stable')
+        result.tables.append(Table('gdi-productivity', 'ГДИ: скважины со снижением продуктивности', drop, [
+            Column('well', 'Скважина'), Column('group', 'Группа'), Column('state', 'Решение'),
+            Column('signals', 'Сигналов', kind='number', decimals=0), Column('reason', 'Причины'), Column('int_last', 'Последний интервал снижения'),
+            Column('cum_gap', 'Накопл.: отставание от группы', 'п.п.', 0, 'number'), Column('sync_obj', 'Совпадение с объектом', '%', 0, 'number'),
+            Column('eff_gap', 'Отдача КРУ: отставание от группы', 'п.п.', 0, 'number'), Column('last_gdi', 'Последнее надёжное ГДИ', kind='date')],
+            note='Скважины, где расход и накопленный отбор отстают от группы, динамика расходится с объектом, отдача на раскрытие КРУ упала или есть интервал снижения продуктивности (графики ниже). '
+                 'Это подсказка: решение за инженером, добавить и убрать скважину можно вручную.'))
         result.charts.extend(well_charts(data, params, listed))
         return result
