@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from . import _seasonal as S
+from ._rows import rows_of
 
 WELL_COLUMNS = ['kind', 'period', 'cycle', 'group', 'well', 'span', 'flow_days', 'idle_days', 'volume', 'work_pct', 'share', 'status']
 GROUP_COLUMNS = ['kind', 'period', 'cycle', 'group', 'volume', 'share', 'delta_share', 'wells', 'wells_work', 'wells_idle', 'idle_days']
@@ -29,7 +30,7 @@ def well_table(df: pd.DataFrame, seasons: pd.DataFrame, group_of: Mapping[str, s
     от суток сезона. Статус — подсказка: простаивала весь сезон или работала меньше ``work_low`` % суток."""
     rows: list[dict[str, Any]] = []
     for s in seasons.itertuples():
-        part = _live(df[df.kind.eq(s.kind) & df.period.eq(s.period)])
+        part = _live(rows_of(df, s.kind, s.period))
         for well, w in part.groupby(part.well.astype(str)):
             flow = w[w.q > 0]
             idle = int((w.q == 0).sum())
