@@ -99,3 +99,11 @@ def test_all_exports_readable():
 def test_histogram_export():
     d=small_production(); fig=charts.histogram(d,'withdrawal',['2025-2026'],['1','2'])
     assert figure_bytes(fig,'pdf').startswith(b'%PDF')
+
+def test_study_by_coefficients_without_measurements():
+    d=pd.DataFrame(dict(q=[np.nan],dp2=[np.nan],a_db=.7,b_db=.012,p_res=75.))
+    r=gdi.analyze_study(d)
+    assert r['by_coef'] is True and (r['a'],r['b'])==(.7,.012) and r['r2'] is None
+    assert 'без замеров' in r['source'] and r['q_free'] is None
+    full=gdi.analyze_study(pd.DataFrame(dict(q=[20.,50.,80.],dp2=[18.8,65,132.8])))
+    assert full['by_coef'] is False

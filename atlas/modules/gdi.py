@@ -127,6 +127,8 @@ def coefficient_columns() -> list[Column]:
     ]
 
 
+BY_COEF_SUFFIX = 'по коэффициентам'
+BY_COEF_TIP = 'По коэффициентам интерпретатора, без замеров давлений'
 DEFAULT_WELLS = 5          # сколько скважин показывать, если не выбрана ни одна
 
 
@@ -476,9 +478,11 @@ class GdiModule(Module):
 
         if linear:
             # точки с Q ≤ 0 в координатах ΔP²/Q не определены
-            points = points[points.q > 0]
-            original = original[original.q > 0]
+            points = points[(points.q > 0) | points.dp2.isna()]
+            original = original[(original.q > 0) | original.dp2.isna()]
 
+        qv = points.q[points.dp2.notna()]
+        well_qmax = float(qv.max()) if len(qv) else 0.0
         # серии идут по дате по возрастанию: так же порядок в легенде (экран и экспорт)
         for i, (key, g) in enumerate(points.sort_values(['date', 'method', 'study'], kind='stable')
                                      .groupby(legacy.KEYS, sort=False, dropna=False)):
@@ -486,6 +490,19 @@ class GdiModule(Module):
             row = coefficients[(date, method, study)]
             label = study_label(date)
             color = palette[date]
+            if row.by_coef:
+                # Без замеров давлений: только кривая по a и b интерпретатора, линия «точка-тире» (стиль меняется в окне «Формат»)
+                qmax = float(g.q.max()) if g.q.notna().any() else well_qmax
+                if not qmax or not np.isfinite(qmax):
+                    qmax = legacy.free_flow(row.a, row.b, row.p_res) or 0.0   # Q не указан: до свободного дебита по Рпл
+                if not qmax or not np.isfinite(qmax):
+                    continue
+                grid = np.linspace(0, qmax * 1.05, CURVE_POINTS)
+                a, b = float(row.a), float(row.b)
+                chart.series.append(Series(f'{label}, {BY_COEF_SUFFIX}', *xy(grid, a + b * grid if linear else a * grid + b * grid * grid),
+                                           'line', group=label, color=color, dash='dashdot',
+                                           tooltip=f'{BY_COEF_TIP}: a = {a:.6g}, b = {b:.6g}'))
+                continue
             chart.series.append(Series(label, *xy(g.q.to_numpy(float), (g.dp2 / g.q if linear else g.dp2).to_numpy(float)), 'points',
                                        group=label,
                                        color=color, symbol=SYMBOLS[i % len(SYMBOLS)],
