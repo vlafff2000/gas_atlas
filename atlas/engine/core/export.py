@@ -11,7 +11,7 @@ import datetime
 import numpy as np
 import pandas as pd
 from .export_combo import Areas,Bars,ghost,is_back,is_combo,overlay,sync
-from .export_style import group_thousands,ru_tick
+from .export_style import group_default_ticks,group_digits_on,group_thousands,grouping,ru_tick
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -234,7 +234,14 @@ def sort_legend(handles,labels):
     order=sorted(range(len(labels)),key=lambda i:_legend_key(labels[i]))
     return [handles[i] for i in order],[labels[i] for i in order]
 
-def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default'):
+def figure_bytes(fig,fmt='png',*args,**kwargs):
+    """Файл графика (описание ниже у ``_figure_bytes``); числа делятся по разрядам, пока в оформлении не выключено ``group_digits``."""
+    meta=fig.layout.meta if isinstance(fig.layout.meta,dict) else {}
+    with grouping(group_digits_on((meta.get('style') or {}).get('chart'))):
+        return _figure_bytes(fig,fmt,*args,**kwargs)
+
+
+def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default'):
     """``font`` / ``font_size`` — шрифт (``atlas.engine.core.fonts.FONTS``) и основной размер в пт; заголовок и легенда масштабируются вместе с ним.
     ``look='excel'`` — вид диаграммы Excel (Office: Calibri, палитра, тонкие серые горизонтальные линии сетки, легенда внизу); шрифт по умолчанию — Calibri.
     ``compact`` (листы приложений, ``height_mm`` задаёт высоту): график заполняет рисунок, легенда в одну-две строки под осями,
@@ -419,6 +426,7 @@ def figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False
                 ax.xaxis.set_major_locator(AutoDateLocator(minticks=3,maxticks=5 if compact else 7));ax.xaxis.set_major_formatter(DateFormatter('%m.%Y'))
             if fo.get('axes'):manual_axes(ax,secondary,fo['axes'],date_axis,bool(bars or boxes) and not numeric_bars)
             if fo.get('angle') not in (None,'auto'):x_labels(ax,float(fo['angle']),width_mm,base,date_axis,not (fo.get('axes') or {}).get('x',{}).get('major'),bool(bars or boxes) and not numeric_bars)
+            group_default_ticks(ax.xaxis,ax.yaxis,*(t.yaxis for t in rights.values()))
             if isinstance(fig.layout.meta,dict) and fig.layout.meta.get('style'):
                 from .export_style import apply_style
                 apply_style(f,ax,rights,fig.layout.meta['style'],title,k,base,date_axis)      # ручное оформление конструктора: последнее слово за инженером

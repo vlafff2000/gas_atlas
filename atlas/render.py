@@ -404,6 +404,12 @@ def _cell(value):
 
 
 def chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
+    from .engine.core.export_style import group_digits_on, grouping
+    with grouping(group_digits_on(chart.style)):
+        return _chart_xlsx(chart)
+
+
+def _chart_xlsx(chart: Chart) -> tuple[bytes, str, str]:
     """XLSX графика: лист «Данные» (все точки каждого ряда, подсказки) и лист «График» — тот же график средствами Excel.
 
     Ряды-столбцы по категориям (общая первая колонка), остальные — парами «X, Y»; ряды правой оси — вторым графиком поверх.

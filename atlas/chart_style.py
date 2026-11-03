@@ -112,7 +112,7 @@ LABELS = {
     'subtitle_size': 'размер подзаголовка', 'legend_columns': 'колонок легенды', 'legend_border': 'рамка легенды',
     'legend_background': 'фон легенды', 'grid_dash': 'штрих сетки', 'minor_grid_dash': 'штрих доп. линий',
     'border_color': 'рамка рисунка', 'border_width': 'толщина рамки рисунка', 'plot_border_color': 'рамка области построения',
-    'plot_border_width': 'толщина рамки области построения',
+    'plot_border_width': 'толщина рамки области построения', 'group_digits': 'разделять числа по разрядам',
 }
 
 LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DASHES, 'marker': 'bool', 'shape': SHAPES,
@@ -141,7 +141,9 @@ CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'b
              # модель v2: подзаголовок, легенда (колонки, рамка, фон), штрих сетки, рамки рисунка и области построения
              'subtitle': 'text', 'subtitle_size': ('num', 6, 48), 'legend_columns': ('int', 1, 12), 'legend_border': 'bool',
              'legend_background': 'color', 'grid_dash': DASHES, 'minor_grid_dash': DASHES, 'border_color': 'color',
-             'border_width': ('num', 0.2, 6), 'plot_border_color': 'color', 'plot_border_width': ('num', 0.2, 6)}
+             'border_width': ('num', 0.2, 6), 'plot_border_color': 'color', 'plot_border_width': ('num', 0.2, 6),
+             # разряды чисел в файлах (80 000): включены по умолчанию, в оформлении хранится только выключение
+             'group_digits': 'bool'}
 
 
 def clean_look(raw: Any, index: int) -> dict[str, Any]:
