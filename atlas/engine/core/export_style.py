@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
 from typing import Any, Mapping
 
@@ -41,8 +43,37 @@ THOUSANDS_SEP = '\u00a0'                  # неразрывный пробел,
 _INT_PART = re.compile(r'^([-−]?)(\d+)')
 
 
+_GROUPING = contextvars.ContextVar('group_digits', default=True)
+
+
+@contextlib.contextmanager
+def grouping(on: bool = True):
+    """Настройка «Разделять числа по разрядам» (chart.style.group_digits) на время сборки одного файла; по умолчанию включена."""
+    token = _GROUPING.set(bool(on))
+    try:
+        yield
+    finally:
+        _GROUPING.reset(token)
+
+
+def group_digits_on(style: Mapping[str, Any] | None) -> bool:
+    return (style or {}).get('group_digits') is not False
+
+
+def group_default_ticks(*axes) -> None:
+    """Деления, которым формат не задан (стандартный ScalarFormatter даёт «80000»), получают разряды; заданное вручную не трогается."""
+    from matplotlib.ticker import ScalarFormatter
+    if not _GROUPING.get():
+        return
+    for axis in axes:
+        if type(axis.get_major_formatter()) is ScalarFormatter:
+            axis.set_major_formatter(ru_tick('.10g'))
+
+
 def group_thousands(text: str) -> str:
     """Разряды в целой части: «1000» → «1 000», «1234567.5» → «1 234 567.5». Десятичный знак не меняется."""
+    if not _GROUPING.get():
+        return text
     return _INT_PART.sub(lambda m: m.group(1) + re.sub(r'(?<=\d)(?=(?:\d{3})+$)', THOUSANDS_SEP, m.group(2)), text, count=1)
 
 

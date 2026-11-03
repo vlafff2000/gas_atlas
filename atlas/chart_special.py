@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 from .contract import Chart
-from .engine.core.export_style import group_thousands, ru_format
+from .engine.core.export_style import group_digits_on, group_thousands, grouping, ru_format
 from .rich_text import mpl_text
 
 
@@ -51,6 +51,11 @@ def _bytes(fig: Any, fmt: str, dpi: int) -> bytes:
 
 
 def figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = None) -> bytes:
+    with grouping(group_digits_on((opts or {}).get('style') or chart.style)):      # «Разделять числа по разрядам»: по умолчанию включено
+        return _figure_file(chart, fmt, dpi, opts)
+
+
+def _figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = None) -> bytes:
     """``opts`` — ручные настройки выгрузки (``atlas/export_any.py``): width_mm, height_mm, font, font_size, legend, table_font_size,
     table_row, table_show, segment_size, cell_size (текст в ячейках тепловой карты и матрицы), style (chart.style); без них — прежний вид."""
     from .render import group_colors, series_color

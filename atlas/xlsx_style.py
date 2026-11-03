@@ -12,7 +12,16 @@ from openpyxl.chart.title import Title
 from openpyxl.drawing.line import LineProperties
 from openpyxl.drawing.text import CharacterProperties, Font, Paragraph, ParagraphProperties, RegularTextRun, RichTextProperties
 
+from .engine.core.export_style import _GROUPING
 from .rich_text import plain
+
+
+
+def _digits(decimals: int | None) -> str:
+    """Числовой формат Excel: с разрядами (по настройке «Разделять числа по разрядам») и заданным числом знаков."""
+    base = '#,##0' if _GROUPING.get() else '0'
+    return base + ('.' + '0' * int(decimals) if decimals else '')
+
 
 PX = 9525                                                      # EMU в пикселе (толщина линий в оформлении — px)
 DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'sysDot', 'dashdot': 'dashDot', 'longdash': 'lgDash'}
@@ -83,7 +92,10 @@ def style_axis(ax, spec: Mapping[str, Any], scale: Any, base: Mapping[str, Any],
     if spec.get('units') in UNITS:
         ax.dispUnits = DisplayUnitsLabelList(builtInUnit=UNITS[spec['units']])
     if 'decimals' in spec and scale.scale in ('value', 'log'):
-        ax.number_format = '#,##0' + ('.' + '0' * int(spec['decimals']) if int(spec['decimals']) else '')
+        ax.number_format = _digits(spec['decimals'])
+        ax.numFmt.sourceLinked = False
+    elif _GROUPING.get() and scale.scale in ('value', 'log'):      # без заданных знаков: «Общий» формат, но тысячи с разрядами
+        ax.number_format = '[>=1000]#,##0;[<=-1000]-#,##0;General'
         ax.numFmt.sourceLinked = False
     if spec.get('line') is False:
         ax.spPr = GraphicalProperties(ln=LineProperties(noFill=True))
@@ -158,6 +170,6 @@ def style_series(one, look: Mapping[str, Any], category: bool, kind: str, color:
         font = _chars(look.get('label_size'))
         one.dLbls = DataLabelList(showVal=True, showSerName=False, showCatName=False, showLegendKey=False, showPercent=False,
                                   dLblPos=LABEL.get(look.get('label_position'), 't') if not category or look.get('label_position') else None,
-                                  numFmt=('#,##0' + ('.' + '0' * int(decimals) if decimals else '')) if decimals is not None else None,
+                                  numFmt=_digits(decimals) if decimals is not None else None,
                                   txPr=RichText(bodyPr=RichTextProperties(rot=int(float(look['label_angle']) * -60000), vert='horz') if look.get('label_angle') is not None else None,
                                         p=[Paragraph(pPr=ParagraphProperties(defRPr=font), endParaRPr=font)]) if font.sz or look.get('label_angle') is not None else None)

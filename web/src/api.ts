@@ -105,6 +105,7 @@ export interface ChartStyle {
   // модель v2: подзаголовок, легенда слева, колонки, рамка и фон легенды, штрих сетки, рамки рисунка и области построения
   subtitle?: string; subtitle_size?: number; legend_columns?: number; legend_border?: boolean; legend_background?: string
   grid_dash?: string; minor_grid_dash?: string; border_color?: string; border_width?: number; plot_border_color?: string; plot_border_width?: number
+  group_digits?: boolean      // false — в файлах числа без разрядов; по умолчанию разряды включены
   annotations?: Annotation[]
 }
 export interface Axis {

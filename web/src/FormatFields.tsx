@@ -174,6 +174,8 @@ export function ChartStyleFields({ value: st, set, title }: Setter<ChartStyle> &
         <Choice label="Шрифт" value={st.font} options={FONT_OPTIONS} onChange={v => set({ font: v })} />
         <Color label="Цвет текста" value={st.text_color} onChange={v => set({ text_color: v })} />
         <p className="cs-hint">Шрифт и цвет действуют на заголовок, оси и легенду, если для них не заданы свои.</p>
+        <Flag label="Разделять числа по разрядам" value={st.group_digits !== false} onChange={v => set({ group_digits: v ? undefined : false })}
+          title="80 000 вместо 80000: подписи осей, значения на графике, таблицы под графиком — в файлах PNG, SVG, PDF, Word и XLSX" />
       </fieldset>
       <fieldset>
         <legend>Легенда</legend>
