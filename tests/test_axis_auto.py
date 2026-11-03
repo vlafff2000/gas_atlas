@@ -60,3 +60,13 @@ def test_non_negative_data_never_goes_below_zero():
 def test_apply_keeps_result_without_charts():
     r = Result()
     assert axis_auto.apply(r) is r
+
+
+def test_export_preview_bar_chart_converts_and_starts_at_zero():
+    """Интерактивный предпросмотр выгрузки: столбцы Plotly (у них нет line и marker.symbol) переводятся в график, шкала от нуля."""
+    import plotly.graph_objects as go
+    from atlas.export_chart import to_chart
+    fig = go.Figure(go.Bar(x=['1', '2', '3'], y=[44, 60, 87]))
+    fig.update_xaxes(type='category')
+    out = axis_auto.auto_chart(to_chart(fig))
+    assert out.series[0].kind == 'bar' and (out.y.minimum, out.y.maximum) == (0.0, 100.0)
