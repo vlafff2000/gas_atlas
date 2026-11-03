@@ -2,7 +2,8 @@
 
 5.4 — результаты исследований: интервалы с Кг, Нг и ГВК (глубина, а.о.) по сезонам; 5.5/5.7 — положение ГВК пачки по сезонам;
 5.6/5.8 — относительное изменение ГВК. На каждую пачку пара «сравнение + изменение» (первая пачка — 5.5 и 5.6, вторая — 5.7 и 5.8).
-Таблицы 5.3 (объём исследований) и прочие нет: в базе нет назначения и методов исследования.
+5.3 — объём исследований: скважина, назначение (фонд скважины из проекта), дата, методы; строится, если в замерах базы ГИС есть методы
+(столбец ``methods`` «БД ГИС из отчётов»), иначе пропускается с заметкой. Прочих таблиц главы нет.
 
 Сезон — «весна ГГГГ» (замер после отбора, конец отбора ГГГГ-1/ГГ) или «осень ГГГГ» (после закачки, конец закачки ГГГГ), как
 в ``gis_hikg``. Названия сезонов в заголовках и годы в названиях таблиц выводятся из выбранных сезонов, а не набираются:
@@ -21,7 +22,7 @@ import pandas as pd
 from ..contract import CellMerge, CellStyle, Column, Table
 
 AUTO_SEASONS = 4          # как в отчёте: два цикла «отбор + закачка», считая от нового сезона
-FIRST_NUMBER = 4          # номер первой таблицы: 5.4
+FIRST_NUMBER = 4          # номер первой таблицы сравнения: 5.4 (5.3 — объём исследований — стоит перед ней)
 SPRING, AUTUMN = 'весна', 'осень'
 NO_SEASON = 'без сезона'     # замер вне сезонов (месяц не подходит и сезон не задан): не теряется, показывается серым
 
@@ -309,8 +310,32 @@ def season_keys(i: int) -> list[str]:
     return [f's{i}_{n}' for n in ('from', 'to', 'kg', 'h', 'depth', 'abs')]
 
 
+def scope_table(observations: pd.DataFrame, funds: dict[str, str], wells: list[str], labels: list[str], span: str) -> Table | None:
+    """5.3: по замеру с методами одна строка — скважина, назначение (фонд скважины), дата, методы. Только выбранные сезоны и скважины."""
+    if observations is None or observations.empty or 'methods' not in observations:
+        return None
+    obs = observations.copy()
+    obs['methods'] = obs['methods'].fillna('').astype(str).str.strip()
+    obs = obs[obs['methods'] != '']
+    if obs.empty:
+        return None
+    obs['well'] = obs['well'].astype(str)
+    obs['label'] = [season_of(s, d) for s, d in zip(obs['season'] if 'season' in obs else [None] * len(obs), obs['date'])]
+    obs = obs[obs['well'].isin(wells) & obs['label'].isin(labels)]
+    if obs.empty:
+        return None
+    obs['_o'] = obs['well'].map({w: i for i, w in enumerate(wells)})
+    obs = obs.sort_values(['_o', 'date'], kind='stable')
+    frame = pd.DataFrame({'well': obs['well'].values, 'purpose': [funds.get(w, '') for w in obs['well']],
+                          'date': pd.to_datetime(obs['date']).dt.strftime('%d.%m.%Y').values, 'methods': obs['methods'].values})
+    columns = [Column('well', '№ скв.'), Column('purpose', 'Назначение'), Column('date', 'Дата'), Column('methods', 'Методы')]
+    return Table('gis-an-5-3', f'Таблица 5.3 – Объём исследований ГИС-контроль, выполненных в {span}', frame, columns,
+                 note='Назначение — фонд скважины из проекта (ручной выбор инженера главнее подсказки). Методы — из выполненного комплекса ГИС отчёта; '
+                      'замеры без отчёта с комплексом в таблицу не попадают.')
+
+
 def build(data: dict, params: dict[str, Any]) -> tuple[list[Table], list[str], str | None, list[str]]:
-    """Таблицы 5.4–5.8, сезоны, новый сезон и заметки. ``data`` — {'packs': ..., 'intervals': ...}."""
+    """Таблицы 5.3–5.8, сезоны, новый сезон и заметки. ``data`` — {'packs': ..., 'intervals': ..., 'observations': ..., 'funds': {скважина: фонд}}."""
     packs, intervals = data['packs'], data.get('intervals')
     notes: list[str] = []
     labels, base = pick(available(packs, intervals), params.get('an_base') or None, list(params.get('an_seasons') or []))
@@ -327,6 +352,13 @@ def build(data: dict, params: dict[str, Any]) -> tuple[list[Table], list[str], s
         return [], labels, base, ['За выбранные сезоны, скважины и пачки замеров нет.']
     gvk = gvk_by_season(packs, labels)
     tables: list[Table] = []
+    obs = data.get('observations')
+    if obs is not None and len(obs):
+        scope = scope_table(obs, data.get('funds') or {}, wells, labels, span)
+        if scope is not None:
+            tables.append(scope)
+        else:
+            notes.append('Таблица 5.3 не построена: в замерах базы ГИС нет методов исследования (столбец methods; его даёт «БД ГИС из отчётов»).')
     if intervals is not None and len(intervals):
         tables.append(results_table(intervals, packs, wells, pack_names, labels, gvk, span, palette(params.get('colors'))))
     else:
