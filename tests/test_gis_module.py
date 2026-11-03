@@ -380,12 +380,44 @@ def test_54_table_json_carries_the_same_styles_for_the_screen():
     assert 'styles' not in plain and 'merges' not in plain          # без оформления — прежний ответ
 
 
-def test_54_gvk_columns_are_never_merged_alone():
-    """Нг и ГВК не объединяются никогда; объединение с ними допускается только как «не исследовалась» по всей ширине сезона."""
+def test_54_h_is_merged_over_pack_block_and_gvk_sits_in_the_interval_row():
+    """Нг — одна объединённая ячейка на весь блок пачки; ГВК (глубина и а.о.) — в строке интервала, где отбивается уровень."""
     table = _an_five_four()
-    for m in table.merges:
-        gvk = [c for c in m.columns if c.endswith(('_h', '_depth', '_abs'))]
-        assert not gvk or (len(m.columns) == 6 and table.frame.loc[m.first, m.columns[0]] == 'не исследовалась')
+    frame = table.frame
+    upper = frame.index[frame['pack'] == 'покрышка']
+    assert (upper[0], upper[-1]) == (0, 2)
+    h = {(m.first, m.last) for m in table.merges if m.columns == ['s1_h']}
+    assert h == {(0, 2)}                                           # три интервала 2025 — Нг на три строки
+    assert frame.loc[0, 's1_h'] == 2.5 and frame.loc[1:2, 's1_h'].isna().all()
+    # ГВК 121 м (глубина) ближе всего к интервалу 701–702 (первая строка блока из трёх), а не «в первой строке блока» по умолчанию
+    assert frame['s1_depth'].notna().sum() == 1 and frame['s1_abs'].notna().sum() == 1
+    assert frame.loc[0, 's1_depth'] == 121.0 and frame.loc[0, 's1_abs'] == -661.0
+
+
+def test_54_gvk_goes_to_the_interval_that_contains_it():
+    from atlas.modules.gis_an_tables import gvk_row
+    block = pd.DataFrame({'from_m': [700.0, 703.0, 705.0], 'to_m': [701.0, 704.0, 706.0]})
+    assert gvk_row(block, 703.5) == 1 and gvk_row(block, 705.0) == 2 and gvk_row(block, 701.2) == 0 and gvk_row(block, 999) == 2
+
+
+def test_54_blue_only_on_low_kg_intervals_not_the_whole_row():
+    table = _an_five_four()
+    assert all(s.columns and all(c.endswith(('_from', '_to', '_kg')) for c in s.columns) for s in table.styles if s.font)
+    frame = table.frame
+    blue = {(r, c) for s in table.styles if s.font for r in s.rows for c in s.columns}
+    for r in range(len(frame)):
+        for i in range(3):
+            kg = frame.loc[r, f's{i}_kg']
+            assert ((r, f's{i}_kg') in blue) == (pd.notna(kg) and kg <= 25)
+    assert not any(c.endswith(('_h', '_depth', '_abs')) or c in ('well', 'pack') for _, c in blue)
+
+
+def test_54_one_decimal_and_kg_in_percent():
+    table = _an_five_four()
+    assert {c.decimals for c in table.columns if c.kind == 'number'} == {1}
+    assert sorted(table.frame['s1_kg'].dropna()) == [20.0, 40.0, 60.0]
+    from atlas.modules.gis_an_tables import percent
+    assert percent(0.256) == 25.6 and percent(30.0) == 30.0       # доли → %, значение уже в % не умножается
 
 
 def test_54_each_well_starts_with_a_thick_line():

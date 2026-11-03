@@ -153,8 +153,22 @@ def _pairs(labels: list[str], last_only: bool) -> list[tuple[str, list[str]]]:
     return rows[-2:] if last_only else rows
 
 
-def _fmt(value: float) -> float | None:
-    return None if math.isnan(value) else round(value, 2)
+def _fmt(value: float, digits: int = 2) -> float | None:
+    return None if math.isnan(value) else round(value, digits)
+
+
+def percent(kg: float) -> float:
+    """Кг в процентах с одним знаком: доли (≤ 1) умножаются на 100, значения больше единицы уже в процентах."""
+    return round(kg * 100 if kg <= 1 else kg, 1)
+
+
+def gvk_row(block: pd.DataFrame, depth: float) -> int:
+    """Номер интервала (от нуля, интервалы по глубине), в котором отбивается ГВК: содержит глубину ГВК, иначе ближайший к ней."""
+    if math.isnan(depth):
+        return len(block) - 1
+    gaps = [0.0 if _num(a) <= depth <= _num(b) else min(abs(_num(a) - depth), abs(_num(b) - depth))
+            for a, b in zip(block['from_m'], block['to_m'])]
+    return gaps.index(min(gaps))
 
 
 def comparison_table(number: int, pack: str, wells: list[str], labels: list[str], gvk: dict, span: str) -> Table:
@@ -238,7 +252,7 @@ def _has(blocks: dict[str, pd.DataFrame], gvk: dict, well: str, pack: str, label
 def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str], pack_names: list[str], labels: list[str],
                   gvk: dict, span: str, colors: dict[str, str]) -> Table:
     """5.4: по скважине и пачке блок строк. Интервалы сезона — в нижних строках блока (лишние строки сверху пустые);
-    ГВК и Нг — только в первой строке блока и никогда не объединяются. Нет исследования скважины в сезоне — «не исследовалась»
+    Нг — объединённая ячейка на весь блок пачки, ГВК (глубина и а.о.) — в строке интервала, где отбивается уровень. Нет исследования скважины в сезоне — «не исследовалась»
     по ширине сезона на всю скважину; нет исследования пачки в сезоне — то же по блоку этой пачки."""
     part = seasoned(intervals)
     part = part[part['season'].isin(labels) & part['well'].isin(wells) & part['pack'].isin(pack_names)]
@@ -247,8 +261,8 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
     columns = [Column('well', '№ скв.'), Column('pack', 'Пачка')]
     for i, label in enumerate(labels):
         columns += [Column(f's{i}_from', 'интервал от', 'м', 1, 'number'), Column(f's{i}_to', 'до', 'м', 1, 'number'),
-                    Column(f's{i}_kg', 'Кг', '%', 1, 'number'), Column(f's{i}_h', 'Нг', 'м', 2, 'number'),
-                    Column(f's{i}_depth', 'ГВК глубина', 'м', 2, 'number'), Column(f's{i}_abs', 'ГВК а.о.', 'м', 2, 'number')]
+                    Column(f's{i}_kg', 'Кг', '%', 1, 'number'), Column(f's{i}_h', 'Нг', 'м', 1, 'number'),
+                    Column(f's{i}_depth', 'ГВК глубина', 'м', 1, 'number'), Column(f's{i}_abs', 'ГВК а.о.', 'м', 1, 'number')]
     rows: list[dict[str, Any]] = []
     styles: list[CellStyle] = []
     merges: list[CellMerge] = []
@@ -282,26 +296,28 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
                 b = blocks[label]
                 for r, interval in enumerate(b.itertuples(index=False), top + height - len(b)):
                     kg = _num(interval.kg)
-                    rows[r][f's{i}_from'], rows[r][f's{i}_to'] = _fmt(_num(interval.from_m)), _fmt(_num(interval.to_m))
-                    rows[r][f's{i}_kg'] = None if math.isnan(kg) else round(kg * 100, 1)
+                    rows[r][f's{i}_from'], rows[r][f's{i}_to'] = _fmt(_num(interval.from_m), 1), _fmt(_num(interval.to_m), 1)
+                    rows[r][f's{i}_kg'] = None if math.isnan(kg) else percent(kg)
                     if rows[r][f's{i}_kg'] is not None and rows[r][f's{i}_kg'] <= LOW_KG:
                         low.append((r, i))
                 item = gvk.get((well, pack, label))
                 if item:
-                    rows[top][f's{i}_h'], rows[top][f's{i}_depth'], rows[top][f's{i}_abs'] = (
-                        _fmt(item['h_eff']), _fmt(item['depth']), _fmt(item['abs']))
+                    rows[top][f's{i}_h'] = _fmt(item['h_eff'], 1)
+                    if height > 1:                       # Нг — на пачку целиком: объединение по всем строкам её блока
+                        merges.append(CellMerge(top, top + height - 1, [f's{i}_h']))
+                    at = top + height - len(b) + gvk_row(b, item['depth']) if len(b) else top + height - 1
+                    rows[at][f's{i}_depth'], rows[at][f's{i}_abs'] = _fmt(item['depth'], 1), _fmt(item['abs'], 1)
         for i in well_gap:
             rows[well_top][f's{i}_from'] = NOT_STUDIED
             merges.append(CellMerge(well_top, len(rows) - 1, season_keys(i)))
     low_fill = colors[LOW_KEY]
-    for r, i in low:
-        styles.append(CellStyle([r], fill=low_fill, columns=[f's{i}_{n}' for n in ('from', 'to', 'kg')]))
-    styles.extend(CellStyle([r], font=LOW_FONT) for r in sorted({r for r, _ in low}))
+    for r, i in low:      # голубой фон и синий шрифт — только у интервала (от, до, Кг) своего сезона, не у остальных ячеек строки
+        styles.append(CellStyle([r], fill=low_fill, font=LOW_FONT, columns=[f's{i}_{n}' for n in ('from', 'to', 'kg')]))
     header = [[('', 2), *(('конец ' + name_of(label, 'gen'), 6) for label in labels)]]
     frame = pd.DataFrame(rows, columns=[c.key for c in columns])
     return Table(f'gis-an-5-{FIRST_NUMBER}', f'Таблица 5.{FIRST_NUMBER} – Результаты исследований ГИС-контроль, выполненных в {span}',
                  frame, columns, header=header, collapsed=True, styles=styles, merges=merges,
-                 note='Интервалы последнего замера сезона по пачке; Кг — в процентах. Нг (hг эф) и ГВК — по пачке, в первой строке блока. '
+                 note='Интервалы последнего замера сезона по пачке; Кг — в процентах. Нг (hг эф) — на всю пачку (объединённые ячейки), ГВК — в строке интервала, где отбивается уровень. '
                       f'Голубой фон и синий шрифт — интервалы с Кг ≤ {LOW_KG:g} %.')
 
 
