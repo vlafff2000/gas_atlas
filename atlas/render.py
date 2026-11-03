@@ -631,8 +631,9 @@ def header_sheet(ws, table: Table) -> None:
                     ws.merge_cells(start_row=r, start_column=at, end_row=r, end_column=at + span - 1)
             at += span
     for k, c in enumerate(table.columns, 1):
-        ws.cell(rows, k, axis_title(c.label, c.unit))
-        if not table.header[0][0][0] and k <= table.header[0][0][1]:    # колонка без группы: во всю высоту шапки
+        ungrouped = not table.header[0][0][0] and k <= table.header[0][0][1]
+        ws.cell(1 if ungrouped else rows, k, axis_title(c.label, c.unit))      # при объединении остаётся значение верхней ячейки
+        if ungrouped:    # колонка без группы: во всю высоту шапки
             ws.merge_cells(start_row=1, start_column=k, end_row=rows, end_column=k)
     for r in range(1, rows + 1):
         for k in range(1, len(table.columns) + 1):
@@ -655,7 +656,7 @@ def header_sheet(ws, table: Table) -> None:
 
 def _apply_styles(ws, table: Table, first_row: int) -> None:
     """Заливка, цвет шрифта и объединения из ``table.styles`` / ``table.merges``; ``first_row`` — первая строка данных на листе."""
-    from openpyxl.styles import Border, Font, PatternFill, Side
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     column = {c.key: k for k, c in enumerate(table.columns, 1)}
     for style in table.styles:
         keys = style.columns or list(column)
@@ -674,6 +675,8 @@ def _apply_styles(ws, table: Table, first_row: int) -> None:
         cols = [column[key] for key in merge.columns]
         ws.merge_cells(start_row=first_row + merge.first, end_row=first_row + merge.last,
                        start_column=min(cols), end_column=max(cols))
+        top = ws.cell(first_row + merge.first, min(cols))
+        top.alignment = Alignment(horizontal=top.alignment.horizontal, vertical='center', wrap_text=top.alignment.wrap_text)
 
 
 def plain_sheet(ws, table: Table) -> None:
