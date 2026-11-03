@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { AxisFormat } from './chartFormat'
 import type { Annotation, AxisStyle, ChartStyle } from './api'
 import { LINE_STYLES, type Look } from './chartStyle'
 import { HEX } from './ChartSettings'
@@ -222,8 +223,8 @@ export function ChartStyleFields({ value: st, set, title }: Setter<ChartStyle> &
 }
 
 /** Шкала оси: границы, шаг, логарифм, обратное направление, начало с нуля. Общее поле «Формат» и окна оси конструктора; пусто — авто. */
-export function AxisScaleFields({ id, value: f, set, time }: { id: string; value: { min?: string; max?: string; step?: string; minor_step?: string; log?: boolean; inverse?: boolean; from_zero?: boolean }
-  set: (patch: { min?: string; max?: string; step?: string; minor_step?: string; log?: boolean; inverse?: boolean; from_zero?: boolean }) => void; time?: boolean }) {
+export type ScaleFormat = Pick<AxisFormat, 'min' | 'max' | 'step' | 'minor_step' | 'log' | 'inverse' | 'from_zero'>
+export function AxisScaleFields({ id, value: f, set, time }: { id: string; value: ScaleFormat; set: (patch: ScaleFormat) => void; time?: boolean }) {
   return (
     <fieldset>
       <legend>Шкала</legend>
