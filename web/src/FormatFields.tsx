@@ -221,6 +221,29 @@ export function ChartStyleFields({ value: st, set, title }: Setter<ChartStyle> &
   )
 }
 
+/** Шкала оси: границы, шаг, логарифм, обратное направление, начало с нуля. Общее поле «Формат» и окна оси конструктора; пусто — авто. */
+export function AxisScaleFields({ id, value: f, set, time }: { id: string; value: { min?: string; max?: string; step?: string; minor_step?: string; log?: boolean; inverse?: boolean; from_zero?: boolean }
+  set: (patch: { min?: string; max?: string; step?: string; minor_step?: string; log?: boolean; inverse?: boolean; from_zero?: boolean }) => void; time?: boolean }) {
+  return (
+    <fieldset>
+      <legend>Шкала</legend>
+      <div className="cs-row">
+        <Commit key={id + 'min'} label="Минимум" value={f.min} placeholder={time ? 'авто (дата)' : 'авто'} onChange={v => set({ min: v })} />
+        <Commit key={id + 'max'} label="Максимум" value={f.max} placeholder={time ? 'авто (дата)' : 'авто'} onChange={v => set({ max: v })} />
+      </div>
+      {time
+        ? <p className="cs-hint">Границы по датам: 31.12.2025 или 2025-12-31; применяются по Enter. Деления по времени подбираются сами.</p>
+        : <>
+          <Commit key={id + 'step'} label="Шаг делений" value={f.step} placeholder="авто" onChange={v => set({ step: v })} />
+          <Commit key={id + 'minor'} label="Дополнительный шаг" value={f.minor_step} placeholder="нет" onChange={v => set({ minor_step: v })} />
+        </>}
+      {!time && <Flag label="Логарифмическая шкала" value={f.log} onChange={v => set({ log: v })} title="Только для положительных значений" />}
+      <Flag label="Обратное направление" value={f.inverse} onChange={v => set({ inverse: v })} />
+      {!time && <Flag label="Начинать с нуля" value={f.from_zero} onChange={v => set({ from_zero: v })} />}
+    </fieldset>
+  )
+}
+
 /** Оформление оси: линия, деления, подписи, единицы, название. Границы и шаг — у вызывающего (в конструкторе — свои поля). */
 export function AxisStyleFields({ value: f, set, time }: Setter<Omit<AxisStyle, 'minor_step' | 'cross'> & { color?: string }> & { time?: boolean }) {
   return (

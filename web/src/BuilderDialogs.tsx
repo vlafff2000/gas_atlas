@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { AxisStyle, ChartStyle } from './api'
 import { SeriesLookFields } from './ChartSettings'
-import { AxisStyleFields, ChartStyleFields, Commit, Flag, Text, compact } from './FormatFields'
+import { AxisScaleFields, AxisStyleFields, ChartStyleFields, Commit, Flag, Text, compact } from './FormatFields'
 import type { Look } from './chartStyle'
 import { RichField } from './RichField'
 import './builder.css'
@@ -124,22 +124,7 @@ export function AxisDialog({ axes, activeKey, onActive, fmt, onLabel, onChange, 
             <legend>Подпись</legend>
             <Text label="Название оси" value={axis.label} placeholder={axis.auto} onChange={v => onLabel(axis.key, v)} />
           </fieldset>
-          <fieldset>
-            <legend>Шкала</legend>
-            <div className="cs-row">
-              <Commit key={axis.key + 'min'} label="Минимум" value={f.min} placeholder={axis.time ? 'авто (дата)' : 'авто'} onChange={v => set({ min: v })} />
-              <Commit key={axis.key + 'max'} label="Максимум" value={f.max} placeholder={axis.time ? 'авто (дата)' : 'авто'} onChange={v => set({ max: v })} />
-            </div>
-            {axis.time
-              ? <p className="cs-hint">Границы по датам: 31.12.2025 или 2025-12-31; применяются по Enter. Деления по времени подбираются сами.</p>
-              : <>
-                <Commit key={axis.key + 'step'} label="Шаг делений" value={f.step} placeholder="авто" onChange={v => set({ step: v })} />
-                <Commit key={axis.key + 'minor'} label="Дополнительный шаг" value={f.minor_step} placeholder="нет" onChange={v => set({ minor_step: v })} />
-              </>}
-            {!axis.time && <Flag label="Логарифмическая шкала" value={f.log} onChange={v => set({ log: v })} title="Только для положительных значений" />}
-            <Flag label="Обратное направление" value={f.inverse} onChange={v => set({ inverse: v })} />
-            {!axis.time && <Flag label="Начинать с нуля" value={f.from_zero} onChange={v => set({ from_zero: v })} />}
-          </fieldset>
+          <AxisScaleFields id={axis.key} value={f} set={set} time={axis.time} />
           <AxisStyleFields value={f} set={set} time={axis.time} />
           <div className="cs-actions">
             <button type="button" onClick={() => { onChange(axis.key, {}); onLabel(axis.key, '') }}

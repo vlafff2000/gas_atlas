@@ -23,9 +23,8 @@ def _text(*names: str) -> str:
 
 FORMAT_SRC = _text(*FORMAT_FILES)
 
-# Известные пробелы: настройка есть в модели и работает, но в окне «Формат» поля для неё нет (задаётся двойным щелчком по оси
-# на графике или в окне осей конструктора). Убрать из списка, когда поле появится в «Формат».
-KNOWN_GAPS = {'min', 'max', 'step', 'minor_step', 'cross', 'log', 'inverse', 'from_zero', 'break_from', 'break_to', 'markerColor'}
+# Известные пробелы: настройка есть в модели и работает, но в окне «Формат» поля для неё нет (пока только «cross»). Убрать из списка, когда поле появится в «Формат».
+KNOWN_GAPS = {'cross', 'break_from', 'break_to', 'markerColor'}
 # markerColor и break_*: поле есть, но записывается не через set({...}) прямого вида (см. ChartSettings, разрыв оси в FormatPane)
 SPECIAL_OK = {'markerColor': 'markerColor', 'break_from': 'break_from', 'break_to': 'break_to'}
 
