@@ -578,3 +578,44 @@ def test_an_without_methods_warns_instead_of_empty_table():
     res = GisModule().run(Data({GIS: _an_packs(), INTERVALS: _an_intervals(), DatasetKind.GIS_OBSERVATIONS: obs}), _params(view='an'))
     assert 'gis-an-5-3' not in [t.id for t in res.tables]
     assert any('5.3' in n.text for n in res.notes)
+
+
+# ---- единый вид номера скважины и Кг при импорте и чтении проекта ----
+def test_gis_well_numbers_lose_the_number_sign():
+    from atlas.engine.core.gis_import import clean_well
+    assert [clean_well(x) for x in ('№21', '№ 21', 'N21', '#21', ' 21 ', 21.0, '21.0', '5Б', '№5Б')] == ['21', '21', '21', '21', '21', '21', '21', '5Б', '5Б']
+
+
+def test_gis_kg_unit_is_decided_by_the_whole_column():
+    from atlas.engine.core.gis_import import kg_to_fraction
+    fractions, note = kg_to_fraction(pd.Series([0.1, 0.4, 1.0, None]))
+    assert fractions.tolist()[:3] == [0.1, 0.4, 1.0] and note == ''                    # доли — без изменений, 1,0 не превращается в 0,01
+    percents, note = kg_to_fraction(pd.Series([10.0, 40.0, 0.8]))                          # смесь: > 1 — проценты, прочее — доли
+    assert [round(v, 3) for v in percents] == [0.1, 0.4, 0.8] and 'смесь' in note
+    whole, note = kg_to_fraction(pd.Series([25.0, 60.0]))
+    assert [round(v, 2) for v in whole] == [0.25, 0.6] and 'проценты' in note
+
+
+def test_gis_import_cleans_old_database_with_number_sign_and_percents():
+    from atlas.engine.core import gis_import
+    csv = ('Скважина;Дата;Пачка;От, м;До, м;Кг\n№21;2025-03-30;покрышка;700;701;10\n21;2025-10-20;покрышка;701;702;0,3\n').encode('utf-8')
+    table, frame, warnings = gis_import.read('x.csv', csv)
+    assert table == 'gis_intervals' and frame['well'].tolist() == ['21', '21']
+    assert [round(v, 2) for v in frame['kg']] == [0.1, 0.3]
+    assert any('Кг' in w for w in warnings)
+
+
+def test_54_shows_mixed_old_and_new_sources_in_percent_only():
+    from atlas.engine.core.gis_import import tidy
+    packs = pd.DataFrame({'well': ['№1', '1'], 'date': pd.to_datetime(['2024-03-30', '2025-03-31']), 'season': ['весна'] * 2,
+                          'pack': ['покрышка'] * 2, 'gvk_abs_m': [-660.0, -661.0], 'gvk_depth_m': [120.0, 121.0],
+                          'h_eff_m': [2.5, 2.5], 'kg_avg': [0.5, 0.5]})
+    intervals = pd.DataFrame({'well': ['№1', '1'], 'pack': ['покрышка'] * 2, 'season': ['весна'] * 2,
+                              'date': pd.to_datetime(['2024-03-30', '2025-03-31']), 'from_m': [700.0, 701.0], 'to_m': [701.0, 702.0],
+                              'kg': [20.0, 0.4]})
+    packs, _ = tidy(packs)
+    intervals, notes = tidy(intervals)
+    table = GisModule().run({GIS: packs, INTERVALS: intervals}, _params(view='an')).tables[0]
+    assert table.frame['well'].unique().tolist() == ['1']                                   # одна скважина, а не «№1» и «1»
+    assert sorted(table.frame['s0_kg'].dropna().tolist() + table.frame['s1_kg'].dropna().tolist()) == [20.0, 40.0]
+    assert notes

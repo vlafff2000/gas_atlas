@@ -136,6 +136,12 @@ class GisModule(Module):
         return super().options(name, data, params)
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:
+        result = self.run_view(data, params)
+        for text in getattr(data, 'gis_notes', None) or []:      # единица Кг определена по данным автоматически — инженер видит это
+            result.notes.append(Note(text + '. Проверьте единицу в исходной таблице.', 'warning'))
+        return result
+
+    def run_view(self, data: Data, params: dict[str, Any]) -> Result:
         result = Result()
         if params['view'] == 'an':
             return self.run_an(data, params)

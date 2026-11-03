@@ -9,6 +9,7 @@ Parquet сюда не входит: для Атласа берётся CSV.
 from __future__ import annotations
 
 import io
+import re
 
 import pandas as pd
 
@@ -55,16 +56,52 @@ def _dates(column: pd.Series) -> pd.Series:
     return out
 
 
+def clean_well(value) -> str:
+    """Номер скважины единым видом, как всегда в проекте: «№21», «№ 21», «N21», «21.0» → «21»."""
+    text = re.sub(r'^\s*(№|N|#)\s*', '', str(value).strip(), flags=re.I)
+    return re.sub(r'^(\d+)\.0+$', r'\1', text).strip()
+
+
+KG_COLUMNS = ('kg', 'kg_avg')
+
+
+def kg_to_fraction(column: pd.Series) -> tuple[pd.Series, str]:
+    """Кг в доли единицы по ВСЕЙ колонке: все значения > 1 — проценты (/100); все ≤ 1 — доли как есть. Смесь долей и процентов
+    в одной колонке (старая и новая выгрузка вперемешку): значения > 1 — проценты, остальные — доли. Второй элемент —
+    пояснение, если колонку пришлось переводить (пустая строка — менять нечего). Единица определена по данным: последнее слово за инженером."""
+    values = pd.to_numeric(column, errors='coerce')
+    over, under = (values > 1).sum(), ((values <= 1) & (values >= 0)).sum()
+    if not over:
+        return values, ''
+    out = values.where(~(values > 1), values / 100)
+    if under:
+        return out, f'Кг: в колонке смесь долей и процентов — значения больше 1 приняты за проценты ({int(over)} шт.), остальные за доли'
+    return out, 'Кг: в колонке проценты — переведены в доли единицы'
+
+
+def tidy(frame: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Единый вид таблицы базы ГИС при импорте и при чтении проекта: номера скважин без «№», Кг в долях единицы (на экране — проценты)."""
+    out, notes = frame.copy(), []
+    if 'well' in out:
+        out['well'] = out['well'].map(clean_well)
+    for column in KG_COLUMNS:
+        if column in out:
+            out[column], note = kg_to_fraction(out[column])
+            if note and note not in notes:
+                notes.append(note)
+    return out, notes
+
+
 def _clean(frame: pd.DataFrame, table: str, name: str) -> tuple[pd.DataFrame, list[str]]:
     missing = [c for c in TABLES[table] if c not in frame.columns]
     if missing:
         raise ValueError(f'В файле нет колонок {", ".join(missing)} (таблица «{LABELS[table]}»)')
     frame = frame.copy()
-    frame['well'] = frame['well'].astype(str).str.strip()
+    frame, unit_notes = tidy(frame)
     frame['date'] = _dates(frame['date'])
     bad = frame['well'].isin(['', 'nan']) | frame['date'].isna()
     warnings = [f'Пропущено строк без скважины или даты: {int(bad.sum())}'] if bad.any() else []
-    return frame[~bad].reset_index(drop=True), warnings
+    return frame[~bad].reset_index(drop=True), warnings + unit_notes
 
 
 def is_book(name: str) -> bool:

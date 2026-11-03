@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-from atlas.engine.core import exclusions
+from atlas.engine.core import exclusions, gis_import
 from atlas.engine.core.config import DEFAULT_SETTINGS, ROOT, STORAGE, natural_key, ordered
 from atlas.engine.core.history import filter_details
 from atlas.engine.core.performance import Project as FrameCache
@@ -232,6 +232,11 @@ class Projects:
         cache = self._cache(pid, m)
         settings = {**DEFAULT_SETTINGS, **m.get('settings', {})}
         raw = self._raw_frames(pid, m)
+        unit_notes: list[str] = []
+        for name in ('gis_packs', 'gis_intervals', 'gis_observations'):       # проекты, собранные старой выгрузкой: «№21», доли с процентами
+            if name in raw and not raw[name].empty:
+                raw[name], found = gis_import.tidy(raw[name])
+                unit_notes += [n for n in found if n not in unit_notes]
         # Эксплуатация готовится как в 5.8: сезоны и индексы; остальное — только исключения.
         # ЭЛПРО — сырой набор для сверки с расходами: исключённые точки отбора на него не действуют
         others = {n: d for n, d in raw.items() if n not in ('production', 'elpro')}
@@ -245,6 +250,7 @@ class Projects:
         data = Data({KNOWN[n]: d for n, d in shown.items()}, {KNOWN[n]: d for n, d in original.items()},
                     settings.get('excluded_points', {}))
         data.settings, data.revision = settings, m.get('revision')
+        data.gis_notes = unit_notes
         mapping = {w: dict(v) for w, v in cache.catalog()['mapping'].items()}
         for well, value in m.get('groups', {}).items():
             mapping.setdefault(well, {}).update(value)
