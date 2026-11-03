@@ -8,7 +8,7 @@ import { SeriesLookFields } from './ChartSettings'
 import { projectFormats, usePref } from './chartPrefs'
 import type { AxisFormat, AxisName, ChartFormat } from './chartFormat'
 import { seriesLookKey, type Look } from './chartStyle'
-import { AxisStyleFields, ChartStyleFields, Commit, SeriesExtraFields, compact } from './FormatFields'
+import { AxisScaleFields, AxisStyleFields, ChartStyleFields, Commit, SeriesExtraFields, compact } from './FormatFields'
 import { pointKeys } from './labelPick'
 import type { FormatScope } from './projectLooks'
 
@@ -153,6 +153,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           </>}
           {kind === 'axis' && <>
             <h3>{AXIS_TITLE[axisName]}{axis?.label ? <small> {axis.label}</small> : null}</h3>
+            {(axis?.scale === 'value' || axis?.scale === 'log' || axis?.scale === 'time') && <AxisScaleFields id={axisName} value={doc.axes?.[axisName] ?? {}} set={setAxis} time={axis.scale === 'time'} />}
             <AxisStyleFields value={doc.axes?.[axisName] ?? {}} set={setAxis} time={axis?.scale === 'time'} />
             {(axis?.scale === 'value' || axis?.scale === 'time') && <fieldset>
               <legend>Разрыв оси</legend>
@@ -162,7 +163,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
               </div>
               <p className="cs-hint">Диапазон между значениями не показывается, на оси ставится знак разрыва. Применяется, когда заполнены оба поля (Enter или выход из поля).</p>
             </fieldset>}
-            <p className="cs-hint">Границы и шаг осей Y задаются на самом графике: двойной щелчок по оси.</p>
+            <p className="cs-hint">Ручные значения главнее автоподбора.</p>
             <div className="cs-actions">
               <Brush kind="axis" value={doc.axes?.[axisName]} paste={v => setAxis(v as Partial<AxisFormat>)} />
               <button type="button" onClick={() => onDoc({ ...doc, axes: { ...doc.axes, [axisName]: undefined } })} disabled={!doc.axes?.[axisName]}>Сбросить ось</button>
