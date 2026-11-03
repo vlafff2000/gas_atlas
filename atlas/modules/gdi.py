@@ -154,6 +154,7 @@ def _productivity_rows(part: pd.DataFrame, studies: pd.DataFrame, threshold: flo
     if reliable is not None and len(reliable):
         t = t.merge(reliable, on=legacy.KEYS, how='left')
     t['reliable'] = t.get('reliable', pd.Series(False, index=t.index)).fillna(False).astype(bool)
+    t['by_coef'] = t.get('by_coef', pd.Series(False, index=t.index)).fillna(False).astype(bool)
     t['fit'] = t.a.notna() & t.b.notna()
     rows = []
     for well in sorted(t.well.unique(), key=well_key):
@@ -170,10 +171,10 @@ def _productivity_rows(part: pd.DataFrame, studies: pd.DataFrame, threshold: flo
                 first = q if first is None else first
             rows.append({'well': well, 'date': r.date, 'method': r.method, 'study': r.study, 'ref': ref, 'q_ref': q,
                          'to_previous': change_prev, 'to_first': change_first, 'source': r.source,
-                         'reliable': 'да' if r.reliable else 'нет',
+                         'reliable': 'да' if r.reliable else 'нет', 'by_coef': 'да' if r.by_coef else '',
                          'mode': 'нет коэффициентов' if not r.fit else ''})
     return pd.DataFrame(rows, columns=['well', 'date', 'method', 'study', 'ref', 'q_ref', 'to_previous', 'to_first', 'source',
-                                       'reliable', 'mode'])
+                                       'reliable', 'by_coef', 'mode'])
 
 
 def _verdicts(rows: pd.DataFrame, wells: list[str], limit: float, season) -> list[dict]:
@@ -362,7 +363,7 @@ class GdiModule(Module):
         if by_season:
             columns.append(Column('season', 'Сезон'))
         columns += [
-            Column('reliable', 'Надёжное'),
+            Column('reliable', 'Надёжное'), Column('by_coef', 'По коэффициентам (без замеров)'),
             Column('ref', 'Опорный ΔP²', UNITS['dp2'], 1, 'number'),
             Column('q_ref', 'Q при опорном ΔP²', UNITS['q_gdi'], 1, 'number'),
             Column('to_previous', 'К предыдущему', '%', 1, 'number'), Column('to_first', 'К первому', '%', 1, 'number'),

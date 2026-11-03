@@ -107,3 +107,16 @@ def test_study_by_coefficients_without_measurements():
     assert 'без замеров' in r['source'] and r['q_free'] is None
     full=gdi.analyze_study(pd.DataFrame(dict(q=[20.,50.,80.],dp2=[18.8,65,132.8])))
     assert full['by_coef'] is False
+
+def test_history_includes_coefficient_study_with_flag():
+    from atlas.engine.modules import well_analysis
+    rows=[]
+    for date,k in (('2024-12-01',1.0),('2025-12-01',0.9)):
+        for q in (20.,50.,80.,120.):
+            rows.append(dict(well='1',date=pd.Timestamp(date),method='М',study='',q=q,dp2=(.7*q+.012*q*q)/k,a_db=np.nan,b_db=np.nan))
+    rows.append(dict(well='1',date=pd.Timestamp('2026-12-01'),method='М',study='',q=np.nan,dp2=np.nan,a_db=.8,b_db=.012))
+    h=well_analysis.gdi_history(pd.DataFrame(rows))
+    last=h.iloc[-1]
+    assert bool(last.by_coef) and bool(last.reliable) and last.q_reference>0
+    assert not h.iloc[:2].by_coef.any()
+    assert abs(last.reference_dp2-h.iloc[0].reference_dp2)<1e-9
