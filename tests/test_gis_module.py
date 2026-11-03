@@ -619,3 +619,12 @@ def test_54_shows_mixed_old_and_new_sources_in_percent_only():
     assert table.frame['well'].unique().tolist() == ['1']                                   # одна скважина, а не «№1» и «1»
     assert sorted(table.frame['s0_kg'].dropna().tolist() + table.frame['s1_kg'].dropna().tolist()) == [20.0, 40.0]
     assert notes
+
+
+def test_an_results_table_shows_kg_as_written_and_math_uses_number():
+    iv = _an_intervals().assign(kg_text=['<20%', '', ''])
+    iv.loc[0, 'kg'] = 0.2
+    res = GisModule().run({GIS: _an_packs(), INTERVALS: iv}, _params(view='an'))
+    table = next(t for t in res.tables if t.id == 'gis-an-5-4')
+    kg = [v for c in table.frame.columns if c.endswith('_kg') for v in table.frame[c] if v == v and v is not None]
+    assert '<20%' in kg and 62.0 in kg                       # текст как в отчёте; остальные — числом в процентах

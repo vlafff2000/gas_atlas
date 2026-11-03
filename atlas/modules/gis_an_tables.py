@@ -157,6 +157,12 @@ def _fmt(value: float, digits: int = 2) -> float | None:
     return None if math.isnan(value) else round(value, digits)
 
 
+def kg_as_written(interval: Any) -> str:
+    """Исходная запись Кг («<20%», «20-30»), если она не просто число: колонка ``kg_text`` базы ГИС; иначе пусто."""
+    text = getattr(interval, 'kg_text', '')
+    return text.strip() if isinstance(text, str) else ''
+
+
 def percent(kg: float) -> float:
     """Кг в процентах с одним знаком: доли (≤ 1) умножаются на 100, значения больше единицы уже в процентах."""
     return round(kg * 100 if kg <= 1 else kg, 1)
@@ -297,8 +303,10 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
                 for r, interval in enumerate(b.itertuples(index=False), top + height - len(b)):
                     kg = _num(interval.kg)
                     rows[r][f's{i}_from'], rows[r][f's{i}_to'] = _fmt(_num(interval.from_m), 1), _fmt(_num(interval.to_m), 1)
-                    rows[r][f's{i}_kg'] = None if math.isnan(kg) else percent(kg)
-                    if rows[r][f's{i}_kg'] is not None and rows[r][f's{i}_kg'] <= LOW_KG:
+                    number = None if math.isnan(kg) else percent(kg)
+                    written = kg_as_written(interval)
+                    rows[r][f's{i}_kg'] = written or number          # в таблице Кг как в отчёте («<20%»), в расчётах и подсветке — число
+                    if number is not None and number <= LOW_KG:
                         low.append((r, i))
                 item = gvk.get((well, pack, label))
                 if item:
