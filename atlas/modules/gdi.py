@@ -503,6 +503,12 @@ class GdiModule(Module):
                 chart.series.append(Series(f'{label}, {BY_COEF_SUFFIX}', *xy(grid, a + b * grid if linear else a * grid + b * grid * grid),
                                            'line', group=label, color=color, dash='dashdot',
                                            tooltip=f'{BY_COEF_TIP}: a = {a:.6g}, b = {b:.6g}'))
+                rates = np.sort(g.q[g.q.gt(0)].unique().astype(float))
+                if len(rates):
+                    # расходы есть, давлений нет: режимы сажаем на кривую (ΔP² по a, b, не замер)
+                    chart.series.append(Series(f'{label}, режимы по Q', *xy(rates, a + b * rates if linear else a * rates + b * rates * rates),
+                                               'points', group=label, color=color, symbol=SYMBOLS[i % len(SYMBOLS)], hollow=True,
+                                               legend=False, tooltip=f'Измерен только Q; ΔP² — по кривой a, b (не замер)'))
                 continue
             chart.series.append(Series(label, *xy(g.q.to_numpy(float), (g.dp2 / g.q if linear else g.dp2).to_numpy(float)), 'points',
                                        group=label,
