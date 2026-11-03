@@ -112,6 +112,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
   const [all, setAll] = useState(false)
   const [sel, setSel] = useState(-1)
   const [busy, setBusy] = useState(false)
+  const [mk, setMk] = useState<{ name: string; err: string } | null>(null) // создание папки: поле имени и текст ошибки
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   const sizeRef = useRef<{ w: number; h: number } | null>(null)
   const [favs, setFavs] = useState<Favs>({ favorites: [], frequent: [] })
@@ -225,6 +226,16 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
     if (items.some(i => !i.dir && i.name.toLowerCase() === n.toLowerCase()) && !window.confirm(`Файл «${n}» уже есть в этой папке. Заменить?`)) return
     void remember({ save_dir: list.path })
     done(join(list.path, n))
+  }
+  // новая папка в текущей: имя проверяет сервер (без путей, символы Windows/Linux, существующее имя, права); после создания открываем её
+  const makeDir = async () => {
+    if (!list || list.error || !mk) return
+    if (!mk.name.trim()) { setMk({ ...mk, err: 'Введите имя папки' }); return }
+    try {
+      const r = await getJson<{ ok: boolean; path?: string; error?: string }>('/api/fs/mkdir', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PXG': '1' }, body: JSON.stringify({ path: list.path, name: mk.name }) })
+      if (r.ok && r.path) { setMk(null); open(r.path) } else setMk({ ...mk, err: r.error || 'Не удалось создать папку' })
+    } catch { setMk({ ...mk, err: 'Нет связи с программой' }) }
   }
   const activate = (it: Item) => {
     if (!list) return
@@ -351,6 +362,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
         <div className="fp-bar">
           <button disabled={!list?.parent} onClick={() => list && open(list.parent)} title="Вверх (Backspace)">↑</button>
           <button onClick={() => void load(dirRef.current, undefined, true)} title="Обновить">↻</button>
+          <button disabled={!list || !!list.error} onClick={() => setMk(mk ? null : { name: '', err: '' })} title="Создать папку в текущей папке">Новая папка</button>
           <form onSubmit={e => { e.preventDefault(); void postFav('/api/fs/visit', { path: pathText.trim() }); void load(pathText.trim(), undefined, false, true) }} className="fp-path">
             <input value={pathText} onChange={e => setPathText(e.target.value)} placeholder="Вставьте путь и нажмите Enter" aria-label="Путь" />
           </form>
@@ -361,6 +373,13 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
               searchTimer.current = setTimeout(() => void load(dirRef.current, { q: v }), 200)
             }} />
         </div>
+        {mk && <form className="fp-mk" onSubmit={e => { e.preventDefault(); void makeDir() }}>
+          <input autoFocus value={mk.name} placeholder="Имя новой папки" aria-label="Имя новой папки" maxLength={200}
+            onChange={e => setMk({ name: e.target.value, err: '' })} onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMk(null) } }} />
+          <button type="submit" className="primary">Создать</button>
+          <button type="button" onClick={() => setMk(null)}>Отмена</button>
+          {mk.err && <span className="fp-mk-err" role="alert">{mk.err}</span>}
+        </form>}
         <div className="fp-crumbs">
           {crumbs(list?.path || pathText).map((c, i) => (
             <button key={c.path + i} onClick={() => open(c.path)}>{c.name}</button>

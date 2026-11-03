@@ -855,6 +855,71 @@ async def _save(request: Request) -> JSONResponse:
     return JSONResponse(res, status_code=200 if res.get("ok") else 409 if res.get("exists") else 400)
 
 
+_WIN_RESERVED = {"con", "prn", "aux", "nul", *("com%d" % i for i in range(1, 10)), *("lpt%d" % i for i in range(1, 10))}
+
+
+def check_dir_name(name: Any) -> str:
+    """Имя новой папки: одно имя без пути, пригодное и для Windows, и для Linux. Вернёт очищенное имя или бросит ValueError с текстом."""
+    n = str(name or "").strip()
+    if not n:
+        raise ValueError("Введите имя папки")
+    if "/" in n or "\\" in n or n in (".", ".."):
+        raise ValueError("Имя папки не должно содержать путь: уберите / и \\")
+    bad = sorted({c for c in n if c in '<>:"|?*' or ord(c) < 32})
+    if bad:
+        raise ValueError("В имени нельзя использовать: " + " ".join(c for c in bad if ord(c) >= 32) if any(ord(c) >= 32 for c in bad) else "В имени есть управляющие символы")
+    if n.endswith("."):
+        raise ValueError("Имя не может заканчиваться точкой")
+    if n.split(".")[0].strip().lower() in _WIN_RESERVED:
+        raise ValueError("Это имя зарезервировано Windows: %s" % n)
+    if len(n.encode("utf-8")) > 255:
+        raise ValueError("Имя слишком длинное")
+    return n
+
+
+def make_dir(path: str, name: str) -> Dict[str, Any]:
+    """Создать папку name внутри path (только непосредственно в ней). После создания проводник её открывает."""
+    try:
+        n = check_dir_name(name)
+    except ValueError as error:
+        return {"ok": False, "error": str(error)}
+    folder = str(path or "")
+    if not folder or not os.path.isabs(folder) or not os.path.isdir(folder):
+        return {"ok": False, "error": "Текущая папка недоступна: %s" % (folder or "—")}
+    try:
+        for e in os.listdir(folder):
+            if e.lower() == n.lower():
+                return {"ok": False, "exists": True, "error": "«%s» уже есть в этой папке" % e}
+    except OSError:
+        pass
+    target = os.path.join(folder, n)
+    try:
+        os.mkdir(target)
+    except FileExistsError:
+        return {"ok": False, "exists": True, "error": "«%s» уже есть в этой папке" % n}
+    except PermissionError:
+        return {"ok": False, "error": "Нет доступа: в этой папке нельзя создавать папки"}
+    except OSError as error:
+        return {"ok": False, "error": "%s" % (error.strerror or error)}
+    return {"ok": True, "path": target, "name": n}
+
+
+async def _mkdir(request: Request) -> JSONResponse:
+    """POST /api/fs/mkdir {path, name}. Заголовок X-PXG обязателен (как у /api/fs/save)."""
+    from starlette.concurrency import run_in_threadpool
+
+    if request.headers.get("x-pxg") != "1":
+        return JSONResponse({"ok": False, "error": "Запрос отклонён"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    res = await run_in_threadpool(make_dir, str(body.get("path") or ""), str(body.get("name") or ""))
+    return JSONResponse(res, status_code=200 if res.get("ok") else 409 if res.get("exists") else 400)
+
+
 async def _win(request: Request) -> JSONResponse:
     if request.method == "POST":
         try:
@@ -895,6 +960,7 @@ def routes() -> List[Route]:
     return [
         Route("/api/fs/file", _file),
         Route("/api/fs/save", _save, methods=["POST"]),
+        Route("/api/fs/mkdir", _mkdir, methods=["POST"]),
         Route("/api/fs/list", _list),
         Route("/api/fs/places", _places),
         Route("/api/fs/perf", _perf, methods=["POST"]),

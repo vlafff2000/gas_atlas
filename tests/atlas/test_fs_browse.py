@@ -126,3 +126,23 @@ def test_file_route(home):
 def test_mounted_in_atlas(home):
     from atlas.api import create_app
     assert TestClient(create_app()).get("/api/fs/places").status_code == 200
+
+
+def test_make_dir(home, monkeypatch):
+    """Новая папка: только имя без пути, в текущей папке; ошибки — понятным текстом."""
+    from starlette.applications import Starlette
+    c = TestClient(Starlette(routes=fs_browse.routes()))
+    h = {"X-PXG": "1"}
+    r = c.post("/api/fs/mkdir", json={"path": str(home), "name": " Новая папка "}, headers=h).json()
+    assert r["ok"] and r["path"] == str(home / "Новая папка") and (home / "Новая папка").is_dir()
+    assert c.post("/api/fs/mkdir", json={"path": str(home), "name": "новая папка"}, headers=h).status_code == 409  # регистр не важен
+    for bad in ["../x", "a/b", "a\\b", "..", ".", "", "  ", "a:b", "a*", "CON", "nul.txt", "x.", "a" * 300, "a\x01b"]:
+        r = c.post("/api/fs/mkdir", json={"path": str(home), "name": bad}, headers=h)
+        assert r.status_code == 400 and not r.json()["ok"], bad
+    assert not (home.parent / "x").exists()
+    assert c.post("/api/fs/mkdir", json={"path": str(home / "нет"), "name": "q"}, headers=h).status_code == 400
+    assert c.post("/api/fs/mkdir", json={"path": str(home), "name": "q"}).status_code == 403  # без X-PXG
+    # нет прав
+    monkeypatch.setattr(os, "mkdir", lambda p: (_ for _ in ()).throw(PermissionError(13, "Permission denied")))
+    r = c.post("/api/fs/mkdir", json={"path": str(home), "name": "w"}, headers=h)
+    assert r.status_code == 400 and "доступ" in r.json()["error"].lower()
