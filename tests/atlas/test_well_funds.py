@@ -48,3 +48,19 @@ def test_api_roundtrip(tmp_path):
     assert row['fund'] == 'geophysical' and row['manual'] and row['hint'] == 'production'
     assert projects.manifest(pid)['settings']['well_funds'] == {well: 'geophysical'}
     assert client.post(f'/api/projects/{pid}/well-fund', json={'changes': {well: 'xx'}}).status_code == 400
+
+
+def test_old_gis_tables_in_project_are_read_in_one_form(tmp_path):
+    """Проект, собранный старой выгрузкой («№21», проценты с долями), открывается с номерами без «№» и Кг в долях."""
+    from atlas.domain import DatasetKind
+    from _wells_data import well_frames
+    projects = Projects(tmp_path)
+    pid = projects.create_demo()
+    frames = well_frames()
+    frames['gis_intervals'] = pd.DataFrame({'well': ['№21', '21'], 'date': pd.to_datetime(['2025-03-30', '2025-10-20']), 'pack': ['покрышка'] * 2,
+                                            'from_m': [700.0, 701.0], 'to_m': [701.0, 702.0], 'kg': [10.0, 0.3]})
+    projects.store.commit(pid, frames=frames, action='Старая выгрузка ГИС')
+    data = projects.data(pid)
+    got = data[DatasetKind.GIS_INTERVALS]
+    assert got['well'].tolist() == ['21', '21'] and [round(v, 2) for v in got['kg']] == [0.1, 0.3]
+    assert data.gis_notes
