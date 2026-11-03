@@ -118,3 +118,14 @@ def test_database_sheets_with_mixed_state_column_are_saved(tmp_path):
     mixed=prod.copy();mixed['status']=[1,'x',None,2.5,'y']
     store.commit(pid,{'production':mixed})
     assert len(store.load(pid)[1]['production'])==5
+
+def test_gdi_coefficients_only_study_is_kept(tmp_path):
+    """ГДИ без замеров давлений: есть только a и b интерпретатора — строка принимается, ΔP² пустой."""
+    p=put(tmp_path,'Скважина;Дата;Q;ΔP2;a;b\n31;10.12.2021;;;0,7;0,012\n32;10.12.2021;;;;\n')
+    r=load_file(p); d=r.frames['gdi']
+    assert r.rejected==1 and len(d)==1 and d.well.iloc[0]=='31'
+    assert d.dp2.isna().all() and d.a_db.iloc[0]==0.7 and d.b_db.iloc[0]==0.012
+
+def test_gdi_coefficients_with_negative_b_rejected(tmp_path):
+    p=put(tmp_path,'Скважина;Дата;Q;ΔP2;a;b\n31;10.12.2021;;;0,7;-0,012\n')
+    assert load_file(p).rejected==1

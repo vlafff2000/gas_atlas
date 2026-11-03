@@ -5,6 +5,7 @@ import pandas as pd
 from functools import lru_cache
 
 KEYS=['well','date','method','study']
+SOURCE_BY_COEF='По коэффициентам (без замеров)'
 
 def fit(q,dp2):
     q=np.asarray(q,dtype=float); y=np.asarray(dp2,dtype=float)
@@ -46,11 +47,14 @@ def analyze_study(d,threshold=.95):
         if not np.isfinite(ad+bd) or min(ad,bd)<0 or ad+bd==0:
             notes.append('Некорректные коэффициенты БД'); ad=bd=None
     rd=r_squared(q,y,ad,bd)
-    if ad is not None and rd is not None and rd>=threshold: a,b,r,source=ad,bd,rd,'БД'
+    by_coef=len(q)==0 and ad is not None
+    if by_coef: a,b,r,source=ad,bd,None,SOURCE_BY_COEF; notes.append('Нет замеров давлений: a и b интерпретатора взяты как есть, адекватность не оценивается')
+    elif ad is not None and rd is not None and rd>=threshold: a,b,r,source=ad,bd,rd,'БД'
     elif ac is not None and (ad is None or rc>=threshold): a,b,r,source=ac,bc,rc,'Расчет'
     elif ad is not None: a,b,r,source=ad,bd,rd,'БД (низкое качество)'
     else: a=b=r=None; source='Недостаточно данных'
-    if len(np.unique(q))<2: notes.append('Нужны минимум два разных положительных Q')
+    if by_coef: pass
+    elif len(np.unique(q))<2: notes.append('Нужны минимум два разных положительных Q')
     elif len(q)==2: notes.append('Только две точки: R² не подтверждает надежность двух коэффициентов')
     if r is not None and r<threshold: notes.append(f'R² ниже {threshold:g}')
     pres=None
@@ -62,8 +66,8 @@ def analyze_study(d,threshold=.95):
     qfree=free_flow(a,b,pres) if r is not None and r>=threshold and len(np.unique(q))>=2 else None
     if pres is None: notes.append('Нет Рпл: Qсв не определяется')
     return dict(a=a,b=b,r2=r,source=source,a_calc=ac,b_calc=bc,r2_calc=rc,
-                a_db=ad,b_db=bd,r2_db=rd,points=len(d),fit_points=len(q),
-                q_observed=float(d.q.max()),q_free=qfree,p_res=pres,note='; '.join(notes))
+                a_db=ad,b_db=bd,r2_db=rd,by_coef=by_coef,points=len(d),fit_points=len(q),
+                q_observed=float(d.q.max()) if d.q.notna().any() else None,q_free=qfree,p_res=pres,note='; '.join(notes))
 
 def prepare(df):
     d=df.copy()

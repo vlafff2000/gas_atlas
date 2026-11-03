@@ -233,3 +233,26 @@ def test_suspects_are_red_overlay_and_confirmed_ones_leave_the_list(frame):
     assert suspects[0] not in left and left == suspects[1:]
     assert suspects[0] not in set(table(again, 'outliers').frame.id)
     assert not any(s.suspect for c in run(frame, last_n=1).charts for s in c.series)
+
+
+def _with_coef_study(frame):
+    """Скважина 31: добавлено исследование без замеров давлений, только a и b интерпретатора."""
+    last = frame.date.max() + pd.Timedelta(days=400)
+    row = {c: np.nan for c in frame.columns}
+    row.update(well='31', date=last, method='Установившиеся отборы', study='', q=np.nan, dp2=np.nan, a_db=.7, b_db=.012,
+               season='2099-2100', _point_id='coef-1')
+    return pd.concat([frame, pd.DataFrame([row])], ignore_index=True), last
+
+
+def test_study_by_coefficients_is_dash_dot_curve(frame):
+    frame, last = _with_coef_study(frame)
+    result = run(frame, wells=['31'], last_n=0)
+    chart = next(c for c in result.charts if c.id == 'gdi-31')
+    curve = next(s for s in chart.series if s.name.endswith('по коэффициентам'))
+    assert curve.kind == 'line' and curve.dash == 'dashdot' and curve.legend
+    assert 'без замеров' in curve.tooltip and 'a = 0.7' in curve.tooltip
+    assert not any(s.kind == 'points' and np.isnan(np.asarray(s.y, float)).any() for s in chart.series)
+    row = table(result, 'studies').frame.query('date == @last').iloc[0]
+    assert bool(row.by_coef) and row.r2 != row.r2 and 'без замеров' in row.source
+    linear = run(frame, wells=['31'], last_n=0, orientation='linear')
+    assert any(s.name.endswith('по коэффициентам') for c in linear.charts for s in c.series)

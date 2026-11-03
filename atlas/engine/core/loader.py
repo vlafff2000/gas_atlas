@@ -362,7 +362,7 @@ def detect_layout(head,module='auto'):
         if {'well','date'} <= mapping.keys():
             if module != 'auto': detected=module
             elif 'horizon' in mapping and ('level' in mapping or 'pressure' in mapping): detected='response'
-            elif 'q' in mapping and ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys()): detected='gdi'
+            elif 'q' in mapping and ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys() or {'a_db','b_db'}<=mapping.keys()): detected='gdi'
             elif 'q' in mapping: detected='production'
             if detected: header=i; break
         if 'well' in mapping and ('group' in mapping or 'subgroup' in mapping) and 'date' not in mapping:
@@ -399,8 +399,8 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
         required={**WELL_REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'water_factor':{'date','gas_in_place'},'groups':{'well'},'annulus':{'well','date','annulus_q','annulus_p'}}[detected]
         if not wide and not required<=mapping.keys():
             raise ValueError(f'{sheet}: не найдены поля {", ".join(sorted(required-mapping.keys()))}.')
-        if detected=='gdi' and not ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys()):
-            raise ValueError(f'{sheet}: для ГДИ нужны Рпл и Рзаб либо готовое ΔP².')
+        if detected=='gdi' and not ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys() or {'a_db','b_db'}<=mapping.keys()):
+            raise ValueError(f'{sheet}: для ГДИ нужны Рпл и Рзаб, готовое ΔP² либо коэффициенты a и b.')
         from itertools import chain
         remaining=chain(head[header+1:],iterator); row_offset=header+2
         while True:
@@ -501,7 +501,12 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 if k!=1:
                     if 'a_db' in df: df['a_db']=df['a_db']/k
                     if 'b_db' in df: df['b_db']=df['b_db']/k**2
-                reasons.loc[~np.isfinite(df.q)|df.q.lt(0)]='Q должен быть конечным неотрицательным числом'
+                # Исследование без замеров давлений: интерпретатор дал только a и b (ΔP² и Q могут быть пустыми)
+                for c in ('dp2','a_db','b_db'):
+                    if c not in df: df[c]=np.nan
+                coef_only=df.dp2.isna()&df.a_db.ge(0)&df.b_db.ge(0)&(df.a_db+df.b_db).gt(0)
+                if {'p_res','p_bh'}<=set(df): coef_only&=~(df.p_res.notna()&df.p_bh.notna())
+                reasons.loc[(~np.isfinite(df.q)&~coef_only)|df.q.lt(0)]='Q должен быть конечным неотрицательным числом'
                 if {'p_res','p_bh'}<=set(df):
                     calculated=df.p_res**2-df.p_bh**2
                     validp=df.p_res.ge(0)&df.p_bh.ge(0)&calculated.ge(0)
@@ -512,7 +517,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                     else: df['dp2']=calculated
                     both=df.p_res.notna()&df.p_bh.notna()
                     reasons.loc[both&~validp]='Проверьте давления: Рпл ≥ Рзаб ≥ 0'
-                reasons.loc[~np.isfinite(df.dp2)|df.dp2.lt(0)]='Нет корректного ΔP² или пары давлений'
+                reasons.loc[(~np.isfinite(df.dp2)&~coef_only)|df.dp2.lt(0)]='Нет корректного ΔP², пары давлений или коэффициентов a и b'
             elif detected=='response':
                 df['horizon']=df.horizon.fillna('').astype(str).str.strip()
                 reasons.loc[df.horizon.eq('')]='Не указан горизонт'
