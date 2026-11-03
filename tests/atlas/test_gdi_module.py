@@ -256,3 +256,24 @@ def test_study_by_coefficients_is_dash_dot_curve(frame):
     assert bool(row.by_coef) and row.r2 != row.r2 and 'без замеров' in row.source
     linear = run(frame, wells=['31'], last_n=0, orientation='linear')
     assert any(s.name.endswith('по коэффициентам') for c in linear.charts for s in c.series)
+
+
+def test_coefficient_study_flag_in_trend_and_productivity_tables(frame):
+    from atlas.modules import gdi_trend
+    frame, last = _with_coef_study(frame)
+    result = run(frame, wells=['31'], last_n=0)
+    prod = table(result, 'productivity').frame
+    mine = prod[prod.date.eq(last)].iloc[0]
+    assert mine.by_coef == 'да' and mine.reliable == 'да' and mine.q_ref > 0
+    hist = gdi_trend.histories(frame[frame.well.eq('31')], .95, [])
+    row = hist[hist.date.eq(last)].iloc[0]
+    assert bool(row.by_coef) and bool(row.reliable)
+
+
+def test_passport_diagram_draws_coefficient_study_dash_dot():
+    from atlas.passport_blocks import gdi_chart
+    items = [dict(date='01.01.2025', method='М', a=.7, b=.012, r2=1., reliable=True, by_coef=False, points=[[20., 18.8], [100., 190.]]),
+             dict(date='01.01.2026', method='М', a=.8, b=.012, r2=None, reliable=True, by_coef=True, points=[])]
+    chart = gdi_chart(items)
+    curve = next(s for s in chart.series if 'по коэффициентам' in s.name)
+    assert curve.kind == 'line' and curve.dash == 'dashdot' and 'без замеров' in curve.tooltip

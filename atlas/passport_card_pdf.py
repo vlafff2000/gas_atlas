@@ -79,11 +79,14 @@ def draw_charts_page(card: dict[str, Any], pdf) -> None:
         ax.set_title('Индикаторные диаграммы ГДИ (до пяти свежих исследований)', fontsize=9.5, loc='left', color=INK)
         for n, g in enumerate(diagrams[:5]):
             color = plt.cm.tab10(n)
-            q = [p[0] for p in g['points']]
-            ax.scatter(q, [p[1] for p in g['points']], s=14, color=color, label=g['date'] + ('' if g['reliable'] else ' (ненадёжное)'))
-            if g['a'] is not None and g['b'] is not None:
+            q = [p[0] for p in g['points']] or [p[0] for o in diagrams[:5] for p in o['points']]
+            by_coef = g.get('by_coef', False)
+            if not by_coef:
+                ax.scatter(q, [p[1] for p in g['points']], s=14, color=color, label=g['date'] + ('' if g['reliable'] else ' (ненадёжное)'))
+            if g['a'] is not None and g['b'] is not None and q:
                 xs = np.linspace(0, max(q) * 1.05, 41)
-                ax.plot(xs, g['a'] * xs + g['b'] * xs ** 2, color=color, linewidth=1.1, linestyle='-' if g['reliable'] else '--')
+                ax.plot(xs, g['a'] * xs + g['b'] * xs ** 2, color=color, linewidth=1.1, linestyle='-.' if by_coef else '-' if g['reliable'] else '--',
+                        label=g['date'] + ' (по коэффициентам, без замеров)' if by_coef else None)
         ax.set_xlabel('Дебит q, тыс. м³/сут', fontsize=8)
         ax.set_ylabel(mpl_text('Δp² = p<sub>пл</sub>² − p<sub>заб</sub>²'), fontsize=8)
         ax.tick_params(labelsize=7)

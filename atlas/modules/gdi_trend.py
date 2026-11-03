@@ -196,11 +196,12 @@ class GdiTrendModule(Module):
             if chart.series:
                 result.charts.append(chart)
         studies = history[['well', 'date', 'method', 'study', 'a', 'b', 'r2', 'source', 'reliable', 'reference_dp2',
-                           'q_reference']].assign(reliable=lambda d: d.reliable.map({True: 'да', False: 'нет'}))
+                           'q_reference', 'by_coef']].assign(reliable=lambda d: d.reliable.map({True: 'да', False: 'нет'}),
+                                                              by_coef=lambda d: d.by_coef.map({True: 'да', False: ''}))
         result.tables.append(Table('studies', 'Все исследования', studies, [
             Column('well', 'Скважина'), Column('date', 'Дата', kind='date'), Column('method', 'Метод'),
             Column('study', 'Исследование'), Column('a', 'a', decimals=5, kind='number'), Column('b', 'b', decimals=5, kind='number'),
             Column('r2', 'R²', decimals=4, kind='number'), Column('source', 'Источник коэффициентов'),
-            Column('reliable', 'Надёжное'), Column('reference_dp2', 'Общий ΔP²', UNITS['dp2'], 0, 'number'),
+            Column('reliable', 'Надёжное'), Column('by_coef', 'По коэффициентам (без замеров)'), Column('reference_dp2', 'Общий ΔP²', UNITS['dp2'], 0, 'number'),
             Column('q_reference', 'Q при общем ΔP²', UNITS['q_gdi'], 1, 'number')], collapsed=True))
         return result

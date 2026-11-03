@@ -231,6 +231,8 @@ def studies_calc(data: Data, params: dict[str, Any]) -> pd.DataFrame:
     for c in ('a_calc', 'b_calc', 'r2_calc', 'fit_points', 'distinct_q'):
         if c not in h:
             h[c] = np.nan
+    h['by_coef'] = (h['by_coef'].fillna(False) if 'by_coef' in h else False)
+    h['by_coef'] = h.by_coef.map({True: 'да', False: ''})
     h['reliable_calc'] = (h.r2_calc.ge(params['threshold']) & h.distinct_q.ge(3) & h.a_calc.ge(0) & h.b_calc.ge(0)).map({True: 'да', False: 'нет'})
     return h
 
@@ -411,7 +413,8 @@ class GdiDueModule(Module):
                 Column('well', 'Скважина'), Column('date', 'Дата', kind='date'), Column('method', 'Метод'), Column('study', 'Исследование'),
                 Column('a_calc', 'a (расчёт)', decimals=5, kind='number'), Column('b_calc', 'b (расчёт)', decimals=5, kind='number'),
                 Column('r2_calc', 'R² (расчёт)', decimals=4, kind='number'), Column('fit_points', 'Точек', kind='number', decimals=0),
-                Column('reliable_calc', 'Надёжное по расчёту')], collapsed=True))
+                Column('reliable_calc', 'Надёжное по расчёту'), Column('by_coef', 'По коэффициентам (без замеров)'),
+                Column('a', 'a (итог)', decimals=5, kind='number'), Column('b', 'b (итог)', decimals=5, kind='number')], collapsed=True))
         dt = drop_table(table, params)
         drop = choose(dt, dt.flag, add, remove).sort_values(['in_table', 'signals'], ascending=[False, False], kind='stable')
         result.tables.append(Table('gdi-productivity', 'ГДИ: скважины со снижением продуктивности', drop, [

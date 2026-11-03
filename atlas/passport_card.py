@@ -304,7 +304,7 @@ def gdi_table(history: pd.DataFrame) -> list[dict[str, Any]]:
         return rows
     for _, r in history.sort_values('date').iterrows():
         rows.append({'date': _date(r.date), 'method': str(r.method or ''), 'a': _num(r.a), 'b': _num(r.b), 'r2': _num(r.r2),
-                     'q_max': _num(r.q_observed), 'q_free': _num(r.q_free), 'reliable': bool(r.reliable),
+                     'q_max': _num(r.q_observed), 'q_free': _num(r.q_free), 'reliable': bool(r.reliable), 'by_coef': bool(r.get('by_coef', False)),
                      'note': str(r.note or '')})
     return rows
 
@@ -317,11 +317,12 @@ def gdi_diagrams(raw: pd.DataFrame | None, history: pd.DataFrame, well: str) -> 
     out = []
     for _, h in history.sort_values('date', ascending=False).iterrows():
         mine = pts[pts.date.eq(h.date) & pts.method.astype(str).eq(str(h.method)) & pts.study.astype(str).eq(str(h.study))]
-        if mine.empty:
+        by_coef = bool(h.get('by_coef', False))
+        if mine.empty and not by_coef:
             continue
         mine = mine.sort_values('q')
         out.append({'date': _date(h.date), 'method': str(h.method or ''), 'a': _num(h.a), 'b': _num(h.b), 'r2': _num(h.r2),
-                    'reliable': bool(h.reliable), 'points': [[float(q), float(d)] for q, d in zip(mine.q, mine.dp2)]})
+                    'reliable': bool(h.reliable), 'by_coef': by_coef, 'points': [[float(q), float(d)] for q, d in zip(mine.q, mine.dp2)]})
     return out
 
 

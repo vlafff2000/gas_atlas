@@ -57,8 +57,15 @@ def gdi_chart(items: list[dict[str, Any]]) -> Chart | None:
     chart = Chart('passport-gdi', 'Индикаторные диаграммы ГДИ', Axis('Дебит q', 'тыс. м³/сут', from_zero=True),
                   Axis('Δp² = p<sub>пл</sub>² − p<sub>заб</sub>²', '(кгс/см²)²', from_zero=True))
     for g in items:
-        name = g['date'] + (' · ' + g['method'] if g['method'] else '') + ('' if g['reliable'] else ' (ненадёжное)')
-        qs = [p[0] for p in g['points']]
+        by_coef = g.get('by_coef', False)
+        name = g['date'] + (' · ' + g['method'] if g['method'] else '') + (' (по коэффициентам)' if by_coef else '' if g['reliable'] else ' (ненадёжное)')
+        qs = [p[0] for p in g['points']] or [q for o in items for q in (p[0] for p in o['points'])]
+        if by_coef:
+            if g['a'] is not None and g['b'] is not None and qs:
+                curve = np.linspace(0, max(qs) * 1.05, 41)
+                chart.series.append(Series(name, curve, g['a'] * curve + g['b'] * curve ** 2, 'line', group=name, dash='dashdot',
+                                           tooltip='По коэффициентам интерпретатора, без замеров давлений'))
+            continue
         chart.series.append(Series(name, qs, [p[1] for p in g['points']], 'points', group=name,
                                    tooltip='' if g['reliable'] else 'Ненадёжное исследование: решает инженер'))
         if g['a'] is not None and g['b'] is not None:
@@ -93,12 +100,13 @@ def gdi_table(rows: list[dict[str, Any]]) -> Table | None:
         'date': [r['date'] for r in rows], 'method': [r['method'] or '—' for r in rows],
         'a': _f([r['a'] for r in rows]), 'b': _f([r['b'] for r in rows]), 'r2': _f([r['r2'] for r in rows]),
         'q_max': _f([r['q_max'] for r in rows]), 'q_free': _f([r['q_free'] for r in rows]),
-        'reliable': ['да' if r['reliable'] else 'нет' for r in rows]})
+        'reliable': ['да' if r['reliable'] else 'нет' for r in rows],
+        'by_coef': ['да' if r.get('by_coef') else '' for r in rows]})
     bad = [i for i, r in enumerate(rows) if not r['reliable']]
     return Table('passport-gdi', 'ГДИ за всё время', frame, [
         Column('date', 'Дата'), Column('method', 'Метод'), Column('a', 'a', '', 3, 'number'), Column('b', 'b', '', 4, 'number'),
         Column('r2', 'R²', '', 3, 'number'), Column('q_max', 'Qmax', '', 0, 'number'), Column('q_free', 'Qсв', '', 0, 'number'),
-        Column('reliable', 'Надёжно')], styles=[CellStyle(bad, font='808080')] if bad else [],
+        Column('reliable', 'Надёжно'), Column('by_coef', 'По коэфф. (без замеров)')], styles=[CellStyle(bad, font='808080')] if bad else [],
         note='Ненадёжные исследования выделены серым, но не скрыты: решает инженер.')
 
 

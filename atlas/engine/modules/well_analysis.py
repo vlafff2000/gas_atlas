@@ -147,16 +147,22 @@ def gdi_history(df,threshold=.95,delta=None):
     ranges=valid_points.groupby(gdi.KEYS).dp2.agg(['min','max'])
     distinct=valid_points.groupby(gdi.KEYS).q.nunique()
     history=history.join(ranges,on=gdi.KEYS).join(distinct.rename('distinct_q'),on=gdi.KEYS)
-    history['reliable']=history.r2.ge(threshold)&history.distinct_q.ge(3)&history.a.ge(0)&history.b.ge(0)&(history.a+history.b).gt(0)
+    history['by_coef']=history['by_coef'].fillna(False).astype(bool) if 'by_coef' in history else False
+    ab_ok=history.a.ge(0)&history.b.ge(0)&(history.a+history.b).gt(0)
+    measured=history.r2.ge(threshold)&history.distinct_q.ge(3)&ab_ok&~history.by_coef
+    # Исследование по коэффициентам интерпретатора (без замеров давлений) берётся как есть: адекватность не оценивается, решает инженер
+    history['reliable']=measured|(history.by_coef&ab_ok)
     history['reference_dp2']=np.nan;history['q_reference']=np.nan
     for method,part in history.groupby('method',dropna=False):
-        valid=part[part.reliable]
-        if valid.empty:continue
-        lo,hi=valid['min'].max(),valid['max'].min()
+        valid=part[measured.loc[part.index]]
+        coef=part[part.by_coef&part.reliable]
+        if valid.empty and (coef.empty or delta is None):continue
+        lo,hi=(valid['min'].max(),valid['max'].min()) if len(valid) else (np.nan,np.nan)
         ref=float(delta) if delta is not None else (lo+hi)/2 if hi>lo else np.nan
         history.loc[part.index,'reference_dp2']=ref
-        for i,r in valid.iterrows():
-            if not np.isfinite(ref) or not r['min']<=ref<=r['max']:continue
+        for i,r in pd.concat([valid,coef]).iterrows():
+            if not np.isfinite(ref):continue
+            if not r['by_coef'] and not r['min']<=ref<=r['max']:continue
             history.loc[i,'q_reference']=2*ref/(r.a+np.sqrt(r.a*r.a+4*r.b*ref)) if r.b>0 else ref/r.a
     return history.sort_values(['date','method','study']).reset_index(drop=True)
 
