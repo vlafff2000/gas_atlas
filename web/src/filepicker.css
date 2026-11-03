@@ -56,3 +56,7 @@
 .fp-favadd button { width: auto; padding: 2px 8px; border: 1px solid var(--line-strong); }
 .fp-note.small { padding: 4px 8px; font-size: 12px; }
 .fp-ic { vertical-align: -5px; flex: none; margin-right: 2px; }
+
+.fp-mk { display: flex; gap: 8px; align-items: center; padding: 2px 14px 6px; }
+.fp-mk input { flex: 1; min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 5px 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.fp-mk-err { color: var(--danger, #c0392b); font-size: 12px; }
