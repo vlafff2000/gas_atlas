@@ -251,6 +251,10 @@ def test_study_by_coefficients_is_dash_dot_curve(frame):
     curve = next(s for s in chart.series if s.name.endswith('по коэффициентам'))
     assert curve.kind == 'line' and curve.dash == 'dashdot' and curve.legend
     assert 'без замеров' in curve.tooltip and 'a = 0.7' in curve.tooltip
+    frame2 = frame.copy(); frame2.loc[frame2._point_id == 'coef-1', 'q'] = 100.
+    r2 = run(frame2, wells=['31'], last_n=0)
+    modes = next(s for c in r2.charts for s in c.series if s.name.endswith('режимы по Q'))
+    assert list(modes.x) == [100.] and abs(modes.y[0] - (.7 * 100 + .012 * 100 ** 2)) < 1e-9 and modes.hollow
     assert not any(s.kind == 'points' and np.isnan(np.asarray(s.y, float)).any() for s in chart.series)
     row = table(result, 'studies').frame.query('date == @last').iloc[0]
     assert bool(row.by_coef) and row.r2 != row.r2 and 'без замеров' in row.source
