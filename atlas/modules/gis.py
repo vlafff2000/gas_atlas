@@ -15,11 +15,13 @@ from atlas.engine.core.config import ordered
 from atlas.engine.modules import gis_hikg
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series, Stat, Table
+from .. import well_funds
 from ..domain import DatasetKind
 from . import gis_an_tables, gis_cons_compare, gis_tiles, gis_well
 
 GIS = DatasetKind.GIS_PACKS
 INTERVALS = DatasetKind.GIS_INTERVALS
+OBSERVATIONS = DatasetKind.GIS_OBSERVATIONS
 SECTION = 'Выбор данных'
 SPRING = 'весна'
 # метрика → (колонка, подпись, единица, название графика)
@@ -49,7 +51,7 @@ class GisModule(Module):
         group='Исследования скважин',
         description='Динамика ГВК, эффективной толщины и Кг ср.взв по скважинам и пачкам из «Базы ГИС».',
         needs=(GIS,),
-        optional=(INTERVALS, DatasetKind.CONSTRUCTION, DatasetKind.BOTTOM, DatasetKind.WELL_GEO),
+        optional=(INTERVALS, OBSERVATIONS, DatasetKind.CONSTRUCTION, DatasetKind.BOTTOM, DatasetKind.WELL_GEO),
         order=75,
         builder_layouts=True,    # макеты «Конструктора графиков» графиками после основных
         params=(
@@ -270,6 +272,18 @@ class GisModule(Module):
         return result
 
     @staticmethod
+    def _funds(data: Data) -> dict[str, str]:
+        """Назначение скважины = фонд проекта (``well_funds``): ручной выбор главнее подсказки; нет признаков — пусто."""
+        obs = data.get(OBSERVATIONS)
+        if obs is None or obs.empty or 'methods' not in obs:
+            return {}
+        raw = getattr(data, 'raw', None) or dict(data)
+        frames = {k.value if isinstance(k, DatasetKind) else str(k): v for k, v in raw.items()}
+        groups = {w: (m or {}).get('group', '') for w, m in (getattr(data, 'mapping', None) or {}).items()}
+        rows = well_funds.table(frames, groups, getattr(data, 'settings', None) or {})
+        return {r['well']: well_funds.LABEL.get(r['fund'], '') for r in rows}
+
+    @staticmethod
     def run_an(data: Data, params: dict[str, Any]) -> Result:
         """Таблицы 5.4–5.8 главы 5 «Авторского надзора» (``gis_an_tables``): сезоны подписываются от нового сезона."""
         result = Result()
@@ -277,8 +291,8 @@ class GisModule(Module):
             result.notes.append(Note('В данных нет «Базы ГИС». Загрузите таблицу пачек через «Источники» или «Импорт данных».'))
             return result
         colors = (getattr(data, 'settings', None) or {}).get('an_colors') or {}
-        tables, labels, base, notes = gis_an_tables.build({'packs': data[GIS], 'intervals': data.get(INTERVALS)},
-                                                          {**params, 'colors': colors})
+        tables, labels, base, notes = gis_an_tables.build({'packs': data[GIS], 'intervals': data.get(INTERVALS), 'observations': data.get(OBSERVATIONS),
+                                                           'funds': GisModule._funds(data)}, {**params, 'colors': colors})
         result.tables.extend(tables)
         result.notes.extend(Note(n, level='warning') for n in notes)
         if labels:

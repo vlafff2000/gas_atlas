@@ -508,3 +508,29 @@ def test_perforation_from_well_geo_positive_abs_is_converted_too():
     res = GisModule().run({GIS: _frame(), DatasetKind.GIS_INTERVALS: _intervals(), DatasetKind.WELL_GEO: geo},
                           _params(wells=['115'], view='planshet', seasons=[], perf_depth='abs'))
     assert res.charts[0].figure.data['perf'] == [{'top': 801.0, 'bottom': 810.0}]
+
+
+# ---- таблица 5.3: объём исследований (Скважина, Назначение, Дата, Методы) ----
+def _observations():
+    return pd.DataFrame({
+        'well': ['1', '4', '4'], 'date': pd.to_datetime(['2025-10-20', '2025-10-22', '2026-04-02']),
+        'season': ['осень', 'осень', 'весна'], 'methods': ['ТМ; ГК; 2НГК', 'ТМ; ГК', '']})
+
+
+def test_an_scope_table_has_well_purpose_date_methods():
+    data = Data({GIS: _an_packs(), INTERVALS: _an_intervals(), DatasetKind.GIS_OBSERVATIONS: _observations()})
+    data.settings = {'well_funds': {'1': 'observation'}}
+    res = GisModule().run(data, _params(view='an'))
+    assert [t.id for t in res.tables][0] == 'gis-an-5-3'
+    t = res.tables[0]
+    assert [c.label for c in t.columns] == ['№ скв.', 'Назначение', 'Дата', 'Методы']
+    first = t.frame.iloc[0]
+    assert first['well'] == '1' and first['methods'] == 'ТМ; ГК; 2НГК' and first['purpose'] == 'Наблюдательная'
+    assert len(t.frame) == 2                      # замер без методов в объём не входит
+
+
+def test_an_without_methods_warns_instead_of_empty_table():
+    obs = _observations().assign(methods='')
+    res = GisModule().run(Data({GIS: _an_packs(), INTERVALS: _an_intervals(), DatasetKind.GIS_OBSERVATIONS: obs}), _params(view='an'))
+    assert 'gis-an-5-3' not in [t.id for t in res.tables]
+    assert any('5.3' in n.text for n in res.notes)
