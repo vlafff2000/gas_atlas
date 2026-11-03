@@ -435,6 +435,18 @@ def test_54_xlsx_draws_the_well_line_and_keeps_gvk_in_one_row():
     assert ws.cell(row4, 1).border.top.style == 'medium'
 
 
+def test_54_xlsx_header_keeps_well_and_pack_titles_and_centres_merged_h():
+    import io
+    from openpyxl import load_workbook
+    from atlas import render
+    content, _, _ = render.tables_file([_an_five_four()], 'Таблица 5.4')
+    ws = load_workbook(io.BytesIO(content)).worksheets[0]
+    assert ws['A1'].value == '№ скв.' and ws['B1'].value == 'Пачка'          # подписи не теряются при объединении шапки
+    merged_h = next(c for row in ws.iter_rows(min_row=3) for c in row
+                    if c.coordinate in ws.merged_cells and c.value == 2.5)
+    assert merged_h.alignment.vertical == 'center'
+
+
 # --- схема скважины и планшет ГИС ---------------------------------------------------------------------------------------
 
 def _intervals():
