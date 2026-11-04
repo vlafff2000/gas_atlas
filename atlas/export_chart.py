@@ -60,7 +60,9 @@ def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
         if kind not in ('Scatter', 'Bar'):
             continue
         color = ''
-        for holder in (t.line, t.marker):
+        symbol = str(getattr(t.marker, 'symbol', None) or 'circle') if t.marker is not None else 'circle'      # у столбцов символа нет
+        line = getattr(t, 'line', None)      # у столбцов (Bar) своего поля line нет
+        for holder in (line, t.marker):
             if holder is not None and isinstance(holder.color, str):
                 color = holder.color
                 break
@@ -77,11 +79,10 @@ def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
         xs = _values(t.x, x.scale)
         series.append(Series(
             name=t.name or '', x=xs, y=list(t.y) if t.y is not None else [], kind=mark, group=t.name or '',
-            dash=_DASH.get(t.line.dash if t.line is not None and t.line.dash else 'solid', 'solid') if mark == 'line' else '',
-            width=float(t.line.width) if mark == 'line' and t.line is not None and t.line.width else 0.0,
+            dash=_DASH.get(line.dash if line is not None and line.dash else 'solid', 'solid') if mark == 'line' else '',
+            width=float(line.width) if mark == 'line' and line is not None and line.width else 0.0,
             legend=t.showlegend is not False, color=color, opacity=float(t.opacity if t.opacity is not None else 1.0),
-            symbol=_SYMBOL.get(str(t.marker.symbol or 'circle').replace('-open', ''), 'circle') if t.marker is not None else 'circle',
-            hollow='open' in str(t.marker.symbol or '') if t.marker is not None else False,
+            symbol=_SYMBOL.get(symbol.replace('-open', ''), 'circle'), hollow='open' in symbol,
             markers=mark == 'line' and 'markers' in (t.mode or ''), axis=t.yaxis if t.yaxis in right else 'y',
             ids=ids, dataset=dataset))
     return Chart(id=chart_id, title=_text(layout.title), x=x, y=y, y2=y2, y3=y3, y4=y4, y5=y5, series=series)
