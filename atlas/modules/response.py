@@ -259,7 +259,7 @@ class ResponseModule(Module):
             Param('date_to', 'по', 'date', default=None, section=SECTION_DATA, help='Пусто — до последнего замера'),
             Param('view', 'Вид графиков', 'choice', default='separate', options=VIEWS, section=SECTION_VIEW, chart_kind=True),
             Param('split', 'Построение', 'choice', default='horizon', options=SPLITS, section=SECTION_VIEW),
-            Param('gap_days', 'Прерывать кривую при паузе более, сут', 'integer', default=GAP_DAYS, minimum=0, maximum=3650,
+            Param('gap_days', 'Прерывать кривую при паузе более', 'integer', default=GAP_DAYS, minimum=0, maximum=3650,
                   unit='сут', section=SECTION_VIEW,
                   help='Если между замерами прошло больше суток, чем здесь, кривая прерывается, а не тянется линией. 0 — не прерывать'),
         ),
