@@ -22,7 +22,7 @@ const DPIS = [150, 200, 250, 300, 600, 1200]
 const KIND_NOTE: Record<string, string> = {
   heat: 'Тепловая карта: действуют размер рисунка, шрифты, текст в ячейках, заголовок и фон.',
   strips: 'Матрица скважин × сезонов: действуют размер рисунка, шрифты, текст в ячейках, заголовок и фон.',
-  stack: 'Столбцы с подписями в сегментах: действуют размер, шрифт, легенда (справа, сверху, снизу или скрыть), заголовок, подписи в столбцах и таблица под графиком.',
+  stack: 'Столбцы с подписями в сегментах: действуют размер, шрифт, оси (минимум, максимум и шаг по Y; по умолчанию от нуля), легенда (справа, сверху, снизу или скрыть), заголовок, подписи в столбцах и таблица под графиком.',
 }
 
 type Dict = Record<string, unknown>
@@ -470,7 +470,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
                 <button type="button" disabled={!live} onClick={() => setFmtOpen(true)}>Формат…</button>
               </div>
               {fmtOpen && live && createPortal(
-                <FormatPane chart={live} element={fmtElement} onElement={setFmtElement} scope="project" onScope={() => {}} scopeLabel="этот график" plain
+                <FormatPane chart={live} element={fmtElement} onElement={setFmtElement} scope="project" onScope={() => {}} scopeLabel="этот график" plain withAxes={chart.kind === 'stack'}
                   doc={doc} onDoc={onDoc} colorOf={colorOf(live)} looks={doc.series ?? {}}
                   onLooks={series => onDoc({ ...doc, series: Object.keys(series).length ? series : undefined })}
                   onReplace={onDoc} onClose={() => setFmtOpen(false)} />, document.body)}
