@@ -21,7 +21,7 @@ from ..contract import Axis, Chart, Series
 from ._production import KINDS, PRODUCTION, periods_of, visible_periods, wells_of
 from . import fund_ratio
 
-GDI, RESPONSE = DatasetKind.GDI, DatasetKind.RESPONSE
+GDI, RESPONSE, ELPRO = DatasetKind.GDI, DatasetKind.RESPONSE, DatasetKind.ELPRO
 SECTION_RANK, SECTION_PROGRAM = 'Рейтинг динамики', 'Проверка выполнения программы ГДИ'
 SECTION_RATIO = 'Сезон А к сезонам Б'
 
@@ -32,6 +32,9 @@ RANK_COLUMNS = [
     Column('Активных_дней', 'Активных дней', decimals=0, kind='number'),
     Column('Записей', 'Записей', kind='number'), Column('Нулевых', 'Нулевых записей', kind='number')]
 
+CRU_COLUMN = Column(fund_ratio.CRU_KEY, 'Среднее раскрытие КРУ', '%', 1, 'number')
+CRU_NOTE = (' Среднее раскрытие КРУ — по суткам работы скважины (расход > 0), по данным ЭЛПРО; сутки без записи ЭЛПРО пропускаются, '
+            'пустая ячейка — по скважине нет ЭЛПРО за эти сутки.')
 RANK_NOTE = 'Рейтинг по среднему дебиту за дни с положительным расходом; объем — по всем записям выбранных периодов.'
 
 
@@ -54,7 +57,7 @@ class FundModule(Module):
         title='Аналитика фонда',
         group='Фонд скважин',
         description='Сводные показатели по выбранным данным. Рейтинг динамики взвешен по числу активных дней.',
-        optional=(PRODUCTION, GDI, RESPONSE),
+        optional=(PRODUCTION, GDI, RESPONSE, ELPRO),
         order=51,
         params=(
             Param('kind', 'Режим', 'choice', default='withdrawal', options=KINDS, section=SECTION_RANK),
@@ -123,16 +126,19 @@ class FundModule(Module):
         if f.empty:
             result.notes.append(Note('Для рейтинга выберите периоды с данными эксплуатации.'))
             return
-        stats = group_analysis.ranking(f, data.mapping)
-        result.tables.append(Table('ranking', 'Рейтинг динамики', stats, RANK_COLUMNS, note=RANK_NOTE))
+        elpro = data[ELPRO] if ELPRO in data else None
+        cols = RANK_COLUMNS + ([CRU_COLUMN] if elpro is not None and not elpro.empty else [])
+        note = RANK_NOTE + (CRU_NOTE if len(cols) > len(RANK_COLUMNS) else '')
+        stats = fund_ratio.with_cru(group_analysis.ranking(f, data.mapping), f, elpro)
+        result.tables.append(Table('ranking', 'Рейтинг динамики', stats, cols, note=note))
         if params.get('by_season'):
             for i, period in enumerate(ps):
                 one = f[f.period.eq(period)]
                 if one.empty:
                     result.notes.append(Note(f'Сезон {period}: нет записей эксплуатации выбранного режима, лист не создан.'))
                     continue
-                result.tables.append(Table(f'ranking-season-{i}', f'Рейтинг · {period}', group_analysis.ranking(one, data.mapping),
-                                           RANK_COLUMNS, note=RANK_NOTE))
+                result.tables.append(Table(f'ranking-season-{i}', f'Рейтинг · {period}', fund_ratio.with_cru(group_analysis.ranking(one, data.mapping), one, elpro),
+                                           cols, note=note))
 
     @staticmethod
     def ratio(result: Result, data: Data, params: dict[str, Any]) -> None:
@@ -149,10 +155,12 @@ class FundModule(Module):
             result.notes.append(Note('Выберите сезоны Б: без них нечего делить.'))
             return
         f = d[d.kind.eq(kind)]
-        metrics = fund_ratio.season_metrics(f, data.mapping, [base, *against])
-        table = fund_ratio.ratio_table(metrics, base, against)
+        elpro = data[ELPRO] if ELPRO in data else None
+        keys = fund_ratio.METRICS + ((fund_ratio.CRU_METRIC,) if elpro is not None and not elpro.empty else ())
+        metrics = fund_ratio.season_metrics(f, data.mapping, [base, *against], elpro)
+        table = fund_ratio.ratio_table(metrics, base, against, keys)
         cols = [Column('Скважина', 'Скважина'), Column('Группа', 'Группа')]
-        cols += [Column(k, f'{label}: А / ср. Б', decimals=2, kind='number') for k, label, _ in fund_ratio.METRICS]
+        cols += [Column(k, f'{label}: А / ср. Б', decimals=2, kind='number') for k, label, _ in keys]
         cols.append(Column('Примечание', 'Примечание'))
         result.tables.append(Table('ratio', f'А к Б · {base}', table, cols,
                                    note=f'А = {base}; Б = {", ".join(against)}. Значение А делится на среднее по сезонам Б, где у скважины есть записи. '
@@ -162,8 +170,8 @@ class FundModule(Module):
         if row.empty:
             result.notes.append(Note('Выберите скважину для графика отношения А к Б.'))
             return
-        labels = [label for _, label, _ in fund_ratio.METRICS]
-        values = [row.iloc[0][k] for k, _, _ in fund_ratio.METRICS]
+        labels = [label for _, label, _ in keys]
+        values = [row.iloc[0][k] for k, _, _ in keys]
         chart = Chart('ratio-chart', f'Скважина {well}: {base} к среднему по Б', Axis('Показатель', scale='category', categories=labels),
                       Axis('Отношение А / ср. Б', from_zero=True))
         chart.series.append(Series(f'А / ср. Б', labels, [None if pd.isna(v) else float(v) for v in values], 'bar'))
