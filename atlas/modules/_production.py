@@ -21,10 +21,11 @@ from ..thinning import screen_decimate
 from ..contract import Axis, Chart, Column, Data, Module, Note, Option, Result, Series, Stat, Table, TableAction
 from ..domain import DatasetKind
 from ._group_charts import object_days
-from ._events import gdi_events, on_cumulative, regime_events
-from ._elpro_series import COLOR, LABEL, daily_values, extra_axis, hours_values, picked_extras
+from ._events import gdi_events, gis_events, krs_events, on_cumulative, regime_events, template_events
+from ._elpro_series import COLOR, LABEL, axis_names, daily_values, extra_axis, hours_values, picked_extras, pressure_points
 
 PRODUCTION, GDI, ELPRO = DatasetKind.PRODUCTION, DatasetKind.GDI, DatasetKind.ELPRO
+BOTTOM, GIS_OBS, KRS = DatasetKind.BOTTOM, DatasetKind.GIS_OBSERVATIONS, DatasetKind.KRS_WORKS
 KINDS = (Option('withdrawal', 'Отбор'), Option('injection', 'Закачка'))
 DIRECTIONS = (Option('number', 'По номеру'), Option('desc', 'Больший дебит слева'), Option('asc', 'Больший дебит справа'))
 POINT_BUDGET = 20000          # как в 5.8: бюджет точек на график, делится между кривыми
@@ -103,6 +104,9 @@ class Selection:
         self.params = params
         self.gdi = data[GDI] if GDI in data else None      # даты ГДИ — отметки на графике по дате
         self.elpro = data[ELPRO] if ELPRO in data else None  # ряды ЭЛПРО: КРУ, давление, температура
+        self.bottom = data[BOTTOM] if BOTTOM in data else None      # шаблонирование — замеры забоя с диаметром шаблона
+        self.gis = data[GIS_OBS] if GIS_OBS in data else None       # замеры ГИС («База ГИС»)
+        self.krs = data[KRS] if KRS in data else None               # проведённые КР (только год)
 
     def choices(self) -> list[str]:
         return [w for w in wells_of(self.df) if group_of(self.mapping, w) in self.groups]
@@ -127,9 +131,11 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
                    step=x_step(float(data.cumulative.max())) if not data.empty else None)
               if by_cumulative else Axis('Дата', scale='time'))
     # без БД ЭЛПРО ряды не строятся: иначе появились бы пустые правые оси
-    extras = picked_extras(sel.params.get('elpro')) if sel.elpro is not None else []   # каждый ряд — на своей оси (y2…y5)
+    extras = [k for k in picked_extras(sel.params.get('elpro'))
+              if (k == 'pres' and sel.gdi is not None) or (k != 'pres' and sel.elpro is not None)]   # каждый ряд — на своей оси (y2…y5)
+    axes = axis_names(extras)
     chart = Chart(chart_id, well_title(ws), x_axis, Axis('Суточный расход', Q_UNIT, from_zero=True),
-                  **{f'y{n}': extra_axis(key) for n, key in enumerate(extras, start=2)})
+                  **{axes[k]: extra_axis(k) for k in extras if k != 'pres' or 'p' not in extras})
     if data.empty:
         return chart
     colors, palette = legacy.period_colors(sel.df, sel.kind), well_colors(ws)
@@ -156,7 +162,7 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
             labels=labels.tolist(), ids=ids.tolist(), dataset=PRODUCTION, total=points,
             facets={'Скважина': f'№ {well}', 'Период': str(period)} if by_well and not single else None))
     if extras:
-        chart.series += elpro_series(sel, groups, extras, by_cumulative)
+        chart.series += elpro_series(sel, groups, extras, axes, by_cumulative)
     gap = pd.concat(gaps) if gaps else pd.DataFrame()
     if len(gap):
         names = 'Нет записи: показан 0 · № ' + gap._well.astype(str) + ' · ' + gap._period.astype(str)
@@ -164,15 +170,25 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
         chart.series.append(Series(f'Нет записи (показан 0): {len(gap)} сут', gap.cumulative.to_numpy() if by_cumulative else gap.date.to_numpy(),
                                    gap.q.to_numpy(), 'points', color='#7a7a7a', hollow=True, symbol='diamond',
                                    labels=info.tolist()))
-    start, end = data.date.min(), data.date.max()
-    if by_cumulative:   # сезоны начинаются с нуля, отметки начала режима слились бы в одну точку: только ГДИ
-        chart.events = on_cumulative(gdi_events(sel.gdi, ws, start, end), data)
-    else:
-        chart.events = regime_events(sel.df, start, end) + gdi_events(sel.gdi, ws, start, end)
+    chart.events = well_events(sel, ws, data, by_cumulative)
     return chart
 
 
-def elpro_series(sel: Selection, groups, extras: list[str], by_cumulative: bool) -> list[Series]:
+def well_events(sel: Selection, ws: list[str], data: pd.DataFrame, by_cumulative: bool) -> list:
+    """События скважин на графике Q: ГДИ, ГИС, КРС, шаблонирование (+ начало режима по дате).
+    Несколько сезонов: событие показывается, только если его дата попала в один из выбранных сезонов (между сезонами отметок нет);
+    по накопленному объёму оно ложится на кривую своего сезона. Виды событий включаются в легенде графика."""
+    start, end = data.date.min(), data.date.max()
+    events = (gdi_events(sel.gdi, ws, start, end) + gis_events(sel.gis, ws, start, end)
+              + krs_events(sel.krs, ws, start, end) + template_events(sel.bottom, ws, start, end))
+    spans = [(g.date.min(), g.date.max()) for _, g in data.groupby('period', sort=False)]
+    events = [e for e in events if any(a <= pd.Timestamp(e.x) <= b for a, b in spans)]
+    if by_cumulative:   # сезоны начинаются с нуля, отметки начала режима слились бы в одну точку: только события скважин
+        return on_cumulative(events, data)
+    return sorted(regime_events(sel.df, start, end) + events, key=lambda e: pd.Timestamp(e.x))
+
+
+def elpro_series(sel: Selection, groups, extras: list[str], axes: dict[str, str], by_cumulative: bool) -> list[Series]:
     """Выбранные ряды по каждой скважине и периоду: даты и накопленный объем — те же, что у кривой расхода.
     Сутки без записи ЭЛПРО — разрыв линии; часы берутся из БД расходов."""
     daily: dict[str, pd.DataFrame] = {}
@@ -185,11 +201,26 @@ def elpro_series(sel: Selection, groups, extras: list[str], by_cumulative: bool)
             if sel.elpro is not None:
                 daily[well] = daily[well].join(daily_values(sel.elpro, sel.kind, well), how='outer')
         x = g.cumulative.to_numpy() if by_cumulative else g.date.to_numpy()
-        for n, key in enumerate(extras, start=2):
+        for key in extras:
+            if key == 'pres':
+                out += pressure_series(sel, well, period, g, x, axes[key], many_wells, single)
+                continue
             name = LABEL[key] + (f', № {well}' if many_wells else '') + ('' if single else f' · {period}')
             values = daily[well][key].reindex(g.date.to_numpy()).to_numpy() if key in daily[well] else np.full(len(g), np.nan)
-            out.append(Series(name, x, values, 'line', axis=f'y{n}', color=COLOR[key], width=2))
+            out.append(Series(name, x, values, 'line', axis=axes[key], color=COLOR[key], width=2))
     return out
+
+
+def pressure_series(sel: Selection, well: str, period: str, g: pd.DataFrame, x, axis: str, many_wells: bool, single: bool) -> list[Series]:
+    """Замеры Рпл из ГДИ точками на оси давления (с ЭЛПРО — на её оси, иначе на своей). По накопленному объёму точка стоит на дате замера."""
+    pts = pressure_points(sel.gdi, well, g.date.min(), g.date.max())
+    if pts.empty:
+        return []
+    at = np.minimum(np.searchsorted(g.date.to_numpy(), pts.date.to_numpy()), len(g) - 1)
+    name = LABEL['pres'] + (f', № {well}' if many_wells else '') + ('' if single else f' · {period}')
+    labels = pts.date.dt.strftime('%d.%m.%Y') + ' · Рпл ' + pts.p_res.map('{:.2f}'.format).str.replace('.', ',') + ' кгс/см²'
+    return [Series(name, x[at], pts.p_res.to_numpy(), 'points', axis=axis, color=COLOR['pres'], symbol='diamond',
+                   labels=labels.tolist())]
 
 
 def well_label(well: Any, period: Any, wells: int, periods: int) -> str:

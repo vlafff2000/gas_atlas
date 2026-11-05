@@ -134,7 +134,7 @@ export interface Series {
 export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'values' | 'total'> & { window: number }
 export interface WindowReply { chart: string; revision: number; series: Record<string, WindowSeries> }
 export interface ChartBand { first: number; last: number; label: string; shaded: boolean }
-export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'peak' | 'other'; well: string }
+export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'peak' | 'gis' | 'template' | 'other'; well: string }
 export interface ChartTable { rows: string[]; columns: string[]; cells: string[][]; colors: string[]; swatches: boolean; aligned?: boolean }
 export interface HeatMap {
   rows: string[]; columns: string[]; values: (number | null)[][]; texts: string[][]

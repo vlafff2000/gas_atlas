@@ -366,10 +366,10 @@ class Series:
 
 @dataclass
 class Event:
-    """Событие на оси времени: вертикальная отметка на графике (ГДИ, смена режима, ремонт)."""
+    """Событие на оси времени: вертикальная отметка на графике (ГДИ, ГИС, КРС, шаблонирование, смена режима)."""
     x: Any                           # дата
     label: str                       # 'Начало закачки 2024'
-    kind: Literal['gdi', 'regime', 'repair', 'peak', 'other'] = 'other'
+    kind: Literal['gdi', 'regime', 'repair', 'peak', 'gis', 'template', 'other'] = 'other'
     well: str = ''                   # скважина события; пусто — событие объекта
 
 
