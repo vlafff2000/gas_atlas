@@ -270,7 +270,7 @@ def seasons_table(daily: pd.DataFrame, stats: pd.DataFrame, kind: str) -> list[d
     """Сезоны: объём, отработанные дни, максимальный и средний суточный расход, часы и вода."""
     if stats.empty:
         return []
-    top, last = {}, {}
+    top, first, last = {}, {}, {}
     if not daily.empty:
         # Qmax — только по отработанным дням (как «Qср» и «Отработано дней»): объём в день с нулём часов не рекорд работы.
         g = daily[daily.gas_volume_m3.notna() & daily.active.fillna(False).astype(bool)]
@@ -278,14 +278,31 @@ def seasons_table(daily: pd.DataFrame, stats: pd.DataFrame, kind: str) -> list[d
             i = part.gas_volume_m3.idxmax()
             top[period] = (part.gas_volume_m3[i] / 1000, part.date[i])
         for period, part in daily.groupby('period', sort=False):
-            last[period] = part.date.max()
+            first[period], last[period] = part.date.min(), part.date.max()
     rows = []
     for _, s in stats.iterrows():
         peak = top.get(s.period)
         rows.append({'kind': kind, 'period': str(s.period), 'volume': _num(s.gas_volume), 'days': int(s.active_days),
                      'max_rate': _num(peak[0]) if peak else None, 'max_date': _date(peak[1]) if peak else '',
                      'mean_rate': _num(s.mean_active), 'hours': _num(s.hours), 'water': _num(s.water_volume),
-                     'coverage': _num(s.coverage), 'end': _date(last.get(s.period))})
+                     'coverage': _num(s.coverage), 'end': _date(last.get(s.period)), 'start': pd.Timestamp(first[s.period]).strftime('%Y-%m-%d') if s.period in first else None})
+    return rows
+
+
+def assign_pairs(rows: list[dict[str, Any]], manual: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Пара (цикл): сезон отбора и следующий за ним сезон закачки. Разбор — общий с модулем «Сезонные показатели»
+    (``assign_cycles``); ``manual`` — правка инженера: подпись сезона («Закачка 2025») → год начала отбора пары."""
+    from atlas.modules import _seasonal as S
+    dated = [r for r in rows if r.get('start') is not None and pd.notna(r['start'])]
+    if dated:
+        frame = pd.DataFrame({'kind': [r['kind'] for r in dated], 'start': [pd.Timestamp(r['start']) for r in dated],
+                              'cycle': [S.cycle_of(r['kind'], pd.Timestamp(r['start'])) for r in dated]})
+        for r, cycle in zip(dated, S.assign_cycles(frame).cycle):
+            r['cycle'] = int(cycle)
+    for r in rows:
+        if manual and season_label(r['kind'], r['period']) in manual:
+            r['cycle'] = int(manual[season_label(r['kind'], r['period'])])
+        r.setdefault('cycle', None)
     return rows
 
 
@@ -403,7 +420,8 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     for kind, _ in KINDS:
         by_kind[kind] = dict(well_analysis.analyze(frames, settings, mapping, well, kind))
     first = by_kind['withdrawal']
-    seasons = chronological([row for kind, _ in KINDS for row in seasons_table(by_kind[kind]['daily'], by_kind[kind]['seasons'], kind)])
+    seasons = chronological(assign_pairs([row for kind, _ in KINDS for row in seasons_table(by_kind[kind]['daily'], by_kind[kind]['seasons'], kind)],
+                                         settings.get('passport_pairs')))
     season_options = [season_label(r['kind'], r['period']) for r in seasons]
     keep = set(only or season_options)
     seasons = [r for r in seasons if season_label(r['kind'], r['period']) in keep]

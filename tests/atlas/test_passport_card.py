@@ -161,3 +161,28 @@ def test_season_choice_limits_card_and_exports(env):
     assert part['kpi'][0]['value'] != full['kpi'][0]['value'] or len(full['seasons']) == 2
     pdf = client.post(f'/api/projects/{pid}/passport/pdf', json={'well': WELL, 'sections': [], 'card': True, 'seasons': pick})
     assert pdf.status_code == 200 and pdf.content[:4] == b'%PDF'
+
+
+def _row(kind, period, start):
+    return {'kind': kind, 'period': period, 'start': start}
+
+
+def test_seasons_chart_groups_withdrawal_with_following_injection():
+    """Пара — отбор и следующая за ним закачка (отбор 2025-2026 + закачка 2026): один столбцовый блок, а не две отдельные категории."""
+    from atlas import passport_blocks as pb
+    rows = pc.assign_pairs([
+        {**_row('injection', '2025', '2025-05-10'), 'volume': 3.0, 'days': 100, 'max_rate': 30.0},
+        {**_row('withdrawal', '2025-2026', '2025-11-20'), 'volume': 5.0, 'days': 150, 'max_rate': 50.0},
+        {**_row('injection', '2026', '2026-05-12'), 'volume': 4.0, 'days': 90, 'max_rate': 40.0}])
+    dated = [r | {'end': pd.Timestamp(r['start']).strftime('%d.%m.%Y')} for r in rows]
+    chart = pb.seasons_chart(pc.chronological(dated))
+    assert chart.x.categories == ['2024/2025', '2025/2026']                    # закачка 2025 одна в своём цикле; отбор 2025-2026 + закачка 2026
+    by = {s.name: dict(zip(s.x, s.y)) for s in chart.series}
+    assert by['Отбор'] == {'2025/2026': 5.0} and by['Закачка'] == {'2024/2025': 3.0, '2025/2026': 4.0}
+
+
+def test_manual_pairs_override_auto(env):
+    from atlas import passport_blocks as pb
+    rows = pc.assign_pairs([{**_row('withdrawal', '2025-2026', '2025-11-20'), 'volume': 5.0},
+                            {**_row('injection', '2026', '2026-05-12'), 'volume': 4.0}], {'Закачка 2026': 2030})
+    assert [r['cycle'] for r in rows] == [2025, 2030]
