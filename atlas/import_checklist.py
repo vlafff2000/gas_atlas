@@ -68,6 +68,10 @@ ITEMS: list[dict[str, Any]] = [
      'columns': ['Скважина', 'Дата', 'Пачка', 'hг эф, м', 'Кг ср.взв', 'ГВК а.о., м'], 'note': 'Лист «Свод» книги «ГИС_свод.xlsx» Базы ПХГ или CSV gis_packs.'},
     {'key': 'gis_intervals', 'label': 'ГИС: интервалы', 'used': 'ГИС и ГВК, кривые и столбцы, Σ hi·Кг',
      'columns': ['Скважина', 'Дата', 'Пачка', 'От, м', 'До, м', 'Кг'], 'note': 'Лист «Интервалы» книги «ГИС_свод.xlsx» или CSV gis_intervals.'},
+    {'key': 'gis_thermobaric', 'label': 'ГИС: термобарика (давление по глубине)', 'used': 'Графики реагирования: замеры Рпл ГИС на глубине приведения',
+     'columns': ['Скважина', 'Дата', 'Глубина, м', 'Давление, кгс/см²'], 'note': 'Лист «Термобарика» книги «БД_ГИС_из_отчётов.xlsx» или CSV gis_thermobaric. Глубины по стволу (MD), в а.о. переводятся по альтитуде скважины.'},
+    {'key': 'gis_filling', 'label': 'ГИС: заполнение ствола (газ/жидкость, плотность)', 'used': 'Пересчёт давления ГИС на глубину приведения',
+     'columns': ['Скважина', 'Дата', 'Заполнение', 'От, м', 'До, м', 'Плотность, г/см³'], 'note': 'Лист «Заполнение ствола» той же книги или CSV gis_filling. Необязательна.'},
     {'key': 'gis_observations', 'label': 'ГИС: замеры (статус по скважине и дате)', 'used': 'ГИС и ГВК, покрытие замерами',
      'columns': ['Скважина', 'Дата', 'Статус', 'Пачек'], 'note': 'Лист «Замеры» книги «ГИС_свод.xlsx» или CSV gis_observations.'},
 ]
@@ -182,6 +186,11 @@ def _lines(key: str, f: pd.DataFrame) -> list[list[str]]:
         add('Приоритет 1 (срочно)', int(pd.to_numeric(f.get('priority'), errors='coerce').eq(1).sum()) if _has(f, 'priority') else 0)
     elif key == 'gis_intervals':
         add('Интервалов', len(f))
+    elif key == 'gis_thermobaric':
+        add('Скважин', f['well'].nunique() if _has(f, 'well') else 0)
+        add('Точек с давлением', int(pd.to_numeric(f.get('pressure_kgs'), errors='coerce').notna().sum()) if _has(f, 'pressure_kgs') else 0)
+    elif key == 'gis_filling':
+        add('Заполнение', _list(f, 'fill', counts=True))
     elif key == 'gis_observations':
         add('Статусы', _list(f, 'status', counts=True))
     add('Строк', f'{len(f):,}'.replace(',', ' '))

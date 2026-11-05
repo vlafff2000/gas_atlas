@@ -18,8 +18,14 @@ TABLES: dict[str, tuple[str, ...]] = {
     'gis_packs': ('well', 'date', 'pack', 'h_eff_m', 'kg_avg', 'gvk_abs_m'),
     'gis_intervals': ('well', 'date', 'pack', 'from_m', 'to_m', 'kg'),
     'gis_observations': ('well', 'date', 'status', 'packs'),
+    'gis_thermobaric': ('well', 'date', 'depth_m', 'pressure_kgs'),
+    'gis_filling': ('well', 'date', 'fill'),
 }
-LABELS = {'gis_packs': 'пачки', 'gis_intervals': 'интервалы', 'gis_observations': 'замеры'}
+LABELS = {'gis_packs': 'пачки', 'gis_intervals': 'интервалы', 'gis_observations': 'замеры',
+          'gis_thermobaric': 'термобарика', 'gis_filling': 'заполнение ствола'}
+# Таблицы из отчётов ГИС (OCR): в них бывают строки не по скважине («Альтитуда», «Касимовское») — они отбрасываются
+REPORT_TABLES = ('gis_thermobaric', 'gis_filling')
+REPORT_NUMBERS = ('depth_m', 'depth_abs_m', 'temp_c', 'pressure_raw', 'pressure_kgs', 'from_m', 'to_m', 'density_min', 'density_max', 'level_m')
 KEY = ['well', 'date']
 # русские заголовки книги «ГИС_свод.xlsx» (pxg_core/gis_export.py) → колонки Атласа
 RU = {'Скважина': 'well', 'Дата': 'date', 'Дата (точная)': 'date_exact', 'Сезон': 'season', 'Статус': 'status',
@@ -29,8 +35,14 @@ RU = {'Скважина': 'well', 'Дата': 'date', 'Дата (точная)':
       'Лишних ГВК': 'gvk_extra', 'Альтитуда, м': 'altitude_m', 'Альтитуда по листу, м': 'altitude_sheet_m',
       'Перфорация верх, м': 'perf_top_m', 'Перфорация низ, м': 'perf_bottom_m', 'Замер': 'investigation', 'От, м': 'from_m',
       'До, м': 'to_m', 'hi, м': 'hi_m', 'Кп': 'kp', 'Кг': 'kg', 'hэф, м': 'h_eff_m', 'ГВК лишний': 'gvk_extra',
-      'Кг (текст)': 'kg_text', 'Примечание': 'note', 'Методы': 'methods'}
-BOOK_SHEETS = ('Свод', 'Интервалы', 'Замеры')
+      'Кг (текст)': 'kg_text', 'Примечание': 'note', 'Методы': 'methods',
+      # «Термобарика» и «Заполнение ствола» книги «БД_ГИС_из_отчётов.xlsx» (pxg_core/gis_report.py)
+      'Глубина, м': 'depth_m', 'Глубина а.о., м': 'depth_abs_m', 'Пометка к глубине': 'depth_kind', 'Пометка (как в отчёте)': 'depth_note',
+      'Температура, °C': 'temp_c', 'Давление (как в отчёте)': 'pressure_raw', 'Единица давления': 'pressure_unit', 'Давление, кгс/см²': 'pressure_kgs',
+      'Режим исследования': 'regime', 'Плотность от, г/см³': 'density_min', 'Плотность до, г/см³': 'density_max',
+      'Заполнение (как в отчёте)': 'fill_raw', 'Заполнение': 'fill', 'Уровень жидкости, м': 'level_m', 'Уровень (как в отчёте)': 'level_raw',
+      'Откуда': 'origin', 'Файл': 'file', 'Источник': 'source', 'Уверенность': 'confidence', 'Основание': 'basis'}
+BOOK_SHEETS = ('Свод', 'Интервалы', 'Замеры', 'Термобарика', 'Заполнение ствола')
 
 
 def normalize(columns) -> list[str]:
@@ -101,6 +113,14 @@ def _clean(frame: pd.DataFrame, table: str, name: str) -> tuple[pd.DataFrame, li
     frame['date'] = _dates(frame['date'])
     bad = frame['well'].isin(['', 'nan']) | frame['date'].isna()
     warnings = [f'Пропущено строк без скважины или даты: {int(bad.sum())}'] if bad.any() else []
+    if table in REPORT_TABLES:
+        for column in REPORT_NUMBERS:
+            if column in frame:
+                frame[column] = pd.to_numeric(frame[column], errors='coerce')
+        foreign = ~bad & ~frame['well'].str.contains(r'\d')
+        if foreign.any():
+            warnings.append(f'Пропущено строк, где вместо номера скважины слово ({", ".join(sorted(frame.loc[foreign, "well"].unique())[:5])}): {int(foreign.sum())}')
+        bad |= foreign
     return frame[~bad].reset_index(drop=True), warnings + unit_notes
 
 

@@ -395,6 +395,8 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
                             <option value="gis_packs">пачки</option>
                             <option value="gis_observations">замеры</option>
                             <option value="gis_intervals">интервалы</option>
+                            <option value="gis_thermobaric">термобарика</option>
+                            <option value="gis_filling">заполнение ствола</option>
                           </select></>}
 </td>
                       </tr>

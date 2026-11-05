@@ -40,6 +40,8 @@ class DatasetKind(str, Enum):
     GIS_PACKS = 'gis_packs'              # «База ГИС»: пачки по замерам (ГВК, hг эф, Кг ср.взв, этаж), одна строка на пачку
     GIS_OBSERVATIONS = 'gis_observations'  # «База ГИС»: замеры по скважине и дате со статусом наблюдения
     GIS_INTERVALS = 'gis_intervals'      # «База ГИС»: интервалы замера (от, до, Кп, Кг, hэф)
+    GIS_THERMOBARIC = 'gis_thermobaric'  # «База ГИС»: термобарика отчётов (глубина, давление, температура по скважине и дате)
+    GIS_FILLING = 'gis_filling'          # «База ГИС»: заполнение ствола (газ/жидкость в интервале, плотность флюида)
     PRESSURE_SURVEY = 'pressure_survey'  # сырая БД давлений по замерам (из месячных отчётов): Руст, Рпл, уровень по скважинам и датам
     KRS_WORKS = 'krs_works'              # КРС: проведённые капитальные ремонты (год, тип), одна строка на ремонт
     KRS_PRIORITY = 'krs_priority'        # КРС: приоритет КР по скважине (подсказка, 1 — срочно), одна строка на скважину
@@ -73,6 +75,8 @@ LABELS = {
     DatasetKind.GIS_PACKS: 'ГИС: пачки',
     DatasetKind.GIS_OBSERVATIONS: 'ГИС: замеры',
     DatasetKind.GIS_INTERVALS: 'ГИС: интервалы',
+    DatasetKind.GIS_THERMOBARIC: 'ГИС: термобарика',
+    DatasetKind.GIS_FILLING: 'ГИС: заполнение ствола',
     DatasetKind.PRESSURE_SURVEY: 'БД давлений по замерам',
     DatasetKind.KRS_WORKS: 'КРС: проведённые КР',
     DatasetKind.KRS_PRIORITY: 'КРС: приоритет КР',
@@ -102,6 +106,8 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.GIS_PACKS: ('well', 'date', 'pack'),
     DatasetKind.GIS_OBSERVATIONS: ('well', 'date'),
     DatasetKind.GIS_INTERVALS: ('well', 'date', 'pack', 'from_m', 'to_m'),
+    DatasetKind.GIS_THERMOBARIC: ('well', 'date', 'depth_m', 'pressure_kgs'),
+    DatasetKind.GIS_FILLING: ('well', 'date', 'fill'),
     DatasetKind.PRESSURE_SURVEY: ('well', 'date'),
     DatasetKind.KRS_WORKS: ('well', 'year'),
     DatasetKind.KRS_PRIORITY: ('well',),
