@@ -338,10 +338,13 @@ def main(argv=None):
     parser.add_argument('--out', default=str(ROOT / 'dist'))
     parser.add_argument('--cache', default=str(ROOT / 'build' / 'cache'))
     parser.add_argument('--code-only', action='store_true', help='лёгкий архив обновления: программы и новые библиотеки')
+    parser.add_argument('--with-ocr', help='папка ocr (tools/build_ocr_layer.py): кладётся в тот же единый архив (только полная сборка Windows)')
     parser.add_argument('--base-manifest', help='base_manifest.json последнего полного архива (нужен для --code-only)')
     args = parser.parse_args(argv)
     if args.code_only and not args.base_manifest:
         parser.error('для --code-only нужен --base-manifest')
+    if args.with_ocr and (args.code_only or args.target != 'windows' or not (Path(args.with_ocr) / 'python' / 'python.exe').is_file()):
+        parser.error('--with-ocr: только полная сборка windows и готовая папка ocr с python\\python.exe')
     scripts = Path(args.scripts).resolve()
     sp = load(scripts / 'tools' / 'build_portable.py', 'scripts_build_portable')
 
@@ -396,6 +399,8 @@ def main(argv=None):
     write_base_manifest(Path(args.out), args.target, spec, full_libs, python_dir / spec['site'])
     bp.copy_application(folder)
     copy_scripts(scripts, folder)
+    if args.with_ocr:
+        shutil.copytree(args.with_ocr, str(folder / 'ocr'))  # движок распознавания лежит в том же архиве: pxg_ocr находит папку ocr рядом с программой
     write_launchers(args.target, folder, sp)
     check_runtime(folder, args.target)
     write_build_info(folder, scripts)
