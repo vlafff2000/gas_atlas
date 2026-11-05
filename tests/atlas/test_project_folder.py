@@ -34,7 +34,7 @@ def test_known_results_get_role_and_normalized_flag(tmp_path):
     r = pf.scan(str(tmp_path))
     assert roles(r) == {
         'БД_давления_2006-2025.xlsx': ('pressure', 'name', False),
-        'БД_давлений_по_замерам.xlsx': (None, '', False),       # сырая база: Атлас берёт «Пересчёт_давлений»
+        'БД_давлений_по_замерам.xlsx': ('survey', 'name', False),     # сырая база замеров: отдельный набор «БД давлений по замерам»
         'БД_ГДИ_объединенная.xlsx': ('gdi', 'name', False),
         'БД_замеров_воды.xlsx': ('water', 'name', False),
         'БД_межколонки.xlsx': ('other', 'name', False),

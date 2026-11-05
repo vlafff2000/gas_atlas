@@ -47,14 +47,15 @@ def test_events_on_both_charts_only_inside_selected_season():
 
 def test_pressure_overlay_shares_elpro_pressure_axis():
     elpro = pd.DataFrame({'well': '101', 'date': DAYS[[0, 2]], 'q': 1.0, 'kind': 'withdrawal', 't': 1.0, 'p': [50.0, 52.0], 'y': 1.0})
+    # БД давлений по замерам: чужая скважина и другой сезон не попадают на график
     gdi = pd.DataFrame({'well': ['101', '101', '202'], 'date': pd.to_datetime(['2025-06-04', '2025-12-01', '2025-06-04']),
-                        'p_res': [120.5, 99.0, 1.0], 'q': 1.0, 'dp2': 1.0})
-    s = sel({K.ELPRO: elpro, K.GDI: gdi}, elpro=['p', 'pres'])
+                        'p_res': [120.5, 99.0, 1.0], 'p_wellhead': 90.0})
+    s = sel({K.ELPRO: elpro, K.PRESSURE_SURVEY: gdi}, elpro=['p', 'pres'])
     chart = curve_chart(s, ['101'], 'date')
     p, pres = chart.series[1:3]
     assert [name for name, _ in chart.right_axes()] == ['y2'] and p.axis == pres.axis == 'y2'     # одна шкала на оба ряда
     assert pres.kind == 'points' and list(pres.y) == [120.5] and pres.x[0] == pd.Timestamp('2025-06-04')   # чужая скважина и другой сезон — нет
-    alone = curve_chart(sel({K.GDI: gdi}, elpro=['pres']), ['101'], 'cumulative')
+    alone = curve_chart(sel({K.PRESSURE_SURVEY: gdi}, elpro=['pres']), ['101'], 'cumulative')
     assert [name for name, _ in alone.right_axes()] == ['y2'] and alone.series[1].x[0] == alone.series[0].x[3]   # по накопленному объёму — на дате замера
     assert axis_names(['pres', 'p']) == {'p': 'y2', 'pres': 'y2'}
     assert picked_extras(['hours', 'cru', 'p', 't', 'pres']) == ['hours', 'cru', 'p', 't', 'pres']

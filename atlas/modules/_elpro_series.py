@@ -11,10 +11,10 @@ import pandas as pd
 from ..contract import Axis
 
 EXTRAS = (('hours', 'Часы работы'), ('cru', 'КРУ, %'), ('p', 'Давление, кгс/см²'), ('t', 'Температура, °C'),
-          ('pres', 'Замеры пластового давления (Рпл из ГДИ)'))
+          ('pres', 'Замеры пластового давления (БД давлений)'))
 COLOR = {'hours': '#149ba5', 'cru': '#169b62', 'p': '#9955cc', 't': '#ed8b23', 'pres': '#c2255c'}
 MAX_RIGHT_AXES = 4
-LABEL = {'hours': 'Часы работы', 'cru': 'КРУ', 'p': 'Давление ЭЛПРО', 't': 'Температура газа', 'pres': 'Рпл (замер ГДИ)'}
+LABEL = {'hours': 'Часы работы', 'cru': 'КРУ', 'p': 'Давление ЭЛПРО', 't': 'Температура газа', 'pres': 'Рпл (замер)'}
 
 
 def picked_extras(keys) -> list[str]:
@@ -63,11 +63,12 @@ def axis_names(extras: list[str]) -> dict[str, str]:
     return names
 
 
-def pressure_points(gdi: pd.DataFrame, well: str, first, last) -> pd.DataFrame:
-    """Замеры пластового давления скважины (Рпл из ГДИ) за период: дата и давление, по одному на день."""
-    if gdi is None or gdi.empty or 'p_res' not in gdi:
+def pressure_points(pm: pd.DataFrame | None, well: str, first, last) -> pd.DataFrame:
+    """Замеры пластового давления скважины из «БД давлений по замерам» (месячные отчёты, столбец ``p_res``) за период:
+    дата и давление, по одному на день (повтор той же даты усредняется)."""
+    if pm is None or pm.empty or 'p_res' not in pm:
         return pd.DataFrame(columns=['date', 'p_res'])
-    d = gdi[gdi['well'].astype(str).eq(well)]
+    d = pm[pm['well'].astype(str).eq(well)]
     d = d.assign(p_res=pd.to_numeric(d['p_res'], errors='coerce'), date=pd.to_datetime(d['date']).dt.normalize())
     d = d[d.p_res.notna() & d.date.between(first, last)]
     return d.groupby('date', as_index=False)['p_res'].mean()

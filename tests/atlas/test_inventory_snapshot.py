@@ -24,6 +24,7 @@ DATASET_KINDS = [
     'bottom', 'construction', 'pressure_match', 'plan', 'ggh', 'elpro', 'annulus',
     'gas_db', 'model', 'model_object', 'model_cells',
     'well_geo', 'gis_packs', 'gis_observations', 'gis_intervals', 'gis_thermobaric', 'gis_filling', 'krs_works', 'krs_priority',
+    'pressure_survey',
 ]
 
 # Сколько пунктов со статусом ✅ стоит в каждом чек-листе паритета (docs/parity/*.md).
