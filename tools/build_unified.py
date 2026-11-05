@@ -105,7 +105,7 @@ def write_launchers(target, folder, sp):
             (folder / name).write_bytes((bp.WINDOWS_PREFIX + body + bp.WINDOWS_SUFFIX).encode('utf-8'))
         else:
             path = folder / name
-            path.write_text(bp.LINUX_PREFIX + getattr(sp, 'REPORT_SH', '') + body + '\n', encoding='utf-8')
+            path.write_bytes((bp.LINUX_PREFIX + getattr(sp, 'REPORT_SH', '') + body + '\n').encode('utf-8'))  # байтами: на Windows write_text дал бы CRLF
             path.chmod(0o755)
     if not windows and hasattr(sp, 'write_twins'):
         sp.write_twins(folder)  # .desktop для двойного щелчка без терминала

@@ -80,7 +80,10 @@ LINUX_LAUNCHERS = {
                          'echo; read -r -p "Нажмите Enter, чтобы закрыть окно..." _ || true',
 }
 LINUX_PREFIX = ('#!/usr/bin/env bash\nset -eu\ncd -- "$(dirname -- "$(readlink -f -- "$0")")"\n'
-                'unset PYTHONHOME PYTHONPATH\nexport PYTHONNOUSERSITE=1 PYTHONUTF8=1\nPY=python/bin/python3.13\n')
+                'unset PYTHONHOME PYTHONPATH\nexport PYTHONNOUSERSITE=1 PYTHONUTF8=1 PYTHONUNBUFFERED=1\nPY=python/bin/python3.13\n'
+                'mkdir -p logs; exec > >(tee -a "logs/launch_$(basename "$0").log") 2>&1   # вывод идёт и в терминал, и в файл рядом: тихого выхода нет\n'
+                'echo "[$(date +%F\\ %T)] запуск $0 из $PWD"\n'
+                '[ -x "$PY" ] || { echo "ОШИБКА: нет $PWD/$PY: архив распакован не целиком или без прав на запуск (tar xzf, не распаковщик с потерей прав)"; exit 1; }\n')
 
 README = '''Газовый атлас — переносная версия ({target})
 =============================================
@@ -279,7 +282,7 @@ def write_launchers(target, folder):
     else:
         for name, body in LINUX_LAUNCHERS.items():
             path = folder / name
-            path.write_text(LINUX_PREFIX + body + '\n', encoding='utf-8')
+            path.write_bytes((LINUX_PREFIX + body + '\n').encode('utf-8'))  # байтами: write_text на Windows дал бы CRLF, и bash не нашёл бы интерпретатор
             path.chmod(0o755)
         text = README.format(target='Linux x86_64, glibc 2.17+ (РЕД ОС 7.3 и новее)', example='~/GasAtlas',
                              six='gas_atlas_6.sh', shortcuts='sozdat_yarlyki.sh', check='proverka_dannyh.sh', note=LINUX_NOTE)

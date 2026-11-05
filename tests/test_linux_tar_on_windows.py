@@ -48,3 +48,18 @@ def test_ocr_linux_requirements_are_pinned_without_windows_packages():
     names = {ln.split('==')[0].lower() for ln in lines}
     assert 'mineru' in names and 'onnxruntime' in names
     assert 'onnxruntime-directml' not in names and 'pip' not in names
+
+
+def test_linux_launchers_are_lf_even_when_written_on_windows(tmp_path, monkeypatch):
+    """Баг: на Windows Path.write_text пишет CRLF, `#!/usr/bin/env bash\\r` на РЕД ОС не находит интерпретатор — ничего не происходит."""
+    from pathlib import Path as P
+    real = P.write_text
+    monkeypatch.setattr(P, 'write_text', lambda self, data, encoding=None, errors=None, newline=None: real(self, data.replace('\n', '\r\n'), encoding=encoding))
+    bu_spec = importlib.util.spec_from_file_location('build_unified_lf', ROOT / 'tools' / 'build_unified.py')
+    bu = importlib.util.module_from_spec(bu_spec)
+    bu_spec.loader.exec_module(bu)
+    sp = type('SP', (), {'LINUX_LAUNCHERS': {'karty.sh': 'exec "$PY" -m gsp_maps'}, 'REPORT_SH': ''})
+    bu.write_launchers('linux', tmp_path, sp)
+    sh = (tmp_path / 'karty.sh').read_bytes()
+    assert b'\r' not in sh and sh.startswith(b'#!/usr/bin/env bash\n')
+    assert b'logs/launch_' in sh and b'[ -x "$PY" ]' in sh  # лог рядом и сообщение, если Python не найден
