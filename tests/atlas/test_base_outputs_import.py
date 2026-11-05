@@ -39,7 +39,7 @@ def test_base_flow_db_and_check_reports_get_right_roles(tmp_path):
         'Журнал_нормировки_ПЗРГ.xlsx': None,
         'Даты_к_проверке.xlsx': None,
         'Пересчёт_давлений.xlsx': 'pressure',
-        'БД_давлений_по_замерам.xlsx': None,
+        'БД_давлений_по_замерам.xlsx': 'survey',                           # сырая БД замеров из месячных отчётов: свой набор
     }
     touch(tmp_path, 'БД_расходы_нормированная_ПЗРГ.xlsx')
     r = roles(tmp_path)

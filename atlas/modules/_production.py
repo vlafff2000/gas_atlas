@@ -26,7 +26,7 @@ from ._elpro_series import COLOR, LABEL, axis_names, daily_values, extra_axis, h
 
 PRODUCTION, GDI, ELPRO = DatasetKind.PRODUCTION, DatasetKind.GDI, DatasetKind.ELPRO
 BOTTOM, GIS_OBS, KRS = DatasetKind.BOTTOM, DatasetKind.GIS_OBSERVATIONS, DatasetKind.KRS_WORKS
-PRESSURE_DB = DatasetKind.PRESSURE_MATCH     # БД давлений: замеры пластового давления по скважинам замерной сетки
+PRESSURE_DB = DatasetKind.PRESSURE_SURVEY    # БД давлений по замерам (из месячных отчётов): Рпл по скважинам замерной сетки
 KINDS = (Option('withdrawal', 'Отбор'), Option('injection', 'Закачка'))
 DIRECTIONS = (Option('number', 'По номеру'), Option('desc', 'Больший дебит слева'), Option('asc', 'Больший дебит справа'))
 POINT_BUDGET = 20000          # как в 5.8: бюджет точек на график, делится между кривыми

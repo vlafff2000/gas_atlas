@@ -64,11 +64,11 @@ def axis_names(extras: list[str]) -> dict[str, str]:
 
 
 def pressure_points(pm: pd.DataFrame | None, well: str, first, last) -> pd.DataFrame:
-    """Замеры пластового давления скважины из БД давлений (таблица «факт / модель», столбец ``fact``) за период:
-    дата и давление, по одному на день. Один замер повторяется по сценариям и объектам, поэтому берётся среднее за день."""
-    if pm is None or pm.empty or 'fact' not in pm:
+    """Замеры пластового давления скважины из «БД давлений по замерам» (месячные отчёты, столбец ``p_res``) за период:
+    дата и давление, по одному на день (повтор той же даты усредняется)."""
+    if pm is None or pm.empty or 'p_res' not in pm:
         return pd.DataFrame(columns=['date', 'p_res'])
     d = pm[pm['well'].astype(str).eq(well)]
-    d = d.assign(p_res=pd.to_numeric(d['fact'], errors='coerce'), date=pd.to_datetime(d['date']).dt.normalize())
+    d = d.assign(p_res=pd.to_numeric(d['p_res'], errors='coerce'), date=pd.to_datetime(d['date']).dt.normalize())
     d = d[d.p_res.notna() & d.date.between(first, last)]
     return d.groupby('date', as_index=False)['p_res'].mean()
