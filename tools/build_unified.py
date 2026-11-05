@@ -74,7 +74,7 @@ def scripts_requirements(scripts, lock_names):
         line = line.split('#', 1)[0].strip()
         if line and ';' not in line and line.lower() not in lock_names:
             extra.append(line)
-    return extra + ['defusedxml']  # odfpy тянет defusedxml, а пакеты ставятся без зависимостей
+    return extra + ['defusedxml', 'pypdfium2']  # odfpy тянет defusedxml, pdfplumber и «Распознавание» — pypdfium2; пакеты ставятся без зависимостей
 
 
 def copy_scripts(scripts, folder):
