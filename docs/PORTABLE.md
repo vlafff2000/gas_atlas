@@ -37,3 +37,7 @@ Workflow запускает из распакованного архива Ат�
 ## Единый архив со всеми приложениями ПХГ
 
 `python tools/build_unified.py windows|linux --scripts ../all_scripts` собирает один архив `PXG_Unified_portable_*` (Python 3.13 один на всех): Газовый атлас, Работа с исходными данными, Карты, ГДМ и меню `pxg_hub`. Запуск без терминала: `PXG_Hub.bat` на Windows, `bash pxg_hub.sh` на РЕД ОС. Меню запускает каждое приложение на своём порту (8765–8768) и передаёт им общую папку «Проект» (`PXG_PROJECT`) и адреса друг друга (`PXG_APP_URLS`, `PXG_MAPS_URL`). Если рядом с программой есть папка `storage`, Атлас остаётся на ней. В CI — job `unified` рабочего процесса «Portable archives»; отдельные архивы не меняются.
+
+### Распознавание (OCR) в едином архиве
+
+Папка `ocr` (MinerU 4.1.7 + модели ~2 ГБ) кладётся в тот же архив: `python tools/build_ocr_layer.py --models C:\OCR\mineru-home --out build\ocr`, затем `build_unified.py windows --with-ocr build\ocr`. Для РЕД ОС: `build_ocr_layer.py --target linux ... --out build\ocr_linux` (запускать Python 3.13 из PXG_Unified), затем `build_unified.py linux --with-ocr build\ocr_linux`. Колёса берутся с тегами не выше `manylinux_2_28` (glibc 2.28), у основных пакетов теги ниже. Модели в облаке недоступны, поэтому Linux-архив с распознаванием собирают на ПК с моделями: на Windows без прав на симлинки сборщик запоминает симлинки Python (`.pxg_symlinks.json`) и возвращает их в tar вместе с битами исполнения (`build_portable.add_tree`). На Linux распознавание считает только на процессоре.
