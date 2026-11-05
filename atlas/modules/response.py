@@ -21,7 +21,7 @@ from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Opt
                         Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
 from ._events import regime_events
-from .an_report import object_pressure_of
+from .an_report import PRESSURE_SOURCES, object_pressure_of
 
 RESPONSE, OBJECT, PRODUCTION = DatasetKind.RESPONSE, DatasetKind.OBJECT_PRESSURE, DatasetKind.PRODUCTION
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
@@ -105,7 +105,8 @@ def object_pressure_for(frame: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame
 
 def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, palette: Mapping[str, str],
                    object_pressure: pd.DataFrame | None, manometer: set[str], by_well: bool,
-                   pressure_horizons: set[str], level_band: str = 'auto', gap_days: int = GAP_DAYS) -> Chart:
+                   pressure_horizons: set[str], level_band: str = 'auto', gap_days: int = GAP_DAYS,
+                   period: tuple[str | None, str | None] = (None, None), source_label: str = '') -> Chart:
     """Перенос ``charts.response_chart``: те же серии, цвета, маркеры и оси; точки — все (прореживает только выдача на экран)."""
     wells = ordered(part.well)
     pressure_enabled = bool(set(part.horizon).intersection(pressure_horizons)) if not part.empty else False
@@ -144,13 +145,14 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
     if pressure_enabled and metric in ('pressure', 'combined') and object_pressure is not None \
             and not object_pressure.empty:
         data = object_pressure_for(object_pressure, part).sort_values('date')
-        data = data[data.date.between(part.date.min(), part.date.max())]
+        data = between(data, *period)      # период выбора один на все графики, а не даты замеров скважины: кривая объекта у всех одинакова
         if not data.empty:
-            x, yv, ids, _ = with_gaps(data.date, data.pressure, data['_point_id'].astype(str).tolist() if '_point_id' in data else None,
-                                      [''] * len(data), gap_days)
+            tip = 'Пластовое давление объекта' + (f' · {source_label}' if source_label else '')
+            x, yv, ids, labels = with_gaps(data.date, data.pressure, data['_point_id'].astype(str).tolist() if '_point_id' in data else None,
+                                      [tip] * len(data), gap_days)
             chart.series.append(Series(
                 'Пластовое давление объекта', x, yv, 'line',
-                color=OBJECT_COLOR, dash='solid', width=2.0, markers=True, ids=ids, dataset=OBJECT))
+                color=OBJECT_COLOR, dash='solid', width=2.0, markers=True, ids=ids, labels=labels, dataset=OBJECT))
     if dual:      # шкалы разнесены автоматически: кривая уровня стоит отдельной полосой, а не поверх давлений (charts.separated_ranges)
         apart = separated_ranges([v for s in chart.series if s.axis != 'y2' for v in s.y],
                                  [v for s in chart.series if s.axis == 'y2' for v in s.y], level_band)
@@ -259,6 +261,9 @@ class ResponseModule(Module):
             Param('date_to', 'по', 'date', default=None, section=SECTION_DATA, help='Пусто — до последнего замера'),
             Param('view', 'Вид графиков', 'choice', default='separate', options=VIEWS, section=SECTION_VIEW, chart_kind=True),
             Param('split', 'Построение', 'choice', default='horizon', options=SPLITS, section=SECTION_VIEW),
+            Param('pressure_source', 'Давление объекта', 'choice', default='auto', options=PRESSURE_SOURCES, section=SECTION_VIEW,
+                  help='Одна кривая на объект, одинаковая у всех скважин. «Авто» — столбец «Давление объекта» из БД, иначе среднее '
+                  'по опорной сетке (по группам с равным весом). Окончательный выбор источника за инженером.'),
             Param('gap_days', 'Прерывать кривую при паузе более', 'integer', default=GAP_DAYS, minimum=0, maximum=3650,
                   unit='сут', section=SECTION_VIEW,
                   help='Если между замерами прошло больше суток, чем здесь, кривая прерывается, а не тянется линией. 0 — не прерывать'),
@@ -292,7 +297,11 @@ class ResponseModule(Module):
                 Stat('Действующих уровней', str(level)), Stat('Замеров давления', str(pressure)),
                 Stat('Исключено точек', str(excluded), 'Уровень и давление одного замера считаются отдельно')]
             result.notes.append(Note(VIEW_NOTE))
-            result.charts.extend(self.charts(data, sel, f, params['view'], params['split'], gap_days=params['gap_days']))
+            source = params['pressure_source']
+            result.charts.extend(self.charts(data, sel, f, params['view'], params['split'], gap_days=params['gap_days'], source=source))
+            label = object_pressure_of(data, source)[2]
+            if label and params['view'] != 'level':
+                result.notes.append(Note(f'Пластовое давление объекта (красная кривая) — одна на все скважины: {label}.'))
             result.tables.append(measurements_table(f))
         for field in ('level', 'pressure'):
             table = point_table(original, field, data.excluded)
@@ -305,12 +314,13 @@ class ResponseModule(Module):
         return result
 
     @staticmethod
-    def charts(data: Data, sel: Selection, f: pd.DataFrame, view: str, split: str, level_band: str = 'auto', gap_days: int = GAP_DAYS) -> list[Chart]:
+    def charts(data: Data, sel: Selection, f: pd.DataFrame, view: str, split: str, level_band: str = 'auto', gap_days: int = GAP_DAYS,
+               source: str = 'auto') -> list[Chart]:
         raw = sel.raw
         pressure_horizons = set(ordered(raw.loc[raw.pressure.notna(), 'horizon'])) if 'pressure' in raw else set()
         palette = well_colors(sel.df.well)
         manometer = {str(w) for w in data.settings.get('manometer_wells', [])}
-        object_pressure = object_pressure_of(data, 'auto')[0]      # тот же источник, что в «Авторском надзоре»: столбец из БД, иначе опорная сетка
+        object_pressure, _, source_label = object_pressure_of(data, source)      # тот же источник, что в «Авторском надзоре»
         column = 'horizon' if split == 'horizon' else 'well'
         sets = ({'Все выбранные': f} if split == 'all' else    # естественный порядок: 31, 45, 132
                 {label: f[f[column].astype(str).eq(label)] for label in ordered(f[column])})
@@ -323,7 +333,8 @@ class ResponseModule(Module):
                     continue
                 title = chart_title(ordered(part.well), label, split) + ' · ' + METRIC_WORDS[metric]
                 chart = response_chart(part, metric, title, f'response-{split}-{label}-{metric}', palette,
-                                       object_pressure, manometer, split == 'well', pressure_horizons, level_band, gap_days)
+                                       object_pressure, manometer, split == 'well', pressure_horizons, level_band, gap_days,
+                                       (sel.start, sel.end), source_label)
                 chart.events = list(events)
                 out.append(chart)
         return out

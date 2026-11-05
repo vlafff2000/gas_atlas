@@ -302,3 +302,29 @@ def test_object_pressure_curve_one_source_per_horizon():
     both = object_pressure_for(frame, pd.DataFrame({'horizon': ['A', 'B']}))
     assert both.pressure.tolist() == [60., 52.]                                         # одна точка на дату
     assert len(object_pressure_for(frame, pd.DataFrame({'horizon': ['Z']}))) == 2        # нет совпадений — вся таблица, без дублей дат
+
+
+def test_object_pressure_same_for_all_wells_of_object(tmp_path):
+    """Баг: кривая давления объекта обрезалась по датам замеров конкретной скважины, и у скважин одного объекта она отличалась."""
+    projects = Projects(tmp_path)
+    pid = projects.store.create('Один объект')
+    resp = demo_frames()['response']
+    resp = resp[~((resp.well.astype(str) == '73') & (resp.date < '2025-01-01'))]      # 31 и 73 — один горизонт, но у 73 замеры короче
+    projects.store.commit(pid, frames={'response': resp, 'object_pressure': object_pressure()}, settings={}, action='Загрузка')
+    client = TestClient(create_app(projects))
+    body = run(client, pid, wells=['31', '73'], view='pressure', split='well')
+    curves = {c['title']: next(s for s in c['series'] if s['dataset'] == 'object_pressure') for c in body['charts']}
+    assert len(curves) == 2
+    first, second = curves.values()
+    assert first['x'] == second['x'] and first['y'] == second['y']
+    assert len(first['x']) == len(object_pressure())                                     # весь ряд, а не кусок по датам скважины
+
+
+def test_object_pressure_source_is_selectable(env):
+    client, pid, _ = env
+    body = run(client, pid, wells=['45'], view='pressure', split='well', pressure_source='grid')
+    names = [s['name'] for s in body['charts'][0]['series']]
+    assert 'Пластовое давление объекта' in names
+    assert any('опорная сетка' in str(n) for n in body['notes'])
+    auto = run(client, pid, wells=['45'], view='pressure', split='well')
+    assert any('столбец «Давление объекта»' in str(n) for n in auto['notes'])
