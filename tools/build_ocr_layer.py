@@ -92,11 +92,13 @@ def install_mineru_linux(py: Path, cache: Path) -> None:
     site = py / 'lib' / 'python3.13' / 'site-packages'
     wheels = cache / 'ocr_wheels'
     subprocess.check_call([sys.executable, '-m', 'pip', 'wheel', '--disable-pip-version-check', '--no-deps', '-w', str(wheels), 'jieba'])  # чистый Python, колёс на PyPI нет
-    cmd = [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-compile', '--target', str(site), '--only-binary=:all:',
+    # pip при --platform считает маркеры по хосту (на Windows потребовал бы onnxruntime-directml), поэтому ставим готовый список без зависимостей:
+    # tools/ocr_linux_requirements.txt получен установкой mineru на Linux (pip freeze без pip); при смене версии MinerU собрать заново
+    cmd = [sys.executable, '-m', 'pip', 'install', '--no-deps', '--disable-pip-version-check', '--no-compile', '--target', str(site), '--only-binary=:all:',
            '--find-links', str(wheels), '--python-version', '3.13', '--implementation', 'cp', '--abi', 'cp313']
     for platform in LINUX_PLATFORMS:
         cmd += ['--platform', platform]
-    subprocess.check_call(cmd + [MINERU])
+    subprocess.check_call(cmd + ['-r', str(Path(__file__).with_name('ocr_linux_requirements.txt'))])
     shutil.rmtree(str(site / 'bin'), ignore_errors=True)  # запускалки с путями сборочной машины не нужны: запуск идёт через python -c
     assert (site / 'mineru').is_dir(), 'MinerU не установился'
 
