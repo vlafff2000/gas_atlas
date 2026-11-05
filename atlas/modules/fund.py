@@ -22,6 +22,13 @@ from ._production import KINDS, PRODUCTION, periods_of, visible_periods
 GDI, RESPONSE = DatasetKind.GDI, DatasetKind.RESPONSE
 SECTION_RANK, SECTION_PROGRAM = 'Рейтинг динамики', 'Проверка выполнения программы ГДИ'
 
+RANK_COLUMNS = [
+    Column('Скважина', 'Скважина'), Column('Группа', 'Группа'),
+    Column('Средний_тыс_м3_сут', 'Средний расход', 'тыс. м³/сут', 2, 'number'),
+    Column('Объем_млн_м3', 'Объем', 'млн м³', 3, 'number'),
+    Column('Активных_дней', 'Активных дней', decimals=0, kind='number'),
+    Column('Записей', 'Записей', kind='number'), Column('Нулевых', 'Нулевых записей', kind='number')]
+
 RANK_NOTE = 'Рейтинг по среднему дебиту за дни с положительным расходом; объем — по всем записям выбранных периодов.'
 
 
@@ -50,6 +57,8 @@ class FundModule(Module):
             Param('kind', 'Режим', 'choice', default='withdrawal', options=KINDS, section=SECTION_RANK),
             Param('periods', 'Периоды', 'multi', default=[], dynamic=True, depends=('kind',), auto='all',
                   empty='ничего', section=SECTION_RANK),
+            Param('by_season', 'Выгрузка по отдельным сезонам', 'boolean', default=False, section=SECTION_RANK,
+                  help='Кроме сводного рейтинга по выбранным сезонам — своя таблица на каждый сезон. «Выгрузить все таблицы» кладёт их в один Excel: лист на сезон.'),
             Param('program', 'Номера скважин программы', 'text', default='', section=SECTION_PROGRAM,
                   help='Через пробел, запятую или перенос строки'),
             Param('start', 'Начало периода программы', 'date', default=None, section=SECTION_PROGRAM,
@@ -98,13 +107,15 @@ class FundModule(Module):
             result.notes.append(Note('Для рейтинга выберите периоды с данными эксплуатации.'))
             return
         stats = group_analysis.ranking(f, data.mapping)
-        result.tables.append(Table('ranking', 'Рейтинг динамики', stats, [
-            Column('Скважина', 'Скважина'), Column('Группа', 'Группа'),
-            Column('Средний_тыс_м3_сут', 'Средний расход', 'тыс. м³/сут', 2, 'number'),
-            Column('Объем_млн_м3', 'Объем', 'млн м³', 3, 'number'),
-            Column('Активных_дней', 'Активных дней', decimals=0, kind='number'),
-            Column('Записей', 'Записей', kind='number'), Column('Нулевых', 'Нулевых записей', kind='number')],
-            note=RANK_NOTE))
+        result.tables.append(Table('ranking', 'Рейтинг динамики', stats, RANK_COLUMNS, note=RANK_NOTE))
+        if params.get('by_season'):
+            for i, period in enumerate(ps):
+                one = f[f.period.eq(period)]
+                if one.empty:
+                    result.notes.append(Note(f'Сезон {period}: нет записей эксплуатации выбранного режима, лист не создан.'))
+                    continue
+                result.tables.append(Table(f'ranking-season-{i}', f'Рейтинг · {period}', group_analysis.ranking(one, data.mapping),
+                                           RANK_COLUMNS, note=RANK_NOTE))
 
     @staticmethod
     def gdi_quality(result: Result, data: Data) -> None:
