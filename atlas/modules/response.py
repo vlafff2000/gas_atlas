@@ -21,9 +21,12 @@ from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Opt
                         Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
 from ._events import regime_events
+from ._gis_pressure import TARGET_ABS, reduce_pressure
 from .an_report import object_pressure_of
 
 RESPONSE, OBJECT, PRODUCTION = DatasetKind.RESPONSE, DatasetKind.OBJECT_PRESSURE, DatasetKind.PRODUCTION
+THERMO, FILLING, GEO, PACKS = (DatasetKind.GIS_THERMOBARIC, DatasetKind.GIS_FILLING, DatasetKind.WELL_GEO, DatasetKind.GIS_PACKS)
+GIS_COLOR = '#E8890C'       # замеры ГИС на глубине приведения: отдельный ряд, не сливается с уровнем, ГДМ, пересчётом и объектом
 SECTION_DATA, SECTION_VIEW = 'Выбор данных', 'Вид'
 POINT_TABLE_LIMIT = 20000
 
@@ -105,7 +108,8 @@ def object_pressure_for(frame: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame
 
 def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, palette: Mapping[str, str],
                    object_pressure: pd.DataFrame | None, manometer: set[str], by_well: bool,
-                   pressure_horizons: set[str], level_band: str = 'auto', gap_days: int = GAP_DAYS) -> Chart:
+                   pressure_horizons: set[str], level_band: str = 'auto', gap_days: int = GAP_DAYS,
+                   gis: pd.DataFrame | None = None, gis_depth: float = TARGET_ABS) -> Chart:
     """Перенос ``charts.response_chart``: те же серии, цвета, маркеры и оси; точки — все (прореживает только выдача на экран)."""
     wells = ordered(part.well)
     pressure_enabled = bool(set(part.horizon).intersection(pressure_horizons)) if not part.empty else False
@@ -141,6 +145,9 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
                 axis='y2' if dual and field == 'level' else 'y',
                 labels=labels, ids=ids, dataset=RESPONSE))
             legends.add(legend_key)
+    gis_on = gis is not None and not gis.empty and (metric == 'pressure' or dual)
+    if gis_on:
+        add_gis_series(chart, gis, wells, gis_depth, gap_days, by_well)
     if pressure_enabled and metric in ('pressure', 'combined') and object_pressure is not None \
             and not object_pressure.empty:
         data = object_pressure_for(object_pressure, part).sort_values('date')
@@ -164,6 +171,65 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
         if bounds:
             chart.y.minimum, chart.y.maximum = bounds
     return chart
+
+
+def add_gis_series(chart: Chart, gis: pd.DataFrame, wells: list[str], depth: float, gap_days: int, by_well: bool) -> None:
+    """Давление ГИС, приведённое к глубине ``depth`` (м а.о.): отдельный ряд-точки на скважину, пояснение расчёта — в подсказке каждой точки."""
+    for w in wells:
+        g = gis[gis.well.astype(str).eq(str(w)) & gis.pressure.notna()].sort_values('date')
+        if g.empty:
+            continue
+        name = f'Рпл ГИС на {depth:g} м а.о.' + ('' if by_well and len(wells) == 1 else f' · № {w}')
+        labels = [f'{r.reason} → {r.pressure:.1f} кгс/см² ({r.method}' + (f'; проверить: {r.check}' if r.check else '') + ')' for r in g.itertuples()]
+        chart.series.append(Series(name, g.date.to_numpy(), g.pressure.to_numpy(float), 'points', group=name, color=GIS_COLOR if len(wells) == 1 else '',
+                                   symbol='triangle', hollow=False, labels=labels, dataset=THERMO,
+                                   facets={'Источник': 'Замеры ГИС (термобарика)'}))
+
+
+def gis_pressure_table(table: pd.DataFrame, depth: float) -> Table | None:
+    """Что программа подставила на график и почему: две опорные точки, глубина, плотность, пометки «проверить»."""
+    if table is None or table.empty:
+        return None
+    d = table.sort_values(['date', 'well'], ascending=[False, True], kind='stable').head(POINT_TABLE_LIMIT).reset_index(drop=True)
+    columns = [Column('well', 'Скважина'), Column('date', 'Дата', kind='date'), Column('pressure', f'Рпл на {depth:g} м а.о.', UNITS['pressure'], 1, 'number'),
+               Column('method', 'Способ'), Column('check', 'Проверить'), Column('reason', 'Как получено'),
+               Column('depth1', 'Точка 1, м а.о.', decimals=1, kind='number'), Column('p1', 'Р точки 1', UNITS['pressure'], 1, 'number'),
+               Column('depth2', 'Точка 2, м а.о.', decimals=1, kind='number'), Column('p2', 'Р точки 2', UNITS['pressure'], 1, 'number'),
+               Column('rho', 'Плотность, г/см³', decimals=2, kind='number'), Column('fill', 'Заполнение')]
+    return Table('gis-pressure', f'Замеры давления ГИС, приведённые к {depth:g} м а.о.', d, columns,
+                 note='Подсказка программы: значение получено по двум ближайшим по глубине замерам (или по плотности жидкости). '
+                      'Сомнительный замер отключается в таблице «Ручной фильтр точек · термобарика ГИС» — расчёт сразу пересчитается.',
+                 collapsed=True)
+
+
+def gis_point_table(raw: pd.DataFrame | None, excluded: Mapping[str, dict]) -> Table | None:
+    """Ручной фильтр исходных точек термобарики: исключённая точка не участвует в интерполяции."""
+    if raw is None or raw.empty or '_point_id' not in raw or 'pressure_kgs' not in raw:
+        return None
+    part = raw[pd.to_numeric(raw.pressure_kgs, errors='coerce').gt(0)]
+    if part.empty:
+        return None
+    part = part.sort_values(['date', 'well'], ascending=[False, True], kind='stable').head(POINT_TABLE_LIMIT)
+    part = part.assign(_excluded=part['_point_id'].isin(excluded),
+                       _reason=part['_point_id'].map(lambda i: (excluded.get(i) or {}).get('reason', ''))).reset_index(drop=True)
+    columns = [Column('well', 'Скважина'), Column('date', 'Дата', kind='date'), Column('depth_m', 'Глубина MD, м', decimals=1, kind='number'),
+               Column('depth_abs_m', 'Глубина а.о. (отчёт), м', decimals=1, kind='number'), Column('pressure_kgs', 'Давление', UNITS['pressure'], 1, 'number'),
+               Column('depth_kind', 'Пометка к глубине')]
+    columns = [c for c in columns if c.key in part]
+    for key, label in (('confidence', 'Уверенность'), ('file', 'Файл'), ('source', 'Таблица')):
+        if key in part:
+            columns.append(Column(key, label))
+    columns.append(Column('_reason', 'Причина исключения'))
+    return Table('points-gis', 'Ручной фильтр точек · термобарика ГИС', part, columns, note=FILTER_NOTE.split(' Уровень')[0], collapsed=True,
+                 action=TableAction('exclude', THERMO, '_point_id', 'Применить ручной фильтр', checked_column='_excluded'))
+
+
+def gis_for(data: Data, wells: list[str], depth: float) -> pd.DataFrame:
+    """Давление ГИС на глубине приведения для выбранных скважин (пусто, если термобарики в проекте нет)."""
+    if THERMO not in data:
+        return pd.DataFrame()
+    return reduce_pressure(data[THERMO], data[FILLING] if FILLING in data else None, data[GEO] if GEO in data else None,
+                           data[PACKS] if PACKS in data else None, depth, wells)
 
 
 def chart_title(wells: list[str], label: str, split: str) -> str:
@@ -243,7 +309,7 @@ class ResponseModule(Module):
         group='Контроль горизонтов',
         description='Сравнение скважин внутри горизонта; уровень и приведенное давление на одной диаграмме или отдельно.',
         needs=(RESPONSE,),
-        optional=(OBJECT, PRODUCTION),      # эксплуатация — только отметки смены режима на графиках
+        optional=(OBJECT, PRODUCTION, THERMO, FILLING, GEO, PACKS),      # эксплуатация — отметки смены режима; ГИС и положение скважин — замеры давления на глубине приведения
         order=40,
         save_label='Сохранить параметры графиков',
         params=(
@@ -259,6 +325,10 @@ class ResponseModule(Module):
             Param('date_to', 'по', 'date', default=None, section=SECTION_DATA, help='Пусто — до последнего замера'),
             Param('view', 'Вид графиков', 'choice', default='separate', options=VIEWS, section=SECTION_VIEW, chart_kind=True),
             Param('split', 'Построение', 'choice', default='horizon', options=SPLITS, section=SECTION_VIEW),
+            Param('gis_pressure', 'Замеры давления ГИС', 'boolean', default=True, section=SECTION_VIEW,
+                  help='Давление из термобарики отчётов ГИС, приведённое к глубине приведения: отдельный ряд, подсказка программы. Нужны термобарика и альтитуды скважин'),
+            Param('gis_depth', 'Глубина приведения, м а.о.', 'number', default=TARGET_ABS, minimum=-3000, maximum=500, unit='м', section=SECTION_VIEW,
+                  help='Одна для всех скважин ПХГ; ниже моря — со знаком минус'),
             Param('gap_days', 'Прерывать кривую при паузе более', 'integer', default=GAP_DAYS, minimum=0, maximum=3650,
                   unit='сут', section=SECTION_VIEW,
                   help='Если между замерами прошло больше суток, чем здесь, кривая прерывается, а не тянется линией. 0 — не прерывать'),
@@ -292,10 +362,23 @@ class ResponseModule(Module):
                 Stat('Действующих уровней', str(level)), Stat('Замеров давления', str(pressure)),
                 Stat('Исключено точек', str(excluded), 'Уровень и давление одного замера считаются отдельно')]
             result.notes.append(Note(VIEW_NOTE))
-            result.charts.extend(self.charts(data, sel, f, params['view'], params['split'], gap_days=params['gap_days']))
+            gis_depth = params['gis_depth'] if params['gis_depth'] is not None else TARGET_ABS
+            gis = gis_for(data, sel.wells, gis_depth) if params['gis_pressure'] else pd.DataFrame()
+            if not gis.empty:
+                gis = between(gis, sel.start, sel.end)
+                result.summary.append(Stat('Замеров ГИС на глубине приведения', str(int(gis.pressure.notna().sum())),
+                                           'Подсказка программы: две ближайшие по глубине точки термобарики, см. таблицу'))
+            result.charts.extend(self.charts(data, sel, f, params['view'], params['split'], gap_days=params['gap_days'], gis=gis, gis_depth=gis_depth))
             result.tables.append(measurements_table(f))
+            table = gis_pressure_table(gis, gis_depth)
+            if table is not None:
+                result.tables.append(table)
         for field in ('level', 'pressure'):
             table = point_table(original, field, data.excluded)
+            if table is not None:
+                result.tables.append(table)
+        if THERMO in data.raw and params['gis_pressure']:
+            table = gis_point_table(data.raw[THERMO], data.excluded)
             if table is not None:
                 result.tables.append(table)
         if OBJECT in data.raw:
@@ -305,7 +388,8 @@ class ResponseModule(Module):
         return result
 
     @staticmethod
-    def charts(data: Data, sel: Selection, f: pd.DataFrame, view: str, split: str, level_band: str = 'auto', gap_days: int = GAP_DAYS) -> list[Chart]:
+    def charts(data: Data, sel: Selection, f: pd.DataFrame, view: str, split: str, level_band: str = 'auto', gap_days: int = GAP_DAYS,
+               gis: pd.DataFrame | None = None, gis_depth: float = TARGET_ABS) -> list[Chart]:
         raw = sel.raw
         pressure_horizons = set(ordered(raw.loc[raw.pressure.notna(), 'horizon'])) if 'pressure' in raw else set()
         palette = well_colors(sel.df.well)
@@ -319,11 +403,13 @@ class ResponseModule(Module):
         events = regime_events(production, f.date.min(), f.date.max()) if not f.empty else []
         for label, part in sets.items():
             for metric in (['level', 'pressure'] if view == 'separate' else [view]):
-                if metric != 'combined' and (metric not in part or not part[metric].notna().any()):
+                with_gis = metric == 'pressure' and gis is not None and not gis.empty and gis.pressure.notna().any() \
+                    and gis.well.astype(str).isin(set(part.well.astype(str))).any()
+                if metric != 'combined' and not with_gis and (metric not in part or not part[metric].notna().any()):
                     continue
                 title = chart_title(ordered(part.well), label, split) + ' · ' + METRIC_WORDS[metric]
                 chart = response_chart(part, metric, title, f'response-{split}-{label}-{metric}', palette,
-                                       object_pressure, manometer, split == 'well', pressure_horizons, level_band, gap_days)
+                                       object_pressure, manometer, split == 'well', pressure_horizons, level_band, gap_days, gis, gis_depth)
                 chart.events = list(events)
                 out.append(chart)
         return out
