@@ -26,6 +26,7 @@ from ._elpro_series import COLOR, LABEL, axis_names, daily_values, extra_axis, h
 
 PRODUCTION, GDI, ELPRO = DatasetKind.PRODUCTION, DatasetKind.GDI, DatasetKind.ELPRO
 BOTTOM, GIS_OBS, KRS = DatasetKind.BOTTOM, DatasetKind.GIS_OBSERVATIONS, DatasetKind.KRS_WORKS
+PRESSURE_DB = DatasetKind.PRESSURE_MATCH     # БД давлений: замеры пластового давления по скважинам замерной сетки
 KINDS = (Option('withdrawal', 'Отбор'), Option('injection', 'Закачка'))
 DIRECTIONS = (Option('number', 'По номеру'), Option('desc', 'Больший дебит слева'), Option('asc', 'Больший дебит справа'))
 POINT_BUDGET = 20000          # как в 5.8: бюджет точек на график, делится между кривыми
@@ -107,6 +108,7 @@ class Selection:
         self.bottom = data[BOTTOM] if BOTTOM in data else None      # шаблонирование — замеры забоя с диаметром шаблона
         self.gis = data[GIS_OBS] if GIS_OBS in data else None       # замеры ГИС («База ГИС»)
         self.krs = data[KRS] if KRS in data else None               # проведённые КР (только год)
+        self.pressures = data[PRESSURE_DB] if PRESSURE_DB in data else None   # замеры пластового давления
 
     def choices(self) -> list[str]:
         return [w for w in wells_of(self.df) if group_of(self.mapping, w) in self.groups]
@@ -132,7 +134,7 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
               if by_cumulative else Axis('Дата', scale='time'))
     # без БД ЭЛПРО ряды не строятся: иначе появились бы пустые правые оси
     extras = [k for k in picked_extras(sel.params.get('elpro'))
-              if (k == 'pres' and sel.gdi is not None) or (k != 'pres' and sel.elpro is not None)]   # каждый ряд — на своей оси (y2…y5)
+              if (k == 'pres' and sel.pressures is not None) or (k != 'pres' and sel.elpro is not None)]   # каждый ряд — на своей оси (y2…y5)
     axes = axis_names(extras)
     chart = Chart(chart_id, well_title(ws), x_axis, Axis('Суточный расход', Q_UNIT, from_zero=True),
                   **{axes[k]: extra_axis(k) for k in extras if k != 'pres' or 'p' not in extras})
@@ -212,8 +214,8 @@ def elpro_series(sel: Selection, groups, extras: list[str], axes: dict[str, str]
 
 
 def pressure_series(sel: Selection, well: str, period: str, g: pd.DataFrame, x, axis: str, many_wells: bool, single: bool) -> list[Series]:
-    """Замеры Рпл из ГДИ точками на оси давления (с ЭЛПРО — на её оси, иначе на своей). По накопленному объёму точка стоит на дате замера."""
-    pts = pressure_points(sel.gdi, well, g.date.min(), g.date.max())
+    """Замеры пластового давления из БД давлений точками на оси давления (с ЭЛПРО — на её оси, иначе на своей). По накопленному объёму точка стоит на дате замера."""
+    pts = pressure_points(sel.pressures, well, g.date.min(), g.date.max())
     if pts.empty:
         return []
     at = np.minimum(np.searchsorted(g.date.to_numpy(), pts.date.to_numpy()), len(g) - 1)
