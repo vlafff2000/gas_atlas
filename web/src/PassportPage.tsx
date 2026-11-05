@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Project } from './api'
 import { passportApi, type PassportCard, type PassportInfo } from './api_passport'
 import { MultiSelect } from './MultiSelect'
+import { WellStepper } from './WellStepper'
 import { wellPresets } from './api_wells'
 import { PassportDashboard } from './PassportCard'
 import { WellFilter } from './WellFilter'
@@ -90,12 +91,14 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
       ) : (
         <>
         <div className="toolbar">
-          <label className="field">
-            <span className="field-label">Скважина</span>
-            <select value={well ?? ''} onChange={e => setWell(e.target.value)}>
-              {info.shown.map(w => <option key={w} value={w}>№ {w}{info.groups[w] ? ` · ${info.groups[w]}` : ''}</option>)}
-            </select>
-          </label>
+          <WellStepper options={info.shown} value={well ?? ''} onChange={setWell}>
+            <label className="field">
+              <span className="field-label">Скважина</span>
+              <select value={well ?? ''} onChange={e => setWell(e.target.value)}>
+                {info.shown.map(w => <option key={w} value={w}>№ {w}{info.groups[w] ? ` · ${info.groups[w]}` : ''}</option>)}
+              </select>
+            </label>
+          </WellStepper>
           <WellFilter project={project.id} revision={project.revision} value={filter} onChange={setFilter} />
           <MultiSelect label="Сезоны паспорта" options={seasonOptions} value={seasonPick}
             onChange={setSeasonPick} emptyMeaning="все" />
