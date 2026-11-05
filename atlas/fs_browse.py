@@ -378,9 +378,17 @@ def _win_drives() -> List[Dict[str, str]]:
     return out
 
 
+_places_problems: List[str] = []  # почему не нашлось мест в последнем places() (показывает окно выбора)
+
+
+def places_problems() -> List[str]:
+    return list(_places_problems)
+
+
 def places() -> List[Dict[str, str]]:
     out: List[Dict[str, str]] = []
     seen = set()
+    _places_problems.clear()
 
     def add(name: str, path: str, kind: str = "folder", check: bool = True) -> None:
         if not path or path in seen:
@@ -391,7 +399,9 @@ def places() -> List[Dict[str, str]]:
         out.append({"name": name, "path": path, "kind": kind})
 
     home = os.path.expanduser("~")
-    add("Домашняя", home, "home")
+    # на Linux корень и домашнюю папку не проверяем таймаутом: при нагрузке (загрузка моделей, autofs) проверка
+    # не успевает, и список мест оказывался пустым; ошибку покажет сам переход в папку
+    add("Домашняя", home, "home", check=os.name == "nt")
     for name, variants in (("Рабочий стол", ("Desktop", "Рабочий стол")),
                            ("Документы", ("Documents", "Документы")),
                            ("Загрузки", ("Downloads", "Загрузки"))):
@@ -416,7 +426,7 @@ def places() -> List[Dict[str, str]]:
                 if ok:
                     add(d["letter"] + ":", drive, "drive", check=False)
     else:
-        add("Корень /", "/", "drive")
+        add("Корень /", "/", "drive", check=False)
         add("/mnt", "/mnt", "drive")
         add("/media", "/media", "drive")
         user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
@@ -433,6 +443,11 @@ def places() -> List[Dict[str, str]]:
                     names = []
                 for n in names:
                     add(n, os.path.join(g, n), "network", check=False)
+    if not out:
+        _places_problems.append("Не удалось определить ни одного диска или папки (HOME=%r, ОС=%s). Введите путь вручную в строке «Путь»."
+                                % (home, os.name))
+    elif not any(p["kind"] in ("drive", "network") for p in out):
+        _places_problems.append("Диски не найдены: нет доступных корней, /mnt, /media, /run/media. Введите путь вручную в строке «Путь».")
     return out
 
 
@@ -790,7 +805,7 @@ async def _places(request: Request) -> JSONResponse:
     ms = int((time.perf_counter() - t0) * 1000)
     if ms >= 300:
         log.info("проводник: список мест собран за %d мс (проверка домашней папки, рабочего стола, дисков)", ms)
-    return JSONResponse({"places": res})
+    return JSONResponse({"places": res, "problems": places_problems()})
 
 
 async def _last(request: Request) -> JSONResponse:
