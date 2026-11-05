@@ -105,6 +105,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
   const [recent, setRecent] = useState<string[]>([])
   const [list, setList] = useState<Listing | null>(null)
   const [pathText, setPathText] = useState('')
+  const [placesNote, setPlacesNote] = useState('')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<'name' | 'mtime' | 'size'>('name')
   const [desc, setDesc] = useState(false)
@@ -195,7 +196,8 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
     if (saveMode && !opts.start) {  // сохранение начинаем с папки прошлого сохранения
       void getJson<Last>('/api/fs/last').then(l => load(l.save_dir || l.dir || '', undefined, false, true)).catch(() => load('', undefined, false, true))
     } else void load(opts.start || '', undefined, false, true)
-    getJson<{ places: Place[] }>('/api/fs/places').then(pl => { if (live) setPlaces(pl.places) }).catch(() => undefined)
+    getJson<{ places: Place[]; problems?: string[] }>('/api/fs/places').then(pl => { if (live) { setPlaces(pl.places); setPlacesNote((pl.problems || []).join(' ')) } })
+      .catch(e => { if (live) setPlacesNote('Список дисков не получен: ' + (e instanceof Error ? e.message : String(e)) + '. Введите путь вручную в строке «Путь».') })
     getJson<Last>('/api/fs/last').then(last => { if (live) setRecent(last.recent) }).catch(() => undefined)
     getJson<Favs>('/api/fs/favorites').then(f => { if (live && f.favorites) setFavs(f) }).catch(() => undefined)
     getJson<{ w?: number; h?: number }>('/api/fs/win').then(win => {
@@ -391,6 +393,7 @@ function Picker({ opts, done }: { opts: PickerOptions; done: (p: string | null) 
             {places.map(p => <button key={p.path} className={list?.path === p.path ? 'on' : ''} onClick={() => open(p.path)} title={p.name + '\n' + p.path}>
               <span className="fp-pn"><PlaceIcon kind={p.kind} /> {p.name}</span>
               {(p.kind === 'drive' || p.kind === 'network') && <span className="fp-pp">{p.path}</span>}</button>)}
+            {(placesNote || places.length === 0) && <div className="fp-note bad" role="alert">{placesNote || 'Диски не найдены. Введите путь вручную в строке «Путь».'}</div>}
             <div className="fp-cap">Избранное</div>
             {favs.favorites.map(f => editFav?.path === f.path ? (
               <form key={f.path} className="fp-favedit" onSubmit={e => { e.preventDefault(); void favAction('rename', f.path, { name: editFav.name }); setEditFav(null) }}>
