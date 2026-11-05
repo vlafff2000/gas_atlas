@@ -10,15 +10,19 @@ import pandas as pd
 
 from ..contract import Axis
 
-EXTRAS = (('hours', 'Часы работы'), ('cru', 'КРУ, %'), ('p', 'Давление, кгс/см²'), ('t', 'Температура, °C'))
-COLOR = {'hours': '#149ba5', 'cru': '#169b62', 'p': '#9955cc', 't': '#ed8b23'}
+EXTRAS = (('hours', 'Часы работы'), ('cru', 'КРУ, %'), ('p', 'Давление, кгс/см²'), ('t', 'Температура, °C'),
+          ('pres', 'Замеры пластового давления (Рпл из ГДИ)'))
+COLOR = {'hours': '#149ba5', 'cru': '#169b62', 'p': '#9955cc', 't': '#ed8b23', 'pres': '#c2255c'}
 MAX_RIGHT_AXES = 4
-LABEL = {'hours': 'Часы работы', 'cru': 'КРУ', 'p': 'Давление ЭЛПРО', 't': 'Температура газа'}
+LABEL = {'hours': 'Часы работы', 'cru': 'КРУ', 'p': 'Давление ЭЛПРО', 't': 'Температура газа', 'pres': 'Рпл (замер ГДИ)'}
 
 
 def picked_extras(keys) -> list[str]:
     """Выбранные ряды без повторов и неизвестных ключей; правых шкал не больше ``MAX_RIGHT_AXES``."""
-    return [k for k in dict.fromkeys(keys or []) if k in LABEL][:MAX_RIGHT_AXES]
+    picked = [k for k in dict.fromkeys(keys or []) if k in LABEL]
+    own = [k for k in picked if not (k == 'pres' and 'p' in picked)]       # замеры Рпл на оси давления ЭЛПРО своей шкалы не занимают
+    keep = set(own[:MAX_RIGHT_AXES])
+    return [k for k in picked if k in keep or (k == 'pres' and 'p' in keep)]
 
 
 def extra_axis(key: str) -> Axis:
@@ -27,6 +31,8 @@ def extra_axis(key: str) -> Axis:
         return Axis('Часы работы', 'ч', from_zero=True, minimum=0, maximum=24, color=COLOR['hours'])
     if key == 'cru':
         return Axis('Степень открытия КРУ, %', '%', minimum=0, maximum=100, color=COLOR['cru'])
+    if key == 'pres':
+        return Axis('Пластовое давление (замеры)', 'кгс/см²', from_zero=True, color=COLOR['pres'])
     if key == 'p':
         return Axis('Давление газа', 'кгс/см²', from_zero=True, color=COLOR['p'])
     return Axis('Температура газа, °C', color=COLOR['t'])
@@ -46,3 +52,22 @@ def hours_values(prod: pd.DataFrame, kind: str, well: str) -> pd.DataFrame:
     hours = d['hours'].to_numpy() if 'hours' in d else np.full(len(d), np.nan)
     frame = pd.DataFrame({'date': pd.to_datetime(d['date']).dt.normalize().to_numpy(), 'hours': hours})
     return frame.groupby('date')[['hours']].sum(min_count=1)
+
+
+def axis_names(extras: list[str]) -> dict[str, str]:
+    """Правая ось каждого ряда (y2…). Замеры Рпл ложатся на ось давления ЭЛПРО, если она выбрана: так их видно вместе, в одном масштабе."""
+    own = [k for k in extras if not (k == 'pres' and 'p' in extras)]
+    names = {k: f'y{n}' for n, k in enumerate(own, start=2)}
+    if 'pres' in extras and 'p' in extras:
+        names['pres'] = names['p']
+    return names
+
+
+def pressure_points(gdi: pd.DataFrame, well: str, first, last) -> pd.DataFrame:
+    """Замеры пластового давления скважины (Рпл из ГДИ) за период: дата и давление, по одному на день."""
+    if gdi is None or gdi.empty or 'p_res' not in gdi:
+        return pd.DataFrame(columns=['date', 'p_res'])
+    d = gdi[gdi['well'].astype(str).eq(well)]
+    d = d.assign(p_res=pd.to_numeric(d['p_res'], errors='coerce'), date=pd.to_datetime(d['date']).dt.normalize())
+    d = d[d.p_res.notna() & d.date.between(first, last)]
+    return d.groupby('date', as_index=False)['p_res'].mean()

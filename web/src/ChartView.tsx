@@ -51,10 +51,10 @@ const EVENT_RADIUS = 6                 // пикселей: событие у к
 
 export const EVENT_KINDS: { kind: ChartEvent['kind']; label: string }[] = [
   { kind: 'regime', label: 'Смена режима' }, { kind: 'gdi', label: 'ГДИ' },
-  { kind: 'repair', label: 'Ремонт' }, { kind: 'peak', label: 'Пики' }, { kind: 'other', label: 'Прочее' },
+  { kind: 'gis', label: 'ГИС' }, { kind: 'repair', label: 'КРС (ремонт)' }, { kind: 'template', label: 'Шаблонирование' }, { kind: 'peak', label: 'Пики' }, { kind: 'other', label: 'Прочее' },
 ]
 const eventColor = (kind: ChartEvent['kind'], tk: ChartTokens) =>
-  kind === 'regime' ? tk.muted : kind === 'gdi' ? tk.accent : kind === 'repair' ? '#d9480f' : kind === 'peak' ? '#7048e8' : tk.faint
+  kind === 'regime' ? tk.muted : kind === 'gdi' ? tk.accent : kind === 'repair' ? '#d9480f' : kind === 'gis' ? '#0b7285' : kind === 'template' ? '#2f9e44' : kind === 'peak' ? '#7048e8' : tk.faint
 
 interface Props {
   chart: Chart

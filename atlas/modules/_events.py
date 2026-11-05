@@ -1,7 +1,8 @@
-"""События на оси времени для графиков: смена режима (начало отбора и закачки) и ГДИ скважин.
+"""События на оси времени для графиков: смена режима (начало отбора и закачки), ГДИ, ГИС, КРС и шаблонирование скважин.
 
 Только выбор данных: сезоны уже размечены импортом 5.8 (колонка ``period``), даты ГДИ — набор ``gdi``.
-Данных о ремонтах в проектах пока нет; событие ``kind='repair'`` появится, когда их начнут загружать.
+КРС — таблица ``krs_works`` (в ней только год ремонта: отметка ставится на 1 июля этого года), ГИС — замеры «Базы ГИС»,
+шаблонирование — строки замеров забоя с диаметром шаблона или методом «шаблон».
 """
 from __future__ import annotations
 
@@ -54,6 +55,64 @@ def gdi_events(gdi: pd.DataFrame | None, wells: Iterable[str], start=None, end=N
         method = getattr(row, 'method', '')
         method = '' if pd.isna(method) or not str(method).strip() else f' ({method})'
         out.append(Event(row.date, f'ГДИ{method} · № {row.well}', 'gdi', str(row.well)))
+    return out
+
+
+def _pick(frame: pd.DataFrame | None, wells: Iterable[str], start, end) -> pd.DataFrame | None:
+    if frame is None or frame.empty or 'well' not in frame or 'date' not in frame:
+        return None
+    d = frame[frame.well.astype(str).isin({str(w) for w in wells})]
+    d = d[d.date.notna()]
+    if start is not None:
+        d = d[d.date >= start]
+    if end is not None:
+        d = d[d.date <= end]
+    return d.sort_values('date')
+
+
+def _thin(d: pd.DataFrame) -> pd.DataFrame:
+    return d.iloc[::-(-len(d) // EVENT_LIMIT)] if len(d) > EVENT_LIMIT else d
+
+
+def gis_events(observations: pd.DataFrame | None, wells: Iterable[str], start=None, end=None) -> list[Event]:
+    """Замеры ГИС («База ГИС») выбранных скважин: одно событие на скважину и день."""
+    d = _pick(observations, wells, start, end)
+    if d is None:
+        return []
+    d = _thin(d.drop_duplicates(['well', 'date']))
+    return [Event(r.date, f'ГИС · № {r.well}', 'gis', str(r.well)) for r in d.itertuples(index=False)]
+
+
+def template_events(bottom: pd.DataFrame | None, wells: Iterable[str], start=None, end=None) -> list[Event]:
+    """Шаблонирование: замеры забоя, где указан диаметр шаблона или метод содержит «шаблон»."""
+    d = _pick(bottom, wells, start, end)
+    if d is None:
+        return []
+    mark = pd.Series(False, index=d.index)
+    if 'tool_diameter_mm' in d:
+        mark |= pd.to_numeric(d['tool_diameter_mm'], errors='coerce').notna()
+    if 'method' in d:
+        mark |= d['method'].astype(str).str.contains('шаблон', case=False, na=False)
+    d = _thin(d[mark].drop_duplicates(['well', 'date']))
+    return [Event(r.date, f'Шаблонирование · № {r.well}', 'template', str(r.well)) for r in d.itertuples(index=False)]
+
+
+def krs_events(works: pd.DataFrame | None, wells: Iterable[str], start=None, end=None) -> list[Event]:
+    """Капитальные ремонты: в таблице только год, поэтому отметка стоит на 1 июля года ремонта (подпись говорит об этом)."""
+    if works is None or works.empty or 'well' not in works or 'year' not in works:
+        return []
+    d = works[works.well.astype(str).isin({str(w) for w in wells})].copy()
+    d['year'] = pd.to_numeric(d['year'], errors='coerce')
+    d = d[d.year.notna()]
+    d['date'] = pd.to_datetime(d.year.astype(int).astype(str) + '-07-01')
+    d = _pick(d, wells, start, end)
+    if d is None:
+        return []
+    out = []
+    for r in _thin(d).itertuples(index=False):
+        kind = str(getattr(r, 'work_type', '') or '').strip()
+        kind = '' if kind in ('', 'nan') else f': {kind}'
+        out.append(Event(r.date, f'КРС {int(r.year)}{kind} · № {r.well} (в данных только год)', 'repair', str(r.well)))
     return out
 
 
