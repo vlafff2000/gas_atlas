@@ -503,3 +503,7 @@ table.frozen tbody tr.is-synced td:first-child { background: var(--accent-soft);
 .undo-buttons { display: inline-flex; gap: 4px; align-items: center; }
 .undo-buttons svg { width: 14px; height: 14px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .undo-buttons button:disabled { opacity: .45; cursor: default; }
+
+/* Стрелки листания скважин (общий WellStepper) */
+.well-stepper { display: inline-flex; gap: 6px; align-items: flex-end; }
+.well-stepper > button.quiet { padding: 4px 10px; }

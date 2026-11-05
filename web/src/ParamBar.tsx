@@ -4,6 +4,7 @@ import { Icon } from './Icon'
 import { groupSections } from './paramSections'
 import { api, type ModuleSpec, type Param, type Params } from './api'
 import { MultiSelect } from './MultiSelect'
+import { WellStepper } from './WellStepper'
 import { wellPresets } from './api_wells'
 import { openFilePicker } from './FilePicker'
 import { paramsCollapsed, usePref } from './chartPrefs'
@@ -225,9 +226,13 @@ function DynamicMulti({ spec, project, param: p, values, onChange, onOptions }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options])
 
-  return <MultiSelect label={p.label} options={options ?? []} value={value} loading={options === undefined}
+  const picker = <MultiSelect label={p.label} options={options ?? []} value={value} loading={options === undefined}
     emptyMeaning={p.empty} prefix={p.prefix} presets={p.wells_picker || isWellsParam(p) ? wellPresets(project) : undefined}
     onChange={v => { touched.current = true; onChange(v) }} />
+  // Одна скважина выбрана — её можно листать стрелками, как в паспорте скважины
+  return isWellsParam(p) && value.length === 1 && options
+    ? <WellStepper options={options} value={value[0]} onChange={w => { touched.current = true; onChange([w]) }}>{picker}</WellStepper>
+    : picker
 }
 
 /** Число на каждый вариант, который считает модуль (порог у каждой группы); пусто — общее значение. */
