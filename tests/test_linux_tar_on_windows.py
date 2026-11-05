@@ -63,3 +63,14 @@ def test_linux_launchers_are_lf_even_when_written_on_windows(tmp_path, monkeypat
     sh = (tmp_path / 'karty.sh').read_bytes()
     assert b'\r' not in sh and sh.startswith(b'#!/usr/bin/env bash\n')
     assert b'logs/launch_' in sh and b'[ -x "$PY" ]' in sh  # лог рядом и сообщение, если Python не найден
+
+
+def test_linux_diagnostic_launcher_is_included(tmp_path):
+    bu_spec = importlib.util.spec_from_file_location('build_unified_diag', ROOT / 'tools' / 'build_unified.py')
+    bu = importlib.util.module_from_spec(bu_spec)
+    bu_spec.loader.exec_module(bu)
+    sp = type('SP', (), {'LINUX_LAUNCHERS': {}, 'REPORT_SH': ''})
+    bu.write_launchers('linux', tmp_path, sp)
+    sh = (tmp_path / 'diagnostika_zapuska.sh').read_text(encoding='utf-8')
+    assert 'logs/diagnostika_zapuska.txt' in sh and 'noexec' in sh and 'ldd python/bin/python3.13' in sh
+    assert 'diagnostika_zapuska.sh' in (tmp_path / 'pxg_hub.sh').read_text(encoding='utf-8')  # без Python диагностика всё равно запускается

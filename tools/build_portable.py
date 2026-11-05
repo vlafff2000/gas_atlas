@@ -83,7 +83,7 @@ LINUX_PREFIX = ('#!/usr/bin/env bash\nset -eu\ncd -- "$(dirname -- "$(readlink -
                 'unset PYTHONHOME PYTHONPATH\nexport PYTHONNOUSERSITE=1 PYTHONUTF8=1 PYTHONUNBUFFERED=1\nPY=python/bin/python3.13\n'
                 'mkdir -p logs; exec > >(tee -a "logs/launch_$(basename "$0").log") 2>&1   # вывод идёт и в терминал, и в файл рядом: тихого выхода нет\n'
                 'echo "[$(date +%F\\ %T)] запуск $0 из $PWD"\n'
-                '[ -x "$PY" ] || { echo "ОШИБКА: нет $PWD/$PY: архив распакован не целиком или без прав на запуск (tar xzf, не распаковщик с потерей прав)"; exit 1; }\n')
+                '[ -x "$PY" ] || [ "$(basename "$0")" = diagnostika_zapuska.sh ] || { echo "ОШИБКА: нет $PWD/$PY: архив распакован не целиком или без прав на запуск (tar xzf, не распаковщик с потерей прав)"; exit 1; }\n')
 
 README = '''Газовый атлас — переносная версия ({target})
 =============================================
