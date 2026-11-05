@@ -96,6 +96,7 @@ interface Props {
   scopeLabel?: string
   /** Тепловая карта, матрица, столбцы с подписями (рисуются в файле): оси не настраиваются, остальное — те же поля. */
   plain?: boolean
+  withAxes?: boolean      // «простой» вид, но оси настраиваются (столбцы с подписями в сегментах)
 }
 
 /** «Копировать формат» / «Вставить формат» для графика, оси или ряда: вставляется только в элемент того же вида. */
@@ -110,9 +111,9 @@ function Brush({ kind, value, paste }: { kind: 'chart' | 'axis' | 'series'; valu
   </>
 }
 
-export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, onReplace, scopeLabel, plain }: Props) {
-  const axes = plain ? [] : AXES.filter(n => n === 'x' || n === 'y' || chart[n])
-  const [kind, id] = plain && element.startsWith('axis') ? ['chart', ''] : element.split(':')
+export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, onReplace, scopeLabel, plain, withAxes }: Props) {
+  const axes = plain && !withAxes ? [] : AXES.filter(n => n === 'x' || n === 'y' || chart[n])
+  const [kind, id] = plain && !withAxes && element.startsWith('axis') ? ['chart', ''] : element.split(':')
   const axisName = (kind === 'axis' && axes.includes(id as AxisName) ? id : 'x') as AxisName
   const s = kind === 'series' ? chart.series[Math.min(Number(id) || 0, chart.series.length - 1)] : undefined
   const setChart = (patch: object) => onDoc({ ...doc, chart: compact({ ...doc.chart, ...patch }) })

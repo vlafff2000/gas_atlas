@@ -222,8 +222,14 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     ax.set_ylabel(f'{chart.y.label}, {chart.y.unit}' if chart.y.unit else chart.y.label, fontsize=base)
     if chart.x.label and not table:     # под столбцами с таблицей место занято названиями групп таблицы
         ax.set_xlabel(f'{chart.x.label}, {chart.x.unit}' if chart.x.unit else chart.x.label, fontsize=base)
-    if chart.y.maximum is not None:
-        ax.set_ylim(chart.y.minimum or 0, chart.y.maximum)
+    lo, hi = chart.y.minimum, chart.y.maximum        # ручные границы и шаг оси Y главнее автомата; по умолчанию столбцы растут от нуля
+    if lo is not None or hi is not None:
+        ax.set_ylim(0 if lo is None else lo, hi if hi is not None else max(ax.get_ylim()[1], 1e-9))
+    else:
+        ax.set_ylim(bottom=0)
+    if chart.y.step:
+        from matplotlib.ticker import MultipleLocator
+        ax.yaxis.set_major_locator(MultipleLocator(chart.y.step))
     from atlas.engine.core.export import sort_legend
     handles, labels = sort_legend(*ax.get_legend_handles_labels())
     st = o.get('style') or {}
