@@ -20,19 +20,29 @@ def _f(values: list[Any]) -> np.ndarray:
 
 
 def seasons_chart(seasons: list[dict[str, Any]]) -> Chart | None:
-    """Объём по сезонам: столбцы отбора и закачки, слева направо по времени."""
-    rows = [r for r in reversed(seasons) if r['volume'] is not None]      # таблица идёт от свежего сезона
+    """Объём по сезонам парами: сезон отбора и следующий за ним сезон закачки (отбор 2025-2026 + закачка 2026) — одна категория.
+
+    Пары определяет общий разбор модуля «Сезонные показатели» (``passport_card.assign_pairs``), слева направо по времени."""
+    from atlas.modules import _seasonal as S
+    rows = [r for r in reversed(seasons) if r['volume'] is not None and r.get('cycle') is not None]      # таблица идёт от свежего сезона
     if not rows:
         return None
-    cats = list(dict.fromkeys(r['period'] for r in rows))
-    chart = Chart('passport-seasons', 'Объём по сезонам', Axis('Сезон', scale='category', categories=cats),
+    frame = pd.DataFrame({'kind': [r['kind'] for r in rows], 'cycle': [r['cycle'] for r in rows], 'period': [r['period'] for r in rows],
+                          'volume': _f([r['volume'] for r in rows]), 'days': [r['days'] for r in rows],
+                          'max_rate': _f([r['max_rate'] for r in rows])})
+    cycles = sorted(frame.cycle.unique())
+    names = {c: S.cycle_label(c) for c in cycles}
+    cats = [names[c] for c in cycles]
+    chart = Chart('passport-seasons', 'Объём по сезонам: отбор и следующая за ним закачка', Axis('Пара (отбор + закачка)', scale='category', categories=cats),
                   Axis('Объём', 'млн м³', from_zero=True))
     for kind, label in KIND_LABEL.items():
-        part = [r for r in rows if r['kind'] == kind]
-        if part:
-            chart.series.append(Series(label, [r['period'] for r in part], _f([r['volume'] for r in part]), 'bar', group=label,
-                                       labels=[f"{label}, {r['period']} · Qmax {r['max_rate']:.1f} тыс. м³/сут" if r['max_rate'] is not None
-                                               else f"{label}, {r['period']}" for r in part]))
+        part = frame[frame.kind.eq(kind)].drop_duplicates('cycle', keep='last').set_index('cycle')
+        if part.empty:
+            continue
+        have = [c for c in cycles if c in part.index]
+        chart.series.append(Series(label, [names[c] for c in have], part.loc[have, 'volume'].to_numpy(float), 'bar', group=label,
+                                   labels=[f"{label}, сезон {part.at[c, 'period']} · Qmax {part.at[c, 'max_rate']:.1f} тыс. м³/сут"
+                                           if pd.notna(part.at[c, 'max_rate']) else f"{label}, сезон {part.at[c, 'period']}" for c in have]))
     return chart
 
 
