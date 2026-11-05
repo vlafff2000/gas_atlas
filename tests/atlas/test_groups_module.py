@@ -247,3 +247,29 @@ def test_bulk_assignment_by_numbers(env):
     saved = projects.manifest(pid)['groups']
     assert all(saved[w]['group'] == 'Север' for w in pick)
     assert 'bulk' not in {t['id'] for t in run(client, pid, 'groups')['tables']}
+
+
+def test_ranking_by_season_separate_tables(env):
+    """Выгрузка по отдельным сезонам: свой рейтинг на каждый сезон, сводный остаётся."""
+    client, pid, projects = env
+    ps = periods(projects, pid)[:2]
+    assert len(ps) == 2
+    plain = run(client, pid, 'fund', kind='withdrawal', periods=ps)
+    assert not [t for t in plain['tables'] if t['id'].startswith('ranking-season')]
+    body = run(client, pid, 'fund', kind='withdrawal', periods=ps, by_season=True)
+    data = projects.data(pid)
+    d = data[DatasetKind.PRODUCTION]
+    sheets = [t for t in body['tables'] if t['id'].startswith('ranking-season')]
+    assert [t['title'] for t in sheets] == [f'Рейтинг · {p}' for p in ps]
+    assert rows(table(body, 'ranking')).equals(rows(table(plain, 'ranking')))
+    for t, p in zip(sheets, ps):
+        want = group_analysis.ranking(d[d.kind.eq('withdrawal') & d.period.eq(p)], data.mapping)
+        got = rows(t)
+        assert got['Скважина'].tolist() == want['Скважина'].tolist()
+        assert got['Объем_млн_м3'].astype(float).tolist() == pytest.approx(want['Объем_млн_м3'].astype(float).tolist())
+    xlsx = client.post('/api/modules/fund/export', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': ps, 'by_season': True}, 'target': 'tables'})
+    assert xlsx.status_code == 200
+    from io import BytesIO
+    from openpyxl import load_workbook
+    names = load_workbook(BytesIO(xlsx.content)).sheetnames
+    assert all(f'Рейтинг · {p}' in names for p in ps)
