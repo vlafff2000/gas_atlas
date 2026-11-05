@@ -23,12 +23,41 @@ METRICS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def season_metrics(prod: pd.DataFrame, mapping: Mapping, periods: Sequence[str]) -> dict[str, pd.DataFrame]:
-    """Показатели по скважинам для каждого сезона (скважина — индекс): тот же расчёт, что у рейтинга."""
+CRU_KEY = 'КРУ_среднее'
+CRU_METRIC = (CRU_KEY, 'Среднее раскрытие КРУ', '%')
+
+
+def mean_cru(prod: pd.DataFrame, elpro: pd.DataFrame | None) -> pd.Series:
+    """Среднее раскрытие КРУ (0–100 %) по скважинам за выбранные записи эксплуатации (ЭЛПРО, ``y``).
+
+    Берутся сутки, когда скважина работала (расход > 0), и по ним — суточное значение КРУ из ЭЛПРО; сутки без записи ЭЛПРО
+    не считаются нулём, а пропускаются. Скважина без таких суток — нет значения.
+    """
+    if elpro is None or elpro.empty or prod.empty:
+        return pd.Series(dtype=float)
+    e = elpro[elpro['kind'].isin(prod['kind'].unique())]
+    daily = (pd.DataFrame({'well': e['well'].astype(str).to_numpy(), 'date': pd.to_datetime(e['date']).dt.normalize().to_numpy(),
+                           'cru': e['y'].clip(0, 100).to_numpy()}).dropna().groupby(['well', 'date'], as_index=False).cru.mean())
+    work = prod[prod['q'].gt(0)]
+    work = pd.DataFrame({'well': work['well'].astype(str).to_numpy(), 'date': pd.to_datetime(work['date']).dt.normalize().to_numpy()}).drop_duplicates()
+    return work.merge(daily, on=['well', 'date']).groupby('well').cru.mean()
+
+
+def with_cru(ranked: pd.DataFrame, prod: pd.DataFrame, elpro: pd.DataFrame | None) -> pd.DataFrame:
+    """Рейтинг + столбец КРУ_среднее (если в проекте есть ЭЛПРО)."""
+    if elpro is None or elpro.empty:
+        return ranked
+    out = ranked.copy()
+    out[CRU_KEY] = out['Скважина'].astype(str).map(mean_cru(prod, elpro))
+    return out
+
+
+def season_metrics(prod: pd.DataFrame, mapping: Mapping, periods: Sequence[str], elpro: pd.DataFrame | None = None) -> dict[str, pd.DataFrame]:
+    """Показатели по скважинам для каждого сезона (скважина — индекс): тот же расчёт, что у рейтинга (+ КРУ из ЭЛПРО)."""
     out = {}
     for period in periods:
         one = prod[prod['period'].eq(period)]
-        out[period] = (group_analysis.ranking(one, mapping).set_index('Скважина') if not one.empty else pd.DataFrame())
+        out[period] = (with_cru(group_analysis.ranking(one, mapping), one, elpro).set_index('Скважина') if not one.empty else pd.DataFrame())
     return out
 
 

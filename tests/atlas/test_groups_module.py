@@ -305,3 +305,36 @@ def test_ratio_in_fund_module(env):
     assert well in t['Скважина'].tolist() and 'Средний_тыс_м3_сут' in t
     assert body['charts'] and body['charts'][0]['id'] == 'ratio-chart'
     assert 'ratio' not in {x['id'] for x in run(client, pid, 'fund', kind='withdrawal', periods=ps)['tables']}
+
+
+def test_mean_cru_over_working_days_from_elpro():
+    """Среднее КРУ — по суткам работы (q > 0), сутки без ЭЛПРО пропускаются, а не считаются нулём."""
+    from atlas.modules import fund_ratio
+    d = pd.to_datetime(['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04'])
+    prod = pd.DataFrame({'well': ['1'] * 4 + ['2'], 'date': list(d) + [d[0]], 'kind': 'withdrawal',
+                         'q': [10., 20., 0., 30., 5.]})
+    elpro = pd.DataFrame({'well': ['1', '1', '1'], 'date': [d[0], d[1], d[2]], 'kind': 'withdrawal', 'y': [40., 60., 100.]})
+    got = fund_ratio.mean_cru(prod, elpro)
+    assert got['1'] == pytest.approx(50.0)      # сутки 3 — q=0, сутки 4 — нет ЭЛПРО: оба не входят
+    assert '2' not in got.index                 # у скважины 2 нет ЭЛПРО — значения нет
+    assert fund_ratio.mean_cru(prod, None).empty
+
+
+def test_fund_cru_column_with_elpro(env):
+    client, pid, projects = env
+    data = projects.data(pid)
+    if DatasetKind.ELPRO not in data or data[DatasetKind.ELPRO].empty:
+        pytest.skip('в демо-проекте нет ЭЛПРО')
+    ps = periods(projects, pid)[:2]
+    body = run(client, pid, 'fund', kind='withdrawal', periods=ps, by_season=True)
+    assert 'КРУ_среднее' in rows(table(body, 'ranking')).columns
+
+
+def test_ratio_includes_cru_metric():
+    from atlas.modules import fund_ratio
+    d = pd.to_datetime(['2025-01-01', '2026-01-01'])
+    prod = pd.DataFrame({'well': ['1', '1'], 'date': d, 'kind': 'withdrawal', 'period': ['A', 'B'], 'q': [10., 10.]})
+    elpro = pd.DataFrame({'well': ['1', '1'], 'date': d, 'kind': 'withdrawal', 'y': [80., 40.]})
+    m = fund_ratio.season_metrics(prod, {}, ['A', 'B'], elpro)
+    t = fund_ratio.ratio_table(m, 'A', ['B'], fund_ratio.METRICS + (fund_ratio.CRU_METRIC,)).set_index('Скважина')
+    assert t.at['1', 'КРУ_среднее'] == pytest.approx(2.0)
