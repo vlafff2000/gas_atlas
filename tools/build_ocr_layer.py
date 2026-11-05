@@ -55,7 +55,7 @@ def install_mineru(py: Path, cache: Path) -> None:
     fetch('https://bootstrap.pypa.io/get-pip.py', pip)
     subprocess.check_call([str(py / 'python.exe'), '-s', str(pip), '--no-warn-script-location', '--disable-pip-version-check'])
     subprocess.check_call([str(py / 'python.exe'), '-s', '-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location',
-                           '--only-binary=:all:', '--no-compile', MINERU])
+                           '--only-binary=:all:', '--no-binary=jieba', '--no-compile', MINERU])  # у jieba на PyPI нет колёс
     for extra in ('Scripts',):
         shutil.rmtree(str(py / extra), ignore_errors=True)  # запускалки pip с жёсткими путями не нужны: запуск идёт через python.exe
     assert (site / 'mineru').is_dir(), 'MinerU не установился'
