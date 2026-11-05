@@ -45,6 +45,27 @@ FULL_NEEDED = 'Нужен полный архив PXG_Unified_portable_*'
 SCRIPTS_INCLUDE = ['pxg_base', 'gsp_maps', 'pxg_finder', 'pxg_ocr', 'pxg_core', 'schedule_pxg', 'tnav_results', 'apps']
 HUB_WINDOWS = {'PXG_Hub.bat': 'rem Все приложения ПХГ: меню (окно или браузер).\r\n"%~dp0python\\python.exe" -s -X utf8 -m pxg_hub %*'}
 HUB_LINUX = {'pxg_hub.sh': '# Все приложения ПХГ: меню в браузере. На РЕД ОС: bash pxg_hub.sh в этой папке.\nexec "$PY" -s -X utf8 -m pxg_hub --browser "$@"'}
+DIAG_LINUX = {'diagnostika_zapuska.sh': r"""# Диагностика запуска одним файлом: bash diagnostika_zapuska.sh (без аргументов). Результат: logs/diagnostika_zapuska.txt, пришлите этот файл.
+OUT="$PWD/logs/diagnostika_zapuska.txt"
+{
+echo "== Система"; cat /etc/os-release 2>/dev/null | head -4; uname -srm; ldd --version 2>&1 | head -1; echo "оболочка: $BASH_VERSION"
+echo; echo "== Папка и диск"; echo "$PWD"; ls -ld . python python/bin 2>&1; findmnt -T . -o TARGET,FSTYPE,OPTIONS 2>/dev/null || mount | grep " $(df . | tail -1 | awk '{print $NF}') "
+echo "(если в OPTIONS есть noexec — программы с этого диска запускать нельзя: скопируйте папку в домашний каталог)"
+echo; echo "== Встроенный Python"; ls -l python/bin/python3.13 python/bin/python3 2>&1; head -c 20 python/bin/python3.13 | od -c | head -2
+ldd python/bin/python3.13 2>&1 | head -12
+python/bin/python3.13 -c "import sys;print(sys.version);print(sys.prefix)" 2>&1
+echo; echo "== Концы строк запускалок (число символов CR; должно быть 0)"
+for f in *.sh; do printf '%s: %s\n' "$f" "$(tr -cd '\r' < "$f" | wc -c)"; done
+echo; echo "== Права"; ls -l *.sh | head -20
+echo; echo "== Библиотеки (импорт)"
+for m in numpy pandas scipy pxg_hub atlas; do printf '%s: ' "$m"; python/bin/python3.13 -s -c "import $m;print('ok')" 2>&1 | tail -1; done
+if [ -d ocr/python ]; then echo; echo "== OCR"; ocr/python/bin/python3.13 -s -c "import mineru, onnxruntime;print('ok', onnxruntime.__version__)" 2>&1 | tail -3; fi
+echo; echo "== Пробный запуск меню (10 с)"
+timeout 10 python/bin/python3.13 -s -X utf8 -m pxg_hub --help 2>&1 | head -15
+echo; echo "== Журналы запусков"; ls -l logs 2>&1 | head; tail -n 15 logs/launch_*.log 2>/dev/null
+} > "$OUT" 2>&1
+echo "Готово. Пришлите файл: $OUT"
+"""}
 SHORTCUTS_WINDOWS = ('rem Ярлыки всех приложений на рабочем столе (убрать: --remove).\r\n'
                      '"%~dp0python\\python.exe" -s -X utf8 tools\\desktop_shortcuts.py %*\r\n'
                      '"%~dp0python\\python.exe" -s -X utf8 -m pxg_core.desktop_shortcuts %*\r\n'
@@ -99,6 +120,8 @@ def write_launchers(target, folder, sp):
     bp.write_launchers(target, folder)  # Атлас
     launchers = dict(sp.WINDOWS_LAUNCHERS if windows else sp.LINUX_LAUNCHERS)
     launchers.update(HUB_WINDOWS if windows else HUB_LINUX)
+    if not windows:
+        launchers.update(DIAG_LINUX)
     launchers['Sozdat_yarlyki.bat' if windows else 'sozdat_yarlyki.sh'] = SHORTCUTS_WINDOWS if windows else SHORTCUTS_LINUX
     for name, body in launchers.items():
         if windows:
