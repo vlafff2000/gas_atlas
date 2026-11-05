@@ -95,7 +95,11 @@ def scripts_requirements(scripts, lock_names):
         line = line.split('#', 1)[0].strip()
         if line and ';' not in line and line.lower() not in lock_names:
             extra.append(line)
-    return extra + ['defusedxml', 'pypdfium2']  # odfpy тянет defusedxml, pdfplumber и «Распознавание» — pypdfium2; пакеты ставятся без зависимостей
+    # Пакеты ставятся без зависимостей, поэтому зависимости нужных пакетов перечислены здесь: odfpy тянет defusedxml, pdfplumber и «Распознавание» — pypdfium2,
+    # pdfplumber — pdfminer.six (без него PDF с текстом не читаются: No module named 'pdfminer'), pdfminer.six — charset-normalizer и cryptography (она — cffi, pycparser).
+    # У всех есть колёса manylinux2014 (glibc 2.17, РЕД ОС 7.3) под Python 3.13.
+    more = ['defusedxml', 'pypdfium2', 'pdfminer.six==20260107', 'charset-normalizer', 'cryptography', 'cffi', 'pycparser']
+    return extra + [r for r in more if r.split('=')[0].lower() not in lock_names and r.lower() not in (e.lower() for e in extra)]
 
 
 def copy_scripts(scripts, folder):
