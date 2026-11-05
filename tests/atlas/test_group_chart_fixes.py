@@ -149,7 +149,7 @@ def test_curve_marks_days_without_record_but_keeps_zero():
     sel = production.Selection.__new__(production.Selection)
     sel.df, sel.kind, sel.periods, sel.gdi = df, 'withdrawal', ['2024-2025'], None
     sel.params, sel.elpro = {}, None
-    sel.bottom = sel.gis = sel.krs = None
+    sel.bottom = sel.gis = sel.krs = sel.pressures = None
     chart = production.curve_chart(sel, ['7'], 'date')
     marks = [s for s in chart.series if s.name.startswith('Нет записи (показан 0)')]
     assert len(marks) == 1 and marks[0].name.endswith('3 сут')

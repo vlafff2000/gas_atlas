@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.core import elpro_import as elpro
-from atlas.engine.core import gas_db_import, gis_import, krs_import, water_monthly_import, well_geo_import
+from atlas.engine.core import gas_db_import, gis_import, krs_import, survey_import, water_monthly_import, well_geo_import
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
@@ -74,7 +74,7 @@ def looks_ggh(raw: Any) -> bool:
     return len(fields - {None, 'well', 'date'}) >= 2
 
 
-SPECIAL_KINDS = {'книга КРС': 'krs', 'база ЭЛПРО': 'elpro', '«БД по учету газа»': 'gas', 'газогидрохимия (ГГХ)': 'ggh'}
+SPECIAL_KINDS = {'книга КРС': 'krs', 'БД давлений по замерам': 'survey', 'база ЭЛПРО': 'elpro', '«БД по учету газа»': 'gas', 'газогидрохимия (ГГХ)': 'ggh'}
 
 
 def special_kind(tables: dict[str, pd.DataFrame], name: str = '') -> tuple[str, str]:
@@ -104,6 +104,8 @@ def base_book(tables: dict[str, pd.DataFrame], name: str = '') -> str:
         return 'таблица «База ГИС»'
     if krs_import.looks_like(tables):
         return 'книга КРС'
+    if survey_import.looks_like(tables):
+        return 'БД давлений по замерам'
     if well_geo_import.looks_like(tables, Path(name).suffix.lower() in TEXT):
         return 'файл положения и перфорации скважин'
     if water_monthly_import.looks_like(tables, name):
@@ -741,7 +743,8 @@ class Imports:
         undo = out['undo'] if out else None
         notes = [out['message']] if out else []
         loaders = {'elpro': self.elpro_load, 'gas': self.gas_db_load, 'geo': self.geo_load, 'water': self.water_monthly_load,
-                   'ggh': self.ggh_load, 'pressure': self.pressure_load, 'krs': self.krs_load}
+                   'ggh': self.ggh_load, 'pressure': self.pressure_load, 'krs': self.krs_load,
+                   'survey': self.survey_load}
         saved = None
         for sp in specials:                  # файлы со своим разбором: тот же шаг «Применить», отдельная запись в проект на файл
             try:
@@ -1284,6 +1287,27 @@ class Imports:
                              details={'file': name, 'rows': sum(len(p) for p in parts.values())})
         self._keep_originals(pid, [(name, content)])
         return {'message': f'КРС «{name}» — ' + krs_import.summary(parts), 'warnings': warnings,
+                'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def survey_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:
+        """«БД давлений по замерам» Базы ПХГ (atlas/engine/core/survey_import.py) → ``pressure_survey``.
+        Новый файл заменяет замеры той же скважины и даты; «оставить прежние» — только добавляет новые пары."""
+        if policy not in POLICIES:
+            raise ParamError('Неизвестное правило повторов')
+        try:
+            new, warnings = survey_import.read(name, content)
+        except (ValueError, OSError) as e:
+            raise ParamError(f'«{name}»: файл не прочитан ({e})') from e
+        if new.empty:
+            raise ParamError(f'«{name}»: нет строк со скважиной и датой.')
+        m = self.projects.manifest(pid)
+        raw = self._raw_frames(pid, m)
+        frames = dict(raw)
+        frames[survey_import.KIND] = survey_import.merge(raw.get(survey_import.KIND), new, keep_old=policy == 'old')
+        saved = self._commit(pid, frames, m['revision'], 'Импорт БД давлений по замерам',
+                             details={'file': name, 'rows': len(new)})
+        self._keep_originals(pid, [(name, content)])
+        return {'message': f'БД давлений по замерам «{name}»: ' + survey_import.summary(new), 'warnings': warnings,
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     def gis_load(self, pid: str, name: str, content: bytes, policy: str, table: str = '') -> dict[str, Any]:

@@ -30,7 +30,8 @@ class ProductionModule(ProductionBase):
         group='Эксплуатация',
         description='Сравнение периодов и расходов выбранных скважин и групп.',
         needs=(PRODUCTION,),
-        optional=(DatasetKind.GDI, DatasetKind.ELPRO, DatasetKind.BOTTOM, DatasetKind.GIS_OBSERVATIONS, DatasetKind.KRS_WORKS),
+        optional=(DatasetKind.GDI, DatasetKind.ELPRO, DatasetKind.BOTTOM, DatasetKind.GIS_OBSERVATIONS, DatasetKind.KRS_WORKS,
+                  DatasetKind.PRESSURE_SURVEY),
         # отметки на графике: ГДИ, ГИС, КРС, шаблонирование (замеры забоя); ЭЛПРО — ряды на графике
         order=10,
         panels=2,

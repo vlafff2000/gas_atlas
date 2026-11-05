@@ -78,7 +78,7 @@ def test_signatures_recognise_outputs_under_any_name(tmp_path):
         pd.DataFrame({'a': [1]}).to_excel(xw, sheet_name='Отборы', index=False)
         pd.DataFrame({'a': [1]}).to_excel(xw, sheet_name='Закачка', index=False)
     files = _by_name(project_folder.scan(str(out)))
-    assert files['a.xlsx']['role'] is None and 'Пересчёт_давлений' in files['a.xlsx']['role_reason']      # узнан, но не грузится: причина видна
+    assert files['a.xlsx']['role'] == 'survey' and 'лист «Данные»' in files['a.xlsx']['role_reason']      # сырая БД замеров: свой набор
     assert files['b.xlsx']['role'] == 'pressure' and files['c.xlsx']['role'] == 'production'
     assert 'листы «Закачка», «Отборы»' in files['c.xlsx']['role_reason']
 
