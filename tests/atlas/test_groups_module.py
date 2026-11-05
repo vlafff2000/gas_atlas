@@ -273,3 +273,35 @@ def test_ranking_by_season_separate_tables(env):
     from openpyxl import load_workbook
     names = load_workbook(BytesIO(xlsx.content)).sheetnames
     assert all(f'Рейтинг · {p}' in names for p in ps)
+
+
+def test_ratio_a_to_b_by_well(env):
+    """Сезон А делится на среднее по Б; нулевое среднее и отсутствие данных — пусто с причиной."""
+    from atlas.modules import fund_ratio
+    m = {
+        'A': pd.DataFrame({'Группа': ['г', 'г', 'г'], 'Средний_тыс_м3_сут': [100., 5., 0.], 'Объем_млн_м3': [2., 1., 0.],
+                           'Активных_дней': [10, 4, 0], 'Записей': [10, 4, 3], 'Нулевых': [0, 0, 3]}, index=['1', '2', '3']),
+        'B1': pd.DataFrame({'Группа': ['г', 'г'], 'Средний_тыс_м3_сут': [50., 0.], 'Объем_млн_м3': [1., 0.],
+                            'Активных_дней': [5, 0], 'Записей': [5, 2], 'Нулевых': [0, 2]}, index=['1', '2']),
+        'B2': pd.DataFrame({'Группа': ['г'], 'Средний_тыс_м3_сут': [150.], 'Объем_млн_м3': [3.],
+                            'Активных_дней': [15], 'Записей': [15], 'Нулевых': [0]}, index=['1']),
+    }
+    t = fund_ratio.ratio_table(m, 'A', ['B1', 'B2', 'A']).set_index('Скважина')
+    assert t.at['1', 'Средний_тыс_м3_сут'] == pytest.approx(1.0)      # 100 / mean(50,150)
+    assert t.at['1', 'Объем_млн_м3'] == pytest.approx(1.0)
+    assert pd.isna(t.at['2', 'Средний_тыс_м3_сут']) and 'равно 0' in t.at['2', 'Примечание']   # деление на ноль
+    assert pd.isna(t.at['3', 'Объем_млн_м3']) and 'нет записей в сезонах Б' in t.at['3', 'Примечание']
+    assert t.at['1', 'Примечание'] == '«Нулевых записей»: среднее по Б равно 0'   # 0 / 0 — пусто с причиной, а не NaN-ошибка
+    assert pd.isna(t.at['1', 'Нулевых'])
+
+
+def test_ratio_in_fund_module(env):
+    client, pid, projects = env
+    ps = periods(projects, pid)[:3]
+    assert len(ps) == 3
+    well = rows(table(run(client, pid, 'fund', kind='withdrawal', periods=ps), 'ranking'))['Скважина'].iloc[0]
+    body = run(client, pid, 'fund', kind='withdrawal', periods=ps, base=ps[2], against=ps[:2], ratio_well=well)
+    t = rows(table(body, 'ratio'))
+    assert well in t['Скважина'].tolist() and 'Средний_тыс_м3_сут' in t
+    assert body['charts'] and body['charts'][0]['id'] == 'ratio-chart'
+    assert 'ratio' not in {x['id'] for x in run(client, pid, 'fund', kind='withdrawal', periods=ps)['tables']}

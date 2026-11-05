@@ -17,10 +17,13 @@ from atlas.engine.modules import group_analysis
 
 from ..contract import Column, Data, Module, ModuleSpec, Note, Param, Result, Table
 from ..domain import DatasetKind
-from ._production import KINDS, PRODUCTION, periods_of, visible_periods
+from ..contract import Axis, Chart, Series
+from ._production import KINDS, PRODUCTION, periods_of, visible_periods, wells_of
+from . import fund_ratio
 
 GDI, RESPONSE = DatasetKind.GDI, DatasetKind.RESPONSE
 SECTION_RANK, SECTION_PROGRAM = 'Рейтинг динамики', 'Проверка выполнения программы ГДИ'
+SECTION_RATIO = 'Сезон А к сезонам Б'
 
 RANK_COLUMNS = [
     Column('Скважина', 'Скважина'), Column('Группа', 'Группа'),
@@ -59,6 +62,12 @@ class FundModule(Module):
                   empty='ничего', section=SECTION_RANK),
             Param('by_season', 'Выгрузка по отдельным сезонам', 'boolean', default=False, section=SECTION_RANK,
                   help='Кроме сводного рейтинга по выбранным сезонам — своя таблица на каждый сезон. «Выгрузить все таблицы» кладёт их в один Excel: лист на сезон.'),
+            Param('base', 'Сезон А', 'choice', default='', dynamic=True, depends=('kind',), section=SECTION_RATIO,
+                  help='Сезон, который сравниваем. Пусто — анализ «А к Б» не строится.'),
+            Param('against', 'Сезоны Б', 'multi', default=[], dynamic=True, depends=('kind',), empty='ничего', section=SECTION_RATIO,
+                  help='Показатели сезона А делятся на среднее по этим сезонам.'),
+            Param('ratio_well', 'Скважина для графика', 'choice', default='', dynamic=True, depends=('kind',), auto='first:1',
+                  section=SECTION_RATIO),
             Param('program', 'Номера скважин программы', 'text', default='', section=SECTION_PROGRAM,
                   help='Через пробел, запятую или перенос строки'),
             Param('start', 'Начало периода программы', 'date', default=None, section=SECTION_PROGRAM,
@@ -73,6 +82,13 @@ class FundModule(Module):
             if PRODUCTION not in data or data[PRODUCTION].empty:
                 return []
             return visible_periods(periods_of(data[PRODUCTION], params.get('kind') or 'withdrawal'), data.settings)
+        if name in ('base', 'against', 'ratio_well'):
+            if PRODUCTION not in data or data[PRODUCTION].empty:
+                return []
+            d, kind = data[PRODUCTION], params.get('kind') or 'withdrawal'
+            if name == 'ratio_well':
+                return wells_of(d[d.kind.eq(kind)])
+            return visible_periods(periods_of(d, kind), data.settings)
         return super().options(name, data, params)
 
     def run(self, data: Data, params: dict[str, Any]) -> Result:
@@ -81,6 +97,7 @@ class FundModule(Module):
         has = lambda kind: kind in data and not data[kind].empty
         if has(PRODUCTION):
             self.ranking(result, data, params)
+            self.ratio(result, data, params)
         if has(GDI):
             self.gdi_quality(result, data)
             self.program(result, data, params)
@@ -116,6 +133,44 @@ class FundModule(Module):
                     continue
                 result.tables.append(Table(f'ranking-season-{i}', f'Рейтинг · {period}', group_analysis.ranking(one, data.mapping),
                                            RANK_COLUMNS, note=RANK_NOTE))
+
+    @staticmethod
+    def ratio(result: Result, data: Data, params: dict[str, Any]) -> None:
+        """Сезон А к сезонам Б: таблица по всем скважинам (в Excel — отдельный лист) и график выбранной скважины."""
+        d, kind, base = data[PRODUCTION], params['kind'], params.get('base') or ''
+        if not base:
+            return
+        known = periods_of(d, kind)
+        against = [p for p in params.get('against') or [] if p in known and p != base]
+        if base not in known:
+            result.notes.append(Note(f'Сезон А «{base}» не найден среди сезонов выбранного режима.', 'warning'))
+            return
+        if not against:
+            result.notes.append(Note('Выберите сезоны Б: без них нечего делить.'))
+            return
+        f = d[d.kind.eq(kind)]
+        metrics = fund_ratio.season_metrics(f, data.mapping, [base, *against])
+        table = fund_ratio.ratio_table(metrics, base, against)
+        cols = [Column('Скважина', 'Скважина'), Column('Группа', 'Группа')]
+        cols += [Column(k, f'{label}: А / ср. Б', decimals=2, kind='number') for k, label, _ in fund_ratio.METRICS]
+        cols.append(Column('Примечание', 'Примечание'))
+        result.tables.append(Table('ratio', f'А к Б · {base}', table, cols,
+                                   note=f'А = {base}; Б = {", ".join(against)}. Значение А делится на среднее по сезонам Б, где у скважины есть записи. '
+                                        'Пустая ячейка — нет данных или среднее Б равно 0; причина в «Примечание».'))
+        well = params.get('ratio_well') or ''
+        row = table[table['Скважина'].eq(well)]
+        if row.empty:
+            result.notes.append(Note('Выберите скважину для графика отношения А к Б.'))
+            return
+        labels = [label for _, label, _ in fund_ratio.METRICS]
+        values = [row.iloc[0][k] for k, _, _ in fund_ratio.METRICS]
+        chart = Chart('ratio-chart', f'Скважина {well}: {base} к среднему по Б', Axis('Показатель', scale='category', categories=labels),
+                      Axis('Отношение А / ср. Б', from_zero=True))
+        chart.series.append(Series(f'А / ср. Б', labels, [None if pd.isna(v) else float(v) for v in values], 'bar'))
+        chart.series.append(Series('Равно Б', labels, [1.0] * len(labels), 'line', dashed=True, legend=True))
+        result.charts.append(chart)
+        if row.iloc[0]['Примечание']:
+            result.notes.append(Note(f'Скважина {well}: {row.iloc[0]["Примечание"]}.'))
 
     @staticmethod
     def gdi_quality(result: Result, data: Data) -> None:
