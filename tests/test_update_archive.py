@@ -54,3 +54,12 @@ def test_installed_dists_reads_metadata(tmp_path):
     (info / 'METADATA').write_text('Metadata-Version: 2.1\nName: Some-Pkg\nVersion: 2.0\n', encoding='utf-8')
     found = bu.installed_dists(tmp_path)
     assert found == {'some-pkg': ('Some-Pkg', '2.0', info)}
+
+
+def test_scripts_requirements_bring_pdfminer_chain(tmp_path):
+    """Баг: pdfplumber ставится без зависимостей, и в архиве не было pdfminer.six: «БД ГИС из отчётов» падала на PDF с текстом."""
+    (tmp_path / 'requirements.txt').write_text('pdfplumber\nodfpy\n', encoding='utf-8')
+    got = bu.scripts_requirements(tmp_path, {'cffi', 'pycparser', 'pillow'})
+    names = {r.split('=')[0].lower() for r in got}
+    assert {'pdfplumber', 'pdfminer.six', 'charset-normalizer', 'cryptography', 'pypdfium2', 'defusedxml'} <= names
+    assert 'cffi' not in names and 'pycparser' not in names  # уже есть в lock-файле (Windows)
