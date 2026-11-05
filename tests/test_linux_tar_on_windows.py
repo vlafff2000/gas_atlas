@@ -40,3 +40,11 @@ def test_symlinks_and_modes_survive_windows_build(tmp_path, monkeypatch):
     assert names['PXG/run.sh'].mode == 0o755
     assert names['PXG/python/lib/readme.txt'].mode == 0o644
     assert 'PXG/python/.pxg_symlinks.json' not in names
+
+
+def test_ocr_linux_requirements_are_pinned_without_windows_packages():
+    lines = (ROOT / 'tools' / 'ocr_linux_requirements.txt').read_text(encoding='utf-8').splitlines()
+    assert all('==' in ln and ln == ln.strip() for ln in lines)  # ни пустых строк, ни «==1.3.1» от CRLF
+    names = {ln.split('==')[0].lower() for ln in lines}
+    assert 'mineru' in names and 'onnxruntime' in names
+    assert 'onnxruntime-directml' not in names and 'pip' not in names
