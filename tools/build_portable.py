@@ -14,6 +14,7 @@ Runtimes (pinned by sha256):
 """
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -141,9 +142,71 @@ def unpack_runtime(target, archive, python_dir):
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     with z.open(item) as src, open(str(dest), 'wb') as out:
                         shutil.copyfileobj(src, out)
+    elif IS_WINDOWS:  # сборка Linux-архива на Windows: симлинки создать нельзя, запоминаем их и кладём в tar при упаковке
+        links = {}
+        with tarfile.open(str(archive)) as t:
+            for member in t:
+                if member.issym() or member.islnk():
+                    links[member.name] = (member.linkname, member.issym())
+                elif member.isfile() or member.isdir():
+                    t.extract(member, str(python_dir.parent))
+        (python_dir / SYMLINKS_NOTE).write_text(json.dumps(links), encoding='utf-8')
     else:  # install_only tarball: python/...
         with tarfile.open(str(archive)) as t:
             t.extractall(str(python_dir.parent))
+
+
+IS_WINDOWS = os.name == 'nt'
+SYMLINKS_NOTE = '.pxg_symlinks.json'  # {путь внутри tar от папки, где лежит python/: [куда ведёт, симлинк ли]}; нужен только при сборке Linux на Windows
+
+
+def _tar_mode(path, is_dir):
+    """Права файла в tar при сборке на Windows: там их нет, а на РЕД ОС запускалкам и бинарникам нужен бит исполнения."""
+    if is_dir:
+        return 0o755
+    if path.suffix == '.sh':
+        return 0o755
+    with open(str(path), 'rb') as f:
+        head = f.read(4)
+    if head == b'\x7fELF' and '.so' not in path.name:
+        return 0o755
+    return 0o755 if head[:2] == b'#!' else 0o644
+
+
+def add_tree(t, folder, arcname):
+    """Кладёт папку в tar с правами 755/644 и вернувшимися симлинками (см. unpack_runtime); на Linux — обычный t.add."""
+    if not IS_WINDOWS:
+        t.add(str(folder), arcname=arcname)
+        return
+    def entry(path, arc, is_dir):
+        info = t.gettarinfo(str(path), arcname=arc)
+        info.mode = _tar_mode(path, is_dir)
+        info.uid = info.gid = 0
+        info.uname = info.gname = ''
+        return info
+    t.addfile(entry(folder, arcname, True))
+    for root, dirs, files in os.walk(str(folder)):
+        dirs.sort()
+        for name in sorted(dirs):
+            path = Path(root) / name
+            t.addfile(entry(path, arcname + '/' + path.relative_to(folder).as_posix(), True))
+        for name in sorted(files):
+            path = Path(root) / name
+            rel = path.relative_to(folder).as_posix()
+            if name == SYMLINKS_NOTE:
+                base = arcname + '/' + path.parent.parent.relative_to(folder).as_posix()
+                base = base.rstrip('/.')
+                for link, (target, symbolic) in json.loads(path.read_text(encoding='utf-8')).items():
+                    info = tarfile.TarInfo(base + '/' + link)
+                    info.mode, info.mtime = 0o777, int(path.stat().st_mtime)
+                    if symbolic:
+                        info.type, info.linkname = tarfile.SYMTYPE, target
+                    else:
+                        info.type, info.linkname = tarfile.LNKTYPE, base + '/' + target
+                    t.addfile(info)
+                continue
+            with open(str(path), 'rb') as f:
+                t.addfile(entry(path, arcname + '/' + rel, False), f)
 
 
 def requirements_for(target):

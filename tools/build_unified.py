@@ -307,7 +307,7 @@ def archive(target, folder, out, code_only=False):
                 for item in sorted(folder.rglob('*')):
                     t.add(str(item), arcname=str(item.relative_to(folder)), recursive=False)
             else:
-                t.add(str(folder), arcname=NAME)
+                bp.add_tree(t, folder, NAME)
     print('Готово: %s (%.0f МБ)' % (path, path.stat().st_size / 2**20), flush=True)
 
 
@@ -338,13 +338,14 @@ def main(argv=None):
     parser.add_argument('--out', default=str(ROOT / 'dist'))
     parser.add_argument('--cache', default=str(ROOT / 'build' / 'cache'))
     parser.add_argument('--code-only', action='store_true', help='лёгкий архив обновления: программы и новые библиотеки')
-    parser.add_argument('--with-ocr', help='папка ocr (tools/build_ocr_layer.py): кладётся в тот же единый архив (только полная сборка Windows)')
+    parser.add_argument('--with-ocr', help='папка ocr (tools/build_ocr_layer.py): кладётся в тот же единый архив (только полная сборка; для linux — папка от build_ocr_layer.py --target linux)')
     parser.add_argument('--base-manifest', help='base_manifest.json последнего полного архива (нужен для --code-only)')
     args = parser.parse_args(argv)
     if args.code_only and not args.base_manifest:
         parser.error('для --code-only нужен --base-manifest')
-    if args.with_ocr and (args.code_only or args.target != 'windows' or not (Path(args.with_ocr) / 'python' / 'python.exe').is_file()):
-        parser.error('--with-ocr: только полная сборка windows и готовая папка ocr с python\\python.exe')
+    ocr_python = Path(args.with_ocr or '.') / 'python' / ('python.exe' if args.target == 'windows' else 'bin/python3.13')
+    if args.with_ocr and (args.code_only or not ocr_python.is_file()):
+        parser.error('--with-ocr: только полная сборка и готовая папка ocr своей ОС (tools/build_ocr_layer.py, для linux --target linux): нет %s' % ocr_python)
     scripts = Path(args.scripts).resolve()
     sp = load(scripts / 'tools' / 'build_portable.py', 'scripts_build_portable')
 
