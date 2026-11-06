@@ -440,14 +440,15 @@ def format_from_any(settings: Mapping[str, Any] | None) -> dict[str, Any]:
 
 STORE_SERIES = 3000            # рядов со своим видом в теме проекта
 STORE_TYPES = 200              # разделов (типов графиков) со своим оформлением
+STORE_CHARTS = 1000            # графиков со своим оформлением («только этот график»)
 STORE_TEMPLATES = 100          # шаблонов оформления в проекте
 
 
 def clean_store(raw: Any) -> dict[str, Any]:
     """Настройка проекта ``chart_formats = {'theme': документ, 'types': {раздел: документ}}``: тема действует на все графики,
     тип — на графики одного раздела (идёт после темы, главнее её). Ошибка поля — ``ParamError`` с понятным текстом."""
-    if not isinstance(raw, Mapping) or set(raw) - {'theme', 'types', 'templates'}:
-        raise ParamError('Оформление графиков: нужен словарь {theme, types, templates}')
+    if not isinstance(raw, Mapping) or set(raw) - {'theme', 'types', 'charts', 'templates'}:
+        raise ParamError('Оформление графиков: нужен словарь {theme, types, charts, templates}')
     out: dict[str, Any] = {}
     theme = clean_format(raw.get('theme'))
     if len(theme.get('series', {})) > STORE_SERIES:
@@ -462,6 +463,13 @@ def clean_store(raw: Any) -> dict[str, Any]:
     kinds = {str(k)[:80]: d for k, v in types.items() for d in [clean_format(v)] if d}
     if kinds:
         out['types'] = kinds
+    charts = raw.get('charts')
+    charts = {} if charts is None else charts
+    if not isinstance(charts, Mapping) or len(charts) > STORE_CHARTS:
+        raise ParamError(f'Оформление графиков: «только этот график» — словарь, не больше {STORE_CHARTS}')
+    own = {str(k)[:160]: d for k, v in charts.items() for d in [clean_format(v)] if d}
+    if own:
+        out['charts'] = own     # {'раздел::график': документ}: действует на один график, главнее темы и типа
     templates = raw.get('templates')
     templates = {} if templates is None else templates
     if not isinstance(templates, Mapping) or len(templates) > STORE_TEMPLATES:
@@ -482,25 +490,35 @@ def font_of(settings: Mapping[str, Any] | None) -> str | None:
     return None if key == 'base' else (key if key in CHART_FONTS else CHART_FONT_DEFAULT)
 
 
-def format_of(settings: Mapping[str, Any] | None, module: str) -> dict[str, Any]:
-    """Оформление графиков раздела по настройкам проекта: тема, затем тип (раздел)."""
+def chart_key(module: str, chart_id: str) -> str:
+    return f'{module}::{chart_id}'
+
+
+def format_of(settings: Mapping[str, Any] | None, module: str, chart_id: str | None = None) -> dict[str, Any]:
+    """Оформление графиков раздела по настройкам проекта: тема, затем тип (раздел), затем сам график (``chart_id``)."""
     store = (settings or {}).get('chart_formats') or {}
     if not isinstance(store, Mapping):
         store = {}
     font = font_of(settings)
     # общий шрифт проекта — самый нижний слой: тема, тип и график его переопределяют
-    return merge_formats({'chart': {'font': font}} if font else None, store.get('theme'), (store.get('types') or {}).get(module))
+    return merge_formats({'chart': {'font': font}} if font else None, store.get('theme'), (store.get('types') or {}).get(module),
+                         (store.get('charts') or {}).get(chart_key(module, chart_id)) if chart_id is not None else None)
 
 
 def apply_store(result: Any, settings: Mapping[str, Any] | None, module: str) -> Any:
     """Копия результата раздела с оформлением проекта на каждом графике; без оформления — тот же объект.
     Заметки о том, что не применилось (логарифм у неположительных и т. п.), добавляются один раз."""
-    doc = format_of(settings, module)
-    if not doc or not getattr(result, 'charts', None):
+    if not getattr(result, 'charts', None):
+        return result
+    docs = [format_of(settings, module, c.id) for c in result.charts]
+    if not any(docs):
         return result
     notes: list[Note] = []
     charts = []
-    for c in result.charts:
+    for c, doc in zip(result.charts, docs):
+        if not doc:
+            charts.append(c)
+            continue
         try:
             charts.append(apply_format(c, doc, notes))
         except ParamError as e:       # граница не подошла к оси этого графика: график остаётся как есть
