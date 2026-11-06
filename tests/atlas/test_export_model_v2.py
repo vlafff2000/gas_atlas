@@ -36,8 +36,8 @@ CHART = {'subtitle': 'Подзаголовок', 'legend_columns': 1, 'legend_bo
          'title_size': 20, 'title_bold': True, 'title_color': '#aa00aa', 'title_align': 'center', 'font': 'times', 'text_color': '#115599',
          'legend_size': 12, 'grid_color': '#ff0000', 'grid_width': 2, 'minor_grid_color': '#00ff00', 'minor_grid_width': 1,
          'background': '#eeeeee', 'plot_background': '#ddeeff'}
-# поля, которые для файла не имеют смысла или проверяются отдельно (дата, положение легенды, шрифт легенды; group_digits — test_export_digit_grouping.py)
-SEPARATE = {'group_digits', 'date_format', 'legend', 'legend_font', 'title_font', 'grid', 'minor_grid', 'subtitle_size'}
+# поля, которые для файла не имеют смысла или проверяются отдельно (дата, положение легенды, шрифт легенды; group_digits — test_export_digit_grouping.py; fresh_colors красит ряды с Series.age до отрисовки — test_fresh_colors.py)
+SEPARATE = {'fresh_colors', 'group_digits', 'date_format', 'legend', 'legend_font', 'title_font', 'grid', 'minor_grid', 'subtitle_size'}
 
 
 def test_every_model_field_is_covered():
