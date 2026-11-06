@@ -491,6 +491,7 @@ class GdiModule(Module):
             row = coefficients[(date, method, study)]
             label = study_label(date)
             color = palette[date]
+            age = dates.index(date)      # 0 — самая свежая дата: по нему палитра «по свежести» (Формат → График)
             if row.by_coef:
                 # Без замеров давлений: только кривая по a и b интерпретатора, линия «точка-тире» (стиль меняется в окне «Формат»)
                 qmax = float(g.q.max()) if g.q.notna().any() else well_qmax
@@ -501,18 +502,18 @@ class GdiModule(Module):
                 grid = np.linspace(0, qmax * 1.05, CURVE_POINTS)
                 a, b = float(row.a), float(row.b)
                 chart.series.append(Series(f'{label}, {BY_COEF_SUFFIX}', *xy(grid, a + b * grid if linear else a * grid + b * grid * grid),
-                                           'line', group=label, color=color, dash='dashdot',
+                                           'line', group=label, color=color, age=age, dash='dashdot',
                                            tooltip=f'{BY_COEF_TIP}: a = {a:.6g}, b = {b:.6g}'))
                 rates = np.sort(g.q[g.q.gt(0)].unique().astype(float))
                 if len(rates):
                     # расходы есть, давлений нет: режимы сажаем на кривую (ΔP² по a, b, не замер)
                     chart.series.append(Series(f'{label}, режимы по Q', *xy(rates, a + b * rates if linear else a * rates + b * rates * rates),
-                                               'points', group=label, color=color, symbol=SYMBOLS[i % len(SYMBOLS)], hollow=True,
+                                               'points', group=label, color=color, age=age, symbol=SYMBOLS[i % len(SYMBOLS)], hollow=True,
                                                legend=False, tooltip=f'Измерен только Q; ΔP² — по кривой a, b (не замер)'))
                 continue
             chart.series.append(Series(label, *xy(g.q.to_numpy(float), (g.dp2 / g.q if linear else g.dp2).to_numpy(float)), 'points',
                                        group=label,
-                                       color=color, symbol=SYMBOLS[i % len(SYMBOLS)],
+                                       color=color, age=age, symbol=SYMBOLS[i % len(SYMBOLS)],
                                        ids=g['_point_id'].tolist() if '_point_id' in g else None, dataset=GDI))
             grid = np.linspace(0, max(float(g.q.max()), 1.0) * 1.05, CURVE_POINTS)
             curves = []
@@ -525,7 +526,7 @@ class GdiModule(Module):
                     continue
                 tip = f'a = {a:.6g}, b = {b:.6g}' + (f', R² = {r2:.4f}' if r2 is not None and np.isfinite(r2) else '')
                 chart.series.append(Series(f'{label}, {suffix}', *xy(grid, a + b * grid if linear else a * grid + b * grid * grid), 'line',
-                                           group=label, color=color, dashed=dashed, legend=False, tooltip=tip))
+                                           group=label, color=color, age=age, dashed=dashed, legend=False, tooltip=tip))
         flagged = points[points['_point_id'].astype(str).isin(suspect_ids)] if suspect_ids and '_point_id' in points else points.iloc[:0]
         if not flagged.empty:
             # поверх основных точек: красная подсветка сомнительных, двойной щелчок их подтверждает

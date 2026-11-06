@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyLooks, looksOf, markerSymbol, seriesLookKey, yearOfKey } from '../src/chartStyle.ts'
+import { applyLooks, looksOf, markerSymbol, seriesLookKey, withFreshColors, yearOfKey } from '../src/chartStyle.ts'
 
 const series = (name: string, kind: 'line' | 'points' = 'line', group = '') => ({ name, kind, group }) as never
 const chart = { title: 'Расход', y: { label: 'Q' }, y2: null, x: {}, series: [series('ГСП-1'), series('ГСП-2', 'points')] } as never
@@ -42,4 +42,12 @@ test('год узнаётся в ключе ряда: год, сезон, без
   assert.equal(yearOfKey('Сезон 2022|bar'), 2022)
   assert.equal(yearOfKey('ГСП 12|line'), null)
   assert.equal(yearOfKey('№ 1204|points'), null)
+})
+
+test('цвета по свежести: по номеру свежести, по кругу; ручной цвет главнее', () => {
+  const aged = (name: string, age?: number) => ({ name, kind: 'points', group: name, age }) as never
+  const c = { series: [aged('a', 2), aged('b', 1), aged('c', 0), aged('d')] } as never
+  const got = withFreshColors(c, ['#ff0000', '#0000ff'], { 'b|points': { color: '#00ff00', width: 3 } })
+  assert.deepEqual(got, { 'a|points': { color: '#ff0000' }, 'b|points': { color: '#00ff00', width: 3 }, 'c|points': { color: '#ff0000' } })
+  assert.equal(withFreshColors(c, undefined, undefined), undefined)
 })

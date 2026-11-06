@@ -78,6 +78,19 @@ export function looksOf(chart: Chart, all: Record<string, Look>): Record<string,
   return Object.fromEntries(chart.series.map(seriesLookKey).filter(k => all[k]).map(k => [k, all[k]]))
 }
 
+/** Палитра «по свежести»: кривая со свежестью (``Series.age``: 0 — самая свежая) красится цветом с её номером по кругу.
+ *  Цвет, заданный вручную (личный вид ряда или макет), главнее; остальное в виде ряда не меняется. */
+export function withFreshColors(chart: Chart, palette: string[] | undefined, looks: Record<string, Look> | undefined): Record<string, Look> | undefined {
+  if (!palette?.length) return looks
+  const out = { ...looks }
+  for (const s of chart.series) {
+    if (s.age === undefined || s.age === null || s.look?.color) continue
+    const k = seriesLookKey(s)
+    if (!out[k]?.color) out[k] = { ...out[k], color: palette[s.age % palette.length] }
+  }
+  return out
+}
+
 /** График с личным видом рядов: у каждого ряда, для которого он задан, появляется поле look. */
 export function applyLooks(chart: Chart, looks: Record<string, Look> | undefined): Chart {
   if (!looks || Object.keys(looks).length === 0) return chart

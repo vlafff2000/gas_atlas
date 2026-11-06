@@ -2,7 +2,7 @@
 // Уровни (тема проекта → тип графика → график) складываются mergeFormats: поле более позднего уровня главнее.
 import { errorSeries, trendSeries } from './trend'
 import type { Axis, AxisStyle, Chart, ChartStyle } from './api'
-import { applyLooks, type Look } from './chartStyle'
+import { applyLooks, withFreshColors, type Look } from './chartStyle'
 
 export type AxisName = 'x' | 'y' | 'y2' | 'y3' | 'y4' | 'y5'
 /** Настройки оси: оформление (AxisStyle) + цвет, границы и деления текстом (проверяются на сервере). */
@@ -94,8 +94,9 @@ export function applyFormat(chart: Chart, doc: ChartFormat | null | undefined): 
       .flatMap(s => s.y.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)))
     out = { ...out, [name]: formatAxis(axis, spec, values) }
   }
-  if (!doc.series) return out
-  const looked = applyLooks(out, doc.series)
+  const looks = withFreshColors(out, out.style?.fresh_colors, doc.series)
+  if (!looks) return out
+  const looked = applyLooks(out, looks)
   const trends = [...trendSeries(looked.series), ...errorSeries(looked.series)]
   return trends.length ? { ...looked, series: [...looked.series, ...trends] } : looked
 }

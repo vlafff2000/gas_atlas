@@ -105,6 +105,7 @@ export interface ChartStyle {
   // модель v2: подзаголовок, легенда слева, колонки, рамка и фон легенды, штрих сетки, рамки рисунка и области построения
   subtitle?: string; subtitle_size?: number; legend_columns?: number; legend_border?: boolean; legend_background?: string
   grid_dash?: string; minor_grid_dash?: string; border_color?: string; border_width?: number; plot_border_color?: string; plot_border_width?: number
+  fresh_colors?: string[]     // цвета кривых по свежести: самая свежая — первый, вторая — второй…; ручной цвет ряда главнее
   group_digits?: boolean      // false — в файлах числа без разрядов; по умолчанию разряды включены
   annotations?: Annotation[]
 }
@@ -128,6 +129,7 @@ export interface Series {
   values?: (number | null)[] | null         // третье значение точки: по нему красятся точки (шкала цвета справа)
   values_label?: string
   segments?: string[] | null                // подпись внутри каждого сегмента столбца стопки (число скважин)
+  age?: number | null                       // свежесть кривой: 0 — самая свежая; по ней красит палитра «по свежести» (style.fresh_colors)
   look?: Look                              // личный вид ряда из окна «Настройка» (только на клиенте)
 }
 /** Точки серии в видимом окне оси X (ответ /window): `window` — сколько их в окне до прореживания. */

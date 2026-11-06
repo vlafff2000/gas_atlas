@@ -146,7 +146,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
         <div className="cs-editor">
           {kind === 'chart' && <>
             <h3>График</h3>
-            <ChartStyleFields value={doc.chart ?? {}} set={setChart} />
+            <ChartStyleFields value={doc.chart ?? {}} set={setChart} fresh={chart.series.some(s => s.age !== undefined && s.age !== null)} />
             <div className="cs-actions">
               <Brush kind="chart" value={doc.chart} paste={v => setChart(v)} />
               <button type="button" onClick={() => onDoc({ ...doc, chart: undefined })} disabled={!doc.chart || !Object.keys(doc.chart).length}>Сбросить график</button>
