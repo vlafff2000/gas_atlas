@@ -64,6 +64,11 @@ ITEMS: list[dict[str, Any]] = [
     {'key': 'krs_priority', 'label': 'КРС: приоритет капремонта по скважинам', 'used': 'Паспорт скважины, КРС: приоритет ремонта',
      'columns': ['Скважина', 'ГСП', 'Приоритет итог', 'Приоритет (расчёт)', 'Приоритет вручную', 'Песок в ревизиях КРУ', 'Причина'],
      'note': 'Лист «Приоритет» той же книги. Приоритет (1 — срочно) — подсказка, ручное значение главнее расчёта: решает инженер.'},
+    {'key': 'krs_plan', 'label': 'КРС: план и выполнение КР (справка)', 'used': 'КРС: таблица 7.1',
+     'columns': ['Скважина', 'Год', 'Вид', 'Шифры работ', 'Состояние', 'Дата начала', 'Дата окончания', 'Статус справки', 'Ремонт будет',
+                 'В таблицу 7.1'],
+     'note': 'Лист «План КР» той же книги (необязателен): собирается из справки о выполнении плана КР (.docx). Статус «Утвержден» — '
+             'ремонт ещё будет, другой — в плане уже нет; значения «Ремонт будет» и «В таблицу 7.1» можно переписать вручную.'},
     {'key': 'gis_packs', 'label': 'ГИС: пачки', 'used': 'ГИС и ГВК, hэф, Кг, уровень ГВК',
      'columns': ['Скважина', 'Дата', 'Пачка', 'hг эф, м', 'Кг ср.взв', 'ГВК а.о., м'], 'note': 'Лист «Свод» книги «ГИС_свод.xlsx» Базы ПХГ или CSV gis_packs.'},
     {'key': 'gis_intervals', 'label': 'ГИС: интервалы', 'used': 'ГИС и ГВК, кривые и столбцы, Σ hi·Кг',
@@ -181,6 +186,9 @@ def _lines(key: str, f: pd.DataFrame) -> list[list[str]]:
     elif key == 'krs_works':
         add('Типы ремонта', _list(f, 'work_type', counts=True))
         add('Годы', _list(f.assign(year=pd.to_numeric(f['year'], errors='coerce').dropna().astype(int)) if _has(f, 'year') else f, 'year', 30))
+    elif key == 'krs_plan':
+        add('Состояния', _list(f, 'state', counts=True))
+        add('Ремонта не будет', int(f.get('will').eq('Нет').sum()) if _has(f, 'will') else 0)
     elif key == 'krs_priority':
         add('С приоритетом', int(pd.to_numeric(f.get('priority'), errors='coerce').notna().sum()) if _has(f, 'priority') else 0)
         add('Приоритет 1 (срочно)', int(pd.to_numeric(f.get('priority'), errors='coerce').eq(1).sum()) if _has(f, 'priority') else 0)

@@ -2,6 +2,8 @@
 
 - ``krs_works`` — проведённые капитальные ремонты, одна строка на ремонт: ``well``, ``year``, ``work_type``, ``detail``
   (лист «Ремонты»; прочие столбцы листа склеиваются в ``detail``);
+- ``krs_plan`` — необязательный лист «План КР» (справка о выполнении плана КР): скважина × ремонт, шифры работ, даты, состояние,
+  статус, «Ремонт будет», «В таблицу 7.1»;
 - ``krs_priority`` — приоритет КР по скважине, одна строка на скважину: ``well``, ``group``, ``priority`` (итог), ``priority_calc``,
   ``priority_manual``, ``sand`` (сезоны с песком), ``last_year``, ``last_type``, ``planned``, ``reason`` (лист «Приоритет»).
 Приоритет — подсказка (1 — срочно), ручное значение главнее расчёта: решает инженер. Скважина — номер текстом без «.0».
@@ -13,9 +15,14 @@ import io
 
 import pandas as pd
 
-WORKS, PRIORITY = 'krs_works', 'krs_priority'
-LABELS = {WORKS: 'проведённые КР', PRIORITY: 'приоритет КР'}
-SHEETS = {WORKS: 'Ремонты', PRIORITY: 'Приоритет'}
+WORKS, PRIORITY, PLAN = 'krs_works', 'krs_priority', 'krs_plan'
+LABELS = {WORKS: 'проведённые КР', PRIORITY: 'приоритет КР', PLAN: 'план и выполнение КР'}
+SHEETS = {WORKS: 'Ремонты', PRIORITY: 'Приоритет', PLAN: 'План КР'}
+PLAN_COLUMNS = ['well', 'year', 'well_type', 'kind', 'works', 'codes', 'quarter', 'color', 'state', 'start', 'end', 'status', 'will',
+                'in_table', 'check']
+PLAN_SOURCE = {'Скважина': 'well', 'Год': 'year', 'Тип скважины': 'well_type', 'Вид': 'kind', 'Шифры работ': 'works', 'Коды работ': 'codes',
+               'Квартал': 'quarter', 'Цвет в справке': 'color', 'Состояние': 'state', 'Дата начала': 'start', 'Дата окончания': 'end',
+               'Статус справки': 'status', 'Ремонт будет': 'will', 'В таблицу 7.1': 'in_table', 'Проверить': 'check'}
 WORKS_COLUMNS = ['well', 'year', 'work_type', 'detail']
 PRIORITY_COLUMNS = ['well', 'group', 'priority', 'priority_calc', 'priority_manual', 'sand', 'last_year', 'last_type', 'planned',
                     'reason']
@@ -85,7 +92,28 @@ def read(name: str, content: bytes) -> tuple[dict[str, pd.DataFrame], list[str]]
         prio[col] = pd.to_numeric(prio[col], errors='coerce')
     for col in ('group', 'sand', 'last_type', 'reason'):
         prio[col] = prio[col].map(_text)
-    return {WORKS: works, PRIORITY: prio[PRIORITY_COLUMNS].drop_duplicates('well', keep='last').reset_index(drop=True)}, warnings
+    parts = {WORKS: works, PRIORITY: prio[PRIORITY_COLUMNS].drop_duplicates('well', keep='last').reset_index(drop=True)}
+    if SHEETS[PLAN] in sheets and 'Скважина' in sheets[SHEETS[PLAN]].columns:      # лист необязательный: появляется, если книгу собрали со справкой КР
+        parts[PLAN] = read_plan(sheets[SHEETS[PLAN]])
+    return parts, warnings
+
+
+def read_plan(raw: pd.DataFrame) -> pd.DataFrame:
+    """Лист «План КР»: одна строка на скважину и ремонт. Даты — настоящие даты, пусто — пропуск; «Да/Нет» остаются текстом."""
+    plan = raw.rename(columns=PLAN_SOURCE)
+    plan = plan[[c for c in PLAN_COLUMNS if c in plan.columns]].copy()
+    for col in PLAN_COLUMNS:
+        if col not in plan:
+            plan[col] = pd.NA
+    plan['well'] = plan['well'].map(well_id)
+    plan = plan[plan.well.ne('')]
+    plan['year'] = pd.to_numeric(plan['year'], errors='coerce')
+    for col in ('start', 'end'):
+        plan[col] = pd.to_datetime(plan[col], format='%d.%m.%Y', errors='coerce')
+    for col in PLAN_COLUMNS:
+        if col not in ('year', 'start', 'end', 'well'):
+            plan[col] = plan[col].map(_text)
+    return plan[PLAN_COLUMNS].reset_index(drop=True)
 
 
 def merge(old: pd.DataFrame | None, new: pd.DataFrame, keep_old: bool = False) -> pd.DataFrame:
