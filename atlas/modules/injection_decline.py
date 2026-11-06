@@ -183,16 +183,12 @@ class InjectionDeclineModule(Module):
         description='Конец сезонов закачки: давление достигает максимума и падает из-за снижения темпов в последний месяц. '
                     'Наложение сезонов, хвост закачки, таблица и связь темпа со спадом.',
         needs=(PRODUCTION,),
-        optional=(DatasetKind.OBJECT_PRESSURE, DatasetKind.PRESSURE_MATCH, DatasetKind.RESPONSE, DatasetKind.GAS_DB),
+        optional=(DatasetKind.PRESSURE_SURVEY, DatasetKind.GAS_DB),
         order=13,
         params=(
             Param('seasons', 'Последних сезонов закачки', 'integer', default=5, minimum=1, maximum=20, section=SECTION_DATA,
                   help='Берутся последние по времени сезоны закачки; если выбраны сезоны ниже — этот параметр не действует'),
             Param('periods', 'Сезоны', 'multi', default=[], dynamic=True, empty='последние по числу выше', section=SECTION_DATA),
-            Param('source', 'Давление', 'choice', default='auto', section=SECTION_DATA, options=(
-                Option('auto', 'Автоматически: столбец из БД, иначе опорная сетка'), Option('object', 'Столбец «Давление объекта»'),
-                Option('grid', 'Опорная сетка: реагирование'), Option('match', 'Опорная сетка: кроссплот, факт')),
-                help='Давление объекта: столбец из БД или опорная сетка (среднее по группам на дату)'),
             Param('last_days', 'Окно последнего месяца, сут', 'integer', default=30, minimum=7, maximum=92, section=SECTION_CALC,
                   help='Последние дни сезона: за них считаются закачка и темп. Сдвинуть для отдельного сезона — «Вручную» (last_from)'),
             Param('tail_days', 'Хвост сезона на графике, сут', 'integer', default=45, minimum=14, maximum=120, section=SECTION_CALC),
@@ -222,10 +218,10 @@ class InjectionDeclineModule(Module):
         if seasons.empty:
             result.notes.append(Note('Нет сезонов закачки с расходом по выбранным условиям.', 'warning'))
             return result
-        pressure, _, label = object_pressure_of(data, params.get('source') or 'auto')
+        pressure, _, label = object_pressure_of(data)
         if pressure is None or pressure.empty:
-            result.notes.append(Note('Нет давления объекта: загрузите «Давление объекта» или опорную сетку '
-                                     '(«Реагирование», «Кроссплот давлений»). Графики и таблица по давлению пусты.', 'warning'))
+            result.notes.append(Note('Нет давления объекта: загрузите «БД давлений по замерам» '
+                                     '(Рпл эксплуатационных скважин с ГСП). Графики и таблица по давлению пусты.', 'warning'))
         else:
             result.notes.append(Note(f'Давление: {label}.'))
         result.notes.append(Note(NOTE))

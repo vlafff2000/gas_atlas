@@ -24,13 +24,19 @@ def object_pressure():
                          'sheet': 'Давление объекта', '_row': range(2, 46)})
 
 
+def survey():
+    # одна эксплуатационная скважина с ГСП: среднее по скважинам на дату совпадает с её Рпл
+    d = object_pressure()
+    return pd.DataFrame({'well': '1', 'date': d.date, 'p_res': d.pressure, 'group': 'ГСП-1'})
+
+
 @pytest.fixture()
 def env(tmp_path):
     projects = Projects(tmp_path)
     store = projects.store
     pid = store.create('Объект с давлением')
     frames = {k: v for k, v in demo_frames().items() if k == 'response'}
-    frames['object_pressure'] = object_pressure()
+    frames['pressure_survey'] = survey()
     store.commit(pid, frames=frames, settings={'manometer_wells': ['45']}, action='Загрузка')
     return TestClient(create_app(projects)), pid, projects
 
@@ -67,7 +73,7 @@ def legacy_figures(projects, pid, wells, view, split, start=None, end=None):
                 continue
             fig = legacy_charts.response_chart(
                 part, [], metric, legacy_charts.response_title(ordered(part.well), label, split),
-                color_map=legacy_charts.well_colors(d.well), object_pressure=data[DatasetKind.OBJECT_PRESSURE],
+                color_map=legacy_charts.well_colors(d.well), object_pressure=object_pressure()[['date', 'pressure']],
                 manometer_wells=['45'], by_well=split == 'well',
                 pressure_horizons=ordered(raw.loc[raw.pressure.notna(), 'horizon']))
             out.append((label, metric, fig))
@@ -104,8 +110,9 @@ def test_charts_match_58(env, view, split):
             y_new = np.array([np.nan if v is None else v for v in new['y']], float)
             assert np.array_equal(y_old, y_new, equal_nan=True)
             assert new['x'] == pd.to_datetime(list(old.x)).strftime('%Y-%m-%d').tolist()
-            assert new['ids'] == [str(row[0]) for row in old.customdata]
-            assert new['dataset'] == old.meta['module']
+            if old.meta['module'] != 'object_pressure':       # среднее по скважинам БД замеров: точек исходной таблицы у него нет
+                assert new['ids'] == [str(row[0]) for row in old.customdata]
+                assert new['dataset'] == old.meta['module']
 
 
 def test_semantic_colors_and_object_pressure(env):
@@ -115,7 +122,7 @@ def test_semantic_colors_and_object_pressure(env):
     assert [s['name'] for s in series] == ['Уровень жидкости', 'Давление (глубинный манометр)',
                                            'Пластовое давление объекта']
     assert [s['color'] for s in series] == ['#32BDA4', '#8B5CF6', '#DC3545']
-    assert series[0]['hollow'] and series[0]['axis'] == 'y2' and series[2]['dataset'] == 'object_pressure'
+    assert series[0]['hollow'] and series[0]['axis'] == 'y2' and series[2]['dataset'] is None
 
 
 def test_wells_follow_horizons_and_natural_order(env):
@@ -169,19 +176,15 @@ def test_click_exclusion_of_pressure_keeps_level_and_is_seen_by_58(env):
 def test_manual_filter_tables(env):
     client, pid, _ = env
     body = run(client, pid, wells=['31', '45'])
-    level, pressure, obj = table(body, 'points-level'), table(body, 'points-pressure'), table(body, 'points-object')
-    assert level['count'] == pressure['count'] == 88 and obj['count'] == 44
+    level, pressure = table(body, 'points-level'), table(body, 'points-pressure')
+    assert level['count'] == pressure['count'] == 88 and 'points-object' not in [t['id'] for t in body['tables']]
     assert all(i.endswith(':level') for i in level['action']['ids'])
-    assert level['action']['dataset'] == 'response' and obj['action']['dataset'] == 'object_pressure'
+    assert level['action']['dataset'] == 'response'
     first = level['action']['ids'][0]
     client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'response', 'add': [first], 'reason': 'Проверка'})
     assert table(run(client, pid, wells=['31', '45']), 'points-level')['action']['checked'][0]
     client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'response', 'remove': [first]})
     assert not table(run(client, pid, wells=['31', '45']), 'points-level')['action']['checked'][0]
-    o = obj['action']['ids'][0]
-    assert client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'object_pressure', 'add': [o]}).json()['added'] == 1
-    combined = run(client, pid, wells=['31'], view='pressure', split='well')['charts'][0]['series'][-1]
-    assert o not in combined['ids']
 
 
 def test_statistics_unchanged(env):

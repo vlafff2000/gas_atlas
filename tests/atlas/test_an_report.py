@@ -81,7 +81,7 @@ def test_module_is_discovered_and_runs_on_demo(tmp_path):
     assert r.status_code == 200, r.text
     body = r.json()
     assert not any('раздел в разработке' in n['text'] for n in body['notes'])
-    assert any('Давление объекта: опорная сетка' in n['text'] for n in body['notes'])
+    assert any('Давление объекта не построено' in n['text'] and 'БД давлений по замерам' in n['text'] for n in body['notes'])
     assert 'Выберите сезон' in ' '.join(n['text'] for n in body['notes'])
     r = client.post('/api/modules/an_report/run', json={'project': pid, 'params': {'kind': 'withdrawal', 'periods': ['2023-2024']}})
     assert r.status_code == 200, r.text
@@ -167,6 +167,7 @@ INJ_SEASON['date'] = pd.to_datetime(INJ_SEASON.date)
 INJ_SEASON['kind'] = 'injection'
 INJ_SEASON['period'] = '2024'
 INJ_PRESSURE = pd.DataFrame({'date': pd.to_datetime(['2024-04-30', '2024-05-02', '2024-06-01']), 'pressure': [60.0, 65.0, 80.0]})
+INJ_SURVEY = INJ_PRESSURE.rename(columns={'pressure': 'p_res'}).assign(well='1', group='ГСП-1')    # «БД давлений по замерам»
 
 
 def test_injection_curve_cumulative_with_pressure_and_well_counts():
@@ -211,7 +212,7 @@ def test_canvas_series_selection_and_axes():
 
 
 def test_group_series_views():
-    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE})
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.SURVEY: INJ_SURVEY})
     data.mapping = INJ_MAPPING
     module = an_report.AuthorReportModule()
     base = {'kind': 'injection', 'periods': ['2024']}
@@ -223,7 +224,7 @@ def test_group_series_views():
     assert 'an-canvas-injection-2024' in ids(view='canvas', show=['rate'])
     assert [s.name for s in module.run(data, {**base, 'view': 'curve', 'show_curve': ['Скважин в работе'], 'side': 'none'}).charts[0].series] == ['Скважин в работе']
     right = module.run(data, {**base, 'view': 'canvas', 'side': 'curve', 'show_curve': ['Скважин в работе']}).charts
-    assert [c.id for c in right] == ['an-canvas-injection-2024', 'an-curve-injection-2024']
+    assert [c.id for c in right if not c.id.startswith('an-group-pressure')] == ['an-canvas-injection-2024', 'an-curve-injection-2024']
     assert [s.name for s in right[1].series] == ['Скважин в работе']
     assert 'an-fund-injection-2024' in ids()                          # правый график по умолчанию — фонд
     assert 'an-fund-injection-2024' not in ids(side='none')
@@ -272,7 +273,7 @@ def test_plan_tables_from_comparison():
 def test_injection_season_run_builds_chapter2_items():
     plan = pd.DataFrame({'group': ['ГСП-9', 'ГСП 1'], 'date': pd.to_datetime(['2024-05-01', '2024-06-01']),
                          'plan_volume': [300.0, 200.0], 'kind': 'injection'})
-    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE, an_report.PLAN: plan})
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.SURVEY: INJ_SURVEY, an_report.PLAN: plan})
     data.mapping = INJ_MAPPING
     result = an_report.AuthorReportModule().run(data, {'kind': 'injection', 'periods': ['2024']})
     charts = {c.id for c in result.charts}
@@ -300,7 +301,7 @@ def test_plan_and_fact_groups_match_across_spellings():
 
 
 def test_injection_gets_month_and_class_charts_like_withdrawal():
-    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE})
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.SURVEY: INJ_SURVEY})
     data.mapping = INJ_MAPPING
     module = an_report.AuthorReportModule()
     plain = module.run(data, {'kind': 'injection', 'periods': ['2024']})
@@ -329,7 +330,7 @@ def test_withdrawal_class_table_follows_count_and_thresholds():
 
 
 def test_auto_classes_are_hint_with_visible_note_and_manual_edges_win():
-    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.OBJECT: INJ_PRESSURE})
+    data = Data({an_report.PRODUCTION: INJ_SEASON, an_report.SURVEY: INJ_SURVEY})
     data.mapping = INJ_MAPPING
     module = an_report.AuthorReportModule()
     auto = module.run(data, {'kind': 'injection', 'periods': ['2024'], 'class_chart': 'box', 'class_mode': 'auto', 'class_count': 3})

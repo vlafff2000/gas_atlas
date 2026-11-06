@@ -6,7 +6,7 @@ from atlas.contract import Data, ParamError
 from atlas.domain import DatasetKind
 from atlas.modules.injection_decline import InjectionDeclineModule
 
-PROD, OBJ = DatasetKind.PRODUCTION, DatasetKind.OBJECT_PRESSURE
+PROD, OBJ = DatasetKind.PRODUCTION, DatasetKind.PRESSURE_SURVEY
 
 
 def production():
@@ -23,12 +23,23 @@ def pressure():
     p22 = [(d, 100 + i) for i, d in enumerate(pd.date_range('2022-05-01', periods=60, freq='D')[::5])]
     p23 = [(d, 120 + i * 0.3) for i, d in enumerate(pd.date_range('2023-05-01', periods=50, freq='D')[::5])]
     p23 += [(pd.Timestamp('2023-06-27'), 140.0), (pd.Timestamp('2023-06-29'), 135.0)]
-    return pd.DataFrame(p22 + p23, columns=['date', 'pressure'])
+    # «БД давлений по замерам»: одна эксплуатационная скважина с ГСП, среднее по скважинам на дату = её Рпл
+    d = pd.DataFrame(p22 + p23, columns=['date', 'p_res'])
+    return d.assign(well='1', group='ГСП-1')
+
+
+def survey_rows(frame):
+    # допустимы и строки вида date + pressure: у всех скважина «1» с ГСП
+    frame = frame.copy()
+    if 'pressure' in frame:
+        frame['p_res'] = frame['p_res'].fillna(frame.pressure) if 'p_res' in frame else frame.pressure
+    return frame.assign(well='1', group='ГСП-1')[['well', 'date', 'p_res', 'group']]
 
 
 def run(params=None, frame=None, pres=None, manual=None):
-    data = Data({PROD: production() if frame is None else frame, OBJ: pressure() if pres is None else pres})
-    base = {'seasons': 5, 'periods': [], 'source': 'auto', 'last_days': 30, 'tail_days': 45, 'manual': manual}
+    pres = pressure() if pres is None else survey_rows(pres)
+    data = Data({PROD: production() if frame is None else frame, OBJ: pres})
+    base = {'seasons': 5, 'periods': [], 'last_days': 30, 'tail_days': 45, 'manual': manual}
     return InjectionDeclineModule().run(data, {**base, **(params or {})})
 
 
@@ -73,7 +84,7 @@ def test_bad_manual_date_is_explained():
 
 def test_no_pressure_is_a_note_not_an_error():
     data = Data({PROD: production()})
-    result = InjectionDeclineModule().run(data, {'seasons': 5, 'periods': [], 'source': 'auto', 'last_days': 30, 'tail_days': 45,
+    result = InjectionDeclineModule().run(data, {'seasons': 5, 'periods': [], 'last_days': 30, 'tail_days': 45,
                                                  'manual': None})
     assert result.tables and any('Нет давления объекта' in n.text for n in result.notes)
     assert {c.id for c in result.charts} == {'decline-rate', 'decline-tail'}

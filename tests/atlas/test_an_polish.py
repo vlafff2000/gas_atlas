@@ -19,13 +19,13 @@ PRODUCTION = pd.DataFrame([
 ], columns=['well', 'date', 'q'])
 PRODUCTION['date'] = pd.to_datetime(PRODUCTION.date)
 PRODUCTION['kind'], PRODUCTION['period'] = 'withdrawal', '2025-2026'
-PRESSURE = pd.DataFrame({'date': pd.to_datetime(['2025-11-01', '2025-12-01']), 'pressure': [90.0, 85.0]})
+SURVEY = pd.DataFrame({'well': '1', 'date': pd.to_datetime(['2025-11-01', '2025-12-01']), 'p_res': [90.0, 85.0], 'group': 'ГСП-1'})
 FACTOR = pd.DataFrame({'date': pd.to_datetime(['2025-11-01', '2025-11-02', '2025-12-01']), 'gas_in_place': [5e6, 4.9e6, 4.7e6],
                        'water_day': [10.0, 12.0, np.nan], 'wf': [0.5, 0.6, np.nan]})
 
 
 def run(extra, params):
-    data = Data({DatasetKind.PRODUCTION: PRODUCTION, DatasetKind.OBJECT_PRESSURE: PRESSURE, **extra})
+    data = Data({DatasetKind.PRODUCTION: PRODUCTION, DatasetKind.PRESSURE_SURVEY: SURVEY, **extra})
     data.mapping = {'1': {'group': 'ГСП-1'}, '2': {'group': 'ГСП 2'}}
     return an_report.AuthorReportModule().run(data, {'kind': 'withdrawal', 'periods': ['2025-2026'], 'annulus': [], **params})
 

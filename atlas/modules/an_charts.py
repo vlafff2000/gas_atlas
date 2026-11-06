@@ -45,7 +45,7 @@ def group_pressure_chart(kind: str, period: str, reference: pd.DataFrame | None,
                          daily: pd.Series | None = None) -> Chart | None:
     """Пластовое давление по группам за сезон: одна линия на группу (среднее замеров её скважин на дату).
 
-    ``reference`` — замеры опорной сетки: well, date, pressure, scope (см. ``an_report.reference_pressure``).
+    ``reference`` — замеры опорной сетки: well, date, pressure, scope (см. ``an_report.survey_pressure``).
     Ось X — дата; если передан ``daily`` (суточный расход объекта, см. ``daily_of``) — накопленный отбор объекта за сезон,
     как у графика «от накопленного объёма»: значение на дату замера."""
     if reference is None or reference.empty:
