@@ -146,9 +146,11 @@ def test_curve_marks_days_without_record_but_keeps_zero():
     df = pd.DataFrame({'date': dates, 'well': '7', 'kind': 'withdrawal', 'period': '2024-2025', 'q': q,
                        'file': 'f.csv', 'sheet': 's', '_row': np.arange(10), '_point_id': [f'p{i}' for i in range(10)],
                        '_excluded': False})
+    # соседняя скважина той же группы работает все сутки: пропуски скважины 7 — её нет записи, а не остановка группы
+    df = pd.concat([df, df.assign(well='8', q=100000.0, _point_id=[f'r{i}' for i in range(10)])], ignore_index=True)
     sel = production.Selection.__new__(production.Selection)
     sel.df, sel.kind, sel.periods, sel.gdi = df, 'withdrawal', ['2024-2025'], None
-    sel.params, sel.elpro = {}, None
+    sel.params, sel.elpro, sel.mapping = {}, None, {}
     sel.bottom = sel.gis = sel.krs = sel.pressures = None
     chart = production.curve_chart(sel, ['7'], 'date')
     marks = [s for s in chart.series if s.name.startswith('Нет записи (показан 0)')]

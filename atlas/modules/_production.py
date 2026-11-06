@@ -119,6 +119,29 @@ class Selection:
         return legacy.rank_wells(self.df, self.kind, self.periods, ws, self.params.get('direction', 'number'))
 
 
+def group_work_days(sel: 'Selection') -> pd.MultiIndex:
+    """Пары (группа, сутки), когда в группе кто-то работал: часы работы больше нуля или расход больше нуля.
+    Сутки группы вне этих пар — группа не в работе (не пущена, остановлена): пустая за дату матрица часов и расходов или одни нули."""
+    cached = getattr(sel, '_work_days', None)
+    if cached is not None:
+        return cached
+    d = sel.df[sel.df.kind.eq(sel.kind)]
+    work = d.q.gt(0)
+    if 'hours' in d:
+        work = work | d['hours'].gt(0)
+    group = {w: group_of(sel.mapping, w) for w in d.well.unique()}
+    key = pd.MultiIndex.from_arrays([d.well.map(group).to_numpy(), pd.to_datetime(d.date).dt.normalize().to_numpy()])
+    sel._work_days = key[work.to_numpy()].unique()
+    return sel._work_days
+
+
+def group_off(sel: 'Selection', wells: pd.Series, dates: pd.Series) -> np.ndarray:
+    """True там, где у группы скважины в эти сутки никто не работал: это не простой скважины, а остановка или ещё не начатая работа группы."""
+    group = {w: group_of(sel.mapping, w) for w in wells.unique()}
+    key = pd.MultiIndex.from_arrays([wells.map(group).to_numpy(), pd.to_datetime(dates).dt.normalize().to_numpy()])
+    return ~key.isin(group_work_days(sel))
+
+
 def groups_of(df: pd.DataFrame, mapping) -> list[str]:
     return ordered(group_of(mapping, w) for w in wells_of(df))
 
@@ -141,6 +164,11 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
     if data.empty:
         return chart
     colors, palette = legacy.period_colors(sel.df, sel.kind), well_colors(ws)
+    data['off'] = group_off(sel, data.well, data.date) if sel.params.get('groupoff', 'hide') == 'hide' else False
+    if data.off.any():       # группа не в работе: нет записи и нулевая линия не показываются, суточный расход — разрыв, не простой
+        data.loc[data.off, 'q'] = np.nan
+        data.loc[data.off, 'missing'] = False
+        sel.group_off_days = data[data.off].groupby('well').date.nunique()
     groups = data.groupby(['well', 'period'], sort=False)
     limit = min(5000, max(4, POINT_BUDGET // max(1, groups.ngroups)))
     # Несколько скважин: цвет — скважина, стиль линии — период (легенда двумя рядами «Скважина» и «Период»).
@@ -153,7 +181,7 @@ def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'prod
         g = screen_decimate(g, 'q', limit)
         single = len(sel.periods) == 1
         ids = g['_point_id'].where(~g.missing, '')
-        status = g.missing.map({True: 'Нет записи: показан 0', False: 'Измерение'})
+        status = g.missing.map({True: 'Нет записи: показан 0', False: 'Измерение'}).where(~g.off, 'Группа не в работе (не простой)')
         labels = (g.date.dt.strftime('%d.%m.%Y') + ' · накопленный ' + g.cumulative.map('{:.2f}'.format) + ' млн м³ · '
                   + status + ' · ' + g.file.astype(str) + ' / ' + g.sheet.astype(str) + ' / строка ' + g['_row'].astype(str))
         chart.series.append(Series(
@@ -460,8 +488,24 @@ def groups_overlay_chart(sel: Selection, dailies: dict[str, pd.DataFrame], metri
 
 # ---------- таблицы ----------
 
+def without_group_off_zeros(sel: Selection, a: pd.DataFrame) -> pd.DataFrame:
+    """«Нулевых записей» без суток, когда вся группа была не в работе: это остановка группы, а не простой скважины."""
+    if sel.params.get('groupoff', 'hide') != 'hide' or a.empty:
+        return a
+    d = sel.df[sel.df.kind.eq(sel.kind) & sel.df.period.isin(sel.periods) & sel.df.well.isin(set(a.well)) & sel.df.q.eq(0)]
+    if d.empty:
+        return a
+    d = d[group_off(sel, d.well, d.date)]
+    if d.empty:
+        return a
+    off = d.groupby(['well', 'period']).size()
+    key = pd.MultiIndex.from_frame(a[['well', 'period']])
+    return a.assign(zero=(a.zero.to_numpy() - off.reindex(key).fillna(0).to_numpy()))
+
+
 def averages_table(sel: Selection, ws: list[str], a: pd.DataFrame | None = None) -> Table:
     a = legacy.averages(sel.df, sel.kind, sel.periods, ws) if a is None else a
+    a = without_group_off_zeros(sel, a)
     a = a.assign(missing=a.missing.map({True: 'да', False: ''}))
     return Table('averages', 'Расчетные значения', a, [
         Column('well', 'Скважина'), Column('period', 'Период'),
