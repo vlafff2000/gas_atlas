@@ -30,11 +30,14 @@ export function mergeFormats(...docs: (ChartFormat | null | undefined)[]): Chart
 }
 
 /** Оформление проекта (settings.chart_formats): тема для всех графиков и свои настройки по типам графиков (id модуля). */
-export interface FormatStore { theme?: ChartFormat; types?: Record<string, ChartFormat>; templates?: Record<string, ChartFormat> }
+export interface FormatStore { theme?: ChartFormat; types?: Record<string, ChartFormat>; charts?: Record<string, ChartFormat>; templates?: Record<string, ChartFormat> }
 
 /** Документ для графика модуля: тема проекта → тип графика (как atlas/chart_style.format_of). */
-export const formatOf = (store: FormatStore | null | undefined, module?: string): ChartFormat =>
-  mergeFormats(store?.theme, module ? store?.types?.[module] : undefined)
+export const formatOf = (store: FormatStore | null | undefined, module?: string, chartId?: string): ChartFormat =>
+  mergeFormats(store?.theme, module ? store?.types?.[module] : undefined, module && chartId ? store?.charts?.[chartKey(module, chartId)] : undefined)
+
+/** Ключ «только этот график» (как atlas/chart_style.chart_key). */
+export const chartKey = (module: string, chartId: string) => `${module}::${chartId}`
 
 const STYLE_KEYS: (keyof AxisStyle)[] = ['decimals', 'date_format', 'font', 'tick_size', 'title_size', 'title_bold', 'title_italic',
   'tick_bold', 'tick_italic', 'ticks', 'minor_ticks', 'line', 'line_color', 'line_width', 'label_rotate', 'units', 'title_place']

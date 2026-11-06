@@ -128,6 +128,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
         Оформление графика и осей действует на:
         {scopeLabel ? <b>{scopeLabel}</b> : (
           <select value={scope} onChange={e => onScope(e.target.value as FormatScope)} aria-label="Уровень оформления">
+            <option value="chart">только этот график</option>
             <option value="type">графики этого раздела</option>
             <option value="project">все графики проекта</option>
           </select>)}
