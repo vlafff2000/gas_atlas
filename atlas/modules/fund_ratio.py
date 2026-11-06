@@ -28,19 +28,24 @@ CRU_METRIC = (CRU_KEY, 'Среднее раскрытие КРУ', '%')
 
 
 def mean_cru(prod: pd.DataFrame, elpro: pd.DataFrame | None) -> pd.Series:
-    """Среднее раскрытие КРУ (0–100 %) по скважинам за выбранные записи эксплуатации (ЭЛПРО, ``y``).
+    """Среднее раскрытие КРУ (0–100 %) по скважинам за период записей эксплуатации (ЭЛПРО, ``y``).
 
-    Берутся сутки, когда скважина работала (расход > 0), и по ним — суточное значение КРУ из ЭЛПРО; сутки без записи ЭЛПРО
-    не считаются нулём, а пропускаются. Скважина без таких суток — нет значения.
+    Берутся все имеющиеся значения ЭЛПРО скважины между первыми и последними сутками этих записей (сезона): данных может быть
+    мало и они не обязаны покрывать сезон или совпадать с сутками расхода из БД. Сутки без записи ЭЛПРО пропускаются, нулём
+    не считаются. Скважина без значений ЭЛПРО за период — нет значения.
     """
     if elpro is None or elpro.empty or prod.empty:
         return pd.Series(dtype=float)
-    e = elpro[elpro['kind'].isin(prod['kind'].unique())]
-    daily = (pd.DataFrame({'well': e['well'].astype(str).to_numpy(), 'date': pd.to_datetime(e['date']).dt.normalize().to_numpy(),
-                           'cru': e['y'].clip(0, 100).to_numpy()}).dropna().groupby(['well', 'date'], as_index=False).cru.mean())
-    work = prod[prod['q'].gt(0)]
-    work = pd.DataFrame({'well': work['well'].astype(str).to_numpy(), 'date': pd.to_datetime(work['date']).dt.normalize().to_numpy()}).drop_duplicates()
-    return work.merge(daily, on=['well', 'date']).groupby('well').cru.mean()
+    e = elpro[elpro['kind'].isin(prod['kind'].unique()) & elpro['well'].astype(str).isin(set(prod['well'].astype(str)))]
+    daily = pd.DataFrame({'well': e['well'].astype(str).to_numpy(), 'date': pd.to_datetime(e['date']).dt.normalize().to_numpy(),
+                          'cru': e['y'].clip(0, 100).to_numpy()}).dropna()
+    daily = daily.groupby(['well', 'date'], as_index=False).cru.mean()
+    keep = pd.Series(False, index=daily.index)
+    for _, part in (prod.groupby('period') if 'period' in prod else [(None, prod)]):   # окно каждого сезона, межсезонье не входит
+        dates = pd.to_datetime(part['date'])
+        keep |= daily['date'].between(dates.min().normalize(), dates.max().normalize())
+    daily = daily[keep]
+    return daily.groupby('well').cru.mean()
 
 
 def with_cru(ranked: pd.DataFrame, prod: pd.DataFrame, elpro: pd.DataFrame | None) -> pd.DataFrame:

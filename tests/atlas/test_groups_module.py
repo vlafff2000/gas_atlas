@@ -308,14 +308,14 @@ def test_ratio_in_fund_module(env):
 
 
 def test_mean_cru_over_working_days_from_elpro():
-    """Среднее КРУ — по суткам работы (q > 0), сутки без ЭЛПРО пропускаются, а не считаются нулём."""
+    """Среднее КРУ — по всем значениям ЭЛПРО сезона; сутки без записи ЭЛПРО пропускаются, а не считаются нулём."""
     from atlas.modules import fund_ratio
     d = pd.to_datetime(['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04'])
     prod = pd.DataFrame({'well': ['1'] * 4 + ['2'], 'date': list(d) + [d[0]], 'kind': 'withdrawal',
                          'q': [10., 20., 0., 30., 5.]})
     elpro = pd.DataFrame({'well': ['1', '1', '1'], 'date': [d[0], d[1], d[2]], 'kind': 'withdrawal', 'y': [40., 60., 100.]})
     got = fund_ratio.mean_cru(prod, elpro)
-    assert got['1'] == pytest.approx(50.0)      # сутки 3 — q=0, сутки 4 — нет ЭЛПРО: оба не входят
+    assert got['1'] == pytest.approx(200 / 3)   # три суток ЭЛПРО (40, 60, 100); сутки 4 без ЭЛПРО не считаются нулём
     assert '2' not in got.index                 # у скважины 2 нет ЭЛПРО — значения нет
     assert fund_ratio.mean_cru(prod, None).empty
 
@@ -338,3 +338,27 @@ def test_ratio_includes_cru_metric():
     m = fund_ratio.season_metrics(prod, {}, ['A', 'B'], elpro)
     t = fund_ratio.ratio_table(m, 'A', ['B'], fund_ratio.METRICS + (fund_ratio.CRU_METRIC,)).set_index('Скважина')
     assert t.at['1', 'КРУ_среднее'] == pytest.approx(2.0)
+
+
+def test_mean_cru_uses_all_elpro_values_in_season():
+    """Баг: КРУ пустой, если сутки ЭЛПРО не совпали с сутками q > 0 в БД расходов. Среднее — по всем значениям ЭЛПРО в сезоне."""
+    from atlas.modules import fund_ratio
+    d = pd.to_datetime(['2025-01-01', '2025-01-10', '2025-01-20', '2025-02-01'])
+    prod = pd.DataFrame({'well': ['1', '1', '2', '2'], 'date': d, 'kind': 'withdrawal', 'q': [10., 20., 5., 5.]})
+    # ЭЛПРО скважины 1 — в сутки без расхода в БД; скважины 3 нет в эксплуатации сезона; вне сезона — не берём
+    elpro = pd.DataFrame({'well': ['1', '1', '1', '3', '2'],
+                          'date': pd.to_datetime(['2025-01-05', '2025-01-06', '2024-06-01', '2025-01-05', '2025-01-20']),
+                          'kind': 'withdrawal', 'y': [40., 60., 99., 10., 70.]})
+    got = fund_ratio.mean_cru(prod, elpro)
+    assert got['1'] == pytest.approx(50.0)     # 40 и 60 внутри сезона, 99 из прошлого года не входит
+    assert got['2'] == pytest.approx(70.0)
+    assert '3' not in got.index                # скважина не участвует в рейтинге сезона
+
+
+def test_mean_cru_skips_gap_between_selected_seasons():
+    from atlas.modules import fund_ratio
+    prod = pd.DataFrame({'well': '1', 'kind': 'withdrawal', 'period': ['A', 'A', 'B', 'B'], 'q': 1.,
+                         'date': pd.to_datetime(['2024-01-01', '2024-03-01', '2025-01-01', '2025-03-01'])})
+    elpro = pd.DataFrame({'well': '1', 'kind': 'withdrawal', 'y': [20., 100., 40.],
+                          'date': pd.to_datetime(['2024-02-01', '2024-08-01', '2025-02-01'])})   # 08.2024 — межсезонье
+    assert fund_ratio.mean_cru(prod, elpro)['1'] == pytest.approx(30.0)
