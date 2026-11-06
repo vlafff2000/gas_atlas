@@ -510,10 +510,12 @@ def apply_store(result: Any, settings: Mapping[str, Any] | None, module: str) ->
     Заметки о том, что не применилось (логарифм у неположительных и т. п.), добавляются один раз."""
     if not getattr(result, 'charts', None):
         return result
+    docs = [format_of(settings, module, c.id) for c in result.charts]
+    if not any(docs):
+        return result
     notes: list[Note] = []
     charts = []
-    for c in result.charts:
-        doc = format_of(settings, module, c.id)
+    for c, doc in zip(result.charts, docs):
         if not doc:
             charts.append(c)
             continue
