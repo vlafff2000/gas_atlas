@@ -305,3 +305,22 @@ def test_object_pressure_curve_one_source_per_horizon():
     both = object_pressure_for(frame, pd.DataFrame({'horizon': ['A', 'B']}))
     assert both.pressure.tolist() == [60., 52.]                                         # одна точка на дату
     assert len(object_pressure_for(frame, pd.DataFrame({'horizon': ['Z']}))) == 2        # нет совпадений — вся таблица, без дублей дат
+
+
+def test_object_curve_is_full_and_x_range_is_shared():
+    """Кривая давления объекта не обрезается датами выбранной скважины; диапазон X одинаков у всех графиков модуля."""
+    from atlas.modules.response import response_chart
+    obj = object_pressure()
+    short = pd.DataFrame({'well': '1', 'horizon': 'A', 'date': pd.to_datetime(['2023-02-01', '2023-03-01']), 'pressure': [70., 71.]})
+    chart = response_chart(short, 'pressure', 't', 'id', {}, obj, set(), True, {'A'})
+    curve = next(s for s in chart.series if s.name == 'Пластовое давление объекта')
+    assert len([v for v in curve.y if not np.isnan(v)]) == len(obj)           # все точки объекта, не только 2 месяца
+    xs = pd.Series([s.x[i] for s in chart.series for i in range(len(s.x))])
+    assert chart.x.minimum is None                                              # диапазон задаёт вызывающий (module.charts)
+
+
+def test_all_charts_share_x_range(env):
+    client, pid, _ = env
+    body = run(client, pid, wells=WELLS, view='separate', split='well')
+    ranges = {(c['x']['minimum'], c['x']['maximum']) for c in body['charts']}
+    assert len(body['charts']) > 1 and len(ranges) == 1 and None not in next(iter(ranges))

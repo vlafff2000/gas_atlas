@@ -77,6 +77,18 @@ class Selection:
         return between(part, self.start, self.end)
 
 
+def shared_date_range(sel: Selection, object_pressure: pd.DataFrame | None):
+    """Единый диапазон оси X (мс UTC): заданный период, иначе от первой до последней даты всех замеров и кривой объекта."""
+    dates = [sel.df.date] + ([object_pressure.date] if object_pressure is not None and not object_pressure.empty else [])
+    dates = pd.concat([pd.to_datetime(d) for d in dates]).dropna()
+    start = pd.Timestamp(sel.start) if sel.start else (dates.min() if len(dates) else None)
+    end = pd.Timestamp(sel.end) if sel.end else (dates.max() if len(dates) else None)
+    if start is None or end is None or start >= end:
+        return None, None
+    ms = lambda t: float(t.value // 10**6)
+    return ms(start), ms(end)
+
+
 GAP_DAYS = 120      # пауза между замерами, после которой кривая прерывается, сут (0 — не прерывать)
 
 
@@ -151,7 +163,6 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
     if pressure_enabled and metric in ('pressure', 'combined') and object_pressure is not None \
             and not object_pressure.empty:
         data = object_pressure_for(object_pressure, part).sort_values('date')
-        data = data[data.date.between(part.date.min(), part.date.max())]
         if not data.empty:
             x, yv, ids, _ = with_gaps(data.date, data.pressure, data['_point_id'].astype(str).tolist() if '_point_id' in data else None,
                                       [''] * len(data), gap_days)
@@ -395,6 +406,7 @@ class ResponseModule(Module):
         sets = ({'Все выбранные': f} if split == 'all' else    # естественный порядок: 31, 45, 132
                 {label: f[f[column].astype(str).eq(label)] for label in ordered(f[column])})
         out = []
+        lo, hi = shared_date_range(sel, object_pressure)
         production = data[PRODUCTION] if PRODUCTION in data else None
         events = regime_events(production, f.date.min(), f.date.max()) if not f.empty else []
         for label, part in sets.items():
@@ -407,6 +419,8 @@ class ResponseModule(Module):
                 chart = response_chart(part, metric, title, f'response-{split}-{label}-{metric}', palette,
                                        object_pressure, manometer, split == 'well', pressure_horizons, level_band, gap_days, gis, gis_depth)
                 chart.events = list(events)
+                if lo is not None:
+                    chart.x.minimum, chart.x.maximum = lo, hi      # один диапазон дат у всех графиков; вручную — окно «Формат»
                 out.append(chart)
         return out
 
