@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # Модули Атласа (registry.modules()). Удалённые намеренно — в REMOVED_ON_PURPOSE.
 MODULES = [
-    'an_report', 'an_revision', 'an_wf_table', 'builder', 'exclusions', 'filter_history', 'fund', 'gdi', 'gdi_trend', 'gdi_due', 'repair_effect', 'ggh', 'krs_status',
+    'an_report', 'an_revision', 'an_wf_table', 'builder', 'exclusions', 'filter_history', 'fund', 'gdi', 'gdi_trend', 'gdi_due', 'repair_effect', 'ggh', 'krs_status', 'krs_report',
     'elpro_compare', 'gas_accounting', 'seasonal', 'seasonal_groups', 'injection-decline', 'groups', 'histograms', 'overview', 'plan_fact', 'pressure', 'production', 'quality', 'response',
     'water', 'wells', 'gis',
 ]
@@ -23,7 +23,7 @@ DATASET_KINDS = [
     'production', 'gdi', 'response', 'object_pressure', 'operations', 'water', 'water_factor',
     'bottom', 'construction', 'pressure_match', 'plan', 'ggh', 'elpro', 'annulus',
     'gas_db', 'model', 'model_object', 'model_cells',
-    'well_geo', 'gis_packs', 'gis_observations', 'gis_intervals', 'gis_thermobaric', 'gis_filling', 'krs_works', 'krs_priority',
+    'well_geo', 'gis_packs', 'gis_observations', 'gis_intervals', 'gis_thermobaric', 'gis_filling', 'krs_works', 'krs_priority', 'krs_plan',
     'pressure_survey',
 ]
 
