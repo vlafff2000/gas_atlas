@@ -11,7 +11,8 @@ import { axisTitle, escapeHtml, formatDate, formatNumber, formatNumberUpTo } fro
 import { echartsRich, plainRich, richHtml } from './richText'
 import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, SIZE, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
-import { buildTracks, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
+import { clickAction } from './chartClick'
+import { buildTracks, canExclude, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
@@ -69,6 +70,8 @@ interface Props {
   onExclude: (dataset: string, id: string) => void
   /** Двойной щелчок по сомнительной точке (режим поиска выбросов): точка перестаёт быть сомнительной и остаётся в расчётах. */
   onConfirm?: (dataset: string, id: string) => void
+  /** Короткое пояснение инженеру (например, почему расчётную точку нельзя исключить щелчком). */
+  onNote?: (text: string) => void
   /** Кроссплот давлений: щелчок по кнопке в закреплённой подсказке открывает динамику скважины. */
   onOpenWell?: (well: string, date: string) => void
   /** Адрес на Карты ГСП для скважины из подсказки; null — скважины нет в проекте, кнопки нет. */
@@ -618,7 +621,7 @@ function suspectClick(st: { pending: null | { id: string; dataset: string; timer
   st.pending = { id, dataset, timer }
 }
 
-export function ChartView({ chart: given, module, format, compact, excludeMode, onExclude, onConfirm, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
+export function ChartView({ chart: given, module, format, compact, excludeMode, onExclude, onConfirm, onNote, onOpenWell, mapLink, onDownload, onCopy, fetchWindow }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -658,7 +661,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
     chart: given, base: given, fetchWindow, patch: null as Patch | null, pin: null as AxisPin | null, ensure: (() => {}) as () => void,
     edges: (() => null) as () => [number, number] | null,
     applyZoom: (() => {}) as () => void,
-    excludeMode, onExclude, onConfirm, pickPoint: (_s: Series, _i: number) => {}, pending: null as null | { id: string; dataset: string; timer: number }, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
+    excludeMode, onExclude, onConfirm, onNote, pickPoint: (_s: Series, _i: number) => {}, pending: null as null | { id: string; dataset: string; timer: number }, onOpenWell: onOpenWell as Props['onOpenWell'], mapLink, tracks: [] as Track[], selected: {} as Record<string, boolean>,
     current: null as Hover | null, focused: -1, mouse: null as [number, number] | null, down: null as [number, number] | null,
     mode: 'smooth' as HoverMode, map: { x: (v: number) => v, y: Y_NAMES.map(() => (v: number) => v) as ((v: number) => number)[] }, frame: 0, tokens: null as ChartTokens | null, spans: { x: 1, y: 1, y2: 1, y3: 1, y4: 1, y5: 1 }, blur: true, draw: (() => {}) as () => void,
     id: nextSyncId(), sync: syncKey(chart), events: [] as Plotted[], hiddenEvents: new Set<string>(), pins: [] as Pin[],
@@ -825,6 +828,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
   state.current.onExclude = onExclude
   state.current.pickPoint = pickPoint
   state.current.onConfirm = onConfirm
+  state.current.onNote = onNote
   state.current.onOpenWell = onOpenWell
   state.current.mapLink = mapLink
   state.current.base = given
@@ -1126,7 +1130,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         }
         return
       }
-      const h = hover(st.tracks, view, m![0], m![1], chart.x.scale, a => yAxisAt(chart, a).scale, st.mode)
+      const h = hover(st.tracks, view, m![0], m![1], chart.x.scale, a => yAxisAt(chart, a).scale, st.mode, st.excludeMode)
       st.current = h
       publish(st.id, st.sync, h.point?.x ?? (st.mode === 'facts' && h.focus ? h.focus.x : h.x))
 
@@ -1164,7 +1168,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         if (fi >= 0) ch.dispatchAction({ type: 'highlight', seriesIndex: fi })
         st.focused = fi
       }
-      const selectable = !!(h.point && st.excludeMode && h.point.track.series.ids && h.point.track.series.dataset)
+      const selectable = !!(h.point && st.excludeMode && canExclude(h.point.track))
       el.style.cursor = selectable ? 'pointer' : ''
 
       // подсказка
@@ -1247,13 +1251,17 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       st.down = null
       const moved = !d || Math.hypot(e.offsetX - d[0], e.offsetY - d[1]) > 4
       const h = st.current, p = h?.point
-      if (!moved && p && labelPicker.get() && p.track.series.look?.valueLabels) {
+      const action = clickAction({ moved, hover: !!h, boxActive: !!boxRef.current, labelPicker: labelPicker.get(), excludeMode: st.excludeMode,
+        point: p ? { excludable: canExclude(p.track), suspect: !!p.track.series.suspect, valueLabels: !!p.track.series.look?.valueLabels } : null })
+      if (action === 'label' && p) {
         st.pickPoint(p.track.series, p.track.src[p.k])
-      } else if (!moved && p && st.excludeMode && p.track.series.dataset && p.track.series.ids) {
-        const id = p.track.series.ids[p.track.src[p.k]]
-        if (id && p.track.series.suspect) suspectClick(st, p.track.series.dataset, id)
-        else if (id) st.onExclude(p.track.series.dataset, id)
-      } else if (!moved && h && !boxRef.current) {
+      } else if ((action === 'exclude' || action === 'suspect') && p) {
+        const id = p.track.series.ids![p.track.src[p.k]]
+        if (id && action === 'suspect') suspectClick(st, p.track.series.dataset!, id)
+        else if (id) st.onExclude(p.track.series.dataset!, id)
+      } else if (action === 'not-excludable') {
+        st.onNote?.('Эта точка расчётная (например, среднее по скважинам): исключать можно только замеры отдельных скважин и сами замеры в таблице «Ручной фильтр точек».')
+      } else if (action === 'pin' && h) {
         // щелчок закрепляет подсказку там, где она сейчас: у точки, у выделенной кривой или у курсора
         if (p) addPin(p.x, p.y, p.track.axis)
         else if (h.focus) addPin(h.focus.x, h.focus.y, h.focus.track.axis)
