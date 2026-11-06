@@ -104,6 +104,10 @@ def scripts_requirements(scripts, lock_names):
 
 def copy_scripts(scripts, folder):
     names = bp.tracked_files(scripts, SCRIPTS_INCLUDE)
+    have = set(names)
+    missing = sorted(n[:-len('package.json')] + 'dist' for n in names if n.endswith('/web/package.json') and n[:-len('package.json')] + 'dist/index.html' not in have)
+    if missing:  # интерфейс приложения не собран: в архив ушёл бы только Python, окно осталось бы старым
+        raise SystemExit('Не собран интерфейс (npm ci && npm run build): ' + ', '.join(missing))
     count = 0
     for name in names:
         dest = folder / name
