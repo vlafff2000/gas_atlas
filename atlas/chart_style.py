@@ -84,6 +84,10 @@ def _fill(raw: Any, what: str, spec: Mapping[str, Any]) -> dict[str, Any]:
             out[key] = value is True or str(value).lower() in ('1', 'true', 'да')
         elif kind == 'text':
             out[key] = str(value).strip()[:200]
+        elif kind == 'colors':
+            if not isinstance(value, (list, tuple)):
+                raise ParamError(f'{label}: список цветов вида #rrggbb')
+            out[key] = [_color(v, label) for v in value][:MAX_FRESH]
         elif kind == 'texts':
             out[key] = [str(v)[:40] for v in value][:MAX_PICK] if isinstance(value, (list, tuple)) else []
         elif isinstance(kind, tuple) and kind and kind[0] == 'num':
@@ -95,7 +99,9 @@ def _fill(raw: Any, what: str, spec: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+MAX_FRESH = 12     # цветов в палитре «по свежести»
 LABELS = {
+    'fresh_colors': 'цвета по свежести',
     'width': 'толщина', 'size': 'размер', 'opacity': 'прозрачность', 'shape': 'форма', 'dash': 'стиль линии',
     'color': 'цвет', 'markerColor': 'цвет маркеров', 'decimals': 'знаков после запятой', 'tick_size': 'размер подписей',
     'title_size': 'размер названия', 'font': 'шрифт', 'date_format': 'формат даты', 'title_font': 'шрифт заголовка',
@@ -143,7 +149,9 @@ CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'b
              'legend_background': 'color', 'grid_dash': DASHES, 'minor_grid_dash': DASHES, 'border_color': 'color',
              'border_width': ('num', 0.2, 6), 'plot_border_color': 'color', 'plot_border_width': ('num', 0.2, 6),
              # разряды чисел в файлах (80 000): включены по умолчанию, в оформлении хранится только выключение
-             'group_digits': 'bool'}
+             'group_digits': 'bool',
+             # цвета кривых по свежести: самая свежая — первый цвет, вторая — второй и т. д.; ручной цвет ряда главнее
+             'fresh_colors': 'colors'}
 
 
 def clean_look(raw: Any, index: int) -> dict[str, Any]:
@@ -344,10 +352,13 @@ def apply_format(chart: Chart, doc: Mapping[str, Any] | None, notes: list[Note] 
         style_axis(axis, spec, 'X' if name == 'x' else name.upper(), values, notes)
         out = dataclasses.replace(out, **{name: axis})
     looks = doc.get('series') or {}
-    if looks:
+    fresh = out.style.get('fresh_colors') or []
+    if looks or fresh:
         series = []
         for s in out.series:
             own = looks.get(series_key(s))
+            if fresh and s.age is not None and not (own or {}).get('color') and not (s.look or {}).get('color'):
+                own = {**(own or {}), 'color': fresh[s.age % len(fresh)]}
             if own:
                 look = {**(s.look or {}), **own}
                 s = dataclasses.replace(s, look=look, **({'opacity': look['opacity']} if 'opacity' in look else {}))
