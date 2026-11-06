@@ -106,8 +106,11 @@ export type HoverMode = 'smooth' | 'facts'
 
 const FACT_RADIUS = 32        // в режиме замеров кривая показывается, если её замер не дальше этого по x
 
+/** Точку этого ряда можно исключить: у ряда есть идентификаторы замеров и набор данных. */
+export const canExclude = (t: Track) => !!(t.series.ids && t.series.dataset)
+
 export function hover(tracks: Track[], view: View, px: number, py: number, scaleX: Axis['scale'],
-  scaleY: (axis: number) => Axis['scale'], mode: HoverMode = 'smooth'): Hover {
+  scaleY: (axis: number) => Axis['scale'], mode: HoverMode = 'smooth', excludable = false): Hover {
   const [dx] = view.fromPixel(px, py)
   const [dxR] = view.fromPixel(px + POINT_RADIUS, py)
   const [dxL] = view.fromPixel(px - POINT_RADIUS, py)
@@ -130,7 +133,11 @@ export function hover(tracks: Track[], view: View, px: number, py: number, scale
         const [qx, qy] = view.toPixel(xs[i], ys[i], t.axis)
         const d = Math.hypot(qx - px, qy - py)
         // при равном расстоянии сомнительная точка (оверлей поверх основного ряда) побеждает, иначе двойной щелчок не сработает
-        if (d <= POINT_RADIUS && (!point || d < point.distance || (d === point.distance && t.series.suspect))) point = { track: t, k: i, x: xs[i], y: ys[i], px: qx, py: qy, distance: d }
+        if (d > POINT_RADIUS) continue
+        // в режиме исключения замер (с ids и набором данных) важнее соседней расчётной отметки, иначе щелчок по замеру попадёт в расчётную кривую
+        const better = !point || (excludable && canExclude(t) !== canExclude(point.track) ? canExclude(t)
+          : d < point.distance || (d === point.distance && !!t.series.suspect))
+        if (better) point = { track: t, k: i, x: xs[i], y: ys[i], px: qx, py: qy, distance: d }
       }
     }
     // значение кривой под курсором
