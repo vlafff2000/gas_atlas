@@ -70,6 +70,16 @@ def period_colors(df,kind):
     values=df[df.kind.eq(kind)].groupby('period').date.max().sort_values(ascending=False).index
     return {p:COLORS[i%len(COLORS)] for i,p in enumerate(values)}
 
+def day_flags(d):
+    """Активные сутки и простой по ЧАСАМ РАБОТЫ: часы больше нуля — скважина в работе (даже если расхода нет: это проблемная скважина),
+    часы равны нулю — простой. Если часов в строке нет, как раньше: по расходу (больше нуля — активные, ноль — простой)."""
+    positive,zero=d.q.gt(0),d.q.eq(0)
+    if 'hours' in d:
+        known=d['hours'].notna()
+        positive=positive.where(~known,d['hours'].gt(0))
+        zero=zero.where(~known,d['hours'].le(0))
+    return positive,zero
+
 def curve_data(df,kind,selected_periods,wells):
     """X uses entire object for each selected period, irrespective of selected wells."""
     from atlas.engine.core.performance import index_for
@@ -102,7 +112,7 @@ def averages(df,kind,selected_periods,wells):
         a['value']=(a.total/a.active.replace(0,np.nan)/1000).fillna(0).where(~a.missing,np.nan)
         return a.reset_index().drop(columns=['total','records'])
     d=df[df.kind.eq(kind)&df.period.isin(selected_periods)&df.well.isin(wells)].copy()
-    d['positive']=d.q.gt(0); d['zero']=d.q.eq(0)
+    d['positive'],d['zero']=day_flags(d)
     if d.empty: return pd.DataFrame(columns=['well','period','value','active','zero','volume','missing'])
     a=d.groupby(['well','period']).agg(total=('q','sum'),active=('positive','sum'),zero=('zero','sum'),records=('q','size'))
     a=a.reindex(pd.MultiIndex.from_product([wells,selected_periods],names=['well','period']))
