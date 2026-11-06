@@ -157,7 +157,7 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
                                       [''] * len(data), gap_days)
             chart.series.append(Series(
                 'Пластовое давление объекта', x, yv, 'line',
-                color=OBJECT_COLOR, dash='solid', width=2.0, markers=True, ids=ids, dataset=OBJECT))
+                color=OBJECT_COLOR, dash='solid', width=2.0, markers=True, ids=ids))
     if dual:      # шкалы разнесены автоматически: кривая уровня стоит отдельной полосой, а не поверх давлений (charts.separated_ranges)
         apart = separated_ranges([v for s in chart.series if s.axis != 'y2' for v in s.y],
                                  [v for s in chart.series if s.axis == 'y2' for v in s.y], level_band)
@@ -309,7 +309,7 @@ class ResponseModule(Module):
         group='Контроль горизонтов',
         description='Сравнение скважин внутри горизонта; уровень и приведенное давление на одной диаграмме или отдельно.',
         needs=(RESPONSE,),
-        optional=(OBJECT, PRODUCTION, THERMO, FILLING, GEO, PACKS),      # эксплуатация — отметки смены режима; ГИС и положение скважин — замеры давления на глубине приведения
+        optional=(DatasetKind.PRESSURE_SURVEY, PRODUCTION, THERMO, FILLING, GEO, PACKS),      # эксплуатация — отметки смены режима; ГИС и положение скважин — замеры давления на глубине приведения
         order=40,
         save_label='Сохранить параметры графиков',
         params=(
@@ -381,10 +381,6 @@ class ResponseModule(Module):
             table = gis_point_table(data.raw[THERMO], data.excluded)
             if table is not None:
                 result.tables.append(table)
-        if OBJECT in data.raw:
-            table = object_point_table(data.raw[OBJECT], data.excluded)
-            if table is not None:
-                result.tables.append(table)
         return result
 
     @staticmethod
@@ -394,7 +390,7 @@ class ResponseModule(Module):
         pressure_horizons = set(ordered(raw.loc[raw.pressure.notna(), 'horizon'])) if 'pressure' in raw else set()
         palette = well_colors(sel.df.well)
         manometer = {str(w) for w in data.settings.get('manometer_wells', [])}
-        object_pressure = object_pressure_of(data, 'auto')[0]      # тот же источник, что в «Авторском надзоре»: столбец из БД, иначе опорная сетка
+        object_pressure = object_pressure_of(data)[0]      # единый способ: среднее по скважинам с ГСП из «БД давлений по замерам»
         column = 'horizon' if split == 'horizon' else 'well'
         sets = ({'Все выбранные': f} if split == 'all' else    # естественный порядок: 31, 45, 132
                 {label: f[f[column].astype(str).eq(label)] for label in ordered(f[column])})

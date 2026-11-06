@@ -12,7 +12,7 @@ from . import well_funds
 from .api_passport import _endpoint
 from .contract import ParamError
 from .engine.core.config import natural_key
-from .modules.an_report import reference_pressure
+from .modules.an_report import survey_pressure
 from .projects import Projects
 from . import well_filter, well_sets
 
@@ -35,9 +35,9 @@ def project_presets(projects: Projects, pid: str) -> list[dict]:
     labels = dict(well_funds.FUNDS)
     out += [{'id': f'fund:{fund}', 'kind': 'fund', 'label': labels.get(fund, fund), 'wells': sorted(wells, key=natural_key)}
             for fund, wells in by_fund.items()]
-    grid, _label = reference_pressure(data, 'auto')
+    grid = survey_pressure(data)
     if grid is not None and not grid.empty:
-        out.append({'id': 'grid', 'kind': 'grid', 'label': 'Замерная сетка (опорная)',
+        out.append({'id': 'grid', 'kind': 'grid', 'label': 'Замерная сетка (БД давлений по замерам, с ГСП)',
                     'wells': sorted(grid.well.astype(str).unique(), key=natural_key)})
     return [p for p in out if p['wells']]
 

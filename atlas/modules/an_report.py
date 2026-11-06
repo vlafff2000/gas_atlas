@@ -33,8 +33,8 @@ from . import an_annulus, an_charts, an_wells
 from ._production import KINDS, NEUTRAL_PREFIXES, group_of, periods_of, visible_periods
 from .plan_fact import UNIT, PlanFactModule, compare as plan_compare, month_label, plan_periods, summed as plan_summed
 
-PRODUCTION, OBJECT, FACTOR = DatasetKind.PRODUCTION, DatasetKind.OBJECT_PRESSURE, DatasetKind.WATER_FACTOR
-ANNULUS, RESPONSE, MATCH = DatasetKind.ANNULUS, DatasetKind.RESPONSE, DatasetKind.PRESSURE_MATCH
+PRODUCTION, FACTOR = DatasetKind.PRODUCTION, DatasetKind.WATER_FACTOR
+ANNULUS = DatasetKind.ANNULUS
 PLAN, WATER = DatasetKind.PLAN, DatasetKind.WATER
 Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
@@ -109,50 +109,45 @@ def pressure_near(pressure: pd.DataFrame | None, when: Any) -> float | None:
     return float(p.loc[gap.idxmin(), 'pressure'])
 
 
-REFERENCE_LABELS = {'grid': 'реагирование, давление (пересчёт)', 'match': 'кроссплот, факт'}
+SURVEY = DatasetKind.PRESSURE_SURVEY
 
 
-def reference_pressure(data: Data, source: str) -> tuple[pd.DataFrame | None, str]:
-    """Замеры опорной сетки (одна скважина — одна группа): well, date, pressure, scope — одно давление на скважину и дату.
+def survey_pressure(data: Data) -> pd.DataFrame | None:
+    """Рпл эксплуатационных скважин из «БД давлений по замерам»: well, date, pressure, scope (группа в едином написании).
 
-    ``source``: «grid» — «Реагирование», давление (пересчёт по уровню); «match» — «Кроссплот давлений», факт;
-    «auto» — сначала «grid», иначе «match». Скважины без группы в схеме проекта не попадают в сетку.
-    Второй результат — подпись взятого источника (пусто, если замеров нет)."""
-    for name in (('grid', 'match') if source == 'auto' else (source,)):
-        key, column = (MATCH, 'fact') if name == 'match' else (RESPONSE, 'pressure')
-        if key not in data or column not in data[key]:
-            continue
-        d = data[key][['well', 'date', column]].dropna(subset=[column])
-        if d.empty:
-            continue
-        d = d.assign(well=d.well.astype(str)).groupby(['well', 'date'], as_index=False)[column].mean()
-        d = d.rename(columns={column: 'pressure'})
-        d['scope'] = d.well.map(well_scopes(data.mapping, ordered(d.well.unique())))
-        d = d[d.scope.ne(GROUP_NONE)].reset_index(drop=True)
-        if not d.empty:
-            return d, REFERENCE_LABELS[name]
-    return None, ''
+    Берутся только строки с Рпл и с указанной ГСП: скважина без ГСП — не эксплуатационная (наблюдательная), в среднее не входит."""
+    if SURVEY not in data or not {'well', 'date', 'p_res', 'group'} <= set(data[SURVEY].columns):
+        return None
+    d = data[SURVEY][['well', 'date', 'p_res', 'group']].dropna(subset=['p_res']).copy()
+    d['group'] = d['group'].fillna('').astype(str).str.strip()
+    d = d[d.group.ne('')]
+    if d.empty:
+        return None
+    d['well'] = d.well.astype(str)
+    d['scope'] = unified_names(d.group)
+    d = d.groupby(['well', 'date', 'scope'], as_index=False).p_res.mean().rename(columns={'p_res': 'pressure'})
+    return d.reset_index(drop=True)
 
 
-def grid_object_pressure(reference: pd.DataFrame) -> pd.DataFrame:
-    """Давление объекта по опорной сетке: среднее по группам на дату, каждая группа с одинаковым весом. Колонки — date, pressure."""
-    by_group = reference.groupby(['scope', 'date'], as_index=False).pressure.mean()
-    return by_group.groupby('date', as_index=False).pressure.mean()
+def survey_object_pressure(reference: pd.DataFrame) -> pd.DataFrame:
+    """Единственный способ среднего пластового давления: на каждую дату замера — среднее по скважинам, у которых в эту дату есть замер.
+    Колонки — date, pressure, wells (число скважин в среднем)."""
+    return reference.groupby('date', as_index=False).agg(pressure=('pressure', 'mean'), wells=('well', 'nunique'))
 
 
-def object_pressure_of(data: Data, source: str) -> tuple[pd.DataFrame | None, pd.DataFrame | None, str]:
-    """Давление объекта по выбранному источнику: (давление объекта или None, опорная сетка или None, подпись источника).
+def object_pressure_of(data: Data, source: str | None = None) -> tuple[pd.DataFrame | None, pd.DataFrame | None, str]:
+    """Среднее пластовое давление объекта: (давление или None, замеры по скважинам с ГСП или None, подпись источника).
 
-    «auto» берёт столбец «Давление объекта» из БД, если он загружен, иначе среднее по опорной сетке; «object» — только столбец;
-    «grid» и «match» — только опорная сетка своего вида. Опорная сетка строится всегда, кроме «object»: нужна для графика по группам."""
-    column = data[OBJECT] if OBJECT in data else None
-    reference, ref_label = (None, '') if source == 'object' else reference_pressure(data, source)
-    if source == 'object' or (source == 'auto' and column is not None):
-        return column, reference, 'столбец «Давление объекта» из БД'
+    Способ один: «БД давлений по замерам», среднее по эксплуатационным скважинам (с ГСП) на каждую дату замера. ``source`` оставлен
+    для совместимости со старыми сохранёнными настройками и не используется."""
+    reference = survey_pressure(data)
     if reference is None:
         return None, None, ''
-    return grid_object_pressure(reference), reference, \
-        f'опорная сетка ({ref_label}): {reference.well.nunique()} скв. в {reference.scope.nunique()} группах'
+    pressure = survey_object_pressure(reference)
+    low, high = int(pressure.wells.min()), int(pressure.wells.max())
+    count = f'{low}' if low == high else f'от {low} до {high}'
+    return pressure, reference, (f'«БД давлений по замерам», среднее по эксплуатационным скважинам (с ГСП): всего '
+                                 f'{reference.well.nunique()} скв., на дату замеры у {count}')
 
 
 def neutral_days_before(prod: pd.DataFrame, start: Any) -> int | None:
@@ -361,10 +356,6 @@ VIEWS = (Option('canvas', 'Ряды по суткам'), Option('curve', 'Рас
          Option('group_months', 'Накопленный объём по месяцам, одна группа'))
 
 
-PRESSURE_SOURCES = (Option('auto', 'Авто: столбец «Давление объекта», иначе опорная сетка'),
-                    Option('object', 'Столбец «Давление объекта» из БД'),
-                    Option('grid', 'Опорная сетка: реагирование, давление (пересчёт)'),
-                    Option('match', 'Опорная сетка: кроссплот, факт'))
 CLASS_CHARTS = (Option('none', 'Только таблица классов (номера скважин)'),
                 Option('dot', 'График с таблицей под ним: узкие сегменты — точки (сколько скважин, столько точек)'))
 MONTH_CHARTS = (Option('none', 'Нет'), Option('table', 'График с таблицей по группам под ним'))
@@ -379,7 +370,7 @@ class AuthorReportModule(Module):
         group='Авторский надзор',
         description='Статистика сезона для глав отчёта АН: даты, нейтральный период, средние по объекту и группам, пик, вода.',
         needs=(PRODUCTION,),
-        optional=(OBJECT, FACTOR, PLAN, WATER, ANNULUS, RESPONSE, MATCH),
+        optional=(SURVEY, FACTOR, PLAN, WATER, ANNULUS),
         order=110,
         save_label='Сохранить вид',
         params=(
@@ -410,8 +401,6 @@ class AuthorReportModule(Module):
             Param('month_chart', 'Работавшие по месяцам (табл. 1.4)', 'choice', default='table', section='Вид', chart_kind=True,
                   options=MONTH_CHARTS, help='Для отбора и закачки. Добавляет таблицу «Работавшие скважины по месяцам» и график к ней: '
                   'работавшие и простаивавшие скважины объекта по месяцам сезона, под графиком — таблица по группам.'),
-            Param('pressure_source', 'Давление объекта', 'choice', default='auto', section='Выбор данных',
-                  options=PRESSURE_SOURCES, help='Откуда берётся Рпл объекта и динамика по группам. «Авто» — столбец БД, иначе опорная сетка.'),
             Param('group_x', 'Ось X пластового давления по группам', 'choice', default='date', section='Вид',
                   options=(Option('date', 'Дата'), Option('cumulative', 'Накопленный отбор объекта за сезон')),
                   help='Как в «Производительности скважин» и в анализе ГДИ: по дате или по накопленному отбору объекта с начала сезона.'),
@@ -449,14 +438,13 @@ class AuthorReportModule(Module):
     def run(self, data: Data, params: dict[str, Any]) -> Result:
         result = Result()
         kind = params['kind']
-        source = params.get('pressure_source') or 'auto'
-        pressure, reference, source_label = object_pressure_of(data, source)
+        pressure, reference, source_label = object_pressure_of(data)
         if pressure is None:
-            result.notes.append(Note('Давление объекта не построено: нет столбца «Давление объекта» и замеров опорной сетки. '
-                                     'Загрузите «Давление объекта» или замеры по скважинам с группами.', 'warning'))
+            result.notes.append(Note('Давление объекта не построено: нет «БД давлений по замерам» с Рпл эксплуатационных скважин (с ГСП). '
+                                     'Загрузите «БД давлений по замерам».', 'warning'))
         else:
             result.notes.append(Note(f'Давление объекта: {source_label}.'))
-        if source != 'object' and reference is None:
+        if reference is None:
             result.notes.append(Note('Опорная сетка: замеров давления по скважинам с группой нет — график по группам пропущен.'))
         water = water_table(data[FACTOR]) if FACTOR in data and not data[FACTOR].empty else None
         if kind == 'withdrawal' and water is None:
