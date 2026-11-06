@@ -33,7 +33,7 @@ POINT_BUDGET = 20000          # как в 5.8: бюджет точек на гр
 POINT_TABLE_LIMIT = 20000     # строк в таблице ручного фильтра
 Q_UNIT = 'тыс. м³/сут'
 
-AVERAGES_NOTE = ('Средний расход — по дням с положительным расходом. Накопленный объем считается по всему объекту. '
+AVERAGES_NOTE = ('Активные дни и простой считаются по часам работы (часы больше нуля — скважина в работе, даже без расхода); если часов нет — по расходу. Средний расход — по активным дням. Накопленный объем считается по всему объекту. '
                  'Пропущенные даты не считаются простоями.')
 CURVE_NOTE = ('Накопление по всему загруженному объекту в пределах периода. Подсказки отмечают пропуски. '
               'Экспорт использует все исходные точки.')
@@ -492,7 +492,8 @@ def without_group_off_zeros(sel: Selection, a: pd.DataFrame) -> pd.DataFrame:
     """«Нулевых записей» без суток, когда вся группа была не в работе: это остановка группы, а не простой скважины."""
     if sel.params.get('groupoff', 'hide') != 'hide' or a.empty:
         return a
-    d = sel.df[sel.df.kind.eq(sel.kind) & sel.df.period.isin(sel.periods) & sel.df.well.isin(set(a.well)) & sel.df.q.eq(0)]
+    d = sel.df[sel.df.kind.eq(sel.kind) & sel.df.period.isin(sel.periods) & sel.df.well.isin(set(a.well))]
+    d = d[legacy.day_flags(d)[1]]
     if d.empty:
         return a
     d = d[group_off(sel, d.well, d.date)]
@@ -575,7 +576,7 @@ def summary(sel: Selection, ws: list[str], averages: pd.DataFrame) -> list[Stat]
         Stat('Режим', kind_label(sel.kind)),
         period_stat(ordered_periods),
         Stat('Средний расход', '—' if pd.isna(mean) else f'{mean:.2f}'.replace('.', ',') + ' ' + Q_UNIT,
-             'Среднее средних по скважинам и периодам; дни с положительным расходом'),
+             'Среднее средних по скважинам и периодам; активные дни (по часам работы)'),
         Stat('Исключено точек', str(excluded), 'В выбранных скважинах и периодах'),
     ]
 

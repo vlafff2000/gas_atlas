@@ -43,8 +43,9 @@ class FrameIndex:
                 calendar=pd.date_range(lo,hi)
                 cumulative=bucket.groupby('date').q.sum().reindex(calendar,fill_value=0).cumsum()/1e6
                 self.buckets[(kind,period)]=(calendar,cumulative.to_numpy(),bucket.well.drop_duplicates().tolist())
-        tmp=df[['kind','well','period','q']].copy()
-        tmp['positive']=tmp.q.gt(0);tmp['zero']=tmp.q.eq(0)
+        from atlas.engine.modules.production import day_flags
+        tmp=df[['kind','well','period','q']+(['hours'] if 'hours' in df else [])].copy()
+        tmp['positive'],tmp['zero']=day_flags(tmp)
         self.stats=tmp.groupby(['kind','well','period']).agg(total=('q','sum'),active=('positive','sum'),zero=('zero','sum'),records=('q','size'))
 
     def __deepcopy__(self,memo):
