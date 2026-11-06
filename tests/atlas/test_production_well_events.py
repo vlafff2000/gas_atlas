@@ -59,3 +59,35 @@ def test_pressure_overlay_shares_elpro_pressure_axis():
     assert [name for name, _ in alone.right_axes()] == ['y2'] and alone.series[1].x[0] == alone.series[0].x[3]   # по накопленному объёму — на дате замера
     assert axis_names(['pres', 'p']) == {'p': 'y2', 'pres': 'y2'}
     assert picked_extras(['hours', 'cru', 'p', 't', 'pres']) == ['hours', 'cru', 'p', 't', 'pres']
+
+
+def test_group_off_days_are_not_idle_days():
+    """Сутки, когда вся группа без часов и расхода (не пущена, остановлена), — не простой и не «нет записи»; решение за инженером."""
+    from atlas.modules._production import averages_table
+    dates = pd.date_range('2025-06-01', periods=10)
+    rows = []
+    for well in ('101', '102'):
+        for i, day in enumerate(dates):
+            idle_group = i >= 8 or i == 0                    # первые и последние сутки вся группа стоит (нули)
+            lone_zero = well == '102' and i == 4             # а здесь простаивает одна скважина
+            q, h = (0.0, 0.0) if idle_group or lone_zero else (1000.0 * (i + 1), 24.0)
+            rows.append({'well': well, 'date': day, 'q': q, 'hours': h, 'kind': 'withdrawal', 'period': '2025', 'file': 'f',
+                         'sheet': 's', '_row': i, '_point_id': f'{well}{i}'})
+    prod = pd.DataFrame(rows)
+    # у скважины 101 нет строки в сутки 5: записи нет, но группа работает (102 в работе) — это «нет записи», не остановка
+    prod = prod[~((prod.well == '101') & (prod.date == dates[5]))]
+    s = sel(periods=('2025',))
+    s.df = prod
+    s.mapping = {'101': {'group': 'ГСП 4'}, '102': {'group': 'ГСП 4'}}
+    chart = curve_chart(s, ['101', '102'], 'date')
+    gaps = [x for x in chart.series if x.name.startswith('Нет записи')]
+    assert len(gaps) == 1 and gaps[0].name.endswith('1 сут')               # только день 5 у скважины 101
+    line = next(x for x in chart.series if x.name.startswith('№ 102'))
+    assert np.isnan(np.asarray(line.y, float)[[0, 8, 9]]).all() and line.y[4] == 0   # остановка группы — разрыв, простой скважины — 0
+    assert getattr(s, 'group_off_days', None) is not None
+    zero = averages_table(s, ['102']).frame.set_index('well').zero['102'].sum()
+    assert zero == 1                                                       # считается только простой одной скважины
+    s.params = {**s.params, 'groupoff': 'show'}
+    s._work_days = None
+    shown = curve_chart(s, ['101', '102'], 'date')
+    assert np.asarray(next(x for x in shown.series if x.name.startswith('№ 102')).y, float)[0] == 0

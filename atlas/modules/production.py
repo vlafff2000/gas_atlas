@@ -55,6 +55,11 @@ class ProductionModule(ProductionBase):
                 Option('curve', 'Q / накопленный объем объекта'), Option('time', 'Q / дата'))),
             Param('direction', 'Порядок скважин', 'choice', default='number', options=DIRECTIONS,
                   section=SECTION_VIEW, show_if=INDIVIDUAL),
+            Param('groupoff', 'Дни, когда вся группа не работала', 'choice', default='hide', section=SECTION_VIEW, show_if=INDIVIDUAL,
+                  options=(Option('hide', 'Не считать простоем скважин'), Option('show', 'Показывать как простой')),
+                  help='Если за дату у всей группы нет ни часов работы, ни расхода (не пущена в начале сезона или остановлена в конце), '
+                       'это остановка группы, а не простой скважины: «нет записи» и нулевой расход на эти даты не показываются, '
+                       'в «Нулевых записях» они не считаются. Подсказка программы: выберите «Показывать как простой», если решите иначе'),
             Param('elpro', 'Ряды ЭЛПРО на графике', 'multi', default=[], options=tuple(Option(k, n) for k, n in ELPRO_EXTRAS),
                   section=SECTION_VIEW, show_if=INDIVIDUAL, requires_dataset='elpro',
                   help='Каждый ряд — на своей оси справа (до четырёх), со своим цветом. Пропуск в ЭЛПРО — разрыв линии. '
@@ -116,6 +121,12 @@ class ProductionModule(ProductionBase):
                 'точки, выгрузки и таблицы содержат все данные.'.replace(',', ' '), 'warning'))
         result.charts.append(curve_chart(sel, ws, 'date' if params['view'] == 'time' else 'cumulative'))
         result.notes.append(Note(CURVE_NOTE))
+        off = getattr(sel, 'group_off_days', None)
+        if off is not None and len(off):
+            result.notes.append(Note(
+                f'Дни, когда вся группа была без часов работы и расхода (не пущена или остановлена), не показаны как простой: '
+                f'у {len(off)} скв. от {int(off.min())} до {int(off.max())} сут. Решение за инженером: параметр «Дни, когда вся группа '
+                'не работала» → «Показывать как простой».'))
         self.common_tables(result, sel, ws)
         return result
 
