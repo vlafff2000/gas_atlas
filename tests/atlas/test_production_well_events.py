@@ -91,3 +91,13 @@ def test_group_off_days_are_not_idle_days():
     s._work_days = None
     shown = curve_chart(s, ['101', '102'], 'date')
     assert np.asarray(next(x for x in shown.series if x.name.startswith('№ 102')).y, float)[0] == 0
+
+
+def test_gis_annotation_events_on_q_chart_and_response():
+    from atlas.modules._events import annotation_events
+    ann = pd.DataFrame({'well': ['101', '101', '202'], 'date': pd.to_datetime(['2025-06-03'] * 3),
+                        'pack': [None, 'А', None], 'kind': ['Ремонт', 'Ремонт', 'Остановка'], 'text': ['т'] * 3})
+    ev = annotation_events(ann, ['101'])
+    assert [e.label for e in ev] == ['ГИС: Ремонт · № 101'] and ev[0].kind == 'gis' and ev[0].well == '101'
+    s = sel({K.GIS_ANNOTATIONS: ann})
+    assert [e.label for e in curve_chart(s, ['101'], 'date').events if 'Ремонт' in e.label] == ['ГИС: Ремонт · № 101']

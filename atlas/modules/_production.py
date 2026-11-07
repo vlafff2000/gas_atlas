@@ -21,7 +21,7 @@ from ..thinning import screen_decimate
 from ..contract import Axis, Chart, Column, Data, Module, Note, Option, Result, Series, Stat, Table, TableAction
 from ..domain import DatasetKind
 from ._group_charts import object_days
-from ._events import gdi_events, gis_events, krs_events, on_cumulative, regime_events, template_events
+from ._events import annotation_events, gdi_events, gis_events, krs_events, on_cumulative, regime_events, template_events
 from ._elpro_series import COLOR, LABEL, axis_names, daily_values, extra_axis, hours_values, picked_extras, pressure_points
 
 PRODUCTION, GDI, ELPRO = DatasetKind.PRODUCTION, DatasetKind.GDI, DatasetKind.ELPRO
@@ -106,6 +106,7 @@ class Selection:
         self.gdi = data[GDI] if GDI in data else None      # даты ГДИ — отметки на графике по дате
         self.elpro = data[ELPRO] if ELPRO in data else None  # ряды ЭЛПРО: КРУ, давление, температура
         self.bottom = data[BOTTOM] if BOTTOM in data else None      # шаблонирование — замеры забоя с диаметром шаблона
+        self.annotations = data[DatasetKind.GIS_ANNOTATIONS] if DatasetKind.GIS_ANNOTATIONS in data else None
         self.gis = data[GIS_OBS] if GIS_OBS in data else None       # замеры ГИС («База ГИС»)
         self.krs = data[KRS] if KRS in data else None               # проведённые КР (только год)
         self.pressures = data[PRESSURE_DB] if PRESSURE_DB in data else None   # замеры пластового давления
@@ -209,7 +210,7 @@ def well_events(sel: Selection, ws: list[str], data: pd.DataFrame, by_cumulative
     Несколько сезонов: событие показывается, только если его дата попала в один из выбранных сезонов (между сезонами отметок нет);
     по накопленному объёму оно ложится на кривую своего сезона. Виды событий включаются в легенде графика."""
     start, end = data.date.min(), data.date.max()
-    events = (gdi_events(sel.gdi, ws, start, end) + gis_events(sel.gis, ws, start, end)
+    events = (gdi_events(sel.gdi, ws, start, end) + gis_events(sel.gis, ws, start, end) + annotation_events(sel.annotations, ws, start, end)
               + krs_events(sel.krs, ws, start, end) + template_events(sel.bottom, ws, start, end))
     spans = [(g.date.min(), g.date.max()) for _, g in data.groupby('period', sort=False)]
     events = [e for e in events if any(a <= pd.Timestamp(e.x) <= b for a, b in spans)]
