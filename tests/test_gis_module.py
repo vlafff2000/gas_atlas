@@ -628,3 +628,24 @@ def test_an_results_table_shows_kg_as_written_and_math_uses_number():
     table = next(t for t in res.tables if t.id == 'gis-an-5-4')
     kg = [v for c in table.frame.columns if c.endswith('_kg') for v in table.frame[c] if v == v and v is not None]
     assert '<20%' in kg and 62.0 in kg                       # текст как в отчёте; остальные — числом в процентах
+
+
+def _an_annotations():
+    return pd.DataFrame({
+        'well': ['4', '1', '1'], 'date': pd.to_datetime(['2025-03-31', '2024-10-20', '2024-10-20']),
+        'pack': ['верхняя', None, 'верхняя'], 'kind': ['ГВК не достигнут (исследованиями не охвачен)', 'Ремонт', 'Заглинизированный прослой'],
+        'text': ['т', 'т', 'т'], 'from_m': [None, None, 777.5], 'to_m': [None, None, 778.0]})
+
+
+def test_an_comparison_table_has_gis_comments_column():
+    res = GisModule().run({GIS: _an_packs(), INTERVALS: _an_intervals(), DatasetKind.GIS_ANNOTATIONS: _an_annotations()}, _params(view='an'))
+    comp = res.tables[1]
+    assert 'Комментарии ГИС' in [c.label for c in comp.columns]
+    rows = comp.frame.set_index('well')
+    assert 'нет замера' in rows.loc['4', 'note'] and 'ГВК не достигнут' in rows.loc['4', 'gis_note']     # причина пустой ячейки
+    assert 'Ремонт' in rows.loc['1', 'gis_note'] and 'закачка 2024 г.:' in rows.loc['1', 'gis_note'] and 'Заглинизированный прослой 777,5–778 м' in rows.loc['1', 'gis_note']
+
+
+def test_an_without_annotations_has_no_gis_comments_column():
+    comp = _an().tables[1]
+    assert 'gis_note' not in comp.frame.columns
