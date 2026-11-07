@@ -248,6 +248,16 @@ def load_base(path, target, spec, libs):
 ALWAYS_IN_UPDATE = {'pillow', 'pypdfium2', 'cryptography', 'cffi', 'pycparser', 'pdfminer-six', 'pdfplumber', 'charset-normalizer', 'defusedxml', 'odfpy'}
 
 
+def fit_to_installed(line, installed):
+    """Строка библиотеки под уже установленные версии базы. cryptography 46+ требует cffi>=2, а в базе (Windows) закреплён cffi 1.x:
+    без ограничения pip берёт последнюю cryptography и не находит решения. cryptography 45 работает с cffi 1.17 и есть в колёсах win_amd64 и manylinux2014."""
+    if norm(line) == 'cryptography':
+        cffi = str(installed.get('cffi', ''))
+        if cffi and int(re.match(r'\d+', cffi).group(0)) < 2:
+            return 'cryptography<46'
+    return line
+
+
 def add_new_libraries(spec, libs, base, site, workdir, always=ALWAYS_IN_UPDATE):
     """Ставит только новые библиотеки. Уже установленные закреплены на своих версиях (constraints), поэтому
     новая библиотека не может молча заменить старую. Возвращает список добавленных пакетов и кладёт их файлы в site."""
@@ -256,6 +266,7 @@ def add_new_libraries(spec, libs, base, site, workdir, always=ALWAYS_IN_UPDATE):
     new = [line for line in libs if line not in known or norm(re.match(r'[A-Za-z0-9._-]+', line).group(0)) in forced]
     if not new:
         return []
+    new = [fit_to_installed(line, base['installed']) for line in new]
     constraints = workdir / 'constraints.txt'
     constraints.write_text(''.join('%s==%s\n' % (key, version) for key, version in sorted(base['installed'].items())), encoding='utf-8')
     reqs = workdir / 'new.txt'

@@ -89,3 +89,25 @@ def test_update_always_carries_ocr_libraries_even_if_base_has_them(tmp_path, mon
     assert added == ['pypdfium2==5.0.0']
     assert 'pypdfium2' in seen['reqs'] and 'six' not in seen['reqs']
     assert (tmp_path / 'out_site' / 'pypdfium2' / '__init__.py').is_file()
+
+
+def test_update_limits_cryptography_when_base_has_old_cffi(tmp_path, monkeypatch):
+    """Баг: лёгкий архив Windows падал, pip брал cryptography 50 (нужен cffi>=2), а в базе cffi==1.17.1 закреплён."""
+    libs = ['six==1.17.0', 'cryptography']
+    manifest = write_manifest(tmp_path / 'base.json', ['six==1.17.0'], {'six': '1.17.0', 'cffi': '1.17.1', 'pycparser': '2.23'})
+    base = bu.load_base(manifest, 'linux', PY, ['six==1.17.0'])
+    seen = {}
+
+    def fake_pip(command):
+        seen['reqs'] = Path(command[command.index('-r') + 1]).read_text(encoding='utf-8')
+        return 1
+
+    monkeypatch.setattr(bu.subprocess, 'call', fake_pip)
+    with pytest.raises(SystemExit):
+        bu.add_new_libraries({'platforms': []}, libs, base, tmp_path / 'out_site', tmp_path)
+    assert 'cryptography<46' in seen['reqs'].split()
+    base['installed']['cffi'] = '2.0.0'            # cffi новый: ограничение не нужно
+    (tmp_path / 'again').mkdir()
+    with pytest.raises(SystemExit):
+        bu.add_new_libraries({'platforms': []}, libs, base, tmp_path / 'out_site2', tmp_path / 'again')
+    assert 'cryptography<46' not in seen['reqs'].split()
