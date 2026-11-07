@@ -152,6 +152,7 @@ export type FigureData =
       well: string; top: number; bottom: number; cutoff: number; alt: number | null; axis: 'md' | 'abs'; perf: { top: number; bottom: number }[]
       tracks: { title: string; date: string
         bars: { top: number; bottom: number; kg: number | null; pack: string; gas: boolean }[]
+        notes?: { kind: string; pack: string; top: number | null; bottom: number | null }[]        // пометки отчётов ГИС на дату замера: с интервалом — рамка на треке, без — строка внизу
         packs: { pack: string; gvk: number | null; gvk_abs: number | null; h_eff: number | null; kg_avg: number | null }[] }[] } }
 export interface Chart {
   id: string; title: string; x: Axis; y: Axis; y2: Axis | null; y3?: Axis | null; y4?: Axis | null; y5?: Axis | null; series: Series[]; crosshair: boolean

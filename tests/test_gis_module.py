@@ -680,3 +680,16 @@ def test_planshet_view_lists_gis_comments_table_for_chosen_wells():
     assert table.frame['well'].tolist() == ['1'] and table.frame.loc[0, 'kind'] == 'Ремонт'
     none = GisModule().run({GIS: _an_packs(), INTERVALS: _an_intervals()}, _params(view='planshet', wells=['1'], seasons=[], depth_axis='md'))
     assert all(t.id != 'gis-well-comments' for t in none.tables)
+
+
+def test_planshet_tracks_carry_gis_notes_for_the_track_date():
+    ann = pd.DataFrame({'well': ['1', '1', '1'], 'date': pd.to_datetime(['2024-10-20', '2024-10-20', '2024-03-30']),
+                        'pack': ['верхняя', None, None], 'kind': ['Заглинизированный прослой', 'Ремонт', 'Старая'], 'text': ['т'] * 3,
+                        'from_m': [777.5, None, None], 'to_m': [778.0, None, None]})
+    res = GisModule().run({GIS: _an_packs(), INTERVALS: _an_intervals(), DatasetKind.GIS_ANNOTATIONS: ann},
+                          _params(view='planshet', wells=['1'], seasons=[], depth_axis='md'))
+    tracks = res.charts[0].figure.data['tracks']
+    autumn = next(t for t in tracks if t['date'] == '20.10.2024')
+    assert {(n['kind'], n['top'], n['bottom']) for n in autumn['notes']} == {('Заглинизированный прослой', 777.5, 778.0), ('Ремонт', None, None)}
+    spring = next(t for t in tracks if t['date'] == '30.03.2024')
+    assert [n['kind'] for n in spring['notes']] == ['Старая']

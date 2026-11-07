@@ -149,8 +149,21 @@ def perforation(well: str, packs: pd.DataFrame | None, geo: pd.DataFrame | None,
     return [{'top': top, 'bottom': low}], f'Перфорация скв. {well}: {found[2]}, {PERF_SOURCES[mode]}'
 
 
+def _track_notes(annotations: pd.DataFrame | None, well: str, date) -> list[dict]:
+    """Пометки отчётов ГИС на дату замера трека: вид, пачка и интервал (MD, если указан). Только подсказка."""
+    if annotations is None or annotations.empty or pd.isna(date):
+        return []
+    d = annotations[(annotations['well'].astype(str) == well) & (annotations['date'] == date)]
+    out = []
+    for _, r in d.iterrows():
+        pack = r.get('pack')
+        out.append({'kind': str(r['kind']).strip(), 'pack': '' if pack is None or pd.isna(pack) else str(pack),
+                    'top': _num(r.get('from_m')), 'bottom': _num(r.get('to_m'))})
+    return out
+
+
 def planshet_chart(well: str, intervals: pd.DataFrame, packs: pd.DataFrame | None, geo: pd.DataFrame | None,
-                   labels: list[str], axis: str = 'md', perf_mode: str = 'abs') -> Chart | None:
+                   labels: list[str], axis: str = 'md', perf_mode: str = 'abs', annotations: pd.DataFrame | None = None) -> Chart | None:
     """Планшет ГИС скважины по выбранным сезонам; None — по скважине нет замеров с интервалами."""
     cut = seasons_of.seasoned(intervals, keep=True)
     cut = cut[cut['season'].isin(labels)]
@@ -179,7 +192,7 @@ def planshet_chart(well: str, intervals: pd.DataFrame, packs: pd.DataFrame | Non
                     top, low = min(top, depth), max(low, depth)
         date = part['date'].max()
         tracks.append({'title': seasons_of.name_of(label), 'date': date.strftime('%d.%m.%Y') if pd.notna(date) else '',
-                       'bars': bars, 'packs': marks})
+                       'bars': bars, 'packs': marks, 'notes': _track_notes(annotations, well, date)})
     perf, perf_note = perforation(well, pk, geo, alt, perf_mode)
     for p in perf:
         top, low = min(top, p['top']), max(low, p['bottom'])

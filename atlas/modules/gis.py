@@ -329,7 +329,8 @@ class GisModule(Module):
             result.notes.append(Note('В таблице интервалов нет замеров с датой.'))
             return result
         for well in wells:
-            chart = gis_well.planshet_chart(well, data[INTERVALS], data[GIS], data.get(DatasetKind.WELL_GEO), labels, params.get('depth_axis', 'md'), params.get('perf_depth', 'abs'))
+            chart = gis_well.planshet_chart(well, data[INTERVALS], data[GIS], data.get(DatasetKind.WELL_GEO), labels, params.get('depth_axis', 'md'), params.get('perf_depth', 'abs'),
+                                             data.get(ANNOTATIONS) if params.get('gis_notes', True) else None)
             if chart is not None:
                 result.charts.append(chart)
         if not result.charts:
