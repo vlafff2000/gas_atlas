@@ -253,26 +253,35 @@ def add_new_libraries(spec, libs, base, site, workdir, always=ALWAYS_IN_UPDATE):
     новая библиотека не может молча заменить старую. Возвращает список добавленных пакетов и кладёт их файлы в site."""
     known = set(base['requirements'])
     forced = {norm(name) for name in always}
-    new = [line for line in libs if line not in known or norm(re.match(r'[A-Za-z0-9._-]+', line).group(0)) in forced]
-    if not new:
+    new = [line for line in libs if line not in known]
+    # уже стоящие в полном архиве библиотеки из ALWAYS_IN_UPDATE: ставятся на тех же версиях и БЕЗ зависимостей (как в полном архиве;
+    # иначе pip спорит с закреплёнными версиями: cryptography требует cffi>=2, а в Windows-базе закреплён cffi 1.17.1)
+    again = [line for line in libs if line in known and norm(re.match(r'[A-Za-z0-9._-]+', line).group(0)) in forced]
+    if not new and not again:
         return []
     constraints = workdir / 'constraints.txt'
     constraints.write_text(''.join('%s==%s\n' % (key, version) for key, version in sorted(base['installed'].items())), encoding='utf-8')
     reqs = workdir / 'new.txt'
     reqs.write_text('\n'.join(new) + '\n', encoding='utf-8')
+    reqs_again = workdir / 'again.txt'
+    reqs_again.write_text('\n'.join(again) + '\n', encoding='utf-8')
     wheels = workdir / 'wheels'
     wheels.mkdir()
-    for line in new:
+    for line in new + again:
         if norm(re.match(r'[A-Za-z0-9._-]+', line).group(0)) in bp.SDIST_ONLY:
             subprocess.check_call([sys.executable, '-m', 'pip', 'wheel', '--disable-pip-version-check', '--no-deps', '--use-pep517',
                                    '-w', str(wheels), line])
     tmp_site = workdir / 'site'
-    command = [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-compile', '--target', str(tmp_site),
-               '--only-binary=:all:', '--python-version', '3.13', '--implementation', 'cp', '--abi', 'cp313',
-               '--find-links', str(wheels), '-c', str(constraints), '-r', str(reqs)]
-    for platform in spec['platforms']:
-        command += ['--platform', platform]
-    if subprocess.call(command) != 0:
+    for requirements, extra_args in ((reqs, []), (reqs_again, ['--no-deps'])):
+        if requirements is reqs and not new or requirements is reqs_again and not again:
+            continue
+        command = [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-compile', '--target', str(tmp_site),
+                   '--only-binary=:all:', '--python-version', '3.13', '--implementation', 'cp', '--abi', 'cp313',
+                   '--find-links', str(wheels), '-c', str(constraints), '-r', str(requirements)] + extra_args
+        for platform in spec['platforms']:
+            command += ['--platform', platform]
+        if subprocess.call(command) == 0:
+            continue
         raise SystemExit('Новые библиотеки не ставятся поверх установленных версий (см. вывод pip). '
                          'Если причина в версиях, нужен полный архив PXG_Unified_portable_*.')
     added = []

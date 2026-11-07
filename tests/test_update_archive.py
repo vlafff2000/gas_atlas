@@ -73,6 +73,7 @@ def test_update_always_carries_ocr_libraries_even_if_base_has_them(tmp_path, mon
     seen = {}
 
     def fake_pip(command):
+        seen['no_deps'] = '--no-deps' in command
         seen['reqs'] = Path(command[command.index('-r') + 1]).read_text(encoding='utf-8')
         site = Path(command[command.index('--target') + 1])
         for name, version in (('pypdfium2', '5.0.0'), ('six', '1.17.0')):
@@ -88,4 +89,5 @@ def test_update_always_carries_ocr_libraries_even_if_base_has_them(tmp_path, mon
     added = bu.add_new_libraries({'platforms': []}, libs, base, tmp_path / 'out_site', tmp_path)
     assert added == ['pypdfium2==5.0.0']
     assert 'pypdfium2' in seen['reqs'] and 'six' not in seen['reqs']
+    assert seen['no_deps']  # баг Windows: cryptography тянет cffi>=2, а в базе закреплён cffi 1.17.1 (ResolutionImpossible)
     assert (tmp_path / 'out_site' / 'pypdfium2' / '__init__.py').is_file()
