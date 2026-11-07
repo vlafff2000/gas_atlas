@@ -77,6 +77,8 @@ ITEMS: list[dict[str, Any]] = [
      'columns': ['Скважина', 'Дата', 'Глубина, м', 'Давление, кгс/см²'], 'note': 'Лист «Термобарика» книги «БД_ГИС_из_отчётов.xlsx» или CSV gis_thermobaric. Глубины по стволу (MD), в а.о. переводятся по альтитуде скважины.'},
     {'key': 'gis_filling', 'label': 'ГИС: заполнение ствола (газ/жидкость, плотность)', 'used': 'Пересчёт давления ГИС на глубину приведения',
      'columns': ['Скважина', 'Дата', 'Заполнение', 'От, м', 'До, м', 'Плотность, г/см³'], 'note': 'Лист «Заполнение ствола» той же книги или CSV gis_filling. Необязательна.'},
+    {'key': 'gis_annotations', 'label': 'ГИС: пометки отчётов (причины, ремонт, заглинизация)', 'used': 'Комментарии ГИС в таблицах надзора и подсказки на графиках; только подсказки, решает инженер',
+     'columns': ['Скважина', 'Дата', 'Пачка', 'Вид', 'Текст', 'От, м', 'До, м'], 'note': 'Лист «Аннотации» книги «БД_ГИС_единая.xlsx» или CSV gis_annotations. Необязательна.'},
     {'key': 'gis_observations', 'label': 'ГИС: замеры (статус по скважине и дате)', 'used': 'ГИС и ГВК, покрытие замерами',
      'columns': ['Скважина', 'Дата', 'Статус', 'Пачек'], 'note': 'Лист «Замеры» книги «ГИС_свод.xlsx» или CSV gis_observations.'},
 ]
@@ -199,6 +201,8 @@ def _lines(key: str, f: pd.DataFrame) -> list[list[str]]:
         add('Точек с давлением', int(pd.to_numeric(f.get('pressure_kgs'), errors='coerce').notna().sum()) if _has(f, 'pressure_kgs') else 0)
     elif key == 'gis_filling':
         add('Заполнение', _list(f, 'fill', counts=True))
+    elif key == 'gis_annotations':
+        add('Виды', _list(f, 'kind', counts=True))
     elif key == 'gis_observations':
         add('Статусы', _list(f, 'status', counts=True))
     add('Строк', f'{len(f):,}'.replace(',', ' '))
