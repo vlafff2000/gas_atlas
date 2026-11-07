@@ -105,6 +105,31 @@ def _ticks(top: float, low: float, gaps: list[tuple[float, float]], f) -> list[l
     return out
 
 
+MERGE = ('casing', 'tubing', 'filter', 'perf', 'reaming', 'pay', 'bridge')      # наложенные интервалы этих типов сливаются в один
+
+
+def merge_items(items: list[dict[str, Any]], touch: float = .5) -> tuple[list[dict[str, Any]], int]:
+    """Перекрывающиеся или стыкующиеся (зазор до ``touch`` м) интервалы одного типа и точные дубли — в один; возвращает и число слитых строк.
+    Исходные строки не меняются: слияние только для рисунка, причина видна в пояснении."""
+    out: list[dict[str, Any]] = []
+    merged = 0
+    for kind in dict.fromkeys(i['kind'] for i in items):
+        same = sorted((i for i in items if i['kind'] == kind), key=lambda i: (i['top'], i['bottom']))
+        if kind not in MERGE:
+            out += same
+            continue
+        for it in same:
+            last = out[-1] if out and out[-1]['kind'] == kind else None
+            if last is not None and it['top'] <= last['bottom'] + touch:
+                merged += 1
+                if it['bottom'] > last['bottom']:
+                    last.update(bottom=it['bottom'], od=it['od'] or last['od'], id=it['id'] or last['id'])
+                last['top'] = min(last['top'], it['top'])
+            else:
+                out.append(dict(it))
+    return out, merged
+
+
 def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M) -> dict[str, Any]:
     """Забойная часть: интервалы по типам, окно глубин и пояснение, чего не хватает. Глубины — метры от одного нуля."""
     items: list[dict[str, Any]] = []
@@ -119,6 +144,9 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
                       'od': _num(r.get('diameter_mm')), 'id': _num(r.get('inner_diameter_mm')),
                       'comment': str(r.get('comment') or '')})
     notes: list[str] = []
+    items, merged = merge_items(items)
+    if merged:
+        notes.append(f'Перекрывающиеся и дублирующие интервалы одного типа показаны одним: слито строк — {merged}. В таблице конструкции строки остаются как есть.')
     if not items:
         return {'items': [], 'notes': ['Нет конструкции на схему: загрузите снимок конструкции (шаблон «Конструкция»).'],
                 'skipped': skipped, 'top': 0, 'bottom': 0, 'bottom_m': bottom_m}
@@ -158,7 +186,6 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
                 sh['pts'] = [[u, round(f(m), 3)] for u, m in sh['pts']]
         for lab in out['labels']:
             lab['y'] = round(f(lab['y']), 3)
-            lab['at'] = round(f(lab['at']), 3)
         for g0, g1 in gaps:
             mid = f(g0) + BREAK_KEEP_M / 2
             for dy in (-1.2, 1.2):
@@ -169,6 +196,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
         out['top'], out['bottom'] = round(f(out['top']), 3), round(f(out['bottom']), 3)
         out['notes'].append('Разрыв на схеме: участки без элементов длиннее %g м сжаты (%s). Подписи — реальные глубины.'
                             % (break_m, '; '.join('%g–%g м' % (g[0], g[1]) for g in gaps)))
+    out['labels'] = _spread(out['labels'], (out['bottom'] - out['top']) * .045, out['top'], out['bottom'])
     return out
 
 
@@ -251,18 +279,21 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
     if bottom_m and top <= bottom_m <= low:
         out.append({'t': 'line', 'x0': -1.7, 'x1': 1.7, 'y0': bottom_m, 'y1': bottom_m, 'stroke': '#dc2626', 'width': 3, 'name': 'bottom'})
         tag(bottom_m, f'Забой {bottom_m:g} м (отбит)', '#b91c1c')
-    return out, _spread(labels, (low - top) * .045)
+    return out, labels
 
 
-def _spread(labels: list[dict[str, Any]], gap: float) -> list[dict[str, Any]]:
-    """Подписи справа не налезают друг на друга: сдвигаем по глубине, выноска ведёт к реальной точке."""
+def _spread(labels: list[dict[str, Any]], gap: float, top: float, low: float) -> list[dict[str, Any]]:
+    """Подписи справа не налезают друг на друга и не выходят за окно: считаем в координатах уже сжатой схемы
+    (разводка до сжатия схлопывалась), сдвигаем вниз, а что упёрлось в край окна — поднимаем; выноска ведёт к реальной точке."""
     labels = sorted(labels, key=lambda l: l['y'])
-    prev = None
+    prev = top - gap
     for label in labels:
-        label['at'] = label['y']
-        if prev is not None and label['at'] < prev + gap:
-            label['at'] = prev + gap
+        label['at'] = max(label['y'], prev + gap)
         prev = label['at']
+    limit = low - gap / 2
+    for label in reversed(labels):
+        label['at'] = min(label['at'], limit)
+        limit = label['at'] - gap
     return labels
 
 
