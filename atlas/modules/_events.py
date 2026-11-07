@@ -83,6 +83,15 @@ def gis_events(observations: pd.DataFrame | None, wells: Iterable[str], start=No
     return [Event(r.date, f'ГИС · № {r.well}', 'gis', str(r.well)) for r in d.itertuples(index=False)]
 
 
+def annotation_events(annotations: pd.DataFrame | None, wells: Iterable[str], start=None, end=None) -> list[Event]:
+    """Пометки отчётов ГИС («Аннотации» базы ГИС: ремонт, остановка, ГВК не достигнут…): одно событие на скважину, дату и вид. Только подсказка."""
+    d = _pick(annotations, wells, start, end)
+    if d is None or 'kind' not in d:
+        return []
+    d = _thin(d.drop_duplicates(['well', 'date', 'kind']))
+    return [Event(r.date, f'ГИС: {str(r.kind).strip()} · № {r.well}', 'gis', str(r.well)) for r in d.itertuples(index=False)]
+
+
 def template_events(bottom: pd.DataFrame | None, wells: Iterable[str], start=None, end=None) -> list[Event]:
     """Шаблонирование: замеры забоя, где указан диаметр шаблона или метод содержит «шаблон»."""
     d = _pick(bottom, wells, start, end)
