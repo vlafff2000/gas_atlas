@@ -294,6 +294,15 @@ def _has(blocks: dict[str, pd.DataFrame], gvk: dict, well: str, pack: str, label
     return len(blocks[label]) > 0 or (well, pack, label) in gvk
 
 
+def _by_depth(blocks_of: dict[str, dict[str, pd.DataFrame]], gvk: dict, well: str) -> dict[str, dict[str, pd.DataFrame]]:
+    """Пачки скважины сверху вниз: по самой верхней кровле интервалов во всех сезонах, нет интервалов — по глубине ГВК; без глубины — в конец (порядок названий сохраняется)."""
+    def top(pack: str) -> float:
+        depths = [float(v) for b in blocks_of[pack].values() for v in b['from_m'] if not math.isnan(_num(v))]
+        depths += [_num(item['depth']) for (w, p, _s), item in gvk.items() if w == well and p == pack and not math.isnan(_num(item['depth']))] if not depths else []
+        return min(depths) if depths else math.inf
+    return {pack: blocks_of[pack] for pack in sorted(blocks_of, key=top)}
+
+
 def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str], pack_names: list[str], labels: list[str],
                   gvk: dict, span: str, colors: dict[str, str]) -> Table:
     """5.4: по скважине и пачке блок строк. Интервалы сезона — в нижних строках блока (лишние строки сверху пустые);
@@ -321,6 +330,7 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
                 blocks_of[pack] = blocks
         if not blocks_of:
             continue
+        blocks_of = _by_depth(blocks_of, gvk, well)
         well_top = len(rows)
         styles.append(CellStyle([well_top], border='top'))      # граница скважины: толстая линия сверху её первой строки
         well_gap = [i for i, label in enumerate(labels) if not any(_has(b, gvk, well, p, label) for p, b in blocks_of.items())]

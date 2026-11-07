@@ -343,10 +343,22 @@ def test_54_pack_not_studied_in_season_merges_only_its_block():
                               'date': pd.to_datetime(['2024-03-30', '2025-03-31', '2024-03-30', '2025-10-20']),
                               'from_m': [700.0, 701.0, 800.0, 801.0], 'to_m': [701.0, 702.0, 801.0, 802.0], 'kg': [0.3] * 4})
     table = GisModule().run({GIS: packs, INTERVALS: intervals}, _params(view='an', wells=['1'])).tables[0]
-    assert table.frame['pack'].tolist() == ['нижняя пачка', 'покрышка']          # блоки по алфавиту
+    assert table.frame['pack'].tolist() == ['покрышка', 'нижняя пачка']          # блоки по глубине: верхняя (700 м) выше нижней (800 м)
     # нижняя не исследована весной 2025, покрышка — осенью 2025: каждая — только по своему блоку; скважина целиком — нет
-    assert [(m.first, m.last, m.columns[0]) for m in table.merges] == [(0, 0, 's1_from'), (1, 1, 's2_from')]
-    assert table.frame.loc[0, 's1_from'] == 'не исследовалась' and table.frame.loc[1, 's2_from'] == 'не исследовалась'
+    assert [(m.first, m.last, m.columns[0]) for m in table.merges] == [(0, 0, 's2_from'), (1, 1, 's1_from')]
+    assert table.frame.loc[0, 's2_from'] == 'не исследовалась' and table.frame.loc[1, 's1_from'] == 'не исследовалась'
+
+
+def test_54_pack_blocks_follow_depth_not_name():
+    """Порядок пачек у скважины — по глубине интервалов: перемычка между верхней и нижней пачками, а не по алфавиту."""
+    names = ['нижняя пачка', 'перемычка', 'верхняя пачка', 'покрышка']
+    tops = [900.0, 800.0, 700.0, 600.0]
+    packs = pd.DataFrame({'well': ['1'] * 4, 'date': pd.to_datetime(['2025-03-31'] * 4), 'season': ['весна'] * 4, 'pack': names,
+                          'gvk_abs_m': [-1.0] * 4, 'gvk_depth_m': [1.0] * 4, 'h_eff_m': [1.0] * 4, 'kg_avg': [0.5] * 4})
+    intervals = pd.DataFrame({'well': ['1'] * 4, 'pack': names, 'season': ['весна'] * 4, 'date': pd.to_datetime(['2025-03-31'] * 4),
+                              'from_m': tops, 'to_m': [t + 1 for t in tops], 'kg': [0.5] * 4})
+    table = GisModule().run({GIS: packs, INTERVALS: intervals}, _params(view='an', wells=['1'])).tables[0]
+    assert table.frame['pack'].tolist() == ['покрышка', 'верхняя пачка', 'перемычка', 'нижняя пачка']
 
 
 def test_54_colour_override_from_project_settings_and_bad_hex_ignored():
