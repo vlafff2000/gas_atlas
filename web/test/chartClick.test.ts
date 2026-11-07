@@ -16,7 +16,7 @@ test('в режиме исключения точка с ids важнее сос
   assert.equal(hover([mean, measured], view, 100, 100, 'linear', () => 'linear', 'smooth', true).point?.track, measured)
 })
 
-const base = { moved: false, hover: true, boxActive: false, labelPicker: false, excludeMode: true }
+const base = { moved: false, hover: true, labelPicker: false, excludeMode: true }
 
 test('щелчок по замеру в режиме исключения исключает, а не закрепляет подсказку', () => {
   assert.equal(clickAction({ ...base, point: { excludable: true, suspect: false, valueLabels: false } }), 'exclude')
@@ -31,7 +31,6 @@ test('без режима исключения щелчок закрепляет
   assert.equal(clickAction({ ...base, excludeMode: false, point: { excludable: true, suspect: false, valueLabels: false } }), 'pin')
   assert.equal(clickAction({ ...base, excludeMode: true, point: null }), 'pin')
   assert.equal(clickAction({ ...base, moved: true, point: null }), 'none')
-  assert.equal(clickAction({ ...base, boxActive: true, point: null }), 'none')
 })
 
 test('выбор подписей данных важнее исключения', () => {

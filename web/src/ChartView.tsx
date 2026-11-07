@@ -14,7 +14,7 @@ import { alpha, chartTokens, FONT, SIZE, fontCss, PALETTE, palette, seriesColor,
 import { clickAction } from './chartClick'
 import { buildTracks, canExclude, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
 import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
-import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
+import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, crosshairSync, tooltipsOn, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { applyFormat, chartKey, mergeFormats, type ChartFormat } from './chartFormat'
 import { FormatPane, type FormatElement } from './FormatPane'
@@ -386,7 +386,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
     legend: { show: false, data: legend },
-    tooltip: custom ? { show: false } : {
+    tooltip: custom || !tooltipsOn.get() ? { show: false } : {
       trigger: hasBox ? 'item' : 'axis', confine: true, className: 'atlas-tip', padding: 0, borderWidth: 0,
       backgroundColor: 'transparent', extraCssText: 'box-shadow:none;',
       axisPointer: { type: 'shadow', shadowStyle: { color: alpha(tk.ink, 0.05) } },
@@ -428,8 +428,6 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     toolbox: {
       show: false,
       feature: {
-        // filterMode 'none': линия, выходящая за границы оси, обрезается, а не пропадает целиком
-        dataZoom: { filterMode: 'none', title: { zoom: 'Увеличить область', back: 'Назад' } },
         restore: { title: 'Сбросить масштаб' },
       },
     },
@@ -672,17 +670,11 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
   const smooth = usePref(smoothLines)
   const theme = useAppliedTheme()
   const offEvents = usePref(hiddenEvents)
-  const [boxZoom, setBoxZoom] = useState(false)
   const [hidden, setHidden] = useState<Set<string>>(new Set())       // скрытые пункты легенды (ключи серий)
   const [facetOff, setFacetOff] = useState<Set<string>>(new Set())   // скрытые значения признаков: 'Период\u0001 2024'
-  const boxRef = useRef(false)
-  boxRef.current = boxZoom
-  const toggleBoxZoom = () => {
-    const on = !boxZoom
-    setBoxZoom(on)
-    instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: on })
-  }
   const syncZoom = usePref(zoomSync)
+  const tipsEnabled = usePref(tooltipsOn)
+  const crossEnabled = usePref(crosshairSync)
   const pinSyncAll = usePref(pinSync)
   const kind = pinSyncKind(chart), pinsOn = pinSyncAll[kind]
   const rangeKey = `${given.title}|${given.y.label}|${rightAxes(given).map(a => a.label).join('|')}`
@@ -1118,7 +1110,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         publish(st.id, null, null)
         // общее перекрестие: курсор на другом графике с той же осью X
         const s = synced()
-        if (s && s.source !== st.id && s.key === st.sync && st.tracks.length) {
+        if (s && crosshairSync.get() && s.source !== st.id && s.key === st.sync && st.tracks.length) {
           const px = st.map.x(s.x)
           if (px >= rect.x && px <= rect.x + rect.width) {
             g.save()
@@ -1195,7 +1187,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       } else if (events.length) {
         html = tipHtml(`<span>${xTitle}</span><b>${escapeHtml(fmtX()(h.x))}</b>`, [], events)
       }
-      if (!html) { card.hidden = true; return }
+      if (!html || !tooltipsOn.get()) { card.hidden = true; return }
       card.innerHTML = html
       card.hidden = false
       const bw = card.offsetWidth, bh = card.offsetHeight
@@ -1257,7 +1249,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       st.down = null
       const moved = !d || Math.hypot(e.offsetX - d[0], e.offsetY - d[1]) > 4
       const h = st.current, p = h?.point
-      const action = clickAction({ moved, hover: !!h, boxActive: !!boxRef.current, labelPicker: labelPicker.get(), excludeMode: st.excludeMode,
+      const action = clickAction({ moved, hover: !!h, labelPicker: labelPicker.get(), excludeMode: st.excludeMode,
         point: p ? { excludable: canExclude(p.track), suspect: !!p.track.series.suspect, valueLabels: !!p.track.series.look?.valueLabels } : null })
       if (action === 'label' && p) {
         st.pickPoint(p.track.series, p.track.src[p.k])
@@ -1344,9 +1336,9 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         if (r) pan = { axis: a, starts: [{ axis: a, start: r }], from: a === 'x' ? px : py, fromY: py, id: e.pointerId, moved: false }
         return
       }
-      // поле графика: левая кнопка тянет окно сразу по X и по всем шкалам Y (режим «Выделение» — кнопка рядом — отдаёт левую кнопку рамке)
+      // поле графика: левая кнопка тянет окно сразу по X и по всем шкалам Y
       const g = gridRect()
-      if (boxRef.current || st.chart.x.scale === 'category' || !g || px < g.x || px > g.x + g.width || py < g.y || py > g.y + g.height) return
+      if (st.chart.x.scale === 'category' || !g || px < g.x || px > g.x + g.width || py < g.y || py > g.y + g.height) return
       const names: AxisName[] = ['x', ...Y_NAMES.slice(0, yCount(st.chart))]
       const starts = names.flatMap(n => { const r = rangeOf(n); return r ? [{ axis: n, start: r }] : [] })
       if (starts.length) pan = { axis: null, starts, from: px, fromY: py, id: e.pointerId, moved: false }
@@ -1564,13 +1556,12 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
     st.applyZoom()
     st.selected = {}
     applyLegend()
-    if (boxRef.current) instance.current?.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: true })
     st.reconcile()
     st.draw()
     const later = window.setTimeout(st.ensure, 0)
     return () => window.clearTimeout(later)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart, excludeMode, mode, theme, ranges, steps, smooth, compact])
+  }, [chart, excludeMode, mode, theme, ranges, steps, smooth, compact, tipsEnabled])
 
   // новый расчёт (другие параметры, исключение точки) — подгруженное окно относится к прежнему графику
   useEffect(() => { state.current.patch = null; state.current.pin = null; setPatch(null) }, [given])
@@ -1648,9 +1639,13 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         <span className="chart-actions">
           {chart.x.scale !== 'category' && <>
             <span className="chart-tools">
-              <button type="button" className={'icon' + (boxZoom ? ' on' : '')} aria-pressed={boxZoom} onClick={toggleBoxZoom}
-                title="Режим «Выделение»: левая кнопка рисует рамку увеличения. Когда выключен — левая кнопка двигает график (сдвиг по X и Y). Ctrl + колесо — масштаб">
-                <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" strokeDasharray="2.5 2" /><path d="M8 5.5v5M5.5 8h5" /></svg>
+              <button type="button" className={'icon' + (tipsEnabled ? ' on' : '')} aria-pressed={tipsEnabled} onClick={() => tooltipsOn.set(!tipsEnabled)}
+                title="Всплывающие подсказки при наведении: вкл/выкл на всех графиках. Закрепление щелчком работает и без них">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v6h-5l-3 3v-3h-3z" /><path d="M5 6.5h6" /></svg>
+              </button>
+              <button type="button" className={'icon' + (crossEnabled ? ' on' : '')} aria-pressed={crossEnabled} onClick={() => crosshairSync.set(!crossEnabled)}
+                title="Общее перекрестие: линия курсора и значения повторяются на всех графиках с такой же осью X">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v13M1.5 8h13" /><circle cx="8" cy="8" r="2.2" /></svg>
               </button>
               {chart.x.scale === 'time' && <button type="button" className={'icon' + (syncZoom ? ' on' : '')} aria-pressed={syncZoom}
                 onClick={() => zoomSync.set(!syncZoom)}

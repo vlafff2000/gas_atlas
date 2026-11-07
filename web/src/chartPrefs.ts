@@ -90,6 +90,11 @@ export const tableBars = pref<boolean>('atlas.table.bars', true)
 /** Связь таблицы с графиками по времени: курсор на графике подсвечивает строку, наведение на строку ставит курсор на графики. */
 export const tableSync = pref<boolean>('atlas.table.sync', true, raw => raw !== 'false')
 
+/** Всплывающие подсказки при наведении на графики (закрепление щелчком не зависит). */
+export const tooltipsOn = pref<boolean>('atlas.chart.tooltips', true, raw => raw !== 'false')
+/** Общее перекрестие: курсор на одном графике рисует вертикаль и значения на остальных графиках с той же осью X. */
+export const crosshairSync = pref<boolean>('atlas.chart.crosshairSync', true, raw => raw !== 'false')
+
 export const zoomSync = pref<boolean>('atlas.chart.zoomSync', true)
 
 /** Ручные границы шкал Y по графикам (ключ — заголовок и подписи осей): помнятся между запусками. */
