@@ -125,6 +125,36 @@ def krs_events(works: pd.DataFrame | None, wells: Iterable[str], start=None, end
     return out
 
 
+def krs_plan_events(plan: pd.DataFrame | None, wells: Iterable[str], start=None, end=None) -> list[Event]:
+    """Ремонты «с даты по дату» из справки КРС (``krs_plan``: дата начала и окончания) — те же строки, что в таблице 7.1
+    («В таблицу 7.1» = «Да», у инженера главнее ручное значение; текущий ремонт ТР в таблицу 7.1 не входит).
+    Нет даты окончания — отметка начала; нет даты начала — события нет. Попадает в окно, если интервал пересекает его."""
+    if plan is None or plan.empty or 'well' not in plan or 'start' not in plan:
+        return []
+    if 'in_table' in plan:
+        plan = plan[plan['in_table'].eq('Да')]
+    if 'kind' in plan:
+        plan = plan[plan['kind'].ne('ТР')]
+    d = plan[plan.well.astype(str).isin({str(w) for w in wells}) & plan['start'].notna()].copy()
+    ends = pd.to_datetime(d['end'], errors='coerce') if 'end' in d else pd.Series(pd.NaT, index=d.index)
+    last = ends.fillna(d['start'])
+    keep = pd.Series(True, index=d.index)
+    if start is not None:
+        keep &= last >= start
+    if end is not None:
+        keep &= d['start'] <= end
+    d, ends = d[keep].sort_values('start'), ends[keep]
+    out = []
+    for (index, r), stop in zip(d.iterrows(), ends.loc[d.index]):
+        kind = str(r.get('kind', '') or '').strip()
+        kind = '' if kind in ('', 'nan') else f' {kind}'
+        state = str(r.get('status', '') or '').strip()
+        state = '' if state in ('', 'nan') else f' ({state})'
+        span = f'{r["start"]:%d.%m.%Y}–{stop:%d.%m.%Y}' if pd.notna(stop) else f'с {r["start"]:%d.%m.%Y}'
+        out.append(Event(r['start'], f'КРС{kind}: {span}{state} · № {r["well"]}', 'repair', str(r['well']), stop if pd.notna(stop) else None))
+    return out[:EVENT_LIMIT]
+
+
 def on_cumulative(events: list[Event], data: pd.DataFrame) -> list[Event]:
     """Переводит события-даты в накопленный объём объекта на эту дату (ось X графика «Q / накопленный объем»).
 
