@@ -86,7 +86,7 @@ def test_missing_dataset_warns_without_loading_it(env):
     assert any('«Без набора»' in t and 'нет данных набора' in t for t in texts)
     assert any('«Нет такого»' in t and 'не найден' in t for t in texts)
     assert registry.get('production').spec.needs == (DatasetKind.PRODUCTION,)
-    assert registry.get('production').spec.optional == (DatasetKind.GDI, DatasetKind.ELPRO, DatasetKind.BOTTOM, DatasetKind.GIS_OBSERVATIONS, DatasetKind.KRS_WORKS, DatasetKind.PRESSURE_SURVEY)
+    assert registry.get('production').spec.optional == (DatasetKind.GDI, DatasetKind.ELPRO, DatasetKind.BOTTOM, DatasetKind.GIS_OBSERVATIONS, DatasetKind.GIS_ANNOTATIONS, DatasetKind.KRS_WORKS, DatasetKind.KRS_PLAN, DatasetKind.PRESSURE_SURVEY)
 
 
 def test_current_row_over_group_dataset_warns():

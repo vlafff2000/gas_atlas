@@ -20,7 +20,7 @@ from atlas.engine.modules.charts import separated_ranges, tight_axis, well_color
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)
 from ..domain import UNITS, DatasetKind
-from ._events import annotation_events, regime_events
+from ._events import annotation_events, krs_plan_events, regime_events
 from ._gis_pressure import TARGET_ABS, reduce_pressure
 from .an_report import object_pressure_of
 
@@ -320,7 +320,7 @@ class ResponseModule(Module):
         group='Контроль горизонтов',
         description='Сравнение скважин внутри горизонта; уровень и приведенное давление на одной диаграмме или отдельно.',
         needs=(RESPONSE,),
-        optional=(DatasetKind.PRESSURE_SURVEY, DatasetKind.GIS_ANNOTATIONS, PRODUCTION, THERMO, FILLING, GEO, PACKS),      # эксплуатация — отметки смены режима; ГИС и положение скважин — замеры давления на глубине приведения
+        optional=(DatasetKind.PRESSURE_SURVEY, DatasetKind.GIS_ANNOTATIONS, DatasetKind.KRS_PLAN, PRODUCTION, THERMO, FILLING, GEO, PACKS),      # эксплуатация — отметки смены режима; ГИС и положение скважин — замеры давления на глубине приведения
         order=40,
         save_label='Сохранить параметры графиков',
         params=(
@@ -418,7 +418,9 @@ class ResponseModule(Module):
                 title = chart_title(ordered(part.well), label, split) + ' · ' + METRIC_WORDS[metric]
                 chart = response_chart(part, metric, title, f'response-{split}-{label}-{metric}', palette,
                                        object_pressure, manometer, split == 'well', pressure_horizons, level_band, gap_days, gis, gis_depth)
-                chart.events = sorted(events + annotation_events(data.get(DatasetKind.GIS_ANNOTATIONS), part.well.astype(str).unique(), f.date.min(), f.date.max()),
+                part_wells = part.well.astype(str).unique()
+                chart.events = sorted(events + annotation_events(data.get(DatasetKind.GIS_ANNOTATIONS), part_wells, f.date.min(), f.date.max())
+                                      + krs_plan_events(data.get(DatasetKind.KRS_PLAN), part_wells, f.date.min(), f.date.max()),
                                       key=lambda e: pd.Timestamp(e.x))
                 if lo is not None:
                     chart.x.minimum, chart.x.maximum = lo, hi      # один диапазон дат у всех графиков; вручную — окно «Формат»
