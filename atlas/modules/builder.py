@@ -51,7 +51,7 @@ DATASET_CATEGORY = {
     K.PRODUCTION: 'prod', K.ELPRO: 'prod', K.OPERATIONS: 'prod', K.GDI: 'gdi', K.RESPONSE: 'response',
     K.OBJECT_PRESSURE: 'pressure', K.PRESSURE_MATCH: 'pressure', K.WATER: 'water', K.WATER_FACTOR: 'water',
     K.GAS_DB: 'object', K.PLAN: 'object', K.ANNULUS: 'annulus', K.GGH: 'ggh', K.CONSTRUCTION: 'construction',
-    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis', K.GIS_THERMOBARIC: 'gis', K.GIS_FILLING: 'gis', K.MODEL: 'model', K.MODEL_OBJECT: 'model', K.MODEL_CELLS: 'model',
+    K.BOTTOM: 'construction', K.GIS_PACKS: 'gis', K.GIS_OBSERVATIONS: 'gis', K.GIS_INTERVALS: 'gis', K.GIS_THERMOBARIC: 'gis', K.GIS_FILLING: 'gis', K.GIS_ANNOTATIONS: 'gis', K.MODEL: 'model', K.MODEL_OBJECT: 'model', K.MODEL_CELLS: 'model',
 }
 
 

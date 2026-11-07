@@ -233,7 +233,7 @@ class Projects:
         settings = {**DEFAULT_SETTINGS, **m.get('settings', {})}
         raw = self._raw_frames(pid, m)
         unit_notes: list[str] = []
-        for name in ('gis_packs', 'gis_intervals', 'gis_observations', 'gis_thermobaric', 'gis_filling'):       # проекты, собранные старой выгрузкой: «№21», доли с процентами
+        for name in ('gis_packs', 'gis_intervals', 'gis_observations', 'gis_thermobaric', 'gis_filling', 'gis_annotations'):       # проекты, собранные старой выгрузкой: «№21», доли с процентами
             if name in raw and not raw[name].empty:
                 raw[name], found = gis_import.tidy(raw[name])
                 unit_notes += [n for n in found if n not in unit_notes]

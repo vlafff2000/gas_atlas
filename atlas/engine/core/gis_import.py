@@ -20,11 +20,12 @@ TABLES: dict[str, tuple[str, ...]] = {
     'gis_observations': ('well', 'date', 'status', 'packs'),
     'gis_thermobaric': ('well', 'date', 'depth_m', 'pressure_kgs'),
     'gis_filling': ('well', 'date', 'fill'),
+    'gis_annotations': ('well', 'date', 'kind', 'text'),
 }
 LABELS = {'gis_packs': 'пачки', 'gis_intervals': 'интервалы', 'gis_observations': 'замеры',
-          'gis_thermobaric': 'термобарика', 'gis_filling': 'заполнение ствола'}
+          'gis_thermobaric': 'термобарика', 'gis_filling': 'заполнение ствола', 'gis_annotations': 'пометки отчётов'}
 # Таблицы из отчётов ГИС (OCR): в них бывают строки не по скважине («Альтитуда», «Касимовское») — они отбрасываются
-REPORT_TABLES = ('gis_thermobaric', 'gis_filling')
+REPORT_TABLES = ('gis_thermobaric', 'gis_filling', 'gis_annotations')
 REPORT_NUMBERS = ('depth_m', 'depth_abs_m', 'temp_c', 'pressure_raw', 'pressure_kgs', 'from_m', 'to_m', 'density_min', 'density_max', 'level_m')
 KEY = ['well', 'date']
 # русские заголовки книги «ГИС_свод.xlsx» (pxg_core/gis_export.py) → колонки Атласа
@@ -41,8 +42,8 @@ RU = {'Скважина': 'well', 'Дата': 'date', 'Дата (точная)':
       'Температура, °C': 'temp_c', 'Давление (как в отчёте)': 'pressure_raw', 'Единица давления': 'pressure_unit', 'Давление, кгс/см²': 'pressure_kgs',
       'Режим исследования': 'regime', 'Плотность от, г/см³': 'density_min', 'Плотность до, г/см³': 'density_max',
       'Заполнение (как в отчёте)': 'fill_raw', 'Заполнение': 'fill', 'Уровень жидкости, м': 'level_m', 'Уровень (как в отчёте)': 'level_raw',
-      'Откуда': 'origin', 'Файл': 'file', 'Источник': 'source', 'Уверенность': 'confidence', 'Основание': 'basis'}
-BOOK_SHEETS = ('Свод', 'Интервалы', 'Замеры', 'Термобарика', 'Заполнение ствола')
+      'Откуда': 'origin', 'Вид': 'kind', 'Текст': 'text', 'Файл': 'file', 'Источник': 'source', 'Уверенность': 'confidence', 'Основание': 'basis'}
+BOOK_SHEETS = ('Свод', 'Интервалы', 'Замеры', 'Термобарика', 'Заполнение ствола', 'Аннотации')
 
 
 def normalize(columns) -> list[str]:
@@ -152,7 +153,7 @@ def read_all(name: str, content: bytes, table: str = '') -> list[tuple[str, pd.D
         if kind not in found:
             continue
         frame = found[kind]
-        if 'pack' in frame.columns and kind != 'gis_observations':
+        if 'pack' in frame.columns and kind not in ('gis_observations', 'gis_annotations'):
             pack = frame['pack'].fillna('').astype(str).str.strip()
             keep = pack != ''
             if kind == 'gis_intervals' and 'from_m' in frame.columns:

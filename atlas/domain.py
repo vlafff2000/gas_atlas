@@ -43,6 +43,7 @@ class DatasetKind(str, Enum):
     GIS_THERMOBARIC = 'gis_thermobaric'  # «База ГИС»: термобарика отчётов (глубина, давление, температура по скважине и дате)
     GIS_FILLING = 'gis_filling'          # «База ГИС»: заполнение ствола (газ/жидкость в интервале, плотность флюида)
     PRESSURE_SURVEY = 'pressure_survey'  # сырая БД давлений по замерам (из месячных отчётов): Руст, Рпл, уровень по скважинам и датам
+    GIS_ANNOTATIONS = 'gis_annotations'  # «База ГИС»: пометки отчётов (виды, текст, интервал) по замеру и пачке; только подсказки
     KRS_WORKS = 'krs_works'              # КРС: проведённые капитальные ремонты (год, тип), одна строка на ремонт
     KRS_PRIORITY = 'krs_priority'        # КРС: приоритет КР по скважине (подсказка, 1 — срочно), одна строка на скважину
     KRS_PLAN = 'krs_plan'                # КРС: план капремонта по справке о выполнении (скважина × год: шифры, даты, состояние), одна строка на скважину и ремонт
@@ -78,6 +79,7 @@ LABELS = {
     DatasetKind.GIS_INTERVALS: 'ГИС: интервалы',
     DatasetKind.GIS_THERMOBARIC: 'ГИС: термобарика',
     DatasetKind.GIS_FILLING: 'ГИС: заполнение ствола',
+    DatasetKind.GIS_ANNOTATIONS: 'ГИС: пометки отчётов',
     DatasetKind.PRESSURE_SURVEY: 'БД давлений по замерам',
     DatasetKind.KRS_WORKS: 'КРС: проведённые КР',
     DatasetKind.KRS_PRIORITY: 'КРС: приоритет КР',
@@ -110,6 +112,7 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.GIS_INTERVALS: ('well', 'date', 'pack', 'from_m', 'to_m'),
     DatasetKind.GIS_THERMOBARIC: ('well', 'date', 'depth_m', 'pressure_kgs'),
     DatasetKind.GIS_FILLING: ('well', 'date', 'fill'),
+    DatasetKind.GIS_ANNOTATIONS: ('well', 'date', 'kind', 'text'),
     DatasetKind.PRESSURE_SURVEY: ('well', 'date'),
     DatasetKind.KRS_WORKS: ('well', 'year'),
     DatasetKind.KRS_PRIORITY: ('well',),
