@@ -170,9 +170,15 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
                 <text x={x0 + TW - 3} y={y(m.gvk) - 3} textAnchor="end" className="planshet-gvk" stroke="#fff" strokeWidth="3" paintOrder="stroke">
                   {`ГВК ${ru(m.gvk)} м${m.gvk_abs !== null ? ` (${ru(m.gvk_abs)} а.о.)` : ''}`}</text>
               </g>))}
+            {(t.notes ?? []).filter(n => n.top !== null && n.bottom !== null).map((n, i) => (
+              <rect key={`n${i}`} x={x0 + 1} y={y(n.top!)} width={TW - 2} height={Math.max(y(n.bottom!) - y(n.top!), 2)} fill="none" stroke="#b45309" strokeWidth="1.6" strokeDasharray="4 2">
+                <title>{`Пометка ГИС: ${n.kind}${n.pack ? ` (${n.pack})` : ''}, ${ru(n.top!)}–${ru(n.bottom!)} м`}</title></rect>))}
             </g>
             {t.packs.filter(m => m.h_eff !== null).map((m, i) => (
               <text key={i} x={x0 + 4} y={HEAD + H + 24 + i * 13} className="schematic-tick-text" style={{ fontSize: 13 }}>{`${m.pack}: hг эф ${ru(m.h_eff!)} м`}</text>))}
+            {(t.notes ?? []).filter(n => n.top === null || n.bottom === null).map((n, i) => (
+              <text key={`f${i}`} x={x0 + 4} y={HEAD + H + 24 + (t.packs.filter(m => m.h_eff !== null).length + i) * 13} className="schematic-tick-text" style={{ fontSize: 13, fill: '#b45309' }}>
+                {`⚑ ${n.kind}${n.pack ? ` (${n.pack})` : ''}`}<title>{`Пометка ГИС: ${n.kind}`}</title></text>))}
           </g>)
       })}
       {packs.map((p, i) => (
