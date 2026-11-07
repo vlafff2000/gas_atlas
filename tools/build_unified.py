@@ -243,11 +243,17 @@ def load_base(path, target, spec, libs):
     return base
 
 
-def add_new_libraries(spec, libs, base, site, workdir):
+# Библиотеки, которые лёгкий архив везёт всегда, даже если они уже есть в манифесте полного архива: лёгкий ставится самодостаточно
+# (OCR и разбор отчётов работают, даже если база у пользователя старее). Версии при этом берутся из манифеста.
+ALWAYS_IN_UPDATE = {'pillow', 'pypdfium2', 'cryptography', 'cffi', 'pycparser', 'pdfminer-six', 'pdfplumber', 'charset-normalizer', 'defusedxml', 'odfpy'}
+
+
+def add_new_libraries(spec, libs, base, site, workdir, always=ALWAYS_IN_UPDATE):
     """Ставит только новые библиотеки. Уже установленные закреплены на своих версиях (constraints), поэтому
     новая библиотека не может молча заменить старую. Возвращает список добавленных пакетов и кладёт их файлы в site."""
     known = set(base['requirements'])
-    new = [line for line in libs if line not in known]
+    forced = {norm(name) for name in always}
+    new = [line for line in libs if line not in known or norm(re.match(r'[A-Za-z0-9._-]+', line).group(0)) in forced]
     if not new:
         return []
     constraints = workdir / 'constraints.txt'
@@ -274,7 +280,8 @@ def add_new_libraries(spec, libs, base, site, workdir):
         if key in base['installed']:
             if base['installed'][key] != version:
                 raise SystemExit(FULL_NEEDED + ': изменилась версия ' + name)
-            continue
+            if key not in forced:
+                continue
         added.append('%s==%s' % (name, version))
         for row in csv.reader((info / 'RECORD').read_text(encoding='utf-8').splitlines()):
             rel = row[0] if row else ''

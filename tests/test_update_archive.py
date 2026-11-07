@@ -63,3 +63,29 @@ def test_scripts_requirements_bring_pdfminer_chain(tmp_path):
     names = {r.split('=')[0].lower() for r in got}
     assert {'pdfplumber', 'pdfminer.six', 'charset-normalizer', 'cryptography', 'pypdfium2', 'defusedxml'} <= names
     assert 'cffi' not in names and 'pycparser' not in names  # уже есть в lock-файле (Windows)
+
+
+def test_update_always_carries_ocr_libraries_even_if_base_has_them(tmp_path, monkeypatch):
+    """Просьба Егора: лёгкий архив самодостаточен и везёт библиотеки OCR (pypdfium2 и др.), хотя они уже есть в манифесте полного."""
+    libs = ['six==1.17.0', 'pypdfium2==5.0.0']
+    manifest = write_manifest(tmp_path / 'base.json', libs, {'six': '1.17.0', 'pypdfium2': '5.0.0'})
+    base = bu.load_base(manifest, 'linux', PY, libs)
+    seen = {}
+
+    def fake_pip(command):
+        seen['reqs'] = Path(command[command.index('-r') + 1]).read_text(encoding='utf-8')
+        site = Path(command[command.index('--target') + 1])
+        for name, version in (('pypdfium2', '5.0.0'), ('six', '1.17.0')):
+            info = site / ('%s-%s.dist-info' % (name, version))
+            info.mkdir(parents=True)
+            (info / 'METADATA').write_text('Name: %s\nVersion: %s\n' % (name, version), encoding='utf-8')
+            (info / 'RECORD').write_text('%s/__init__.py,,\n%s-%s.dist-info/METADATA,,\n' % (name, name, version), encoding='utf-8')
+            (site / name).mkdir()
+            (site / name / '__init__.py').write_text('', encoding='utf-8')
+        return 0
+
+    monkeypatch.setattr(bu.subprocess, 'call', fake_pip)
+    added = bu.add_new_libraries({'platforms': []}, libs, base, tmp_path / 'out_site', tmp_path)
+    assert added == ['pypdfium2==5.0.0']
+    assert 'pypdfium2' in seen['reqs'] and 'six' not in seen['reqs']
+    assert (tmp_path / 'out_site' / 'pypdfium2' / '__init__.py').is_file()
