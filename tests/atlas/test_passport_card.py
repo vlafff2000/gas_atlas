@@ -186,3 +186,24 @@ def test_manual_pairs_override_auto(env):
     rows = pc.assign_pairs([{**_row('withdrawal', '2025-2026', '2025-11-20'), 'volume': 5.0},
                             {**_row('injection', '2026', '2026-05-12'), 'volume': 4.0}], {'Закачка 2026': 2030})
     assert [r['cycle'] for r in rows] == [2025, 2030]
+
+
+def test_construction_checks_are_hints_with_reason():
+    cons = frame([('Эксплуатационная колонна', 0, 950, 168, 150), ('НКТ', 0, 990, 73, 62), ('Фильтр', 960, 1005, None, None),
+                  ('Фильтр', 980, 1000, None, None)])
+    sch = pc.schematic(cons, 900.0)
+    codes = {c['code'] for c in sch['checks']}
+    assert {'casing_above_work', 'tubing_below_casing', 'bottom_above_filter', 'overlap'} <= codes
+    assert 'tubing_below_work' not in codes
+    assert all(c['text'] and c['level'] in ('warning', 'info') for c in sch['checks'])
+    assert len(sch['items']) == 4                                       # схема не исправляется
+
+
+def test_construction_checks_reaming_downgrades_and_inverted():
+    ok = pc.schematic(frame([('Эксплуатационная колонна', 0, 950, 168, 150), ('Фильтр', 960, 1005, None, None),
+                             ('Интервал расширки', 940, 1000, 300, None)]), None)
+    assert [c['level'] for c in ok['checks'] if c['code'] == 'casing_above_work'] == ['info']
+    bad = pc.schematic(frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('НКТ', 0, 1100, 73, 62), ('Фильтр', 1005, 960, None, None)]), None)
+    assert 'inverted' in {c['code'] for c in bad['checks']} and 'tubing_below_casing' in {c['code'] for c in bad['checks']}
+    clean = pc.schematic(frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('НКТ', 0, 940, 73, 62), ('Фильтр', 960, 1005, None, None)]), 1000.0)
+    assert clean['checks'] == []
