@@ -22,6 +22,7 @@ from . import gis_an_tables, gis_cons_compare, gis_tiles, gis_well
 GIS = DatasetKind.GIS_PACKS
 INTERVALS = DatasetKind.GIS_INTERVALS
 OBSERVATIONS = DatasetKind.GIS_OBSERVATIONS
+ANNOTATIONS = DatasetKind.GIS_ANNOTATIONS
 SECTION = 'Выбор данных'
 SPRING = 'весна'
 # метрика → (колонка, подпись, единица, название графика)
@@ -51,7 +52,7 @@ class GisModule(Module):
         group='Исследования скважин',
         description='Динамика ГВК, эффективной толщины и Кг ср.взв по скважинам и пачкам из «Базы ГИС».',
         needs=(GIS,),
-        optional=(INTERVALS, OBSERVATIONS, DatasetKind.CONSTRUCTION, DatasetKind.BOTTOM, DatasetKind.WELL_GEO),
+        optional=(INTERVALS, OBSERVATIONS, ANNOTATIONS, DatasetKind.CONSTRUCTION, DatasetKind.BOTTOM, DatasetKind.WELL_GEO),
         order=75,
         builder_layouts=True,    # макеты «Конструктора графиков» графиками после основных
         params=(
@@ -297,7 +298,7 @@ class GisModule(Module):
             result.notes.append(Note('В данных нет «Базы ГИС». Загрузите таблицу пачек через «Источники» или «Импорт данных».'))
             return result
         colors = (getattr(data, 'settings', None) or {}).get('an_colors') or {}
-        tables, labels, base, notes = gis_an_tables.build({'packs': data[GIS], 'intervals': data.get(INTERVALS), 'observations': data.get(OBSERVATIONS),
+        tables, labels, base, notes = gis_an_tables.build({'packs': data[GIS], 'intervals': data.get(INTERVALS), 'observations': data.get(OBSERVATIONS), 'annotations': data.get(ANNOTATIONS),
                                                            'funds': GisModule._funds(data)}, {**params, 'colors': colors})
         result.tables.extend(tables)
         result.notes.extend(Note(n, level='warning') for n in notes)

@@ -177,12 +177,49 @@ def gvk_row(block: pd.DataFrame, depth: float) -> int:
     return gaps.index(min(gaps))
 
 
-def comparison_table(number: int, pack: str, wells: list[str], labels: list[str], gvk: dict, span: str) -> Table:
+def _meters(value: Any) -> str:
+    return f'{value:g}'.replace('.', ',')
+
+
+def comments_by_season(annotations: pd.DataFrame | None, labels: list[str]) -> dict[tuple[str, str, str], list[str]]:
+    """Пометки отчётов ГИС по (скважина, пачка, сезон): «вид» и интервал, без повторов. Пометка без пачки относится ко всем пачкам скважины
+    (ключ пачки «без пачки»). Это подсказка: в расчёты не входит."""
+    if annotations is None or annotations.empty:
+        return {}
+    frame = annotations.copy()
+    frame['pack'] = frame['pack'].replace('', None) if 'pack' in frame else None
+    out: dict[tuple[str, str, str], list[str]] = {}
+    for _, row in seasoned(frame).iterrows():
+        if row['season'] not in labels:
+            continue
+        text = str(row['kind']).strip()
+        top, bottom = _num(row.get('from_m')), _num(row.get('to_m'))
+        if not math.isnan(top):
+            text += f' {_meters(top)}–{_meters(bottom)} м' if not math.isnan(bottom) and bottom != top else f' {_meters(top)} м'
+        bucket = out.setdefault((row['well'], row['pack'], row['season']), [])
+        if text not in bucket:
+            bucket.append(text)
+    return out
+
+
+def gis_note(comments: dict, well: str, pack: str, labels: list[str]) -> str:
+    """Строка «Комментарии ГИС» по скважине и пачке: «осень 2024: вид; вид | весна 2025: вид»."""
+    parts = []
+    for label in labels:
+        items = comments.get((well, pack, label), []) + [t for t in comments.get((well, 'без пачки', label), []) if pack != 'без пачки']
+        if items:
+            parts.append(f'{name_of(label)}: ' + '; '.join(items))
+    return ' | '.join(parts)
+
+
+def comparison_table(number: int, pack: str, wells: list[str], labels: list[str], gvk: dict, span: str, comments: dict | None = None) -> Table:
     """5.5 / 5.7: глубина и а.о. ГВК по сезонам, в конце примечание (обводнена, нет замера)."""
     rows, columns = [], [Column('well', '№ скв.')]
     for i, label in enumerate(labels):
         columns += [Column(f's{i}_depth', 'глубина', 'м', 2, 'number'), Column(f's{i}_abs', 'а.о.', 'м', 2, 'number')]
     columns.append(Column('note', 'Примечание'))
+    if comments:
+        columns.append(Column('gis_note', 'Комментарии ГИС'))
     for well in wells:
         row: dict[str, Any] = {'well': well}
         notes = []
@@ -195,8 +232,10 @@ def comparison_table(number: int, pack: str, wells: list[str], labels: list[str]
             elif math.isnan(item['abs']) and item['label']:
                 notes.append(f'{name_of(label)}: {item["label"]}')
         row['note'] = '; '.join(notes)
+        if comments:
+            row['gis_note'] = gis_note(comments, well, pack, labels)
         rows.append(row)
-    header = [[('', 1), *((name_of(label), 2) for label in labels), ('', 1)]]
+    header = [[('', 1), *((name_of(label), 2) for label in labels), ('', 1)] + ([('', 1)] if comments else [])]
     return Table(f'gis-an-5-{number}', f'Таблица 5.{number} – Сравнение положения ГВК пачки «{pack}» по результатам ГИС-контроль, '
                                        f'выполненных в {span}', pd.DataFrame(rows), columns, header=header,
                  note='Последний замер сезона по пачке. Пустая ячейка — нет замера или ГВК в сезоне; причина — в примечании.')
@@ -359,7 +398,7 @@ def scope_table(observations: pd.DataFrame, funds: dict[str, str], wells: list[s
 
 
 def build(data: dict, params: dict[str, Any]) -> tuple[list[Table], list[str], str | None, list[str]]:
-    """Таблицы 5.3–5.8, сезоны, новый сезон и заметки. ``data`` — {'packs': ..., 'intervals': ..., 'observations': ..., 'funds': {скважина: фонд}}."""
+    """Таблицы 5.3–5.8, сезоны, новый сезон и заметки. ``data`` — {'packs': ..., 'intervals': ..., 'observations': ..., 'annotations': ..., 'funds': {скважина: фонд}}."""
     packs, intervals = data['packs'], data.get('intervals')
     notes: list[str] = []
     labels, base = pick(available(packs, intervals), params.get('an_base') or None, list(params.get('an_seasons') or []))
@@ -375,6 +414,7 @@ def build(data: dict, params: dict[str, Any]) -> tuple[list[Table], list[str], s
     if not wells or not pack_names:
         return [], labels, base, ['За выбранные сезоны, скважины и пачки замеров нет.']
     gvk = gvk_by_season(packs, labels)
+    comments = comments_by_season(data.get('annotations'), labels)
     tables: list[Table] = []
     obs = data.get('observations')
     if obs is not None and len(obs):
@@ -394,7 +434,7 @@ def build(data: dict, params: dict[str, Any]) -> tuple[list[Table], list[str], s
         shown = [w for w in wells if w in has]
         if not shown:
             continue
-        tables.append(comparison_table(number, pack, shown, labels, gvk, span))
+        tables.append(comparison_table(number, pack, shown, labels, gvk, span, comments))
         tables.append(change_table(number + 1, pack, shown, labels, gvk, last_only))
         number += 2
     if number > 9:
