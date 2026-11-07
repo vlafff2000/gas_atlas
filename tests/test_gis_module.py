@@ -649,3 +649,22 @@ def test_an_comparison_table_has_gis_comments_column():
 def test_an_without_annotations_has_no_gis_comments_column():
     comp = _an().tables[1]
     assert 'gis_note' not in comp.frame.columns
+
+
+# ---- пометки отчётов ГИС на графиках динамики ----
+def _notes_run(**kw):
+    packs = _an_packs()
+    ann = pd.DataFrame({'well': ['1', '1'], 'date': pd.to_datetime(['2024-10-20', '2025-03-31']), 'pack': [None, 'верхняя'],
+                        'kind': ['Ремонт', 'Заглинизированный прослой'], 'text': ['т', 'т'], 'from_m': [None, 777.5], 'to_m': [None, 778.0]})
+    return GisModule().run({GIS: packs, DatasetKind.GIS_ANNOTATIONS: ann}, _params(view='gvk', wells=['1'], **kw))
+
+
+def test_chart_tooltip_and_marker_show_gis_notes_and_can_be_hidden():
+    chart = _notes_run().charts[0]
+    line = next(s for s in chart.series if s.kind == 'line')
+    assert any('Ремонт' in t for t in line.labels) and any('Заглинизированный прослой 777,5–778 м' in t for t in line.labels)
+    marks = [s for s in chart.series if s.name == 'Пометки ГИС']
+    assert len(marks) == 1 and len(marks[0].x) == 2 and marks[0].hollow
+    hidden = _notes_run(gis_notes=False).charts[0]
+    assert all(s.name != 'Пометки ГИС' for s in hidden.series)
+    assert all('Ремонт' not in t for s in hidden.series for t in (s.labels or []))
