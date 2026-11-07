@@ -101,3 +101,22 @@ def test_gis_annotation_events_on_q_chart_and_response():
     assert [e.label for e in ev] == ['ГИС: Ремонт · № 101'] and ev[0].kind == 'gis' and ev[0].well == '101'
     s = sel({K.GIS_ANNOTATIONS: ann})
     assert [e.label for e in curve_chart(s, ['101'], 'date').events if 'Ремонт' in e.label] == ['ГИС: Ремонт · № 101']
+
+
+def test_krs_plan_events_are_intervals_from_start_to_end():
+    from atlas.modules._events import krs_plan_events
+    plan = pd.DataFrame({'well': ['101', '101', '101', '202'], 'year': [2025.0] * 4, 'kind': ['КР', 'КР', 'КР', 'КР'], 'status': ['выполнен', 'в процессе', 'нет', 'x'], 'in_table': ['Да', 'Да', 'Да', 'Да'],
+                         'start': pd.to_datetime(['2025-06-02', '2025-06-08', None, '2025-06-02']),
+                         'end': pd.to_datetime(['2025-06-05', None, None, '2025-06-05'])})
+    ev = krs_plan_events(plan, ['101'])
+    assert len(ev) == 2 and ev[0].kind == 'repair' and ev[0].x == pd.Timestamp('2025-06-02') and ev[0].x_end == pd.Timestamp('2025-06-05')
+    assert '02.06.2025–05.06.2025' in ev[0].label and ev[1].x_end is None and 'в процессе' in ev[1].label     # без даты окончания — отметка начала
+    s = sel({K.KRS_PLAN: plan})
+    assert any(e.x_end is not None for e in curve_chart(s, ['101'], 'date').events)
+
+
+def test_krs_plan_events_follow_table_71_rule():
+    from atlas.modules._events import krs_plan_events
+    plan = pd.DataFrame({'well': ['101'] * 3, 'year': [2025.0] * 3, 'kind': ['КР', 'КР', 'ТР'], 'status': ['', '', ''],
+                         'in_table': ['Да', 'Нет', 'Да'], 'start': pd.to_datetime(['2025-06-02'] * 3), 'end': pd.to_datetime(['2025-06-05'] * 3)})
+    assert len(krs_plan_events(plan, ['101'])) == 1        # «Нет» в таблицу 7.1 и текущий ремонт ТР событиями не показываются

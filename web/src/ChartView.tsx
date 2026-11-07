@@ -602,7 +602,7 @@ interface Pin { x: number; y: number; axis: number; html: string; el: HTMLDivEle
 /** Ближайшая к точке (px, py) точка прямоугольника карточки — конец линии-выноски. */
 const nearestOnBox = (px: number, py: number, l: number, t: number, w: number, h: number): [number, number] =>
   [Math.max(l, Math.min(l + w, px)), Math.max(t, Math.min(t + h, py))]
-interface Plotted { x: number; label: string; kind: ChartEvent['kind'] }
+interface Plotted { x: number; x2?: number; label: string; kind: ChartEvent['kind'] }
 
 /** Ключ общего перекрестия: все графики по времени — вместе, остальные — с той же подписью и единицей оси X. */
 const syncKey = (chart: Chart) =>
@@ -988,7 +988,8 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       let more = 0
       for (const e of st.events) {
         if (st.hiddenEvents.has(e.kind)) continue
-        if (Math.abs(st.map.x(e.x) - px) > EVENT_RADIUS) continue
+        const from = st.map.x(e.x), to = e.x2 !== undefined ? st.map.x(e.x2) : from      // у ремонта «с даты по дату» подсказка по всей полосе
+        if (px < Math.min(from, to) - EVENT_RADIUS || px > Math.max(from, to) + EVENT_RADIUS) continue
         if (out.length < 4) out.push(`<span class="tip-event" style="--c:${eventColor(e.kind, st.tokens!)}">${escapeHtml(e.label)}</span>`)
         else more++
       }
@@ -1056,6 +1057,11 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         for (const e of st.events) {
           if (st.hiddenEvents.has(e.kind)) continue
           const px = Math.round(st.map.x(e.x)) + 0.5
+          if (e.x2 !== undefined && Number.isFinite(e.x2)) {      // ремонт «с даты по дату»: полоса от начала до конца
+            const px2 = Math.round(st.map.x(e.x2)) + 0.5
+            const a = Math.max(rect.x, Math.min(px, px2)), b = Math.min(rect.x + rect.width, Math.max(px, px2))
+            if (b > a) { g.save(); g.fillStyle = alpha(eventColor(e.kind, tk), 0.14); g.fillRect(a, rect.y, b - a, rect.height); g.restore() }
+          }
           if (px < rect.x || px > rect.x + rect.width) continue
           if (Math.abs(px - last) < 2 && lastKind === e.kind) continue
           last = px; lastKind = e.kind
@@ -1541,7 +1547,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
     st.sync = syncKey(chart)
     st.tokens = chartTokens(el)
     st.tracks = buildTracks(chart.series, chart.x, yCount(chart), s => hasMarkers(s, excludeMode, mode))
-    st.events = (chart.events ?? []).map(e => ({ x: toNumber(e.x, chart.x.scale), label: e.label, kind: e.kind }))
+    st.events = (chart.events ?? []).map(e => ({ x: toNumber(e.x, chart.x.scale), label: e.label, kind: e.kind, ...(e.x_end != null ? { x2: toNumber(e.x_end, chart.x.scale) } : {}) }))
       .filter(e => Number.isFinite(e.x)).sort((a, b) => a.x - b.x)
     const span = (t: Track[], f: (t: Track) => Float64Array) => {
       let lo = Infinity, hi = -Infinity

@@ -372,6 +372,7 @@ class Event:
     label: str                       # 'Начало закачки 2024'
     kind: Literal['gdi', 'regime', 'repair', 'peak', 'gis', 'template', 'other'] = 'other'
     well: str = ''                   # скважина события; пусто — событие объекта
+    x_end: Any = None                # конец интервала (ремонт «с даты по дату»): на графике полоса от ``x`` до ``x_end``; пусто — одна отметка
 
 
 @dataclass
