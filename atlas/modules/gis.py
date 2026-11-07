@@ -86,6 +86,27 @@ def _note_marks(frame: pd.DataFrame, column: str, group: str = '') -> list[Serie
                    legend=False, labels=_labels(marked, column))]
 
 
+def comments_table(annotations: pd.DataFrame | None, wells: list[str]) -> Table | None:
+    """Таблица «Комментарии ГИС по скважинам»: пометки отчётов по замерам выбранных скважин, свежие сверху. Подсказка, правит инженер."""
+    if annotations is None or annotations.empty:
+        return None
+    d = annotations[annotations['well'].astype(str).isin(wells)].copy()
+    if d.empty:
+        return None
+    rows = []
+    for _, r in d.sort_values(['well', 'date'], ascending=[True, False], kind='stable').iterrows():
+        top, bottom = gis_an_tables._num(r.get('from_m')), gis_an_tables._num(r.get('to_m'))
+        span = '' if top != top else (f'{gis_an_tables._meters(top)}–{gis_an_tables._meters(bottom)}' if bottom == bottom and bottom != top else gis_an_tables._meters(top))
+        pack = r.get('pack')
+        rows.append({'well': str(r['well']), 'date': r['date'], 'pack': '' if pack is None or pd.isna(pack) else str(pack), 'kind': str(r['kind']).strip(),
+                     'span': span, 'text': '' if pd.isna(r.get('text')) else str(r.get('text')),
+                     'confidence': '' if pd.isna(r.get('confidence', None)) else str(r.get('confidence'))})
+    columns = [Column('well', '№ скв.'), Column('date', 'Дата замера', kind='date'), Column('pack', 'Пачка'), Column('kind', 'Вид пометки'),
+               Column('span', 'Интервал', 'м'), Column('text', 'Текст отчёта'), Column('confidence', 'Уверенность')]
+    return Table('gis-well-comments', 'Комментарии ГИС по скважинам', pd.DataFrame(rows), columns,
+                 note='Пометки из отчётов ГИС: только подсказки, в расчёты не входят. Пустая пачка — пометка по всему замеру.')
+
+
 class GisModule(Module):
     spec = ModuleSpec(
         id='gis',
@@ -314,6 +335,9 @@ class GisModule(Module):
         if not result.charts:
             result.notes.append(Note('За выбранные скважины и сезоны интервалов нет.'))
             return result
+        comments = comments_table(data.get(ANNOTATIONS), wells)
+        if comments is not None:
+            result.tables.append(comments)
         result.notes.extend(Note(n, level='warning' if 'не показана' in n else 'info')
                             for n in dict.fromkeys(c.figure.data['perf_note'] for c in result.charts if c.figure.data['perf_note']))
         if params.get('depth_axis', 'md') == 'abs':

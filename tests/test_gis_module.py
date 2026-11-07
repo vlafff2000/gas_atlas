@@ -668,3 +668,15 @@ def test_chart_tooltip_and_marker_show_gis_notes_and_can_be_hidden():
     hidden = _notes_run(gis_notes=False).charts[0]
     assert all(s.name != 'Пометки ГИС' for s in hidden.series)
     assert all('Ремонт' not in t for s in hidden.series for t in (s.labels or []))
+
+
+def test_planshet_view_lists_gis_comments_table_for_chosen_wells():
+    ann = pd.DataFrame({'well': ['1', '4'], 'date': pd.to_datetime(['2024-10-20', '2024-10-20']), 'pack': [None, 'верхняя'],
+                        'kind': ['Ремонт', 'Заглинизированный прослой'], 'text': ['т', 'т'], 'from_m': [None, 777.5], 'to_m': [None, 778.0],
+                        'confidence': ['средняя', 'высокая']})
+    res = GisModule().run({GIS: _an_packs(), INTERVALS: _an_intervals(), DatasetKind.GIS_ANNOTATIONS: ann},
+                          _params(view='planshet', wells=['1'], seasons=[], depth_axis='md'))
+    table = next(t for t in res.tables if t.id == 'gis-well-comments')
+    assert table.frame['well'].tolist() == ['1'] and table.frame.loc[0, 'kind'] == 'Ремонт'
+    none = GisModule().run({GIS: _an_packs(), INTERVALS: _an_intervals()}, _params(view='planshet', wells=['1'], seasons=[], depth_axis='md'))
+    assert all(t.id != 'gis-well-comments' for t in none.tables)
