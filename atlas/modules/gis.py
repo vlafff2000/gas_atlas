@@ -45,6 +45,47 @@ def _packs(df: pd.DataFrame, wells: list[str], packs: list[str], start: str, end
     return part.sort_values(['well', 'pack', 'date'])
 
 
+def _annotate(part: pd.DataFrame, annotations: pd.DataFrame | None) -> pd.DataFrame:
+    """Колонка ``_note`` — пометки отчётов ГИС на дату замера (по скважине; пометка без пачки относится ко всем пачкам). Только подсказка."""
+    part = part.copy()
+    part['_note'] = ''
+    if annotations is None or annotations.empty:
+        return part
+    ann = annotations.copy()
+    ann['well'] = ann['well'].astype(str)
+    ann['pack'] = ann['pack'].astype(object).where(ann['pack'].notna() & (ann['pack'].astype(str) != ''), None)
+    by_key: dict[tuple[str, Any], list[tuple[Any, str]]] = {}
+    for _, row in ann.iterrows():
+        text = str(row['kind']).strip()
+        top, bottom = gis_an_tables._num(row.get('from_m')), gis_an_tables._num(row.get('to_m'))
+        if top == top:
+            text += f' {gis_an_tables._meters(top)}–{gis_an_tables._meters(bottom)} м' if bottom == bottom and bottom != top else f' {gis_an_tables._meters(top)} м'
+        by_key.setdefault((row['well'], row['date']), []).append((row['pack'], text))
+    notes = []
+    for _, row in part.iterrows():
+        items = [t for pack, t in by_key.get((str(row['well']), row['date']), []) if pack is None or str(pack) == str(row['pack'])]
+        notes.append('; '.join(dict.fromkeys(items)))
+    part['_note'] = notes
+    return part
+
+
+def _labels(frame: pd.DataFrame, column: str) -> list[str]:
+    """Подсказка точки: значение и, если есть, пометки отчётов ГИС."""
+    notes = frame['_note'] if '_note' in frame else [''] * len(frame)
+    return [f'{v:g}' + (f' · {n}' if n else '') for v, n in zip(frame[column], notes)]
+
+
+def _note_marks(frame: pd.DataFrame, column: str, group: str = '') -> list[Series]:
+    """Полые ромбы на точках с пометками отчётов: видно, где у замера есть причина или оговорка."""
+    if '_note' not in frame:
+        return []
+    marked = frame[(frame['_note'] != '') & frame[column].notna()]
+    if marked.empty:
+        return []
+    return [Series('Пометки ГИС', list(marked['date']), marked[column].tolist(), 'points', group=group, symbol='diamond', hollow=True,
+                   legend=False, labels=_labels(marked, column))]
+
+
 class GisModule(Module):
     spec = ModuleSpec(
         id='gis',
@@ -65,6 +106,9 @@ class GisModule(Module):
                 Option('tile', 'Плитка ГНТ и Кг по скважинам'), Option('hikg', 'Σ hi × Кг по исследованиям'), Option('an', 'Таблицы главы 5 АН (5.4–5.8)'),
                 Option('construction', 'Конструкция скважины'), Option('cons_compare', 'Сравнение конструкций с другим файлом'),
                 Option('planshet', 'Планшет ГИС'))),
+            Param('gis_notes', 'Пометки отчётов ГИС на графиках', 'boolean', default=True, section='Вид',
+                  help='Подсказка точки замера дополняется пометками из отчётов (ремонт, ГВК не достигнут, заглинизированный прослой), на точке — полый ромб. '
+                       'Это только подсказка: на расчёты и значения не влияет. Выключите, чтобы скрыть.'),
             Param('depth_axis', 'Глубина по оси', 'choice', default='md', section=SECTION, show_if={'view': 'planshet'}, options=(
                 Option('md', 'MD, м от стола'), Option('abs', 'а.о., м (альтитуда − MD)')),
                   help='MD — метры от стола, как в таблицах ГИС. а.о. — абсолютная отметка со знаком минус; нужна альтитуда скважины '
@@ -165,6 +209,8 @@ class GisModule(Module):
         if part.empty:
             result.notes.append(Note('За выбранные скважины, пачки и даты замеров нет.'))
             return result
+        if params.get('gis_notes', True):
+            part = _annotate(part, data.get(ANNOTATIONS))
         for well in wells:
             frame = part[part['well'].astype(str) == well]
             if frame.empty:
@@ -423,7 +469,8 @@ class GisModule(Module):
                 continue
             ids = part['_point_id'].tolist() if '_point_id' in part else None
             out.append(Series(str(pack), list(part['date']), part[column].tolist(), 'line', group=str(pack), markers=True,
-                              labels=[f'{v:g}' for v in part[column]], ids=ids, dataset=GIS if ids else None))
+                              labels=_labels(part, column), ids=ids, dataset=GIS if ids else None))
+            out += _note_marks(part, column, str(pack))
             spring = part[part['season'].astype(str) == SPRING] if 'season' in part else part.iloc[0:0]
             if len(spring):
                 out.append(Series(f'{pack}: весна', list(spring['date']), spring[column].tolist(), 'points', group=str(pack),
@@ -452,8 +499,9 @@ class GisModule(Module):
                 continue
             ids = frame['_point_id'].tolist() if '_point_id' in frame else None
             chart.series.append(Series(f'скв. {well}', list(frame['date']), frame[column].tolist(), 'line', group=str(well),
-                                       markers=True, labels=[f'{v:g}' for v in frame[column]], ids=ids,
+                                       markers=True, labels=_labels(frame, column), ids=ids,
                                        dataset=GIS if ids else None))
+            chart.series += _note_marks(frame, column, str(well))
         return chart
 
     @staticmethod
