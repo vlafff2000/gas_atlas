@@ -107,6 +107,23 @@ export function WellSchematic({ s }: { s: Schematic }) {
   )
 }
 
+/** Пояснения под схемой скважины и подсказки-проверки логики конструкции (общие для паспорта и рисунка раздела «ГИС»). Ничего не исправляют. */
+export function SchematicNotes({ s }: { s: Schematic }) {
+  if (!s.shapes) return null
+  const checks = s.checks ?? []
+  return (
+    <>
+      {s.notes.map(n => <div key={n} className="note info">{n}</div>)}
+      {checks.length > 0 && (
+        <div className="schematic-checks">
+          {checks.map((c, i) => <div key={i} className={`note ${c.level}`} title={c.top !== null ? `Интервал ${ru(c.top)}–${ru(c.bottom!)} м` : undefined}>
+            {c.level === 'warning' ? '⚠ ' : 'ℹ '}{c.text}</div>)}
+          <p className="muted small">Это подсказки по логике конструкции: схема не меняется, решение за инженером.</p>
+        </div>)}
+    </>
+  )
+}
+
 const PACK_COLORS = ['#2a6f97', '#3a9d5d', '#7b4fa3', '#e0a100', '#2b9aa0', '#8c5a3c', '#5b6c8f', '#a3a33a']
 const GRAY = '#b8bec6'
 const ru = (x: number, d = 1) => formatNumberUpTo(x, d)
@@ -236,7 +253,7 @@ export function FigureView({ chart }: { chart: Chart }) {
         {f.kind === 'construction'
           ? <>
               <WellSchematic s={f.data.scheme as Schematic} />
-              {(f.data.scheme as Schematic).shapes && (f.data.scheme as Schematic).notes.map(n => <div key={n} className="note info">{n}</div>)}
+              <SchematicNotes s={f.data.scheme as Schematic} />
             </>
           : <WellPlanshet d={f.data} />}
       </div>

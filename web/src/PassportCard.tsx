@@ -1,7 +1,7 @@
 import { ChartView } from './ChartView'
 import { TableDock } from './TableDock'
 import { TableView } from './TableView'
-import { WellSchematic } from './WellFigure'
+import { SchematicNotes, WellSchematic } from './WellFigure'
 import { passportApi, type PassportCard as Card } from './api_passport'
 
 /** Дашборд паспорта: показатели, схема забоя, графики и таблицы — те же ChartView и TableView, что в остальных модулях. */
@@ -20,7 +20,7 @@ export function PassportDashboard({ card, project, seasons }: { card: Card; proj
       <section className="panel schematic-panel">
         <h2>Забойная часть скважины № {card.well}</h2>
         <WellSchematic s={card.schematic} />
-        {card.schematic.shapes && card.schematic.notes.map(n => <div key={n} className="note info">{n}</div>)}
+        <SchematicNotes s={card.schematic} />
         <p className="muted small">Показаны эксплуатационная колонна, НКТ, фильтр, перфорация, расширка, пакер и забой; кондуктор и прочие колонны
           скрыты. Ширина условная, диаметры — в подписях.{card.construction_date ? ` Конструкция на ${card.construction_date}.` : ''}</p>
       </section>

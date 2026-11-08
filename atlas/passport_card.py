@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from atlas.construction_checks import check_construction
+
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 # Какие элементы шаблона конструкции попадают на схему забойной части; кондуктор и прочие колонны — нет.
 RULES = (('reaming', r'расшир|подзабой|каверн'), ('filter', r'фильтр'), ('perf', r'перфор'), ('packer', r'пакер'), ('bridge', r'мост'),
@@ -145,6 +147,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
         out['covered_m'] = round(filter_end - bottom_m, 1)
         out['notes'].append(f'Отбитый забой {bottom_m:g} м выше низа фильтра/перфорации {filter_end:g} м: '
                             f'перекрыто {filter_end - bottom_m:g} м (песчаная пробка).')
+    out['checks'] = check_construction(out['items'], bottom_m)      # подсказки: только показать причину, не исправлять
     out['shapes'], out['labels'] = shapes(out)
     out['ticks'] = None
     gaps = _gaps(out['items'], out['top'], out['bottom'], break_m) if break_m and break_m > 0 else []
