@@ -48,7 +48,36 @@ def test_schematic_skips_conductor_and_reports_sand_plug():
     assert sch['covered_m'] == 15.0 and any('перекрыто' in n for n in sch['notes'])
     assert sch['top'] > 0 and sch['top'] < 940 < sch['bottom']             # окно у забоя, не вся скважина
     assert {s['name'] for s in sch['shapes']} >= {'casing', 'tubing', 'filter', 'reaming', 'fill', 'bottom'}
-    assert all(l['at'] >= l['y'] for l in sch['labels'])
+    assert_labels_apart(sch)
+
+
+def assert_labels_apart(sch):
+    """Подписи справа: расстояние между соседними не меньше шага и все внутри окна схемы (в координатах после сжатия разрывов)."""
+    ats = sorted(l['at'] for l in sch['labels'])
+    gap = (sch['bottom'] - sch['top']) * .045
+    assert all(b - a >= gap - 1e-6 for a, b in zip(ats, ats[1:]))
+    assert all(sch['top'] <= a <= sch['bottom'] for a in ats)
+
+
+def test_labels_do_not_overlap_after_break_compression():
+    # длинный пустой участок сжимается; раньше подписи разводили до сжатия, и после него они слипались
+    cons = frame([('Эксплуатационная колонна', 0, 1510, 168, 150), ('НКТ', 0, 1500, 73, 62), ('Пакер', 1100, 1102, None, None),
+                  ('Фильтр', 1490, 1508, None, None), ('Интервал перфорации', 1495, 1505, None, None)])
+    sch = pc.schematic(cons, 1503.0)
+    assert sch.get('breaks') and len(sch['labels']) >= 5
+    assert_labels_apart(sch)
+
+
+def test_overlapping_intervals_are_merged_for_drawing():
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Эксплуатационная колонна', 0, 1010, 168, 150),
+                  ('Интервал перфорации', 960, 980, None, None), ('Интервал перфорации', 975, 1000, None, None),
+                  ('Интервал перфорации', 1000.3, 1005, None, None)])
+    sch = pc.schematic(cons, None)
+    assert [i['kind'] for i in sch['items']].count('casing') == 1
+    perf = [i for i in sch['items'] if i['kind'] == 'perf']
+    assert len(perf) == 1 and (perf[0]['top'], perf[0]['bottom']) == (960, 1005)
+    assert sum(1 for l in sch['labels'] if l['text'].startswith('Перфорация')) == 1
+    assert any('слито строк — 3' in n for n in sch['notes'])
 
 
 def test_schematic_without_construction_is_a_note():
