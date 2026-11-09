@@ -94,6 +94,7 @@ def apply(data: Data, flt: Mapping[str, Any] | None = None) -> Data:
     out.settings, out.revision, out.mapping = data.settings, data.revision, data.mapping
     out.project, out.model_notes = data.project, list(data.model_notes)
     out.wells = [w for w in data.wells if w in keep]
+    out.unfiltered = data.unfiltered or data
     return out
 
 

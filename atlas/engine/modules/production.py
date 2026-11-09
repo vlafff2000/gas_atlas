@@ -80,18 +80,22 @@ def day_flags(d):
         zero=zero.where(~known,d['hours'].le(0))
     return positive,zero
 
-def curve_data(df,kind,selected_periods,wells):
-    """X uses entire object for each selected period, irrespective of selected wells."""
+def curve_data(df,kind,selected_periods,wells,whole=None):
+    """X uses entire object for each selected period, irrespective of selected wells.
+    ``whole`` — данные всего объекта, если ``df`` уже сужен фильтром скважин: накопленный объём считается по ним."""
     from atlas.engine.core.performance import index_for
     index=index_for(df)
-    if index is not None:return _indexed_curves(df,index,kind,selected_periods,wells)
+    if whole is df:whole=None
+    if index is not None and whole is None:return _indexed_curves(df,index,kind,selected_periods,wells)
     out=[]
     base=df[df.kind.eq(kind)&df.period.isin(selected_periods)]
+    whole_base=base if whole is None else whole[whole.kind.eq(kind)&whole.period.isin(selected_periods)]
     for period,bucket in base.groupby('period',sort=False):
         bucket=bounded_dates(bucket,f'Период {period}')
         if bucket.empty:continue
-        calendar=pd.date_range(bucket.date.min(),bucket.date.max())
-        cumulative=bucket.groupby('date').q.sum().reindex(calendar,fill_value=0).cumsum()/1e6
+        total=bucket if whole is None else bounded_dates(whole_base[whole_base.period.eq(period)],f'Период {period}')
+        calendar=pd.date_range(total.date.min(),total.date.max())
+        cumulative=total.groupby('date').q.sum().reindex(calendar,fill_value=0).cumsum()/1e6
         for well,g in bucket[bucket.well.isin(wells)].groupby('well',sort=False):
             g=g.set_index('date').reindex(calendar)
             excluded=g['_excluded'].fillna(False).astype(bool) if '_excluded' in g else pd.Series(False,index=g.index)

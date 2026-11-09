@@ -533,6 +533,8 @@ class Data(Mapping):
         self.project: Any = None
         self.model_notes: list[str] = []                 # заметки о выбранных моделях tNav, которые не прочитались
         self.wells: list[str] = []                       # все скважины проекта (по всем наборам), по номеру
+        # Данные до фильтра скважин вкладки (None — фильтра нет): итоги по объекту считаются по ним, фильтр лишь скрывает скважины.
+        self.unfiltered: 'Data | None' = None
 
     def __getitem__(self, kind):
         return self._frames[kind]
