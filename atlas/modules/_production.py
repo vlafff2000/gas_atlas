@@ -97,6 +97,8 @@ class Selection:
     def __init__(self, data: Data, params: Mapping[str, Any]):
         self.df = data[PRODUCTION]
         self.raw = data.raw[PRODUCTION]
+        # весь объект: накопленный объём объекта не зависит от фильтра и окна скважин (они только выбирают, что показать)
+        self.whole = (data.unfiltered[PRODUCTION] if data.unfiltered is not None and PRODUCTION in data.unfiltered else self.df)
         self.mapping = data.mapping
         self.excluded = data.excluded
         self.kind = params['kind']
@@ -152,7 +154,7 @@ def groups_of(df: pd.DataFrame, mapping) -> list[str]:
 
 def curve_chart(sel: Selection, ws: list[str], xmode: str, chart_id: str = 'production-curve') -> Chart:
     """Q по накопленному объёму объекта или по дате, как ``charts.production_curve``."""
-    data = legacy.curve_data(sel.df, sel.kind, sel.periods, ws)
+    data = legacy.curve_data(sel.df, sel.kind, sel.periods, ws, whole=getattr(sel, 'whole', None))
     by_cumulative = xmode == 'cumulative'
     x_axis = (Axis('Накопленный объем объекта', 'млн м³', from_zero=True,
                    step=x_step(float(data.cumulative.max())) if not data.empty else None)

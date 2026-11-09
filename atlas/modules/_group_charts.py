@@ -30,7 +30,8 @@ def well_days(sel, wells: list[str]) -> pd.DataFrame:
 
 def object_days(sel) -> pd.DataFrame:
     """Сумма по всему объекту: period, date, total (м³/сут), cum (млн м³ с начала периода)."""
-    d = sel.df[sel.df.kind.eq(sel.kind) & sel.df.period.isin(sel.periods)]
+    whole = getattr(sel, 'whole', sel.df)       # весь объект, даже если фильтр скважин оставил часть
+    d = whole[whole.kind.eq(sel.kind) & whole.period.isin(sel.periods)]
     d = d.assign(v=_valid(d))
     a = d.groupby(['period', 'date'], sort=False).v.sum(min_count=1).rename('total').reset_index()
     a = a.sort_values(['period', 'date'])
