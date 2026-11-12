@@ -669,6 +669,20 @@ def test_an_results_table_hg_in_merged_cell_or_per_interval():
     assert plain.frame[plain.frame['well'] == '1']['s0_h'].dropna().tolist() == [1.4, 1.2]                   # нет hэф в базе: толщина интервала
 
 
+def test_an_results_table_marks_water_intervals_like_low_kg():
+    # интервал с записью «водонасыщен» (в Кг или в насыщении, в том числе разорванной OCR) оформляется как интервал с низким Кг, Кг остаётся текстом отчёта
+    iv = _an_intervals().assign(kg_text=['', 'водонасыщен', ''], status=['', '', ''])
+    iv.loc[1, 'kg'] = float('nan')
+    table = next(t for t in GisModule().run({GIS: _an_packs(), INTERVALS: iv}, _params(view='an')).tables if t.id == 'gis-an-5-4')
+    styled = {(r, tuple(s.columns)) for s in table.styles if s.font for r in s.rows}
+    assert any(c[:3] == ('s0_from', 's0_to', 's0_kg') for _r, c in styled)
+    rows = table.frame[table.frame['well'] == '1']
+    assert 'водонасыщен' in rows['s0_kg'].tolist()
+    split = _an_intervals().assign(kg_text=['', '', ''], status=['', 'водо-' + chr(10) + 'насыщен', ''])
+    t2 = next(t for t in GisModule().run({GIS: _an_packs(), INTERVALS: split}, _params(view='an')).tables if t.id == 'gis-an-5-4')
+    assert any(s.font and s.columns[:1] == ['s0_from'] for s in t2.styles)
+
+
 def _an_annotations():
     return pd.DataFrame({
         'well': ['4', '1', '1'], 'date': pd.to_datetime(['2025-03-31', '2024-10-20', '2024-10-20']),

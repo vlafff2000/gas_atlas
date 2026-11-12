@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 import pandas as pd
@@ -306,6 +307,14 @@ def _by_depth(blocks_of: dict[str, dict[str, pd.DataFrame]], gvk: dict, well: st
 HG_PACK, HG_INTERVAL = 'pack', 'interval'
 
 
+WATER_RX = re.compile(r'вод[оа]?[\s\-­]*на[\s\-­]*сы[щшс]', re.I)      # «водонасыщен», в том числе разорванное переносом OCR
+
+
+def is_water(interval: Any) -> bool:
+    """Интервал водонасыщен по записи отчёта: слово «водонасыщен» в Кг (``kg_text``) или в насыщении (``status``). Кг при этом остаётся как в отчёте (текстом)."""
+    return any(isinstance(text, str) and WATER_RX.search(text) for text in (getattr(interval, 'kg_text', ''), getattr(interval, 'status', '')))
+
+
 def interval_h(interval: Any) -> float:
     """Нг интервала: эффективная газонасыщенная толщина интервала из базы ГИС (``h_eff_m``: 0 для водонасыщенного, ниже ГВК и с низким Кг);
     нет столбца — толщина интервала (подошва − кровля)."""
@@ -370,7 +379,7 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
                     rows[r][f's{i}_kg'] = written or number          # в таблице Кг как в отчёте («<20%»), в расчётах и подсветке — число
                     if hg_mode == HG_INTERVAL:
                         rows[r][f's{i}_h'] = _fmt(interval_h(interval), 1)
-                    if number is not None and number <= LOW_KG:
+                    if (number is not None and number <= LOW_KG) or is_water(interval):     # вода — то же оформление, что у низкого Кг
                         low.append((r, i))
                 item = gvk.get((well, pack, label))
                 if item:
