@@ -60,3 +60,11 @@ def test_export_without_gis_data_is_a_russian_error(client):
     api, pid, _ = client
     r = api.post(f'/api/projects/{pid}/export/gis', json={'form': {}})
     assert r.status_code == 400 and 'Базы ГИС' in r.text
+
+
+def test_figure_title_can_be_hidden():
+    """«Шапка графика: скрыть» действует и на рисунок Word «ГИС и ГВК»."""
+    frame = _packs()[_packs().well == '115']
+    shown = gis_report.figure_png(frame, '115', 80)
+    hidden = gis_report.figure_png(frame, '115', 80, 'times', False)
+    assert shown != hidden

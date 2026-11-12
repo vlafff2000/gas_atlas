@@ -118,7 +118,7 @@ def settings_of(raw: Any) -> dict[str, Any]:
     labels = src.get('labels') if isinstance(src.get('labels'), Mapping) else {}
     return {'format': fmt, 'dpi': dpi, 'look': look, 'width': width, 'height': height, 'font': font, 'font_size': size,
             'sized': bool(_number(src.get('width'), 'Ширина, мм', 80, 300) or preset[0]), 'table': table, 'segment_size': segment, 'cell_size': cell, 'angle': angle, 'filename': filename,
-            'view': dict(view), 'doc': clean_format(src.get('doc')), 'chart': clean_chart(chart), 'title': title, 'axes': clean_axes(src.get('axes')),
+            'view': dict(view), 'doc': clean_format(src.get('doc')), 'chart': clean_chart(chart), 'title': title, 'hide_title': src.get('hide_title') is True, 'axes': clean_axes(src.get('axes')),
             'labels': {k: str(v).strip()[:200] for k, v in labels.items() if k in chart_view.AXES + ('x',) and str(v).strip()}}
 
 
@@ -132,6 +132,8 @@ def prepared(chart: Chart, s: Mapping[str, Any], with_doc: bool = True) -> tuple
         out = apply_format(out, s['doc'], notes)      # оформление этого графика (панель «Формат»): главнее настроек формы выше
     if s['title']:
         out = dataclasses.replace(out, title=s['title'])
+    if s.get('hide_title'):
+        out = dataclasses.replace(out, title='')      # «Без заголовка»: рисунок без названия; имя файла берётся из заголовка графика (``export``)
     names = set(out.axis_names()) | {'x'}
     for name, label in s['labels'].items():
         if name in names:
@@ -145,10 +147,11 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
     from atlas.engine.core.export import figure_bytes
     s = settings_of(raw_settings)
     out, notes = prepared(chart, s)
+    file_title = s['title'] or chart.title if s.get('hide_title') else out.title
     if s['format'] in ('xlsx', 'csv'):
         content, name, mime = render.chart_file(out, s['format'], s['dpi'])
-        if s['filename']:
-            name = f'{s["filename"]}.{s["format"]}'
+        if s['filename'] or s.get('hide_title'):
+            name = f'{s["filename"] or render.safe_name(file_title)}.{s["format"]}'
         texts = [n.text for n in notes]
         if s['format'] == 'xlsx' and any('break_lo' in (a.style or {}) for a in [out.x, *[axis for _, axis in [('y', out.y), *out.right_axes()]]]):
             texts.append('Разрыв оси в Excel не поддерживается: диаграмма XLSX показывает ось целиком; разрыв есть в PNG, PDF и SVG.')
@@ -161,14 +164,15 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
                 'segment_size': s['segment_size'], 'cell_size': s['cell_size'], 'style': out.style, 'axes': s['axes'], 'labels': s['labels'],
                 'angle': s['angle']}
         content = chart_special.figure_file(out, s['format'], s['dpi'], opts)
-        return content, f'{s["filename"] or render.safe_name(out.title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
+        return content, f'{s["filename"] or render.safe_name(file_title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
     fig = render.to_plotly(out)
-    if s['angle']:
+    extra = {**({'angle': s['angle']} if s['angle'] else {}), **({'title': 'hide'} if s.get('hide_title') else {})}
+    if extra:
         meta = dict(fig.layout.meta or {})
-        fig.update_layout(meta={**meta, 'format': {**(meta.get('format') or {}), 'angle': s['angle']}})
+        fig.update_layout(meta={**meta, 'format': {**(meta.get('format') or {}), **extra}})
     content = figure_bytes(fig, s['format'], s['dpi'], s['width'], s['height'], font=s['font'],
                            font_size=s['font_size'], look=s['look'])
-    return content, f'{s["filename"] or render.safe_name(out.title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
+    return content, f'{s["filename"] or render.safe_name(file_title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
 
 
 def routes(projects, E, compute) -> list:

@@ -292,7 +292,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const format = (settings.format as string | undefined) ?? 'png'
   // Общие поля — те же компоненты и подписи, что у «Производительность скважин»; значения берутся из настроек выгрузки.
   const form: Form = { format, dpi: settings.dpi, look: settings.look, width: settings.width, height: settings.height, font: settings.font,
-    font_size: settings.font_size, angle: settings.angle, legend: chartStyle.legend, title: chartStyle.title, title_align: chartStyle.title_align, grid: chartStyle.grid,
+    font_size: settings.font_size, hide_title: settings.hide_title === true, angle: settings.angle, legend: chartStyle.legend, title: chartStyle.title, title_align: chartStyle.title_align, grid: chartStyle.grid,
     grid_width: chartStyle.grid_width, minor_grid: chartStyle.minor_grid, minor_grid_width: chartStyle.minor_grid_width,
     table_show: (settings.table as Dict | undefined)?.show !== false }
   const setField = (field: string, value: unknown) => {
@@ -301,6 +301,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
     else if (field === 'look' || field === 'font') set(field, value === 'default' ? '' : value)
     else if (field === 'legend') sub('chart', 'legend', value === 'auto' ? '' : value)
     else if (['title', 'title_align', 'grid', 'grid_width', 'minor_grid', 'minor_grid_width'].includes(field)) sub('chart', field, value === 'auto' ? '' : value)
+    else if (field === 'hide_title') set('hide_title', value ? true : '')
     else if (field === 'angle') set('angle', value === 'auto' ? '' : value)
     else if (field === 'table_show') sub('table', 'show', value ? '' : false)
     else set(field, value)
@@ -376,6 +377,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
               <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
                 options={[[null, 'Авто (12)'], ...[8, 9, 10, 11, 12, 14, 16, 18].map(n => [n, String(n)] as Opt)]} />
               <Text {...F} field="title" label="Заголовок графика" def="" wide />
+              <Check {...F} field="hide_title" label="Без заголовка" def={false} />
               <Select {...F} field="angle" label="Подписи оси X" def="auto"
                 options={[['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]} />
               <Field label="Имя файла (без расширения)" wide value={settings.filename} placeholder="по заголовку графика" onChange={v => set('filename', v)} />

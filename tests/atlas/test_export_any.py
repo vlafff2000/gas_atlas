@@ -352,3 +352,38 @@ def test_special_chart_has_live_view_for_format_panel(env):
     special = next(c for c in found if c['special'])
     r = client.post(f'/api/projects/{pid}/export/any/chart', json={'module': 'an_report', 'params': params, 'chart': special['id'], 'settings': {}})
     assert r.status_code == 200 and r.json()['series'], r.text
+
+
+def _plain_chart():
+    from atlas.contract import Axis, Chart, Series
+    chart = Chart('t', 'Особый заголовок', Axis('Q', 'тыс. м³/сут'), Axis('P', 'кгс/см²'))
+    chart.series.append(Series('ряд', [1.0, 2.0, 3.0], [3.0, 2.0, 5.0], 'line'))
+    return chart
+
+
+def _special_chart():
+    from atlas.contract import Axis, Chart, Series
+    cats = ['a', 'b', 'c']
+    chart = Chart('s', 'Особый заголовок', Axis('Месяц', scale='category', categories=cats), Axis('Скважин', 'скв.'))
+    chart.series.append(Series('в работе', cats, [40.0, 45.0, 50.0], 'bar', stack='m', segments=['40', '45', '50']))
+    return chart
+
+
+@pytest.mark.parametrize('make', [_plain_chart, _special_chart])
+@pytest.mark.parametrize('fmt', ['svg', 'xlsx'])
+def test_any_chart_title_can_be_switched_off(make, fmt):
+    """«Любой график»: заголовок можно убрать совсем (флажок «Без заголовка»), имя файла остаётся по заголовку графика."""
+    import io
+    import zipfile
+    from atlas import export_any
+
+    def text_of(content):
+        if fmt == 'svg':
+            return content.decode('utf-8', 'ignore')
+        return ''.join(zipfile.ZipFile(io.BytesIO(content)).read(n).decode('utf-8', 'ignore') for n in zipfile.ZipFile(io.BytesIO(content)).namelist() if 'chart' in n and n.endswith('.xml'))
+
+    shown, name_shown, *_ = export_any.export(make(), {'format': fmt})
+    hidden, name_hidden, *_ = export_any.export(make(), {'format': fmt, 'hide_title': True})
+    assert 'Особый заголовок' in text_of(shown) or fmt == 'svg'
+    assert 'Особый заголовок' not in text_of(hidden)
+    assert name_hidden == name_shown and name_shown.startswith('Особый')
