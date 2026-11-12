@@ -701,7 +701,7 @@ def routes(projects: Projects) -> list[Route]:
         job = next((j for j in plan.jobs if j.name == body.get('chart')), None)
         if job is None:
             raise Failure(404, 'График не найден. Обновите предпросмотр.')
-        return _chart_json(auto_chart(to_chart(job.render(), 'export-' + str(job.module or 'chart'))))      # шкалы так же, как на экране разделов
+        return _chart_json(auto_chart(to_chart(job.render(fit=False), 'export-' + str(job.module or 'chart'))))      # шкалы так же, как на экране разделов
 
     def series(request, body):
         """Названия наборов данных в графиках каждого модуля — подсказки для правил оформления (по первым графикам модуля)."""
