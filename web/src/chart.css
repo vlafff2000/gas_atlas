@@ -245,3 +245,19 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .cs-tpl-row button:disabled { color: var(--muted); cursor: default; opacity: .6; }
 .cs-tpl-json { width: 100%; box-sizing: border-box; margin-top: 6px; font: 11px/1.3 monospace; }
 .cs-annotation { display: grid; gap: 6px; padding: 8px 0; border-top: 1px dashed var(--line); }
+
+/* Предпросмотр «как в файле» (ExportStage.tsx): рисунок и рамки его элементов */
+.stage-wrap { display: flex; flex-direction: column; gap: 8px; }
+.stage-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; min-height: 30px; }
+.stage-bar .spacer { flex: 1; }
+.stage-bar b { font-weight: 600; }
+.stage { position: relative; align-self: flex-start; max-width: 100%; line-height: 0; user-select: none; touch-action: none; border: 1px solid var(--line); background: #fff; }
+.stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stage img { display: block; max-width: 100%; height: auto; pointer-events: none; }
+.stage-box, .stage-veil, .stage-ghost { position: absolute; pointer-events: none; box-sizing: border-box; }
+.stage-box.hover { outline: 1px dashed var(--accent); outline-offset: 2px; }
+.stage-box.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stage-box.selected.movable { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.stage-box.hidden { outline: 1px dashed var(--line-strong); outline-offset: 1px; background: repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, var(--muted) 25%, transparent) 3px 4px); }
+.stage-veil { background: rgb(255 255 255 / 0.8); }
+.stage-ghost { background-repeat: no-repeat; box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }

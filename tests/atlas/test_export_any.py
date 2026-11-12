@@ -387,3 +387,35 @@ def test_any_chart_title_can_be_switched_off(make, fmt):
     assert 'Особый заголовок' in text_of(shown) or fmt == 'svg'
     assert 'Особый заголовок' not in text_of(hidden)
     assert name_hidden == name_shown and name_shown.startswith('Особый')
+
+
+def test_preview_is_the_file_with_its_scene(env):
+    """Предпросмотр «как в файле»: тот же PNG, что отдаёт выгрузка при 150 DPI, и сцена — что и где на нём нарисовано."""
+    import base64
+    client, pid = env
+    chart = first_chart(client, pid)
+    body = {'module': MODULE, 'params': PARAMS, 'chart': chart['id'], 'settings': {'format': 'pdf', 'dpi': 600, 'width': 160, 'height': 100}}
+    shown = client.post(f'/api/projects/{pid}/export/any/preview', json=body)
+    assert shown.status_code == 200, shown.text
+    shown = shown.json()
+    file = client.post(f'/api/projects/{pid}/export/any/file', json={**body, 'settings': {**body['settings'], 'format': 'png', 'dpi': 150}})
+    assert base64.b64decode(shown['image'].split(',', 1)[1]) == file.content      # формат и DPI формы на предпросмотр не влияют
+    kinds = {e['kind'] for e in shown['scene']}
+    assert {'plot', 'title', 'axis', 'series'} <= kinds and shown['missing'] == []
+    assert all(len(e['box']) == 4 for e in shown['scene'])
+    assert client.post(f'/api/projects/{pid}/export/any/preview', json={**body, 'chart': 'нет такого'}).status_code == 404
+
+
+def test_preview_shows_moved_title_and_reports_lost_shift(env):
+    client, pid = env
+    chart = first_chart(client, pid)
+    def scene(doc):
+        r = client.post(f'/api/projects/{pid}/export/any/preview', json={'module': MODULE, 'params': PARAMS, 'chart': chart['id'], 'settings': {'doc': doc}})
+        assert r.status_code == 200, r.text
+        return r.json()
+    base = {e['id']: e['box'] for e in scene({})['scene']}
+    moved = scene({'elements': {'title': {'dx': 0.1, 'dy': 0.05}, 'label:нет такого ряда:1': {'dx': 0.1}}})
+    now = {e['id']: e['box'] for e in moved['scene']}
+    assert abs(now['title'][0] - base['title'][0] - 0.1) < 0.002 and abs(now['title'][1] - base['title'][1] - 0.05) < 0.002
+    assert now['plot'] == base['plot']
+    assert moved['missing'] == ['label:нет такого ряда:1'] and any('Ручное положение не применено' in n for n in moved['notes'])

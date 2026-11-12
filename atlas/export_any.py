@@ -151,8 +151,20 @@ def unplaced_notes(scene: list | None) -> list[str]:
     return [f'Ручное положение не применено: на графике нет элемента {shown}. Остальное нарисовано как задано.']
 
 
-def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]:
-    """Файл одного графика и заметки о том, что не применилось. Возвращает (содержимое, имя, тип, заметки)."""
+def preview(chart: Chart, raw_settings: Any) -> dict[str, Any]:
+    """Предпросмотр «как в файле»: тот же рисунок, что уйдёт на выгрузку (PNG, 150 DPI), и его сцена — элементы с именами и
+    рамками в долях рисунка (``atlas/engine/core/export_scene.py``). По сцене экран понимает, по чему щёлкнули и что перетащили."""
+    import base64
+    scene: list = []
+    settings = {**(raw_settings if isinstance(raw_settings, Mapping) else {}), 'format': 'png', 'dpi': 150}
+    content, _, _, notes = export(chart, settings, scene)
+    return {'image': 'data:image/png;base64,' + base64.b64encode(content).decode('ascii'),
+            'scene': [e for e in scene if not e.get('missing')], 'missing': [e['id'] for e in scene if e.get('missing')], 'notes': notes}
+
+
+def export(chart: Chart, raw_settings: Any, scene: list | None = None) -> tuple[bytes, str, str, list[str]]:
+    """Файл одного графика и заметки о том, что не применилось. Возвращает (содержимое, имя, тип, заметки).
+    ``scene`` — список, в который складывается сцена рисунка (для предпросмотра)."""
     from atlas.engine.core.export import figure_bytes
     s = settings_of(raw_settings)
     out, notes = prepared(chart, s)
@@ -165,7 +177,8 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
         if s['format'] == 'xlsx' and any('break_lo' in (a.style or {}) for a in [out.x, *[axis for _, axis in [('y', out.y), *out.right_axes()]]]):
             texts.append('Разрыв оси в Excel не поддерживается: диаграмма XLSX показывает ось целиком; разрыв есть в PNG, PDF и SVG.')
         return content, name, mime, texts
-    scene: list | None = [] if out.style.get('elements') else None      # ручное положение элементов: что не применилось — в заметки
+    if scene is None and out.style.get('elements'):
+        scene = []      # ручное положение элементов: что не применилось — в заметки
     if chart_special.is_special(out):
         legend = out.style.get('legend')
         opts = {'width_mm': s['width'] if s['sized'] else None, 'height_mm': s['height'] if s['sized'] else None,
@@ -307,6 +320,17 @@ def routes(projects, E, compute) -> list:
         return Response(content, media_type=mime, headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(name)}",
                                                            'X-Atlas-Notes': quote(json.dumps(notes, ensure_ascii=False))})
 
+    def stage(request, body):
+        """Предпросмотр «как в файле»: рисунок и его сцена (``preview``)."""
+        wanted = str(body.get('chart') or '')
+        found, _ = charts_of(str(body.get('module') or ''), request.path_params['pid'], body.get('params'),
+                             only=wanted.split(SEP, 1)[0] if SEP in wanted else None)
+        chart = next((c for c, _ in found if c.id == wanted), None)
+        if chart is None:
+            return Response(json.dumps({'error': 'График не найден. Обновите список.'}, ensure_ascii=False), status_code=404,
+                            media_type='application/json')
+        return preview(chart, body.get('settings'))
+
     def live(request, body):
         """График для живого вида: оформление проекта и настройки формы уже на нём, оформление самого графика (``doc``) накладывает экран."""
         from .contract import _chart_json
@@ -321,4 +345,5 @@ def routes(projects, E, compute) -> list:
 
     base = '/api/projects/{pid}/export/any'
     return [Route(base + '/modules', E(modules)), Route(base + '/charts', E(charts), methods=['POST']),
-            Route(base + '/chart', E(live), methods=['POST']), Route(base + '/file', E(file), methods=['POST'])]
+            Route(base + '/chart', E(live), methods=['POST']), Route(base + '/file', E(file), methods=['POST']),
+            Route(base + '/preview', E(stage), methods=['POST'])]

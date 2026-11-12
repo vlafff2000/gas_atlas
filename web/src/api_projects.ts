@@ -2,6 +2,7 @@ import { saveUrlAs } from './desktopDownload'
 // Клиент API разделов «Проекты», «Настройки» и «Экспорт» (atlas/api_projects.py, atlas/api_export.py).
 import { ApiError, type Chart, type Project } from './api'
 import { menuPrefs } from './menuPrefs'
+import type { SceneElement } from './exportStage'
 
 export type Form = Record<string, unknown>
 
@@ -127,6 +128,9 @@ export const anyApi = {
   /** График для живого вида: оформление проекта и настройки формы на нём, оформление самого графика (settings.doc) накладывает экран. */
   chart: (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) =>
     request<Chart>(`${P(pid)}/export/any/chart`, json('POST', { module, params, chart, settings })),
+  /** Предпросмотр «как в файле»: рисунок PNG 150 DPI (data URL), его сцена и заметки (atlas/export_any.preview). */
+  preview: (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) =>
+    request<{ image: string; scene: SceneElement[]; missing: string[]; notes: string[] }>(`${P(pid)}/export/any/preview`, json('POST', { module, params, chart, settings })),
   file: async (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) => {
     const response = await send(`${P(pid)}/export/any/file`, json('POST', { module, params, chart, settings }))
     const name = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') ?? '')
