@@ -116,6 +116,9 @@ def _shift(f: Any, artist: Any, dx: float, dy: float, renderer: Any) -> bool:
         artist._loc = 3      # левый нижний угол легенды — в заданной точке рисунка
         artist.set_bbox_to_anchor((x + dx / width, y + dy / height), transform=f.transFigure)
     elif isinstance(artist, Text):
+        owner = getattr(artist, 'axes', None)
+        if owner is not None and artist is _title(owner):
+            owner._autotitlepos = False      # иначе Matplotlib при отрисовке вернёт заголовок на место над областью построения
         artist.set_transform(artist.get_transform() + ScaledTranslation(dx, dy, f.dpi_scale_trans))
     else:
         return False

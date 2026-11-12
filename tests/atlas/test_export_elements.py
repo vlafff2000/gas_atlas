@@ -102,6 +102,16 @@ def test_every_movable_element_of_the_scene_can_be_moved():
     assert all(_moved(base, now, key, 0.01, 0.01) for key in movable)
 
 
+def test_title_can_be_put_inside_the_plot():
+    """Matplotlib сам держит заголовок над областью построения; ручное положение сильнее."""
+    chart = _chart()
+    chart.style = {}
+    _, base = _scene(chart)
+    _, now = _scene(apply_format(chart, _doc({'title': (0.3, 0.2)})))
+    assert _moved(base, now, 'title', 0.3, 0.2)
+    assert now['plot']['box'][1] < now['title']['box'][1] and now['plot']['box'] == base['plot']['box']
+
+
 def test_no_elements_no_change():
     plain = chart_file(_chart(), 'png', 150)[0]
     assert chart_file(apply_format(_chart(), clean_format({'elements': {'title': {'dx': 0}}})), 'png', 150)[0] == plain
