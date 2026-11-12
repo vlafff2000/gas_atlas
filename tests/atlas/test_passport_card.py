@@ -225,7 +225,7 @@ def test_construction_checks_are_hints_with_reason():
     assert {'casing_above_work', 'tubing_below_casing', 'bottom_above_filter', 'overlap'} <= codes
     assert 'tubing_below_work' not in codes
     assert all(c['text'] and c['level'] in ('warning', 'info') for c in sch['checks'])
-    assert len(sch['items']) == 4                                       # схема не исправляется
+    assert len(sch['items']) == 3 and any('слито строк — 1' in n for n in sch['notes'])      # на рисунке фильтры слиты, подсказка о наложении осталась
 
 
 def test_construction_checks_reaming_downgrades_and_inverted():
