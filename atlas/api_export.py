@@ -1091,7 +1091,7 @@ def routes(projects: Projects) -> list[Route]:
         items = [item for item in items if item['frame']['gvk_abs_m'].notna().any()]
         if not items:
             raise Failure(400, 'Нет скважин для выгрузки: у выбранных нет замеров ГВК в «Базе ГИС».')
-        content = gis_report.build_docx(items, start=start, dpi=dpi)
+        content = gis_report.build_docx(items, start=start, dpi=dpi, title=form.get('fmt_title') != 'hide')
         exports = projects.store.path(pid) / 'exports'
         exports.mkdir(exist_ok=True)
         info = {'module': 'gis', 'charts': len(items), 'start': start, 'dpi': dpi}

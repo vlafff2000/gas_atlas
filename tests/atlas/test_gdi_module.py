@@ -281,3 +281,24 @@ def test_passport_diagram_draws_coefficient_study_dash_dot():
     chart = gdi_chart(items)
     curve = next(s for s in chart.series if 'по коэффициентам' in s.name)
     assert curve.kind == 'line' and curve.dash == 'dashdot' and 'без замеров' in curve.tooltip
+
+
+def _legend_has_curve(fig):
+    """Каждая запись легенды ИД должна иметь на графике то, что она обозначает: точки или кривую."""
+    shown = [t for t in fig.data if t.showlegend is not False and t.name]
+    assert shown
+    for t in shown:
+        group = [u for u in fig.data if u.legendgroup == t.legendgroup]
+        drawn = [u for u in group if np.isfinite(np.asarray(u.y, float)).any() and np.isfinite(np.asarray(u.x, float)).any()]
+        assert drawn, f'в легенде «{t.name}», а на графике ничего нет'
+
+
+@pytest.mark.parametrize('curves,db_curves', [(True, True), (True, False), (False, False)])
+def test_export_legend_has_no_study_without_curve(frame, curves, db_curves):
+    """Исследование без ΔP² (только a, b): в экспорте его запись в легенде не должна остаться без кривой."""
+    frame, last = _with_coef_study(frame)
+    chosen = frame[frame.well.eq('31')]
+    fig = charts.gdi_chart(chosen, '31', .95, 'standard', curves, db_curves, True, raw_df=chosen, show_excluded=False)
+    _legend_has_curve(fig)
+    coef = [t for t in fig.data if t.legendgroup and last.strftime('%d.%m.%Y') in t.legendgroup and t.mode == 'lines']
+    assert coef and np.isfinite(np.asarray(coef[0].y, float)).all()
