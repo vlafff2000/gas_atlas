@@ -116,3 +116,41 @@ def test_export_preview_bar_chart_converts_and_starts_at_zero():
     fig.update_xaxes(type='category')
     out = axis_auto.auto_chart(to_chart(fig))
     assert out.series[0].kind == 'bar' and (out.y.minimum, out.y.maximum) == (0.0, 100.0)
+
+
+def test_fit_mode_from_format_is_stronger_than_module_flag():
+    """Режим «Подбор пределов» из оформления (панель «Формат») главнее признака раздела «от нуля»; ручная граница главнее режима."""
+    from atlas import chart_style
+    base = chart([44.3, 60, 87.2], from_zero=True)
+    assert bounds(axis_auto.auto_chart(base)) == (0.0, 100.0, 20.0)
+    by_data = chart_style.apply_format(base, chart_style.clean_format({'axes': {'y': {'fit': 'auto'}}}))
+    assert by_data.y.style['fit'] == 'auto' and bounds(axis_auto.auto_chart(by_data)) == (40.0, 90.0, 10.0)
+    manual = chart_style.apply_format(base, chart_style.clean_format({'axes': {'y': {'fit': 'data', 'min': '10'}}}))
+    assert bounds(axis_auto.auto_chart(manual)) == (10.0, 90.0, 20.0)
+    import pytest
+    with pytest.raises(Exception):
+        chart_style.clean_format({'axes': {'y': {'fit': 'smart'}}})
+
+
+def test_format_after_fit_is_refitted_not_stuck():
+    """Оформление накладывается на уже подобранный график (файлы): подобранное раньше не мешает новому режиму и логарифму."""
+    from atlas import chart_style
+    fitted = axis_auto.auto_chart(chart([44.3, 60, 87.2]))
+    zero = axis_auto.auto_chart(chart_style.apply_format(fitted, chart_style.clean_format({'axes': {'y': {'fit': 'zero'}}})))
+    assert bounds(zero) == (0.0, 100.0, 20.0)
+    log = axis_auto.auto_chart(chart_style.apply_format(fitted, chart_style.clean_format({'axes': {'y': {'log': True}}})))
+    assert log.y.scale == 'log' and bounds(log) == (None, None, None) and log.y.auto is None
+
+
+def test_outlier_is_reported_not_dropped():
+    """Единичный выброс: шкала накрывает все точки, а в подсказке — сколько выбросов и какие пределы были бы без них. Решает инженер."""
+    y = list(60 + 10 * np.sin(np.linspace(0, 12, 200))) + [5000.0]
+    out = axis_auto.auto_chart(chart(y))
+    assert bounds(out) == (0.0, 5000.0, 1000.0)
+    hint, = out.y.auto['hints']
+    assert (hint['kind'], hint['count'], hint['values'], hint['min'], hint['max']) == ('outlier', 1, [5000.0], 45.0, 70.0) and hint['share'] < 0.01
+    assert 'hints' not in axis_auto.auto_chart(chart(y[:-1])).y.auto                       # без выброса подсказки нет
+    assert 'hints' not in axis_auto.auto_chart(chart(y, maximum=100.0)).y.auto             # пределы уже заданы инженером
+    many = list(60 + 10 * np.sin(np.linspace(0, 12, 200))) + [5000.0] * 20                   # 20 высоких точек — не выбросы, а данные
+    assert 'hints' not in axis_auto.auto_chart(chart(many)).y.auto
+    assert 'hints' not in axis_auto.auto_chart(chart([3, 4, 5000], kind='bar')).y.auto     # мало точек и столбцы

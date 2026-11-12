@@ -21,6 +21,15 @@ def test_table(case):
     assert got == case['expect']
 
 
+def test_random_table_for_the_screen_mirror():
+    """Случайная сверочная таблица (её же проверяет зеркало на TS) соответствует нынешним правилам; после намеренной правки
+    правил — ``python tools/axis_fit_table.py``."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parents[1] / 'tools'))
+    import axis_fit_table
+    assert json.loads(axis_fit_table.TABLE.read_text(encoding='utf-8')) == axis_fit_table.build()
+
+
 def test_every_reason_has_text():
     assert {e['why'] for c in CASES for e in c['expect'] if e} <= set(WHY)
 

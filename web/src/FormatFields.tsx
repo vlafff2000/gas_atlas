@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AxisFormat } from './chartFormat'
-import type { Annotation, AxisStyle, ChartStyle } from './api'
+import type { Annotation, Axis, AxisStyle, ChartStyle } from './api'
+import { boundText, fitHint, outlierText } from './axisFit'
 import { LINE_STYLES, type Look } from './chartStyle'
 import { HEX } from './ChartSettings'
 import { FONT_CHOICES } from './chartTheme'
@@ -257,9 +258,20 @@ export function ChartStyleFields({ value: st, set, title, fresh }: Setter<ChartS
   )
 }
 
-/** Шкала оси: границы, шаг, логарифм, обратное направление, начало с нуля. Общее поле «Формат» и окна оси конструктора; пусто — авто. */
-export type ScaleFormat = Pick<AxisFormat, 'min' | 'max' | 'step' | 'minor_step' | 'log' | 'inverse' | 'from_zero'>
-export function AxisScaleFields({ id, value: f, set, time, inverseBase }: { id: string; value: ScaleFormat; set: (patch: ScaleFormat) => void; time?: boolean; inverseBase?: boolean }) {
+/** Подбор пределов шкалы: авто (программа решает, от нуля или нет), авто от нуля, по данным. Ручные границы и шаг сильнее. */
+export const FITS: Opt<NonNullable<AxisFormat['fit']>> = [
+  { value: 'auto', label: 'Авто' }, { value: 'zero', label: 'Авто от нуля' }, { value: 'data', label: 'По данным (без нуля)' }]
+/** Выбор режима подбора — один для панели «Формат», конструктора и «Любого графика»; старый флажок «с нуля» читается как «от нуля». */
+export function FitChoice({ value, fromZero, onChange }: { value: AxisFormat['fit']; fromZero?: boolean; onChange: (v: AxisFormat['fit']) => void }) {
+  return <Choice label="Подбор пределов" value={value ?? (fromZero ? 'zero' : undefined)} options={FITS} auto="как в разделе" onChange={onChange} />
+}
+
+/** Шкала оси: границы, шаг, режим подбора, логарифм, обратное направление. Общее поле «Формат» и окна оси конструктора; пусто — авто.
+ *  ``axis`` — шкала показанного графика: под полями видно, какие пределы подобраны и почему, и подсказка о выбросе. */
+export type ScaleFormat = Pick<AxisFormat, 'min' | 'max' | 'step' | 'minor_step' | 'log' | 'inverse' | 'from_zero' | 'fit'>
+export function AxisScaleFields({ id, value: f, set, time, inverseBase, axis }: { id: string; value: ScaleFormat; set: (patch: ScaleFormat) => void; time?: boolean; inverseBase?: boolean; axis?: Axis | null }) {
+  const hint = time ? '' : fitHint(axis)
+  const outlier = time ? undefined : axis?.auto?.hints?.find(h => h.kind === 'outlier')
   return (
     <fieldset>
       <legend>Шкала</legend>
@@ -272,10 +284,17 @@ export function AxisScaleFields({ id, value: f, set, time, inverseBase }: { id: 
         : <>
           <Commit key={id + 'step'} label="Шаг делений" value={f.step} placeholder="авто" onChange={v => set({ step: v })} />
           <Commit key={id + 'minor'} label="Дополнительный шаг" value={f.minor_step} placeholder="нет" onChange={v => set({ minor_step: v })} />
+          <FitChoice value={f.fit} fromZero={f.from_zero} onChange={v => set({ fit: v, from_zero: undefined })} />
+          {hint && <p className="cs-hint" data-fit-hint>{hint}</p>}
+          {outlier && <p className="cs-hint" data-fit-outlier>
+            {outlierText(outlier)}{' '}
+            <button type="button" onClick={() => set({ min: boundText(outlier.min), max: boundText(outlier.max) })}
+              title="Пределы станут ручными: точки за ними уйдут за край поля. Вернуть — очистить поля «Минимум» и «Максимум».">
+              Задать пределы {boundText(outlier.min)}…{boundText(outlier.max)}</button>
+          </p>}
         </>}
       {!time && <Flag label="Логарифмическая шкала" value={f.log} onChange={v => set({ log: v })} title="Только для положительных значений" />}
       <Flag label="Обратное направление" value={effectiveInverse(inverseBase, f.inverse)} onChange={v => set({ inverse: v })} />
-      {!time && <Flag label="Начинать с нуля" value={f.from_zero} onChange={v => set({ from_zero: v })} />}
     </fieldset>
   )
 }

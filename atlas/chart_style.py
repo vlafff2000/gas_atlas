@@ -32,6 +32,7 @@ DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
 TICKS = ('out', 'in', 'cross', 'none')                       # деления оси: наружу, внутрь, пересекают, нет (как в Excel)
 MAX_PICK = 5000                                          # точек с подписью, выбранных вручную (label_pick), не больше
 UNITS = ('thousands', 'millions', 'billions')               # единицы отображения: подписи делятся на 10³, 10⁶, 10⁹
+FITS = ('auto', 'zero', 'data')                              # подбор пределов шкалы: авто, авто от нуля, по данным (atlas/axis_fit.py)
 TITLE_PLACES = ('end', 'middle')                            # название оси Y: над осью или вдоль оси
 ERROR_MODES = ('percent', 'abs')                  # погрешность: в процентах от значения или абсолютная
 ERROR_STYLES = ('bars', 'band')                   # усы у каждой точки или две граничные линии
@@ -118,7 +119,7 @@ LABELS = {
     'subtitle_size': 'размер подзаголовка', 'legend_columns': 'колонок легенды', 'legend_border': 'рамка легенды',
     'legend_background': 'фон легенды', 'grid_dash': 'штрих сетки', 'minor_grid_dash': 'штрих доп. линий',
     'border_color': 'рамка рисунка', 'border_width': 'толщина рамки рисунка', 'plot_border_color': 'рамка области построения',
-    'plot_border_width': 'толщина рамки области построения', 'positive': 'положительные числа', 'group_digits': 'разделять числа по разрядам',
+    'plot_border_width': 'толщина рамки области построения', 'positive': 'положительные числа', 'fit': 'подбор пределов', 'group_digits': 'разделять числа по разрядам',
 }
 
 LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DASHES, 'marker': 'bool', 'shape': SHAPES,
@@ -139,7 +140,9 @@ AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FOR
             'ticks': TICKS, 'minor_ticks': TICKS, 'line': 'bool', 'line_color': 'color', 'line_width': ('num', 0.2, 6),
             'label_rotate': ('num', -90, 90), 'units': UNITS, 'title_place': TITLE_PLACES,
             # числа без минуса (уровень жидкости с отметкой ниже моря): меняется только вид подписей и подсказок, данные те же
-            'positive': 'bool'}
+            'positive': 'bool',
+            # режим автоподбора пределов (atlas/axis_auto.py); заданные вручную границы и шаг сильнее любого режима
+            'fit': FITS}
 AXIS_STYLE_KEYS = tuple(k for k in AXIS_FMT if k != 'color')     # что из настроек оси ложится в ``Axis.style`` (цвет — в ``Axis.color``)
 AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'cross', 'break_from', 'break_to')  # границы и деления: текст, проверяется по виду оси (``bound``)
 CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,

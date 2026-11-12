@@ -2,7 +2,7 @@
 // Уровни (тема проекта → тип графика → график) складываются mergeFormats: поле более позднего уровня главнее.
 import { errorSeries, trendSeries } from './trend'
 import type { Axis, AxisStyle, Chart, ChartStyle } from './api'
-import { withoutAutoFit } from './chartAxes'
+import { fitChart, unfitted } from './axisFit'
 import { applyLooks, withFreshColors, type Look } from './chartStyle'
 
 export type AxisName = 'x' | 'y' | 'y2' | 'y3' | 'y4' | 'y5'
@@ -41,7 +41,7 @@ export const formatOf = (store: FormatStore | null | undefined, module?: string,
 export const chartKey = (module: string, chartId: string) => `${module}::${chartId}`
 
 const STYLE_KEYS: (keyof AxisStyle)[] = ['decimals', 'date_format', 'font', 'tick_size', 'title_size', 'title_bold', 'title_italic',
-  'tick_bold', 'tick_italic', 'ticks', 'minor_ticks', 'line', 'line_color', 'line_width', 'label_rotate', 'units', 'title_place', 'positive']
+  'tick_bold', 'tick_italic', 'ticks', 'minor_ticks', 'line', 'line_color', 'line_width', 'label_rotate', 'units', 'title_place', 'positive', 'fit']
 
 /** Граница оси из текста (как chart_style.bound): число с запятой или дата дд.мм.гггг / гггг-мм-дд (мс). Неверное — null. */
 export function parseBound(text: string | number | undefined, time: boolean): number | null {
@@ -61,11 +61,11 @@ export function parseBound(text: string | number | undefined, time: boolean): nu
 /** Ось с настройками документа (как chart_style.style_axis): то, что к оси не подходит, пропускается. */
 export function formatAxis(axis: Axis, spec: AxisFormat, values: number[]): Axis {
   const time = axis.scale === 'time'
-  const out: Axis = { ...axis, style: { ...axis.style } }
+  const out: Axis = { ...unfitted(axis), style: { ...axis.style } }
   if (spec.color) out.color = spec.color
   for (const k of STYLE_KEYS) if (spec[k] !== undefined) (out.style as Record<string, unknown>)[k] = spec[k]
   if (spec.inverse !== undefined) out.inverse = spec.inverse
-  if (spec.from_zero && axis.scale === 'value') Object.assign(out, withoutAutoFit(out), { from_zero: true })      // «с нуля» сильнее подобранных автоматом границ
+  if (spec.from_zero && axis.scale === 'value') out.from_zero = true
   const low = parseBound(spec.min, time), high = parseBound(spec.max, time)
   if (low === null || high === null || low < high) {
     if (low !== null) out.minimum = low
@@ -90,6 +90,10 @@ const AXES: AxisName[] = ['x', 'y', 'y2', 'y3', 'y4', 'y5']
  *  Данные и расчёт не меняются; оси, которой у графика нет, настройка не создаёт. */
 export function applyFormat(chart: Chart, doc: ChartFormat | null | undefined): Chart {
   if (!doc) return chart
+  return fitChart(formatted(chart, doc))      // пределы шкал — после оформления, тем же подбором, что в файле (atlas/axis_auto.py)
+}
+
+function formatted(chart: Chart, doc: ChartFormat): Chart {
   let out: Chart = doc.chart && Object.keys(doc.chart).length ? { ...chart, style: { ...chart.style, ...doc.chart } } : chart
   for (const name of AXES) {
     const spec = doc.axes?.[name], axis = out[name]
