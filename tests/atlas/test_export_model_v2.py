@@ -37,7 +37,7 @@ CHART = {'subtitle': 'Подзаголовок', 'legend_columns': 1, 'legend_bo
          'legend_size': 12, 'grid_color': '#ff0000', 'grid_width': 2, 'minor_grid_color': '#00ff00', 'minor_grid_width': 1,
          'background': '#eeeeee', 'plot_background': '#ddeeff'}
 # поля, которые для файла не имеют смысла или проверяются отдельно (дата, положение легенды, шрифт легенды; group_digits — test_export_digit_grouping.py; fresh_colors красит ряды с Series.age до отрисовки — test_fresh_colors.py)
-SEPARATE = {'fresh_colors', 'group_digits', 'date_format', 'legend', 'legend_font', 'title_font', 'grid', 'minor_grid', 'subtitle_size'}
+SEPARATE = {'fresh_colors', 'group_digits', 'date_format', 'legend', 'legend_font', 'title_font', 'grid', 'minor_grid', 'subtitle_size', 'positive'}
 
 
 def test_every_model_field_is_covered():
@@ -134,3 +134,12 @@ def test_xlsx_chart_gets_model_v2():
 def test_xlsx_without_style_keeps_default_chart():
     xml = _xlsx_chart_xml(chart({}))
     assert 'dispUnits' not in xml and 'legendPos val="l"' not in xml
+
+
+def test_positive_numbers_change_file_with_negative_axis():
+    """«Числа без минуса» (positive) проверяются на отрицательной шкале: на нулевой подписи те же."""
+    def neg(spec):
+        f = go.Figure([go.Scatter(x=[0, 1, 2], y=[-30, -20, -10], mode='lines', name='a')])
+        f.update_layout(yaxis=dict(range=[-40, 0]), meta={'style': {'axes': {'y': spec}}} if spec else {})
+        return png(f)
+    assert neg({'positive': True}) != neg(None)
