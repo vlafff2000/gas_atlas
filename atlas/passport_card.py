@@ -146,6 +146,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
                       'od': _num(r.get('diameter_mm')), 'id': _num(r.get('inner_diameter_mm')),
                       'comment': str(r.get('comment') or '')})
     notes: list[str] = []
+    raw_items = list(items)                                          # проверки смотрят на строки как есть: слияние скрыло бы наложения
     items, merged = merge_items(items)
     if merged:
         notes.append(f'Перекрывающиеся и дублирующие интервалы одного типа показаны одним: слито строк — {merged}. В таблице конструкции строки остаются как есть.')
@@ -175,7 +176,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
         out['covered_m'] = round(filter_end - bottom_m, 1)
         out['notes'].append(f'Отбитый забой {bottom_m:g} м выше низа фильтра/перфорации {filter_end:g} м: '
                             f'перекрыто {filter_end - bottom_m:g} м (песчаная пробка).')
-    out['checks'] = check_construction(out['items'], bottom_m)      # подсказки: только показать причину, не исправлять
+    out['checks'] = check_construction(raw_items, bottom_m)      # подсказки: только показать причину, не исправлять
     out['shapes'], out['labels'] = shapes(out)
     out['ticks'] = None
     gaps = _gaps(out['items'], out['top'], out['bottom'], break_m) if break_m and break_m > 0 else []
