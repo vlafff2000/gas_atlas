@@ -1,8 +1,10 @@
-"""Единая модель оформления графика: ряд, ось, график. Пустое поле — «авто» (поле в словаре не появляется).
+"""Единая модель оформления графика: ряд, ось, график, отдельный элемент. Пустое поле — «авто» (поле в словаре не появляется).
 
 Модель одна для конструктора, «Любого графика», вида с экрана и (дальше) темы проекта и типа графика: документ
-``{'chart': {...}, 'axes': {'x': {...}, 'y': {...}}, 'series': {ключ ряда: {...}}}`` (``clean_format``), уровни складываются
-``merge_formats`` (последний главнее, по полям), на график накладывается ``apply_format``. Старые места хранения переводятся
+``{'chart': {...}, 'axes': {'x': {...}, 'y': {...}}, 'series': {ключ ряда: {...}}, 'elements': {имя элемента: {...}}}``
+(``clean_format``), уровни складываются ``merge_formats`` (последний главнее, по полям), на график накладывается ``apply_format``.
+``elements`` — ручное положение элементов файла (заголовок, легенда, подпись точки…): сдвиг в долях рисунка, имена — из сцены
+(``atlas/engine/core/export_scene.py``); действует в PNG, SVG и PDF. Старые места хранения переводятся
 в документ функциями ``format_from_*``; сами старые поля не меняются — старые проекты и макеты открываются как раньше.
 
 Хранится в макете (``layout.series[].look``, ``layout.axis_style``, ``layout.chart_style``), ложится в ``Series.look``, ``Axis.style``
@@ -294,8 +296,32 @@ def style_axis(axis: Axis, spec: Mapping[str, Any], title: str, values: Iterable
 
 # --- Документ оформления (модель v2) ---------------------------------------------------------------------------------
 
-FORMAT_PARTS = ('chart', 'axes', 'series')
+FORMAT_PARTS = ('chart', 'axes', 'series', 'elements')
 AXIS_NAMES = ('x', 'y', 'y2', 'y3', 'y4', 'y5')
+ELEMENTS = 2000                # элементов со своим положением на одном графике
+ELEMENT = {'dx': ('num', -1, 1), 'dy': ('num', -1, 1), 'hide': 'bool'}      # сдвиг вправо и вниз в долях рисунка; спрятать (одну подпись точки)
+LABELS.update({'dx': 'сдвиг вправо', 'dy': 'сдвиг вниз', 'hide': 'скрыть'})
+
+
+def clean_elements(raw: Any) -> dict[str, dict[str, Any]]:
+    """Ручное положение элементов: ``{имя элемента сцены: {'dx', 'dy', 'hide'}}``. Сдвигаются заголовок, подзаголовок, легенда,
+    названия осей, подписи точек и тексты аннотаций; прячется по одной только подпись точки. Нулевой сдвиг — «авто»: запись
+    не появляется. Имя вида, который не сдвигается (ряд, ось), отбрасывается, как неизвестное поле."""
+    from .engine.core.export_scene import HIDABLE, MOVABLE, kind_of
+    if _empty(raw) or raw == {}:
+        return {}
+    if not isinstance(raw, Mapping) or len(raw) > ELEMENTS:
+        raise ParamError(f'Положение элементов: не больше {ELEMENTS}')
+    out = {}
+    for key, spec in raw.items():
+        name = str(key)[:300]
+        if kind_of(name) not in MOVABLE:
+            continue
+        one = _fill(spec, f'Элемент «{name}»', ELEMENT)
+        one = {k: v for k, v in one.items() if v and (k != 'hide' or kind_of(name) in HIDABLE)}
+        if one:
+            out[name] = one
+    return out
 
 
 def series_key(s: Series) -> str:
@@ -315,7 +341,7 @@ def clean_format(raw: Any) -> dict[str, Any]:
         one = clean_look(look, i)
         if one:
             series[str(key)[:300]] = one
-    for name, part in (('chart', chart), ('axes', axes), ('series', series)):
+    for name, part in (('chart', chart), ('axes', axes), ('series', series), ('elements', clean_elements(src.get('elements')))):
         if part:
             out[name] = part
     return out
@@ -329,7 +355,7 @@ def merge_formats(*docs: Mapping[str, Any] | None) -> dict[str, Any]:
             continue
         if doc.get('chart'):
             out['chart'] = {**out.get('chart', {}), **doc['chart']}
-        for part in ('axes', 'series'):
+        for part in ('axes', 'series', 'elements'):
             for key, value in (doc.get(part) or {}).items():
                 out.setdefault(part, {})[key] = {**out.get(part, {}).get(key, {}), **value}
     return copy.deepcopy(out)
@@ -350,6 +376,11 @@ def apply_format(chart: Chart, doc: Mapping[str, Any] | None, notes: list[Note] 
         return chart
     notes = notes if notes is not None else []
     out = dataclasses.replace(chart, style={**chart.style, **doc.get('chart', {})}) if doc.get('chart') else chart
+    if doc.get('elements'):      # ручное положение элементов: до рисовальщика файлов доходит вместе с оформлением графика
+        placed = {**out.style.get('elements', {})}
+        for key, value in doc['elements'].items():
+            placed[key] = {**placed.get(key, {}), **value}
+        out = dataclasses.replace(out, style={**out.style, 'elements': placed})
     names = set(out.axis_names()) | {'x'}
     for name, spec in (doc.get('axes') or {}).items():
         if name not in names:
@@ -462,13 +493,20 @@ STORE_CHARTS = 1000            # графиков со своим оформле
 STORE_TEMPLATES = 100          # шаблонов оформления в проекте
 
 
+def _shared_format(raw: Any) -> dict[str, Any]:
+    """Документ общего уровня (тема, тип, шаблон): положение элементов относится к одному графику и на общий уровень не переносится."""
+    doc = clean_format(raw)
+    doc.pop('elements', None)
+    return doc
+
+
 def clean_store(raw: Any) -> dict[str, Any]:
     """Настройка проекта ``chart_formats = {'theme': документ, 'types': {раздел: документ}}``: тема действует на все графики,
     тип — на графики одного раздела (идёт после темы, главнее её). Ошибка поля — ``ParamError`` с понятным текстом."""
     if not isinstance(raw, Mapping) or set(raw) - {'theme', 'types', 'charts', 'templates'}:
         raise ParamError('Оформление графиков: нужен словарь {theme, types, charts, templates}')
     out: dict[str, Any] = {}
-    theme = clean_format(raw.get('theme'))
+    theme = _shared_format(raw.get('theme'))
     if len(theme.get('series', {})) > STORE_SERIES:
         raise ParamError(f'Оформление графиков: не больше {STORE_SERIES} рядов в теме проекта')
     if theme:
@@ -478,7 +516,7 @@ def clean_store(raw: Any) -> dict[str, Any]:
         types = {}
     if not isinstance(types, Mapping) or len(types) > STORE_TYPES:
         raise ParamError(f'Оформление графиков: типы — словарь, не больше {STORE_TYPES}')
-    kinds = {str(k)[:80]: d for k, v in types.items() for d in [clean_format(v)] if d}
+    kinds = {str(k)[:80]: d for k, v in types.items() for d in [_shared_format(v)] if d}
     if kinds:
         out['types'] = kinds
     charts = raw.get('charts')
@@ -492,7 +530,7 @@ def clean_store(raw: Any) -> dict[str, Any]:
     templates = {} if templates is None else templates
     if not isinstance(templates, Mapping) or len(templates) > STORE_TEMPLATES:
         raise ParamError(f'Оформление графиков: шаблонов не больше {STORE_TEMPLATES}')
-    named = {name: d for k, v in templates.items() for name in [str(k).strip()[:60]] for d in [clean_format(v)] if name and d}
+    named = {name: d for k, v in templates.items() for name in [str(k).strip()[:60]] for d in [_shared_format(v)] if name and d}
     if named:
         out['templates'] = named        # шаблоны оформления: {имя: документ}; на графики сами не действуют, только переносятся на них
     return out

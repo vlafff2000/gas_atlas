@@ -142,6 +142,15 @@ def prepared(chart: Chart, s: Mapping[str, Any], with_doc: bool = True) -> tuple
     return out, notes
 
 
+def unplaced_notes(scene: list | None) -> list[str]:
+    """Ручное положение, которое не применилось: элемента с таким именем на графике уже нет (ряд переименован, точка ушла из выборки)."""
+    lost = [e['id'] for e in scene or () if e.get('missing')]
+    if not lost:
+        return []
+    shown = ', '.join(f'«{name}»' for name in lost[:5]) + (f' и ещё {len(lost) - 5}' if len(lost) > 5 else '')
+    return [f'Ручное положение не применено: на графике нет элемента {shown}. Остальное нарисовано как задано.']
+
+
 def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]:
     """Файл одного графика и заметки о том, что не применилось. Возвращает (содержимое, имя, тип, заметки)."""
     from atlas.engine.core.export import figure_bytes
@@ -156,6 +165,7 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
         if s['format'] == 'xlsx' and any('break_lo' in (a.style or {}) for a in [out.x, *[axis for _, axis in [('y', out.y), *out.right_axes()]]]):
             texts.append('Разрыв оси в Excel не поддерживается: диаграмма XLSX показывает ось целиком; разрыв есть в PNG, PDF и SVG.')
         return content, name, mime, texts
+    scene: list | None = [] if out.style.get('elements') else None      # ручное положение элементов: что не применилось — в заметки
     if chart_special.is_special(out):
         legend = out.style.get('legend')
         opts = {'width_mm': s['width'] if s['sized'] else None, 'height_mm': s['height'] if s['sized'] else None,
@@ -163,16 +173,16 @@ def export(chart: Chart, raw_settings: Any) -> tuple[bytes, str, str, list[str]]
                 'table_show': s['table']['show'], 'table_font_size': s['table']['font_size'], 'table_row': s['table']['row'],
                 'segment_size': s['segment_size'], 'cell_size': s['cell_size'], 'style': out.style, 'axes': s['axes'], 'labels': s['labels'],
                 'angle': s['angle']}
-        content = chart_special.figure_file(out, s['format'], s['dpi'], opts)
-        return content, f'{s["filename"] or render.safe_name(file_title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
+        content = chart_special.figure_file(out, s['format'], s['dpi'], opts, scene)
+        return content, f'{s["filename"] or render.safe_name(file_title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes] + unplaced_notes(scene)
     fig = render.to_plotly(out)
     extra = {**({'angle': s['angle']} if s['angle'] else {}), **({'title': 'hide'} if s.get('hide_title') else {})}
     if extra:
         meta = dict(fig.layout.meta or {})
         fig.update_layout(meta={**meta, 'format': {**(meta.get('format') or {}), **extra}})
     content = figure_bytes(fig, s['format'], s['dpi'], s['width'], s['height'], font=s['font'],
-                           font_size=s['font_size'], look=s['look'])
-    return content, f'{s["filename"] or render.safe_name(file_title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes]
+                           font_size=s['font_size'], look=s['look'], scene=scene)
+    return content, f'{s["filename"] or render.safe_name(file_title)}.{s["format"]}', render.FORMATS[s['format']], [n.text for n in notes] + unplaced_notes(scene)
 
 
 def routes(projects, E, compute) -> list:

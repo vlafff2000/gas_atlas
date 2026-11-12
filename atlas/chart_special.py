@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import io
 import logging
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -44,17 +44,28 @@ def _setup():
     return plt
 
 
-def _bytes(fig: Any, fmt: str, dpi: int, scene: list | None = None) -> bytes:
+def _bytes(fig: Any, fmt: str, dpi: int, scene: list | None = None, elements: Mapping[str, Any] | None = None) -> bytes:
+    """``elements`` — ручное положение элементов (``export_scene.place``), в долях сохраняемого (обрезанного по содержимому) рисунка."""
+    import matplotlib as mpl
+    from atlas.engine.core.export_scene import collect, place, unplaced
+    from matplotlib.transforms import Bbox
+
+    def tight():
+        return fig.get_tightbbox(fig.canvas.get_renderer()).padded(mpl.rcParams['savefig.pad_inches'])
+
+    missing: list[str] = []
+    if elements and fig.axes:
+        fig.set_dpi(dpi)
+        fig.canvas.draw()
+        missing = place(fig, {'y': fig.axes[0]}, elements, (tight().width, tight().height))
     buffer = io.BytesIO()
     fig.savefig(buffer, format=fmt, dpi=dpi, bbox_inches='tight')
     if scene is not None and fig.axes:      # файл уже сохранён и от сцены не зависит; рамки — в долях обрезанного по содержимому рисунка
-        import matplotlib as mpl
-        from atlas.engine.core.export_scene import collect
-        from matplotlib.transforms import Bbox
         fig.set_dpi(dpi)
         fig.canvas.draw()
-        tight = fig.get_tightbbox(fig.canvas.get_renderer()).padded(mpl.rcParams['savefig.pad_inches'])
-        scene.extend(collect(fig, {'y': fig.axes[0]}, Bbox.from_extents(tight.x0 * dpi, tight.y0 * dpi, tight.x1 * dpi, tight.y1 * dpi)))
+        frame = tight()
+        scene.extend(collect(fig, {'y': fig.axes[0]}, Bbox.from_extents(frame.x0 * dpi, frame.y0 * dpi, frame.x1 * dpi, frame.y1 * dpi)))
+        scene.extend(unplaced(missing))
     return buffer.getvalue()
 
 
@@ -83,7 +94,7 @@ def _figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None =
         elif o.get('width_mm'):
             w, h = fig.get_size_inches()
             fig.set_size_inches(o['width_mm'] / 25.4, h * o['width_mm'] / 25.4 / w)
-        return _bytes(fig, fmt, dpi, scene)
+        return _bytes(fig, fmt, dpi, scene, (o.get('style') or chart.style or {}).get('elements'))
     finally:
         plt.close('all')
 

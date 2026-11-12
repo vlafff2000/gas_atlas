@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from .export_combo import Areas,Bars,ghost,is_back,is_combo,overlay,sync
 from .export_style import group_default_ticks,group_digits_on,group_thousands,grouping,ru_tick
-from .export_scene import Names,collect,mark
+from .export_scene import Names,collect,mark,place,unplaced
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -435,11 +435,16 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                 from .export_style import apply_style
                 apply_style(f,ax,rights,fig.layout.meta['style'],title,k,base,date_axis)      # ручное оформление конструктора: последнее слово за инженером
             for top in overlays.values():sync(bases[id(top)],top)
+            moves=((fig.layout.meta.get('style') or {}).get('chart') or {}).get('elements') if isinstance(fig.layout.meta,dict) else None
+            missing=[]
+            if moves:      # ручное положение элементов: расстановка делается один раз и замирает, сдвигается только названное инженером
+                f.set_dpi(dpi);f.canvas.draw();f.set_layout_engine('none')
+                missing=place(f,{'y':ax,**rights},moves)
             if scene is not None and fmt=='png':f.set_dpi(dpi)      # рамки сцены — при том же разрешении, что и файл
             buf=io.BytesIO();f.savefig(buf,format=fmt,dpi=dpi)
             if scene is not None:      # после сохранения: файл от сцены не зависит; у PNG сцена — ровно сохранённый рисунок
                 if fmt!='png':f.set_dpi(dpi);f.canvas.draw()      # вектор рисовал другой движок: расстановка для рамок — отдельной отрисовкой
-                scene.extend(collect(f,{'y':ax,**rights}))
+                scene.extend(collect(f,{'y':ax,**rights}));scene.extend(unplaced(missing))
             return buf.getvalue()
         finally:plt.close(f)
 
