@@ -383,6 +383,9 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
         for i in well_gap:
             rows[well_top][f's{i}_from'] = NOT_STUDIED
             merges.append(CellMerge(well_top, len(rows) - 1, season_keys(i)))
+    if rows:
+        for i in range(1, len(labels)):       # граница сезона: толстая линия слева от первой колонки каждого сезона, кроме первого
+            styles.append(CellStyle(list(range(len(rows))), columns=[f's{i}_from'], border='left'))
     low_fill = colors[LOW_KEY]
     for r, i in low:      # голубой фон и синий шрифт — только у интервала (от, до, Кг) своего сезона, не у остальных ячеек строки
         styles.append(CellStyle([r], fill=low_fill, font=LOW_FONT, columns=[f's{i}_{n}' for n in ('from', 'to', 'kg')]))

@@ -640,6 +640,13 @@ def header_sheet(ws, table: Table) -> None:
             cell = ws.cell(r, k)
             cell.font, cell.fill, cell.border = Font(bold=True), fill, Border(left=side, right=side, top=side, bottom=side)
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    for style in table.styles:       # граница группы колонок (сезона) — толстая линия слева и в шапке
+        if style.border == 'left':
+            for key in style.columns:
+                k = next((n for n, c in enumerate(table.columns, 1) if c.key == key), None)
+                for r in range(1, rows + 1) if k else ():
+                    cell = ws.cell(r, k)
+                    cell.border = Border(left=Side(style='medium', color='000000'), right=cell.border.right, top=cell.border.top, bottom=cell.border.bottom)
     body = safe_table(table.frame[[c.key for c in table.columns]])
     for r, values in enumerate(body.itertuples(index=False, name=None), rows + 1):
         for k, (v, c) in enumerate(zip(values, table.columns), 1):
@@ -670,6 +677,9 @@ def _apply_styles(ws, table: Table, first_row: int) -> None:
                 if style.border == 'top':
                     side = cell.border.left
                     cell.border = Border(left=side, right=cell.border.right, top=Side(style='medium', color='000000'),
+                                         bottom=cell.border.bottom)
+                elif style.border == 'left':
+                    cell.border = Border(left=Side(style='medium', color='000000'), right=cell.border.right, top=cell.border.top,
                                          bottom=cell.border.bottom)
     for merge in table.merges:
         cols = [column[key] for key in merge.columns]

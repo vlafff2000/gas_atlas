@@ -447,6 +447,21 @@ def test_54_xlsx_draws_the_well_line_and_keeps_gvk_in_one_row():
     assert ws.cell(row4, 1).border.top.style == 'medium'
 
 
+def test_54_xlsx_draws_thick_lines_between_seasons():
+    # жирные линии между сезонами, как между скважинами: слева от первой колонки каждого сезона (кроме первого), в шапке и в строках данных
+    import io
+    from openpyxl import load_workbook
+    from atlas import render
+    table = _an_five_four()
+    firsts = [s.columns[0] for s in table.styles if s.border == 'left']
+    assert firsts == [f's{i}_from' for i in range(1, len(firsts) + 1)] and firsts
+    content, _, _ = render.tables_file([table], 'Таблица 5.4')
+    ws = load_workbook(io.BytesIO(content)).worksheets[0]
+    col = 2 + 6 + 1                       # колонка 's1_from': № скв., Пачка, 6 колонок первого сезона
+    assert ws.cell(3, col).border.left.style == 'medium' and ws.cell(ws.max_row, col).border.left.style == 'medium'
+    assert ws.cell(ws.max_row, 3).border.left.style != 'medium'     # внутри сезона линия обычная
+
+
 def test_54_xlsx_header_keeps_well_and_pack_titles_and_centres_merged_h():
     import io
     from openpyxl import load_workbook
