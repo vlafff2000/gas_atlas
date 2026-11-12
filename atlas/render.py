@@ -326,7 +326,8 @@ def to_plotly(chart: Chart):
         if spec.step and spec.scale in ('value', 'log'):
             axis.dtick = spec.step
         if spec.minimum is not None and spec.maximum is not None and spec.scale == 'value':
-            axis.range = [spec.minimum, spec.maximum]
+            # обратная ось X с границами: порядок границ и задаёт направление (у шкал Y это делает align_y_axes)
+            axis.range = [spec.maximum, spec.minimum] if n == 0 and spec.inverse else [spec.minimum, spec.maximum]
         if spec.inverse:
             axis.autorange = 'reversed'
     align_y_axes(fig, chart)

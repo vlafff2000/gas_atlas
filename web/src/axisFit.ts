@@ -8,6 +8,8 @@ export type FitMode = 'auto' | 'zero' | 'data'
 export interface Need {
   lo?: number | null; hi?: number | null; anchor?: boolean; mode?: FitMode
   minimum?: number | null; maximum?: number | null; step?: number | null; inverse?: boolean
+  /** запас срезанной шкалы со стороны нуля, в долях размаха; у оси X — 0 */
+  margin?: number
 }
 export interface Fit { minimum: number; maximum: number; step: number; n: number | null; zero: boolean; why: string }
 
@@ -96,7 +98,7 @@ function target(need: Need): [a: number, b: number, zero: boolean, loose: boolea
 function free(need: Need, n: number): Cand | null {
   const [a, b, zero, loose, why] = target(need)
   const lo = Math.min(need.lo as number, need.hi as number), hi = Math.max(need.lo as number, need.hi as number)
-  const pad = loose || zero ? 0 : (b - a) * MARGIN
+  const pad = loose || zero ? 0 : (b - a) * (need.margin ?? MARGIN)
   const low = a > 0 ? Math.max(a - pad, 0) : a
   const high = b < 0 ? Math.min(b + pad, 0) : b
   for (const [step, odd] of steps((b - a) / n)) {
@@ -285,24 +287,39 @@ export function fitModeOf(axis: Axis): FitMode {
   return mode && MODES.includes(mode) ? mode : axis.from_zero ? 'zero' : 'auto'
 }
 
-/** График с подобранными границами и шагом каждой шкалы Y (как atlas/axis_auto.auto_chart); без изменений — тот же объект.
+/** Размах числовой оси X по рядам (как atlas/axis_auto.x_extent); null — ось не подбирается: столбцы и ящики. */
+export function xExtentOf(chart: Chart): { lo: number | null; hi: number | null; anchor: boolean } | null {
+  let lo = Infinity, hi = -Infinity
+  for (const s of chart.series) {
+    if (s.kind === 'bar' || s.kind === 'box') return null
+    for (const v of s.x) {
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue
+      if (v < lo) lo = v
+      if (v > hi) hi = v
+    }
+  }
+  return lo <= hi ? { lo, hi, anchor: false } : { lo: null, hi: null, anchor: false }
+}
+
+/** График с подобранными границами и шагом каждой шкалы Y и числовой оси X (как atlas/axis_auto.auto_chart); без изменений —
+ *  тот же объект. Шкалы Y подбираются вместе, ось X — сама по себе.
  *  Размах данных — объединение присланного сервером (полные данные) и видимого на экране (ряды тренда и погрешности). */
 export function fitChart(chart: Chart): Chart {
   if (chart.heat) return chart
-  const names = yNames(chart)
+  const names: (YKey | 'x')[] = [...yNames(chart), 'x']
   const needs = names.map((name): Need | null => {
     const axis = chart[name] as Axis
     const raw = axis.style as Record<string, unknown> | undefined
     if (axis.scale !== 'value' || raw?.min != null || raw?.max != null) return null
-    const found = extentOf(chart, name)
+    const found = name === 'x' ? xExtentOf(chart) : extentOf(chart, name)
     if (!found) return null
     const known = axis.auto
     const lo = found.lo === null ? known?.lo ?? null : known?.lo != null ? Math.min(found.lo, known.lo) : found.lo
     const hi = found.hi === null ? known?.hi ?? null : known?.hi != null ? Math.max(found.hi, known.hi) : found.hi
-    return { lo, hi, anchor: found.anchor, mode: fitModeOf(axis), inverse: !!axis.inverse, ...manualOf(axis) }
+    return { lo, hi, anchor: found.anchor, mode: fitModeOf(axis), inverse: !!axis.inverse, ...(name === 'x' ? { margin: 0 } : {}), ...manualOf(axis) }
   })
   if (needs.every(n => !n || n.lo == null) && !names.some(name => (chart[name] as Axis).auto)) return chart
-  const fits = fitAxes(needs)
+  const fits = [...fitAxes(needs.slice(0, -1)), ...fitAxes(needs.slice(-1))]
   let out = chart
   names.forEach((name, i) => {
     const need = needs[i], axis = chart[name] as Axis
@@ -331,13 +348,13 @@ const num = (v: number) => String(clean(v)).replace('.', ',').replace('-', '−'
 const short = (v: number) => num(Number(v.toPrecision(4)))
 
 /** Строка «почему такие пределы» для панели «Формат»: что подобрано и по какой причине; у ручной шкалы — что задано. */
-export function fitHint(axis: Axis | null | undefined): string {
+export function fitHint(axis: Axis | null | undefined, across = false): string {
   if (!axis || axis.scale !== 'value') return ''
   const auto = axis.auto
   if (!auto || axis.minimum == null || axis.maximum == null) return axis.minimum != null || axis.maximum != null ? 'Пределы заданы вручную или разделом: автоподбор их не меняет.' : ''
   const parts = [`Сейчас: ${num(axis.minimum)}…${num(axis.maximum)}`]
   if (axis.step) parts.push(`шаг ${num(axis.step)}`)
-  if (auto.n) parts.push(`делений ${auto.n} (одно число на все шкалы графика)`)
+  if (auto.n) parts.push(across ? `делений ${auto.n}` : `делений ${auto.n} (одно число на все шкалы графика)`)
   const data = auto.lo != null && auto.hi != null ? ` Данные: ${short(auto.lo)}…${short(auto.hi)}.` : ''
   const why = WHY[auto.why] ?? ''
   return `${parts.join(', ')}.${data}${why ? ` Причина: ${why}.` : ''}`

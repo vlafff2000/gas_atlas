@@ -115,30 +115,56 @@ def mode_of(axis: Axis) -> str:
     return mode if mode in MODES else 'zero' if axis.from_zero else 'auto'
 
 
+def x_extent(chart: Chart) -> tuple[float, float] | None:
+    """Наименьшее и наибольшее значения числовой оси X. ``None`` — ось не подбирается: на графике столбцы или ящики
+    (им нужно поле в полширины по краям); без чисел — (nan, nan)."""
+    lo, hi = math.inf, -math.inf
+    for s in chart.series:
+        if s.kind in ('bar', 'box'):
+            return None
+        x = _floats(s.x)
+        x = x[np.isfinite(x)]
+        if x.size:
+            lo, hi = min(lo, float(x.min())), max(hi, float(x.max()))
+    return (lo, hi) if lo <= hi else (math.nan, math.nan)
+
+
+def axis_of(chart: Chart, name: str) -> Axis:
+    return chart.x if name == 'x' else chart.axis_at(name)
+
+
 def need_of(chart: Chart, name: str) -> Need | None:
-    """Что нужно шкале ``name`` от подбора; ``None`` — шкалу не трогаем."""
-    axis = chart.axis_at(name)
+    """Что нужно шкале ``name`` ('x', 'y', 'y2'…) от подбора; ``None`` — шкалу не трогаем."""
+    axis = axis_of(chart, name)
     if axis.scale != 'value' or axis.style.get('min') is not None or axis.style.get('max') is not None:
         return None
-    found = extent(chart, name)
+    if name == 'x':
+        span = x_extent(chart)
+        found = None if span is None else (*span, False)
+    else:
+        found = extent(chart, name)
     if found is None:
         return None
     lo, hi, anchor = found
     empty = math.isnan(lo)
-    return Need(None if empty else lo, None if empty else hi, anchor, mode_of(axis), inverse=bool(axis.inverse), **_manual(axis))
+    return Need(None if empty else lo, None if empty else hi, anchor, mode_of(axis), inverse=bool(axis.inverse),
+                **({'margin': 0.0} if name == 'x' else {}), **_manual(axis))
 
 
 def auto_chart(chart: Chart) -> Chart:
-    """Копия графика с подобранными границами и шагом каждой шкалы Y, либо тот же график, если менять нечего."""
+    """Копия графика с подобранными границами и шагом каждой шкалы Y и числовой оси X, либо тот же график, если менять нечего.
+    Шкалы Y подбираются вместе (общее число делений, общий нуль), ось X — сама по себе."""
     if chart.heat is not None:
         return chart
     names = chart.axis_names()
     needs = [need_of(chart, name) for name in names]
-    if all(n is None or n.lo is None for n in needs) and not any(chart.axis_at(name).auto for name in names):      # нет чисел и нечего снимать
+    across = need_of(chart, 'x')
+    rows = list(zip(names, needs, fit_axes(needs))) + [('x', across, fit_axes([across])[0])]
+    if all(n is None or n.lo is None for _name, n, _fit in rows) and not any(axis_of(chart, name).auto for name, _n, _fit in rows):      # нет чисел и нечего снимать
         return chart
     changes: dict[str, Axis] = {}
-    for name, need, fit in zip(names, needs, fit_axes(needs)):
-        axis = chart.axis_at(name)
+    for name, need, fit in rows:
+        axis = axis_of(chart, name)
         manual = _manual(axis)
         if need is None:
             if axis.auto is None:
@@ -149,7 +175,7 @@ def auto_chart(chart: Chart) -> Chart:
         else:
             auto: dict[str, Any] = {key: getattr(fit, attr) for attr, key in FIELDS if manual[attr] is None}
             auto.update(n=fit.n, zero=fit.zero, why=fit.why, lo=need.lo, hi=need.hi, anchor=need.anchor)      # type: ignore[union-attr]
-            hint = outlier_hint(chart, name, need) if all(v is None for v in manual.values()) else None      # type: ignore[arg-type]
+            hint = outlier_hint(chart, name, need) if name != 'x' and all(v is None for v in manual.values()) else None      # type: ignore[arg-type]
             if hint:
                 auto['hints'] = [hint]
             fresh = dataclasses.replace(axis, minimum=fit.minimum, maximum=fit.maximum, step=fit.step, auto=auto)

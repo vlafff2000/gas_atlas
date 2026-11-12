@@ -88,3 +88,16 @@ def test_png_is_drawn_with_fitted_ticks():
     lo, hi, step = _axes(fig)[0]
     assert seen['lim'] == (lo, hi)
     assert seen['y'] == [round(lo + i * step, 6) for i in range(round((hi - lo) / step) + 1)]
+
+
+def test_numeric_x_axis_is_fitted_too():
+    fig = fit_figure(_figure())
+    assert tuple(fig.layout.xaxis.range) == (0, 4) and fig.layout.xaxis.dtick == 1
+    marked = _figure()
+    marked.add_vline(x=9.0)                                      # линия за подобранным пределом: ось остаётся как была
+    assert fit_figure(marked).layout.xaxis.range is None
+    manual = _figure(meta={'format': {'axes': {'x': {'max': 3.0}}}})
+    assert fit_figure(manual).layout.xaxis.range is None        # ручное сильнее
+    dated = go.Figure(go.Scatter(x=['2024-01-01', '2024-02-01'], y=[1.0, 2.0]))
+    dated.update_xaxes(type='date')
+    assert fit_figure(dated).layout.xaxis.range is None

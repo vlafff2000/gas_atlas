@@ -62,6 +62,7 @@ class Need:
     maximum: float | None = None
     step: float | None = None
     inverse: bool = False
+    margin: float = MARGIN           # запас срезанной шкалы со стороны нуля; у оси X — 0: точка на краю поля там обычна
 
 
 @dataclass(frozen=True)
@@ -152,7 +153,7 @@ def _free(need: Need, n: int) -> tuple[float, float, float, float, bool, str] | 
     """Лучшая шкала из ``n`` делений для шкалы без ручных границ: (низ, верх, шаг, заполнение, нуль, причина)."""
     a, b, zero, loose, why = _target(need)
     lo, hi = min(float(need.lo), float(need.hi)), max(float(need.lo), float(need.hi))      # type: ignore[arg-type]
-    pad = 0.0 if loose or zero else (b - a) * MARGIN
+    pad = 0.0 if loose or zero else (b - a) * need.margin
     low = max(a - pad, 0.0) if a > 0 else a          # срез со стороны нуля: запас, чтобы край данных не лежал на оси
     high = min(b + pad, 0.0) if b < 0 else b
     for step, odd in _steps((b - a) / n):

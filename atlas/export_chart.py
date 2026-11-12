@@ -103,26 +103,27 @@ def _manual(fig, name: str) -> dict[str, Any]:
 
 
 def _levels(fig, name: str) -> list[float]:
-    """Уровни линий и подписей, привязанных к шкале (``add_hline``, ``add_annotation``): подбор не должен вынести их за поле."""
-    ref = 'y' if name == 'y' else name
+    """Уровни линий и подписей, привязанных к шкале (``add_hline``, ``add_vline``, ``add_annotation``): подбор не должен
+    вынести их за поле."""
+    side = 'x' if name == 'x' else 'y'
     out = []
     for item in fig.layout.shapes or ():
-        if (item.yref or 'y') == ref:
-            out += [v for v in (item.y0, item.y1) if isinstance(v, (int, float))]
+        if (getattr(item, side + 'ref') or side) == name:
+            out += [v for v in (getattr(item, side + '0'), getattr(item, side + '1')) if isinstance(v, (int, float))]
     for item in fig.layout.annotations or ():
-        if (item.yref or 'y') == ref and isinstance(item.y, (int, float)):
-            out.append(item.y)
+        if (getattr(item, side + 'ref') or side) == name and isinstance(getattr(item, side), (int, float)):
+            out.append(getattr(item, side))
     return out
 
 
 def fit_figure(fig):
-    """Шкалы Y графика выгрузки подбирает та же функция, что на экране разделов и в их файлах (``atlas/axis_auto.py``):
+    """Шкалы Y и числовую ось X графика выгрузки подбирает та же функция, что на экране разделов и в их файлах (``atlas/axis_auto.py``):
     пакетные вкладки «Экспорта» получают те же границы, шаг и общее число делений, что интерактивный предпросмотр.
 
     Заданное инженером в оформлении сильнее: такая шкала участвует в подборе как ручная и остаётся как есть.
     График, размах которого по рядам оценить нельзя (ящики, планки погрешностей, стопки), и шкала, за пределы которой
     вышла бы линия уровня или подпись, не трогаются — рисуются, как раньше. Меняет и возвращает ту же фигуру."""
-    from .axis_auto import auto_chart
+    from .axis_auto import auto_chart, axis_of
     from .render import align_y_axes
     drawn = [t for t in fig.data if t.visible not in (False, 'legendonly')]
     if not drawn or fig.layout.barmode in ('stack', 'relative'):
@@ -134,17 +135,23 @@ def fit_figure(fig):
         if not plain or meta.get('cat_stack') or meta.get('fill') or (bars is not None and (bars.array is not None or bars.value is not None)):
             return fig
     chart = to_chart(fig, drawn_only=True)
-    names = chart.axis_names()
+    names = [*chart.axis_names(), 'x']
     manual = {name: _manual(fig, name) for name in names}
     for name in names:
-        axis = chart.axis_at(name)
+        axis = axis_of(chart, name)
         for field, value in manual[name].items():
             setattr(axis, field, value)
     chart = auto_chart(chart)
     for name in names:
-        axis = chart.axis_at(name)
+        axis = axis_of(chart, name)
         outside = axis.minimum is not None and axis.maximum is not None and any(not axis.minimum <= v <= axis.maximum for v in _levels(fig, name))
         if manual[name] or not axis.auto or outside:
-            axis.step = None        # align_y_axes такую шкалу пропускает
+            axis.step = None        # такая шкала остаётся как была
     align_y_axes(fig, chart)
+    x = chart.x
+    if x.step and x.minimum is not None and x.maximum is not None:
+        count = (x.maximum - x.minimum) / x.step
+        if 1 <= count <= 150 and abs(count - round(count)) < 1e-6:
+            fig.layout.xaxis.range = [x.maximum, x.minimum] if x.inverse else [x.minimum, x.maximum]
+            fig.layout.xaxis.dtick = x.step
     return fig
