@@ -229,3 +229,46 @@ def peaks_for(df: pd.DataFrame, settings) -> list[tuple[pd.Timestamp, pd.Timesta
                               settings.get('season_rate_share', DEFAULT_SHARE),
                               float(settings.get('peak_factor', DEFAULT_PEAK_FACTOR)))
     return sorted(set(found))
+
+
+# ---------- вид строк матрицы расходов (отбор / закачка) ----------
+
+def resolve_auto_kinds(frame: pd.DataFrame, schedule, season_start: int = 11, season_end: int = 4) -> tuple[pd.DataFrame, list[str]]:
+    """Строки с видом «auto» (матрица расходов без колонки вида) получают «withdrawal» или «injection» по дате.
+
+    Главное — расписание сезонов проекта (``schedule``: [(дата начала, вид)]): дата в периоде отбора — отбор, в периоде закачки — закачка.
+    Нейтральный период, даты до первой строки расписания и проекты без расписания решает месяц по настройкам «Начало/конец сезона отбора»
+    (месяцы начала…конца — отбор, остальные — закачка). Явный вид строки (колонка, название листа) не меняется.
+    Возвращает таблицу и пояснения для журнала: сколько строк и по какому правилу отнесено — инженер видит причину и может поправить."""
+    if frame is None or frame.empty or 'kind' not in frame:
+        return frame, []
+    todo = frame['kind'].astype(str).eq('auto')
+    if not todo.any():
+        return frame, []
+    out = frame.copy()
+    dates = pd.to_datetime(out.loc[todo, 'date']).dt.normalize()
+    kinds = pd.Series(np.nan, index=dates.index, dtype=object)
+    if schedule:
+        starts = np.array([d for d, _ in schedule], dtype='datetime64[ns]')
+        phase = [k for _, k in schedule]
+        at = np.searchsorted(starts, dates.to_numpy().astype('datetime64[ns]'), side='right') - 1
+        kinds = pd.Series([phase[i] if i >= 0 and phase[i] in KINDS else np.nan for i in at], index=dates.index, dtype=object)
+    by_schedule = kinds.notna()
+    month = dates.dt.month
+    in_season = (month >= season_start) | (month <= season_end) if season_start > season_end else month.between(season_start, season_end)
+    kinds = kinds.where(by_schedule, pd.Series(np.where(in_season, 'withdrawal', 'injection'), index=dates.index, dtype=object))
+    out.loc[todo, 'kind'] = kinds
+    label = {'withdrawal': 'отбор', 'injection': 'закачка'}
+    first = out['file'].iloc[0] if 'file' in out else ''
+    notes = []
+    if by_schedule.any():
+        c = kinds[by_schedule].value_counts()
+        notes.append(f'Вид строк матрицы определён по расписанию сезонов проекта: ' + ', '.join(f'{label[k]} — {int(c.get(k, 0))}' for k in KINDS) + ' строк.')
+    rest = ~by_schedule
+    if rest.any():
+        c = kinds[rest].value_counts()
+        why = 'расписание сезонов не загружено' if not schedule else 'дата вне периодов отбора и закачки расписания (нейтральный период)'
+        notes.append(f'Вид {int(rest.sum())} строк определён по месяцам (отбор — месяцы {season_start}–{season_end}), так как {why}: '
+                     + ', '.join(f'{label[k]} — {int(c.get(k, 0))}' for k in KINDS if c.get(k, 0))
+                     + '. Загрузите файл расписания сезонов в «Настройках» или выберите вид вручную в окне импорта.')
+    return out, notes
