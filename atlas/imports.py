@@ -31,6 +31,7 @@ from atlas.engine.core import plan_blocks, profiles, tabular
 from atlas.engine.core.config import MODULES, ROOT
 from atlas.engine.core.loader import column_map, detect_layout, load_file
 from atlas.engine.core import pressure_demo
+from atlas.engine.modules import seasons
 from atlas.engine.core.templates import input_templates
 from atlas.engine.core.well_import import REQUIRED
 
@@ -541,7 +542,7 @@ class Imports:
         duplicates = body.get('production_duplicates') or 'flow'
         if duplicates not in ('flow', 'first', 'last'):
             raise ParamError('Неизвестное правило дублей суток')
-        if mode not in rules.MODULE_CHOICES or kind not in ('withdrawal', 'injection') \
+        if mode not in rules.MODULE_CHOICES or kind not in ('withdrawal', 'injection', 'auto') \
                 or punit not in ('м³/сут', 'тыс. м³/сут') or gunit not in ('м³/сут', 'тыс. м³/сут') \
                 or pressure_unit not in ('кгс/см²', 'МПа'):
             raise ParamError('Недопустимые параметры импорта')
@@ -602,6 +603,22 @@ class Imports:
                     issues.append({'Файл': item.name, 'Лист': '', 'Строка': 0, 'Уровень': 'ошибка', 'Причина': str(e)})
                     sources.append(item.token)
                     rejected += 1
+        if kind == 'auto':
+            cfg = m.get('settings', {})
+            for store in (parsed, kept):
+                frame = store.get('production')
+                if frame is None or not frame.kind.astype(str).eq('auto').any():
+                    continue
+                parts = []
+                for name, part in frame.groupby('file', sort=False):
+                    part, notes = seasons.resolve_auto_kinds(part, cfg.get('season_schedule'), cfg.get('season_start', 11), cfg.get('season_end', 4))
+                    parts.append(part)
+                    if store is parsed:
+                        for note in notes:
+                            issues.append({'Файл': name, 'Лист': '', 'Строка': 0, 'Уровень': 'предупреждение', 'Причина': note})
+                            sources.append(next((f.get('token') for f in files if self.file(f.get('token')).name == name), None))
+                            warnings += 1
+                store['production'] = pd.concat(parts, ignore_index=True)
         loads, counts_special = [], []
         for item, opts in specials:
             kind_s = opts['special']
