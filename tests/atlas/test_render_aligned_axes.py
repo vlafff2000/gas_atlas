@@ -73,3 +73,13 @@ def test_manual_step_from_manual_minimum_in_file():
         assert [round(t, 6) for t in ax.get_yticks() if 37 <= t <= 97] == [37, 47, 57, 67, 77, 87, 97]
     finally:
         plt.close(f)
+
+
+def test_fit_mode_reaches_the_file():
+    """Режим «Подбор пределов» из оформления (``style['fit']``) меняет шкалу в файле так же, как на экране."""
+    def low(fit):
+        c = Chart('t-3', 'Режим', Axis('Дата', scale='time'), Axis('Закачка', from_zero=True, style={'fit': fit} if fit else {}),
+                  series=[Series('q', ['2024-01-01', '2024-02-01', '2024-03-01'], [583.3, 905.5, 1085.6], 'line')])
+        return to_plotly(c).layout.yaxis.range[0]
+    assert low('') == 0 and low('zero') == 0        # раздел просит «от нуля»
+    assert low('auto') == 500 and low('data') == 500    # инженер выбрал другой режим: он сильнее настройки раздела
