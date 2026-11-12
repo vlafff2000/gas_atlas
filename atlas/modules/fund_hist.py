@@ -12,6 +12,7 @@ import pandas as pd
 from atlas import well_funds
 
 from ..contract import Axis, Chart, Column, Data, DatasetKind, Module, ModuleSpec, Note, Option, Param, Result, Series, Table
+from ._production import PRODUCTION
 
 UNKNOWN = 'Не определён'
 NO_GROUP = 'Без группы'
@@ -45,6 +46,7 @@ class FundHistModule(Module):
         group='Фонд скважин',
         description='Число скважин по фондам (эксплуатационные, наблюдательные, геофизические, контрольные) '
                     'и деление эксплуатационных на группы.',
+        optional=(PRODUCTION,),
         order=55,
         params=(
             Param('split', 'Деление эксплуатационных', 'choice', default='group', section=SECTION,
