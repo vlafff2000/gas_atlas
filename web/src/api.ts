@@ -115,6 +115,8 @@ export interface Axis {
   style?: AxisStyle                    // ручное оформление оси (конструктор): знаки, шрифт, размеры
   label: string; unit: string; scale: 'value' | 'log' | 'time' | 'category'; inverse: boolean; from_zero: boolean
   step: number | null; categories: string[] | null; minimum: number | null; maximum: number | null
+  /** Что подобрал общий автоподбор шкал (atlas/axis_auto.py): значения, число делений общей сетки, код причины, размах данных. */
+  auto?: { min?: number; max?: number; step?: number; n: number | null; zero: boolean; why: string; lo: number | null; hi: number | null; anchor: boolean } | null
 }
 export interface Series {
   name: string; kind: 'points' | 'line' | 'bar' | 'box'; group: string; dashed: boolean; dash: string; width: number

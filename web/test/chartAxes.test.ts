@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { calendarTicks, fitAxisName, parseStep } from '../src/chartAxes.ts'
+import { calendarTicks, fitAxisName, parseStep, withoutAutoFit } from '../src/chartAxes.ts'
 
 test('короткое название с единицами: название и единицы отдельной строкой', () => {
   const n = fitAxisName('Рпл', 'кгс/см²', 56, 12)
@@ -52,4 +52,15 @@ test('положительные числа: знак убирается тол�
   assert.equal(positiveNumber(-12.5, true), 12.5)
   assert.equal(positiveNumber(-12.5, false), -12.5)
   assert.equal(positiveNumber(7, true), 7)
+})
+
+test('«Начинать с нуля» сильнее автоподбора: подобранные границы и шаг снимаются, заданные модулем остаются', () => {
+  const axis = { label: 'Давление', unit: 'кгс/см²', scale: 'value', inverse: false, from_zero: false, step: 10, categories: null, minimum: 40, maximum: 90 }
+  const auto = { min: 40, max: 90, step: 10, n: 5, zero: false, why: 'cut', lo: 44.3, hi: 87.2, anchor: false }
+  const free = withoutAutoFit({ ...axis, auto } as never)
+  assert.deepEqual([free.minimum, free.maximum, free.step, free.auto], [null, null, null, null])
+  const manual = withoutAutoFit({ ...axis, minimum: 0, auto } as never)      // минимум ввёл инженер: он остаётся
+  assert.deepEqual([manual.minimum, manual.maximum, manual.step], [0, null, null])
+  const own = { ...axis, auto: null } as never                               // границы задал модуль: не трогаем
+  assert.equal(withoutAutoFit(own), own)
 })

@@ -12,7 +12,8 @@ from atlas.contract import Axis, Chart, Series
 from atlas.engine.modules import production as legacy
 from atlas.modules import _group_charts
 from atlas.projects import Projects
-from atlas.render import axis_extent, to_plotly
+from atlas.axis_auto import extent as axis_extent
+from atlas.render import to_plotly
 
 
 # ---------- прореживание стопки ----------
@@ -85,7 +86,7 @@ def test_hybrid_bars_share_month_axis_and_gaps_are_not_zero():
 def test_axis_extent_of_stacked_bars_is_the_sum():
     d = day_frame()
     chart = _group_charts.hybrid_chart(None, d, pd.DataFrame(), '1')
-    lo, hi = axis_extent(chart, 'y')
+    lo, hi, _anchor = axis_extent(chart, 'y')
     assert hi == pytest.approx(31 + 62 + 93)      # декабрь: сумма трёх скважин, а не максимум одной (93)
 
 

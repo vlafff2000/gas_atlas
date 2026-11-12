@@ -48,84 +48,25 @@ def group_colors(chart: Chart) -> dict[str, str]:
     groups = list(dict.fromkeys(s.group or s.name for s in chart.series))
     return {g: PALETTE[i % len(PALETTE)] for i, g in enumerate(groups)}
 
-TICK_INTERVALS = 5          # одинаковое число основных делений у обеих осей Y (то же число в web/src/ChartView.tsx)
-NICE_STEPS = (1, 2, 2.5, 5, 10)
-
-
-def nice_step(raw: float) -> float:
-    """Наименьший «круглый» шаг (1, 2, 2.5, 5 × 10^k), не меньший raw."""
-    power = 10.0 ** math.floor(math.log10(raw))
-    for m in NICE_STEPS:
-        if m * power >= raw * (1 - 1e-9):
-            return m * power
-    return 10 * power
-
-
-def aligned_range(lo: float, hi: float, minimum=None, maximum=None, n: int = TICK_INTERVALS):
-    """(нижняя граница, шаг) оси ровно из n делений, накрывающей [lo, hi]; заданные границы сохраняются."""
-    if minimum is not None and maximum is not None:
-        return minimum, (maximum - minimum) / n
-    if minimum is not None:
-        lo = minimum
-    if maximum is not None:
-        hi = maximum
-    if not hi > lo:
-        hi = lo + 1.0
-    step = nice_step((hi - lo) / n)
-    if minimum is not None:
-        return minimum, step
-    if maximum is not None:
-        return maximum - n * step, step
-    while True:
-        start = math.floor(lo / step + 1e-9) * step
-        if start + n * step >= hi - step * 1e-9:
-            return start, step
-        step = nice_step(step * 1.0001)
-
-
-def axis_extent(chart: Chart, key: str):
-    lo, hi = math.inf, -math.inf
-    stacks: dict[str, list[float]] = {}      # стопка складывается по номеру точки: шкала по сумме, а не по одной серии
-    for s in chart.series:
-        if (s.axis or 'y') != key or s.kind == 'box':
-            continue
-        for i, v in enumerate(s.y):
-            if isinstance(v, (int, float)) and math.isfinite(v):
-                lo, hi = min(lo, v), max(hi, v)
-                if s.stack and s.kind != 'points':
-                    total = stacks.setdefault(s.stack, [])
-                    total.extend([0.0] * (i + 1 - len(total)))
-                    total[i] += v
-    for total in stacks.values():
-        if total:
-            lo, hi = min(lo, min(total)), max(hi, max(total))
-    return (lo, hi) if lo <= hi else None
-
-
 def has_bars(chart: Chart) -> bool:
     """На левой оси есть столбцы (в выгрузке столбцы всегда на ней): шкала включает 0."""
     return any(s.kind == 'bar' for s in chart.series)
 
 
 def align_y_axes(fig, chart: Chart) -> None:
-    """Две оси Y: одинаковое число делений, деления строго друг напротив друга — одна основная сетка на обе."""
-    specs = {'y': chart.y, **dict(chart.right_axes())}
-    if chart.y2 is None or any(a.scale != 'value' for a in specs.values()) or (chart.id.startswith('builder') and any(a.step for a in specs.values())):
-        return      # в конструкторе заданный вручную шаг делений важнее общей сетки
-    extents = {key: axis_extent(chart, key) for key in specs}
-    if all(e is None for e in extents.values()):
-        return
-    for key, spec in specs.items():
-        lo, hi = extents[key] or (0.0, 1.0)      # у оси без данных всё равно те же 5 делений
-        if spec.from_zero or (key == 'y' and has_bars(chart)):
-            lo, hi = min(lo, 0.0), max(hi, 0.0)
-        start, step = aligned_range(lo, hi, spec.minimum, spec.maximum)
-        end = start + TICK_INTERVALS * step
+    """Шкалы Y с подобранными границами и шагом (``atlas/axis_auto.py``): деления в файле ровно те же, что на экране —
+    от нижней границы по шагу; у нескольких шкал число делений одно, сетка общая."""
+    for key in chart.axis_names():
+        spec = chart.axis_at(key)
+        if spec.scale != 'value' or spec.minimum is None or spec.maximum is None or not spec.step:
+            continue
+        count = (spec.maximum - spec.minimum) / spec.step
+        if not 1 <= count <= 150 or abs(count - round(count)) > 1e-6:
+            continue        # ручной шаг не делит ручные границы нацело: деления кратны шагу, как раньше
         axis = getattr(fig.layout, 'yaxis' if key == 'y' else 'yaxis' + key[1:])
-        axis.range = [end, start] if spec.inverse else [start, end]
+        axis.range = [spec.maximum, spec.minimum] if spec.inverse else [spec.minimum, spec.maximum]
         axis.autorange = False
-        axis.rangemode = 'normal'
-        axis.tick0, axis.dtick = start, step
+        axis.tick0, axis.dtick = spec.minimum, spec.step
 
 
 def plot_right_edge(count: int) -> float:
@@ -254,8 +195,10 @@ def heat_plotly(chart: Chart):
 
 def to_plotly(chart: Chart):
     import plotly.graph_objects as go
+    from . import axis_auto
     if chart.heat is not None:
         return heat_plotly(chart)
+    chart = axis_auto.auto_chart(chart)      # шкалы Y — тем же подбором, что на экране (после оформления и вида с экрана)
     palette = group_colors(chart)
     fig = go.Figure()
     stacked_bars = any(s.kind == 'bar' and s.stack for s in chart.series)
@@ -560,6 +503,8 @@ def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_s
     from . import chart_special
     if chart.figure is not None:
         raise ValueError('Схему скважины и планшет скачивают кнопками на самом рисунке (PNG, SVG).')
+    from . import axis_auto
+    chart = axis_auto.auto_chart(chart)      # одни и те же границы и шаг шкал во всех форматах: PNG, SVG, PDF, XLSX
     if (chart.heat is not None or chart.strips is not None) and fmt in ('xlsx', 'csv'):
         frame = chart_special.heat_frame(chart) if chart.heat is not None else chart_special.strips_frame(chart)
         if fmt == 'csv':

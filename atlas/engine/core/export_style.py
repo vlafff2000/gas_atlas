@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import math
 import contextlib
 import contextvars
 import re
@@ -265,7 +266,8 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
         if step and not date and spec.get('scale') != 'log':
             lo, hi = sorted(target.get_xlim() if horizontal else target.get_ylim())
             if (hi - lo) / step <= 150:
-                axis.set_major_locator(MultipleLocator(step))
+                low = spec.get('min')       # деления идут от заданного минимума, как на экране (37, 47, 57…), без минимума — кратны шагу
+                axis.set_major_locator(MultipleLocator(step, offset=math.fmod(low, step) if low is not None else 0.0))
         divisor = UNIT_DIVISOR.get(spec.get('units'), 1.0) if not date else 1.0
         positive = bool(spec.get('positive')) and not date
         if ('decimals' in spec or divisor != 1.0) and not date and spec.get('scale') != 'log':

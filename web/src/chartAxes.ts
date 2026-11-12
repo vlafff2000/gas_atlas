@@ -172,3 +172,16 @@ export const effectiveInverse = (base: boolean | undefined, spec: boolean | unde
 
 /** Число без минуса при настройке оси «положительные числа» (только вид подписей и подсказок, данные не меняются). */
 export const positiveNumber = (v: number, on: boolean | undefined): number => (on ? Math.abs(v) : v)
+
+/** Шкала без того, что подобрал общий автоподбор (atlas/axis_auto.py): границы и шаг, равные записанным в ``auto``, снимаются,
+ *  заданные вручную или модулем остаются. Нужна, когда настройка на экране («Начинать с нуля») должна пересилить автомат. */
+export function withoutAutoFit(axis: Axis): Axis {
+  const auto = axis.auto
+  if (!auto) return axis
+  return {
+    ...axis, auto: null,
+    minimum: axis.minimum === auto.min ? null : axis.minimum,
+    maximum: axis.maximum === auto.max ? null : axis.maximum,
+    step: axis.step === auto.step ? null : axis.step,
+  }
+}
