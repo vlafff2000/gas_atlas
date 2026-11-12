@@ -89,6 +89,7 @@ export interface AxisStyle {
   ticks?: TickMark; minor_ticks?: TickMark; line?: boolean; line_color?: string; line_width?: number; label_rotate?: number
   units?: 'thousands' | 'millions' | 'billions'; title_place?: 'end' | 'middle'; minor_step?: number; cross?: number
   positive?: boolean                           // числа без минуса в подписях и подсказках
+  fit?: 'auto' | 'zero' | 'data'               // подбор пределов: авто, авто от нуля, по данным (atlas/axis_fit.py)
   break_lo?: number; break_hi?: number         // разрыв оси: вырезаемый диапазон (мс у оси дат)
 }
 /** Ручное оформление графика: заголовок, шрифты, легенда, сетка, фон (atlas/chart_style.py). */
@@ -116,7 +117,11 @@ export interface Axis {
   label: string; unit: string; scale: 'value' | 'log' | 'time' | 'category'; inverse: boolean; from_zero: boolean
   step: number | null; categories: string[] | null; minimum: number | null; maximum: number | null
   /** Что подобрал общий автоподбор шкал (atlas/axis_auto.py): значения, число делений общей сетки, код причины, размах данных. */
-  auto?: { min?: number; max?: number; step?: number; n: number | null; zero: boolean; why: string; lo: number | null; hi: number | null; anchor: boolean } | null
+  auto?: {
+    min?: number; max?: number; step?: number; n: number | null; zero: boolean; why: string; lo: number | null; hi: number | null; anchor: boolean
+    /** Подсказки подбора: выброс, сжимающий остальные данные, с предлагаемыми пределами (решает инженер). */
+    hints?: { kind: 'outlier'; count: number; values: number[]; share: number; min: number; max: number }[]
+  } | null
 }
 export interface Series {
   name: string; kind: 'points' | 'line' | 'bar' | 'box'; group: string; dashed: boolean; dash: string; width: number

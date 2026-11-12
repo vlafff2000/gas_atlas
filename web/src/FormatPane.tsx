@@ -155,7 +155,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           </>}
           {kind === 'axis' && <>
             <h3>{AXIS_TITLE[axisName]}{axis?.label ? <small> {axis.label}</small> : null}</h3>
-            {(axis?.scale === 'value' || axis?.scale === 'log' || axis?.scale === 'time') && <AxisScaleFields id={axisName} value={doc.axes?.[axisName] ?? {}} set={setAxis} time={axis.scale === 'time'} inverseBase={axis.inverse} />}
+            {(axis?.scale === 'value' || axis?.scale === 'log' || axis?.scale === 'time') && <AxisScaleFields id={axisName} value={doc.axes?.[axisName] ?? {}} set={setAxis} time={axis.scale === 'time'} inverseBase={axis.inverse} axis={axis} />}
             <AxisStyleFields value={doc.axes?.[axisName] ?? {}} set={setAxis} time={axis?.scale === 'time'} />
             {(axis?.scale === 'value' || axis?.scale === 'time') && <fieldset>
               <legend>Разрыв оси</legend>

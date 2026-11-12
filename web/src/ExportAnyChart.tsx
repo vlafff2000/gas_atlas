@@ -7,7 +7,8 @@ import { saveFileWithPicker } from './desktopDownload'
 import { api, defaults, type Chart, type ModuleSpec, type Params, type Project } from './api'
 import { ChartView, colorOf } from './ChartView'
 import { FormatPane, type FormatElement } from './FormatPane'
-import type { ChartFormat } from './chartFormat'
+import type { AxisFormat, ChartFormat } from './chartFormat'
+import { FitChoice } from './FormatFields'
 import { ParamBar } from './ParamBar'
 import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import { savedRanges, seriesLooks } from './chartPrefs'
@@ -273,6 +274,13 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
     const next = put(all, name, Object.keys(one).length ? one : '')
     return put(s, 'axes', Object.keys(next).length ? next : '')
   })
+  /** Несколько полей оси одним изменением (одна запись в «отмене»). */
+  const axisPatch = (name: string, patch: Dict) => change(s => {
+    const all = (s.axes as Dict | undefined) ?? {}
+    const one = Object.entries(patch).reduce((acc, [key, value]) => put(acc, key, value), (all[name] as Dict | undefined) ?? {})
+    const next = put(all, name, Object.keys(one).length ? one : '')
+    return put(s, 'axes', Object.keys(next).length ? next : '')
+  })
   const setView = (fn: (v: Dict) => Dict) => change(s => {
     const next = fn((s.view as Dict | undefined) ?? {})
     return put(s, 'view', Object.keys(next).length ? next : '')
@@ -439,7 +447,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
                       <Field label="Знаков после запятой" type="number" value={a.decimals} onChange={v => axis(name, 'decimals', v === '' ? '' : Number(v))} />
                       <Tick label="Обратное направление" value={!!a.inverse} onChange={v => axis(name, 'inverse', v ? true : '')} />
                       <Tick label="Логарифмическая шкала" value={!!a.log} onChange={v => axis(name, 'log', v ? true : '')} />
-                      <Tick label="От нуля" value={!!a.from_zero} onChange={v => axis(name, 'from_zero', v ? true : '')} />
+                      {name !== 'x' && <FitChoice value={a.fit as AxisFormat['fit']} fromZero={!!a.from_zero} onChange={v => axisPatch(name, { fit: v ?? '', from_zero: '' })} />}
                     </Box>
                   )
                 })}
