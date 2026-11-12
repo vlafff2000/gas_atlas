@@ -5,7 +5,7 @@ import colorsys
 from atlas.engine.core.config import COLORS, ordered
 from atlas.engine.core.exclusions import point_id
 from .production import curve_data, averages, period_colors
-from .gdi import KEYS, analyze_study, prepare
+from .gdi import KEYS, analyze_study, prepare, free_flow
 from atlas.engine.core.performance import cached_chart
 
 DASH=['solid','dash','dot','dashdot','longdash']
@@ -99,11 +99,22 @@ def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves
         'ΔP²' if swapped else 'Q, тыс. м³/сут','Q, тыс. м³/сут' if swapped else 'ΔP²/Q' if linear else 'ΔP²')
     d=prepare(df);d=d[d.well.eq(well)]
     if linear:d=d[d.q>0]
+    q_well=float(d.q[d.dp2.notna()].max()) if d.dp2.notna().any() and d.q[d.dp2.notna()].notna().any() else 0.
     ds=sorted(d.date.unique(),reverse=True);palette={date:COLORS[i%len(COLORS)] for i,date in enumerate(ds)}
     for i,(key,g) in enumerate(d.sort_values(['date','method','study'],kind='stable').groupby(KEYS,sort=False,dropna=False)):
         _,date,method,study=key;color=palette[date];r=analyze_study(g,threshold)
         label=date.strftime('%d.%m.%Y')+(' · '+method if method else '')+(' · '+study if study else '')
         ids=g['_point_id'] if '_point_id' in g else pd.Series('',index=g.index)
+        if r['by_coef']:
+            # Без замеров давлений: рисуется только кривая по a и b БД (как в разделе ГДИ), точек нет — пустой записи в легенде не будет.
+            qmax=float(g.q.max()) if g.q.notna().any() else (q_well or free_flow(r['a'],r['b'],r['p_res']) or 0.)
+            if not qmax or not np.isfinite(qmax):continue
+            q=np.linspace(0,qmax*1.05,240);a,b=r['a'],r['b'];y=a+b*q if linear else a*q+b*q*q
+            fig.add_trace(go.Scatter(x=y if swapped else q,y=q if swapped else y,mode='lines',name=label+' · по коэффициентам',legendgroup=label,
+                line={'color':color,'width':1.8,'dash':'dashdot'},customdata=np.column_stack([q,y]),meta={'module':'gdi','selectable':False},
+                hovertemplate=label+f' · без замеров давлений<br>a = {a:.6g}<br>b = {b:.6g}'+'<br>Q: %{customdata[0]:.3f} тыс. м³/сут<br>ΔP²: %{customdata[1]:.3f}<extra></extra>'))
+            continue
+        if not (g.q.notna()&g.dp2.notna()).any():continue      # ни точек, ни коэффициентов: запись в легенде без изображения не нужна
         fig.add_trace(go.Scatter(x=g.dp2 if swapped else g.q,y=g.q if swapped else (g.dp2/g.q if linear else g.dp2),mode='markers',name=label,legendgroup=label,
             marker={'color':color,'size':9,'symbol':['circle','square','diamond','triangle-up'][i%4]},
             meta={'module':'gdi','selectable':True},customdata=np.column_stack([ids,g.q,g.dp2]),

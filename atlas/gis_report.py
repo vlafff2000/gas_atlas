@@ -22,7 +22,7 @@ NAMESPACES = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/
 HEADERS = ['Замеров', 'Первый', 'ГВК первый, м', 'Последний', 'ГВК последний, м', 'Δ, м', 'м/год']
 
 
-def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'times') -> bytes:
+def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'times', title: bool = True) -> bytes:
     """Три графика друг под другом с общей осью дат: линия на пачку, весенние замеры — треугольниками."""
     import matplotlib
     matplotlib.use('Agg')
@@ -48,7 +48,8 @@ def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'time
             ax.set_ylabel(f'{label}, {unit}', fontsize=11)
             ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
         axes[0].legend(fontsize=10, loc='best')
-        axes[0].set_title(f'Скважина №{well}', fontsize=14, fontweight='bold')
+        if title:      # общая настройка выгрузки «Шапка графика: скрыть»
+            axes[0].set_title(f'Скважина №{well}', fontsize=14, fontweight='bold')
         axes[-1].xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
         fig.tight_layout()
         buf = io.BytesIO()
@@ -101,7 +102,7 @@ def _png_size(png: bytes) -> tuple[int, int]:
     return struct.unpack('>II', png[16:24])
 
 
-def build_docx(items: list[dict[str, Any]], start: int = 1, dpi: int = 200, font: str = 'times') -> bytes:
+def build_docx(items: list[dict[str, Any]], start: int = 1, dpi: int = 200, font: str = 'times', title: bool = True) -> bytes:
     """``items`` — ``{'well', 'frame'}`` по скважинам (порядок сохраняется): frame — строки пачек одной скважины."""
     if not items:
         raise ValueError('Нет скважин для выгрузки: выберите скважины с данными ГИС.')
@@ -109,7 +110,7 @@ def build_docx(items: list[dict[str, Any]], start: int = 1, dpi: int = 200, font
     body, media, rels = [], [], []
     frames = [item['frame'].sort_values('date').reset_index(drop=True) for item in items]
     # рисунки независимы: рисуем процессами (PXG_WORKERS), страницы собираем подряд
-    pngs = parallel.map_figures(figure_png, [(frame, str(item['well']), dpi, font) for frame, item in zip(frames, items)])
+    pngs = parallel.map_figures(figure_png, [(frame, str(item['well']), dpi, font, title) for frame, item in zip(frames, items)])
     for i, (item, frame, figure) in enumerate(zip(items, frames, pngs), 1):
         well = str(item['well'])
         xml, png, name = well_page(i, frame, well, figure, start + i - 1, ids)
