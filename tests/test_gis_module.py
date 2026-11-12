@@ -642,6 +642,18 @@ def test_an_results_table_shows_kg_as_written_and_math_uses_number():
     assert '<20%' in kg and 62.0 in kg                       # текст как в отчёте; остальные — числом в процентах
 
 
+def test_an_results_table_hg_in_merged_cell_or_per_interval():
+    # Нг пачки — одной объединённой ячейкой на весь блок (как в отчёте) или отдельно в строке каждого интервала (hэф интервала из базы ГИС)
+    iv = _an_intervals().assign(h_eff_m=[1.4, 0.0, 1.4])
+    pack = GisModule().run({GIS: _an_packs(), INTERVALS: iv}, _params(view='an')).tables[0]
+    assert [m for m in pack.merges if m.columns == ['s0_h']] and pack.frame[pack.frame['well'] == '1']['s0_h'].dropna().tolist() == [2.5]
+    each = GisModule().run({GIS: _an_packs(), INTERVALS: iv}, _params(view='an', an_hg_mode='interval')).tables[0]
+    assert not [m for m in each.merges if m.columns == ['s0_h']]
+    assert each.frame[each.frame['well'] == '1']['s0_h'].dropna().tolist() == [1.4, 0.0] and 'отдельно для каждого интервала' in each.note
+    plain = GisModule().run({GIS: _an_packs(), INTERVALS: _an_intervals()}, _params(view='an', an_hg_mode='interval')).tables[0]
+    assert plain.frame[plain.frame['well'] == '1']['s0_h'].dropna().tolist() == [1.4, 1.2]                   # нет hэф в базе: толщина интервала
+
+
 def _an_annotations():
     return pd.DataFrame({
         'well': ['4', '1', '1'], 'date': pd.to_datetime(['2025-03-31', '2024-10-20', '2024-10-20']),
