@@ -27,10 +27,19 @@ MONTHS = ('январь', 'февраль', 'март', 'апрель', 'май'
 
 
 def daily_of(prod: pd.DataFrame, kind: str, period: str) -> tuple[pd.Series, pd.Series]:
-    """Суточный расход объекта (м³/сут) и число работающих скважин по датам сезона; только сутки с расходом."""
-    pos = an_wells.season_rows(prod, kind, period)
-    pos = pos[pos.q.gt(0)]
-    return pos.groupby('date').q.sum().sort_index(), pos.groupby('date').well.nunique()
+    """Суточный расход объекта (м³/сут) и число работающих скважин по всем календарным суткам сезона.
+
+    Как у соседних разделов: ноль и день без записи — 0 (падают на ось X), исключённая вручную точка — NaN (разрыв линии).
+    Границы — первые и последние сутки с расходом (нейтральный период до закачки/отбора не рисуется)."""
+    rows = an_wells.season_rows(prod, kind, period)
+    pos = rows[rows.q.gt(0)]
+    if pos.empty:
+        return pd.Series(dtype=float), pd.Series(dtype=int)
+    days = pd.date_range(pos.date.min(), pos.date.max(), freq='D')
+    sums = rows.groupby('date').q.sum(min_count=1)
+    daily = sums.reindex(days).where(days.isin(sums.index), 0.0)      # нет записи → 0; все записи суток исключены → NaN
+    wells = pos.groupby('date').well.nunique().reindex(days, fill_value=0)
+    return daily, wells
 
 
 def pressure_points(pressure: pd.DataFrame | None, start: Any, stop: Any) -> pd.DataFrame | None:
@@ -59,7 +68,7 @@ def group_pressure_chart(kind: str, period: str, reference: pd.DataFrame | None,
         x_axis = Axis('Дата', scale='time')
         x_of = lambda dates: dates.to_numpy()
     else:
-        cum = daily.sort_index().cumsum() / 1e6
+        cum = daily.sort_index().fillna(0).cumsum() / 1e6
         x_axis = Axis(f'Накопленный {WHAT[kind][0]} за сезон', 'млн м³', from_zero=True, step=x_step(float(cum.max())))
         x_of = lambda dates: _cum_at(cum, dates)
     chart = Chart(f'an-group-pressure-{kind}-{period}', f'Пластовое давление по группам · {period}',
@@ -128,7 +137,7 @@ def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pres
     if daily.empty:
         return None
     noun, genitive, _ = WHAT[kind]
-    cum = daily.cumsum() / 1e6
+    cum = daily.fillna(0).cumsum() / 1e6
     start, stop = daily.index.min(), daily.index.max()
     show = [SHOW_KEY.get(v, v) for v in show]
     items: list[tuple[str, str, str, Series]] = []
@@ -166,7 +175,7 @@ def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, well
                                                                 (daily / 1000).to_numpy(), 'line', width=1.0, labels=labels)))
     if 'cumulative' in show:
         items.append(('cumulative', f'Накопленный {WHAT[kind][0]}', 'млн м³',
-                      Series(f'Накопленный {WHAT[kind][0]}', daily.index.to_numpy(), (daily.cumsum() / 1e6).to_numpy(), 'line', width=1.2)))
+                      Series(f'Накопленный {WHAT[kind][0]}', daily.index.to_numpy(), (daily.fillna(0).cumsum() / 1e6).to_numpy(), 'line', width=1.2)))
     p = pressure_points(pressure, start, stop) if 'pressure' in show else None
     if p is not None:
         items.append(('pressure', 'Рпл, абс.', P_UNIT, Series('Среднее Рпл, абс.', p.date.to_numpy(), p.pressure.to_numpy(), 'points')))

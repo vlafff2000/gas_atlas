@@ -174,8 +174,9 @@ def test_injection_curve_cumulative_with_pressure_and_well_counts():
     daily, wells = an_charts.daily_of(INJ_SEASON, 'injection', '2024')
     chart = an_charts.curve_chart('injection', '2024', daily, wells, INJ_PRESSURE)
     rate, pres = chart.series
-    assert rate.y == pytest.approx([150.0, 200.0, 350.0])            # тыс. м³/сут по датам
-    assert list(rate.x) == pytest.approx([0.15, 0.35, 0.70])         # накопленная закачка, млн м³
+    work = rate.y > 0                                                # дни без записи и нули лежат на оси X
+    assert rate.y[work] == pytest.approx([150.0, 200.0, 350.0])      # тыс. м³/сут по датам
+    assert list(rate.x[work]) == pytest.approx([0.15, 0.35, 0.70])   # накопленная закачка, млн м³
     assert '2' in rate.labels[1] and '1' in rate.labels[0]          # скважин в работе: 01.05 — 1, 02.05 — 2
     assert list(pres.x) == pytest.approx([0.35, 0.70])               # замер 30.04 — до сезона, на рисунке не выводится
     assert list(pres.y) == [65.0, 80.0]
@@ -185,7 +186,8 @@ def test_injection_curve_cumulative_with_pressure_and_well_counts():
 def test_curve_series_selection_and_water():
     daily, wells = an_charts.daily_of(INJ_SEASON, 'injection', '2024')
     pres, cnt = an_charts.curve_chart('injection', '2024', daily, wells, INJ_PRESSURE, ('Скважин в работе', 'Среднее Рпл (замеры)')).series
-    assert list(cnt.x) == pytest.approx([0.15, 0.35, 0.70]) and list(cnt.y) == [1, 2, 1]     # скважины — по накопленному объёму
+    work = cnt.y > 0
+    assert list(cnt.x[work]) == pytest.approx([0.15, 0.35, 0.70]) and list(cnt.y[work]) == [1, 2, 1]     # скважины — по накопленному объёму
     assert (pres.axis, cnt.axis) == ('y', 'y2') and list(pres.y) == [65.0, 80.0]     # без расхода первая величина — на левой шкале
     water = pd.DataFrame({'date': pd.to_datetime(['2024-05-01', '2024-05-02']), 'water_day': [10.0, 20.0],
                           'wf': [1.0, 2.0], 'wf_cum': [1.0, 1.5]})
@@ -202,7 +204,7 @@ def test_canvas_series_selection_and_axes():
     assert (rate.axis, pres.axis, cnt.axis) == ('y', 'y2', 'y3')
     assert chart.y2.unit == an_charts.P_UNIT and chart.y3.unit == 'скв.'
     assert list(pres.y) == [65.0, 80.0]                              # замер 30.04 — до сезона, не входит
-    assert list(cnt.y) == [1, 2, 1]
+    assert list(cnt.y[cnt.y > 0]) == [1, 2, 1]
     only = an_charts.canvas_chart('injection', '2024', ['wells'], daily, wells, None)
     assert [s.name for s in only.series] == ['Скважин в работе'] and only.y2 is None and only.y3 is None and only.y.unit == 'скв.'
     assert an_charts.canvas_chart('injection', '2024', [], daily, wells, None) is None
@@ -374,3 +376,27 @@ def test_class_seasons_option_lists_project_seasons_and_builds_chart_alone():
     assert chart.x.categories[0].endswith('2023-2024') and chart.x.categories[1].endswith('2024-2025')
     single = module.run(data, {'kind': 'withdrawal', 'periods': ['2023-2024'], 'class_seasons': ['2023-2024']})
     assert not any(c.id.startswith('an-class-seasons') for c in single.charts)
+
+
+def test_daily_of_zero_and_missing_days_drop_to_axis_and_excluded_is_gap():
+    """Суточный расход объекта: ноль и день без записи — 0 на оси X, исключённая точка — разрыв (NaN)."""
+    frame = production([('1', '2024-01-01', 1000), ('2', '2024-01-01', 500),
+                        ('1', '2024-01-02', 0), ('2', '2024-01-02', 0),
+                        ('1', '2024-01-04', float('nan')),            # исключена вручную
+                        ('1', '2024-01-05', 2000)], '2023-2024')
+    daily, wells = an_charts.daily_of(frame, 'withdrawal', '2023-2024')
+    assert list(daily.index) == list(pd.date_range('2024-01-01', '2024-01-05'))
+    assert daily.iloc[0] == 1500 and daily.iloc[1] == 0 and daily.iloc[2] == 0   # 02.01 — ноль, 03.01 — нет записи
+    assert pd.isna(daily.iloc[3]) and daily.iloc[4] == 2000
+    assert list(wells) == [2, 0, 0, 0, 1]
+    chart = an_charts.canvas_chart('withdrawal', '2023-2024', ['rate', 'cumulative'], daily, wells, None)
+    cum = chart.series[1].y
+    assert not pd.isna(cum).any() and cum[-1] == pytest.approx(3.5e-3)
+
+
+def test_season_object_total_ignores_well_filter():
+    """Объект на графиках сезона — весь объект, а не только скважины, оставленные фильтром."""
+    whole = production([('1', '2024-01-01', 1000), ('2', '2024-01-01', 500)], '2023-2024')
+    data = Data({an_report.PRODUCTION: whole.iloc[:1]})
+    data.unfiltered = Data({an_report.PRODUCTION: whole})
+    assert an_report.whole_production(data).q.sum() == 1500
