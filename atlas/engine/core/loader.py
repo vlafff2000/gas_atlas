@@ -378,6 +378,8 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
               gdi_unit='тыс. м³/сут', progress=None, chunk_size=50000, sheet_options=None, encoding='auto', delimiter='auto',
               duplicates='flow'):
     result = ImportResult(); collected = {}; filename=Path(path).name
+    auto_kind = production_kind == 'auto'     # вид (отбор/закачка) строк без явного признака решает расписание сезонов: seasons.resolve_auto_kinds
+    if auto_kind: production_kind = 'withdrawal'
     for sheet, iterator in iter_sheets(path,encoding=encoding,delimiter=delimiter):
         iterator=iter(iterator); head=list(islice(iterator,31)); detected=None; mapping={}; wide=False; header=-1
         if sheet=='Инструкция' and head and head[0] and str(head[0][0]).startswith('Заполните первый лист своими данными'):continue
@@ -489,7 +491,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 if unit!=production_unit and label: result.issue(filename,sheet,max(header,0)+1,f'Единица расхода взята из заголовка «{label}»: {unit} (выбрано: {production_unit}).','предупреждение')
                 df['q']=df.q*RATE_TO_M3[unit]
                 reasons.loc[~np.isfinite(df.q)|df.q.lt(0)]='Расход должен быть конечным неотрицательным числом'
-                named='injection' if re.search('закач|inject',sheet,re.I) else 'withdrawal' if re.search('отбор|withdraw',sheet,re.I) else production_kind
+                named='injection' if re.search('закач|inject',sheet,re.I) else 'withdrawal' if re.search('отбор|withdraw',sheet,re.I) else 'auto' if auto_kind else production_kind
                 df['kind']=df.get('kind',pd.Series('',index=df.index)).fillna('').astype(str).apply(lambda x:'injection' if re.search('закач|inject',x,re.I) else 'withdrawal' if re.search('отбор|withdraw',x,re.I) else named)
             elif detected=='gdi':
                 unit=gdi_unit
