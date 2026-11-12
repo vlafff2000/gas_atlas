@@ -33,10 +33,10 @@ TICK_DIRECTION = {'out': {'direction': 'out', 'length': 3.5}, 'in': {'direction'
                   'cross': {'direction': 'inout', 'length': 6}, 'none': {'length': 0}}
 
 
-def ru_format(decimals: int, divisor: float = 1.0):
-    """Число по-русски: пробел между тысячами, запятая в дроби."""
+def ru_format(decimals: int, divisor: float = 1.0, positive: bool = False):
+    """Число по-русски: пробел между тысячами, запятая в дроби. ``positive`` — без знака минус (настройка оси «положительные числа»)."""
     from matplotlib.ticker import FuncFormatter
-    return FuncFormatter(lambda v, _: group_thousands(f'{v / divisor:.{decimals}f}').replace('.', ','))
+    return FuncFormatter(lambda v, _: group_thousands(f'{abs(v / divisor) if positive else v / divisor:.{decimals}f}').replace('.', ','))
 
 
 THOUSANDS_SEP = '\u00a0'                  # неразрывный пробел, как в веб-графиках (web/src/format.ts: THOUSANDS_SEP)
@@ -267,8 +267,13 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
             if (hi - lo) / step <= 150:
                 axis.set_major_locator(MultipleLocator(step))
         divisor = UNIT_DIVISOR.get(spec.get('units'), 1.0) if not date else 1.0
+        positive = bool(spec.get('positive')) and not date
         if ('decimals' in spec or divisor != 1.0) and not date and spec.get('scale') != 'log':
-            axis.set_major_formatter(ru_format(int(spec['decimals']) if 'decimals' in spec else 0 if divisor == 1.0 else 1, divisor))
+            axis.set_major_formatter(ru_format(int(spec['decimals']) if 'decimals' in spec else 0 if divisor == 1.0 else 1, divisor, positive))
+        elif positive and spec.get('scale') != 'log':      # только знак: подписи прежние, без минуса
+            from matplotlib.ticker import FuncFormatter
+            current = axis.get_major_formatter()
+            axis.set_major_formatter(FuncFormatter(lambda v, pos, f=current: f(abs(v), pos).lstrip('-−')))
         if divisor != 1.0:                      # единицы отображения: к названию оси добавляется ×10ⁿ
             label = axis.label.get_text()
             axis.label.set_text((label + ', ' if label else '') + UNIT_MARK[spec['units']])

@@ -38,3 +38,18 @@ test('calendarTicks: месяцы с 1-го числа, годы с 1 январ
   assert.deepEqual(iso(calendarTicks(d('2024-05-15'), d('2024-06-01'), { n: 1, unit: 'week' })), ['2024-05-20', '2024-05-27'])
   assert.deepEqual(iso(calendarTicks(d('2024-01-01'), d('2024-01-10'), { n: 3, unit: 'day' })).length, 3)
 })
+
+import { effectiveInverse, positiveNumber } from '../src/chartAxes.ts'
+
+test('обратное направление: настройка документа главнее оси модуля, в том числе «нет»', () => {
+  assert.equal(effectiveInverse(true, undefined), true)
+  assert.equal(effectiveInverse(true, false), false)
+  assert.equal(effectiveInverse(false, true), true)
+  assert.equal(effectiveInverse(undefined, undefined), false)
+})
+
+test('положительные числа: знак убирается только при включённой настройке', () => {
+  assert.equal(positiveNumber(-12.5, true), 12.5)
+  assert.equal(positiveNumber(-12.5, false), -12.5)
+  assert.equal(positiveNumber(7, true), 7)
+})

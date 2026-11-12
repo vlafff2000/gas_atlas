@@ -6,6 +6,7 @@ import { HEX } from './ChartSettings'
 import { FONT_CHOICES } from './chartTheme'
 import { RichField } from './RichField'
 import { labelPicker, pointText, usePicking } from './labelPick'
+import { effectiveInverse } from './chartAxes'
 
 // Общие поля настройки оформления: используются панелью «Формат» на графике (FormatPane) и окнами конструктора.
 // Всё необязательно: пустое поле — авто, в документе оформления его нет.
@@ -258,7 +259,7 @@ export function ChartStyleFields({ value: st, set, title, fresh }: Setter<ChartS
 
 /** Шкала оси: границы, шаг, логарифм, обратное направление, начало с нуля. Общее поле «Формат» и окна оси конструктора; пусто — авто. */
 export type ScaleFormat = Pick<AxisFormat, 'min' | 'max' | 'step' | 'minor_step' | 'log' | 'inverse' | 'from_zero'>
-export function AxisScaleFields({ id, value: f, set, time }: { id: string; value: ScaleFormat; set: (patch: ScaleFormat) => void; time?: boolean }) {
+export function AxisScaleFields({ id, value: f, set, time, inverseBase }: { id: string; value: ScaleFormat; set: (patch: ScaleFormat) => void; time?: boolean; inverseBase?: boolean }) {
   return (
     <fieldset>
       <legend>Шкала</legend>
@@ -273,7 +274,7 @@ export function AxisScaleFields({ id, value: f, set, time }: { id: string; value
           <Commit key={id + 'minor'} label="Дополнительный шаг" value={f.minor_step} placeholder="нет" onChange={v => set({ minor_step: v })} />
         </>}
       {!time && <Flag label="Логарифмическая шкала" value={f.log} onChange={v => set({ log: v })} title="Только для положительных значений" />}
-      <Flag label="Обратное направление" value={f.inverse} onChange={v => set({ inverse: v })} />
+      <Flag label="Обратное направление" value={effectiveInverse(inverseBase, f.inverse)} onChange={v => set({ inverse: v })} />
       {!time && <Flag label="Начинать с нуля" value={f.from_zero} onChange={v => set({ from_zero: v })} />}
     </fieldset>
   )
@@ -287,6 +288,7 @@ export function AxisStyleFields({ value: f, set, time }: Setter<Omit<AxisStyle, 
         <legend>Линия и деления</legend>
         <Color label="Цвет оси и подписей" value={f.color} onChange={v => set({ color: v })} />
         <Flag label="Показывать линию оси" value={f.line} onChange={v => set({ line: v })} />
+        {!time && <Flag label="Числа без минуса (положительные)" value={f.positive} onChange={v => set({ positive: v })} title="Только вид подписей и подсказок: данные не меняются (уровень жидкости ниже моря)" />}
         <div className="cs-row">
           <Color label="Цвет линии" value={f.line_color} onChange={v => set({ line_color: v })} />
           <Num label="Толщина" value={f.line_width} min={0.2} max={6} step={0.2} onChange={v => set({ line_width: v })} />

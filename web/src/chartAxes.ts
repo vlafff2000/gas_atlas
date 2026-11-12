@@ -166,3 +166,9 @@ export function calendarTicks(lo: number, hi: number, step: AxisStep): number[] 
 }
 
 export const stepText = (s: AxisStep | null | undefined) => (s ? String(s.n).replace('.', ',') : '')
+
+/** Обратное направление оси: настройка документа главнее оси модуля, в том числе явное «нет» (уровень жидкости идёт обратным по умолчанию). */
+export const effectiveInverse = (base: boolean | undefined, spec: boolean | undefined): boolean => spec ?? !!base
+
+/** Число без минуса при настройке оси «положительные числа» (только вид подписей и подсказок, данные не меняются). */
+export const positiveNumber = (v: number, on: boolean | undefined): number => (on ? Math.abs(v) : v)
