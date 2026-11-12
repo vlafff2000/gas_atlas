@@ -44,20 +44,30 @@ def _setup():
     return plt
 
 
-def _bytes(fig: Any, fmt: str, dpi: int) -> bytes:
+def _bytes(fig: Any, fmt: str, dpi: int, scene: list | None = None) -> bytes:
     buffer = io.BytesIO()
     fig.savefig(buffer, format=fmt, dpi=dpi, bbox_inches='tight')
+    if scene is not None and fig.axes:      # файл уже сохранён и от сцены не зависит; рамки — в долях обрезанного по содержимому рисунка
+        import matplotlib as mpl
+        from atlas.engine.core.export_scene import collect
+        from matplotlib.transforms import Bbox
+        fig.set_dpi(dpi)
+        fig.canvas.draw()
+        tight = fig.get_tightbbox(fig.canvas.get_renderer()).padded(mpl.rcParams['savefig.pad_inches'])
+        scene.extend(collect(fig, {'y': fig.axes[0]}, Bbox.from_extents(tight.x0 * dpi, tight.y0 * dpi, tight.x1 * dpi, tight.y1 * dpi)))
     return buffer.getvalue()
 
 
-def figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = None) -> bytes:
+def figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = None, scene: list | None = None) -> bytes:
     with grouping(group_digits_on((opts or {}).get('style') or chart.style)):      # «Разделять числа по разрядам»: по умолчанию включено
-        return _figure_file(chart, fmt, dpi, opts)
+        return _figure_file(chart, fmt, dpi, opts, scene)
 
 
-def _figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = None) -> bytes:
+def _figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None = None, scene: list | None = None) -> bytes:
     """``opts`` — ручные настройки выгрузки (``atlas/export_any.py``): width_mm, height_mm, font, font_size, legend, table_font_size,
-    table_row, table_show, segment_size, cell_size (текст в ячейках тепловой карты и матрицы), style (chart.style); без них — прежний вид."""
+    table_row, table_show, segment_size, cell_size (текст в ячейках тепловой карты и матрицы), style (chart.style); без них — прежний вид.
+    ``scene`` — список, в который складывается сцена рисунка (``atlas/engine/core/export_scene.py``): пока общие элементы
+    (область построения, заголовок, оси, легенда)."""
     from .render import group_colors, series_color
     plt = _setup()
     o = opts or {}
@@ -73,7 +83,7 @@ def _figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None =
         elif o.get('width_mm'):
             w, h = fig.get_size_inches()
             fig.set_size_inches(o['width_mm'] / 25.4, h * o['width_mm'] / 25.4 / w)
-        return _bytes(fig, fmt, dpi)
+        return _bytes(fig, fmt, dpi, scene)
     finally:
         plt.close('all')
 

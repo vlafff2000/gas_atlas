@@ -500,7 +500,9 @@ def chart_csv(chart: Chart) -> tuple[bytes, str, str]:
     return csv_bytes(frame), f'{safe_name(plain(chart.title))}.csv', 'text/csv; charset=utf-8'
 
 
-def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_size=None) -> tuple[bytes, str, str]:
+def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_size=None, scene: list | None = None) -> tuple[bytes, str, str]:
+    """Файл графика. ``scene`` — список, в который складывается сцена рисунка PNG/SVG/PDF: элементы с постоянными именами
+    и рамками в долях рисунка (``atlas/engine/core/export_scene.py``); сам файл от этого не меняется."""
     from . import chart_special
     if chart.figure is not None:
         raise ValueError('Схему скважины и планшет скачивают кнопками на самом рисунке (PNG, SVG).')
@@ -518,8 +520,8 @@ def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_s
     if fmt not in FORMATS:
         raise ValueError('Формат графика: svg, pdf, png, xlsx или csv')
     if chart_special.is_special(chart):      # подписи в сегментах, выноски, таблица под графиком, тепловая карта — общий экспортёр их не рисует
-        return chart_special.figure_file(chart, fmt, dpi), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
-    return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
+        return chart_special.figure_file(chart, fmt, dpi, scene=scene), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
+    return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size, scene=scene), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
 
 
 def column_titles(table: Table) -> list[str]:

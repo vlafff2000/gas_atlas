@@ -195,7 +195,9 @@ def _bound(text, time: bool):
 
 def draw_annotations(ax, items, date_axis: bool, family) -> None:
     """Линии уровня, полосы и подписи в координатах данных (по основной оси Y); то же рисует экран (ChartView.withAnnotations)."""
-    for a in items:
+    from .export_scene import mark
+    for n, a in enumerate(items, start=1):
+        line, note = f'annotation:{n}', f'annotation-text:{n}'
         color = a.get('color') or '#c0392b'
         style = LINESTYLES.get(a.get('dash'), '-')
         width = a.get('width', 1.5)
@@ -203,33 +205,33 @@ def draw_annotations(ax, items, date_axis: bool, family) -> None:
         text = a.get('text')
         kind = a['kind']
         if kind == 'hline' and (v := _bound(a.get('value'), False)) is not None:
-            ax.axhline(v, color=color, linewidth=width, linestyle=style, zorder=3)
+            mark(ax.axhline(v, color=color, linewidth=width, linestyle=style, zorder=3), line)
             if text:
-                ax.annotate(text, (1, v), xycoords=('axes fraction', 'data'), xytext=(-3, 2), textcoords='offset points', ha='right', va='bottom',
-                            fontsize=size, color=color, fontfamily=family)
+                mark(ax.annotate(text, (1, v), xycoords=('axes fraction', 'data'), xytext=(-3, 2), textcoords='offset points', ha='right', va='bottom',
+                            fontsize=size, color=color, fontfamily=family), note)
         elif kind == 'vline' and (v := _bound(a.get('value'), date_axis)) is not None:
-            ax.axvline(v, color=color, linewidth=width, linestyle=style, zorder=3)
+            mark(ax.axvline(v, color=color, linewidth=width, linestyle=style, zorder=3), line)
             if text:
-                ax.annotate(text, (v, 1), xycoords=('data', 'axes fraction'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
-                            fontsize=size, color=color, fontfamily=family)
+                mark(ax.annotate(text, (v, 1), xycoords=('data', 'axes fraction'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
+                            fontsize=size, color=color, fontfamily=family), note)
         elif kind in ('hband', 'vband'):
             time = kind == 'vband' and date_axis
             lo, hi = _bound(a.get('value'), time), _bound(a.get('to'), time)
             if lo is None or hi is None:
                 continue
             lo, hi = min(lo, hi), max(lo, hi)
-            (ax.axhspan if kind == 'hband' else ax.axvspan)(lo, hi, color=color, alpha=.16, linewidth=0, zorder=1)
+            mark((ax.axhspan if kind == 'hband' else ax.axvspan)(lo, hi, color=color, alpha=.16, linewidth=0, zorder=1), line)
             if text:
                 if kind == 'hband':
-                    ax.annotate(text, (0, hi), xycoords=('axes fraction', 'data'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
-                                fontsize=size, color=color, fontfamily=family)
+                    mark(ax.annotate(text, (0, hi), xycoords=('axes fraction', 'data'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
+                                fontsize=size, color=color, fontfamily=family), note)
                 else:
-                    ax.annotate(text, (lo, 1), xycoords=('data', 'axes fraction'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
-                                fontsize=size, color=color, fontfamily=family)
+                    mark(ax.annotate(text, (lo, 1), xycoords=('data', 'axes fraction'), xytext=(3, -3), textcoords='offset points', ha='left', va='top',
+                                fontsize=size, color=color, fontfamily=family), note)
         elif kind == 'text' and text:
             x, y = _bound(a.get('x'), date_axis), _bound(a.get('y'), False)
             if x is not None and y is not None:
-                ax.annotate(text, (x, y), ha='center', va='center', fontsize=size, color=color, fontfamily=family, zorder=4)
+                mark(ax.annotate(text, (x, y), ha='center', va='center', fontsize=size, color=color, fontfamily=family, zorder=4), note)
 
 
 def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], title: str, k: float, base: float, date_axis: bool) -> None:
@@ -372,8 +374,9 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
             spine.set_edgecolor(chart.get('plot_border_color') or '#888888')
             spine.set_linewidth(chart.get('plot_border_width', 1))
     if chart.get('subtitle'):
-        ax.annotate(mpl_text(chart['subtitle']), (0, 1), xycoords='axes fraction', xytext=(0, 2), textcoords='offset points', va='bottom',
-                    fontsize=chart.get('subtitle_size', 9 * k), color=text_color or '#667085', fontfamily=general)
+        from .export_scene import mark
+        mark(ax.annotate(mpl_text(chart['subtitle']), (0, 1), xycoords='axes fraction', xytext=(0, 2), textcoords='offset points', va='bottom',
+                         fontsize=chart.get('subtitle_size', 9 * k), color=text_color or '#667085', fontfamily=general), 'subtitle')
 
     if chart.get('annotations'):
         draw_annotations(ax, chart['annotations'], date_axis, general)
