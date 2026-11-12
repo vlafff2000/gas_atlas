@@ -225,7 +225,7 @@ def test_construction_checks_are_hints_with_reason():
     assert {'casing_above_work', 'tubing_below_casing', 'bottom_above_filter', 'overlap'} <= codes
     assert 'tubing_below_work' not in codes
     assert all(c['text'] and c['level'] in ('warning', 'info') for c in sch['checks'])
-    assert len(sch['items']) == 4                                       # схема не исправляется
+    assert len(sch['items']) == 3                                       # на схеме наложения слиты, проверки идут по строкам как есть
 
 
 def test_construction_checks_reaming_downgrades_and_inverted():
