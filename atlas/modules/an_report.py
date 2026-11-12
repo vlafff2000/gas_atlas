@@ -201,6 +201,12 @@ def well_scopes(mapping: Mapping[str, Mapping[str, str]], wells: list[str]) -> d
     return dict(zip(wells, names))
 
 
+def whole_production(data: Data) -> pd.DataFrame:
+    """Добыча всего объекта: графики сезона не зависят от фильтра скважин (он лишь выбирает, что показать), как в «Добыче»."""
+    base = data.unfiltered if data.unfiltered is not None and PRODUCTION in data.unfiltered else data
+    return base[PRODUCTION]
+
+
 def daily_rates(d: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
     """Суточный расход (м³/сут) объекта и каждой группы: scope, date, q; только сутки с положительным расходом."""
     obj = d.groupby('date').q.sum(min_count=1).reset_index().assign(scope=OBJECT_SCOPE)
@@ -477,7 +483,7 @@ class AuthorReportModule(Module):
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
             by_cum = params.get('group_x') == 'cumulative'
             group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'],
-                                                            an_charts.daily_of(data[PRODUCTION], kind, period)[0] if by_cum else None)
+                                                            an_charts.daily_of(whole_production(data), kind, period)[0] if by_cum else None)
             if group_pressure is not None:
                 result.charts.append(group_pressure)
             self.plan_details(result, data, kind, period)
@@ -632,15 +638,14 @@ class AuthorReportModule(Module):
                       means: pd.DataFrame, pressure: pd.DataFrame | None, params: dict[str, Any],
                       fund_frame: pd.DataFrame) -> None:
         """Графики сезона: основной по выбранному виду и второй («Правый график»: по умолчанию фонд скважин)."""
-        daily, wells = an_charts.daily_of(data[PRODUCTION], kind, period)
+        daily, wells = an_charts.daily_of(whole_production(data), kind, period)
         start, stop = summary['start'], summary['stop']
         factor = data[FACTOR] if FACTOR in data else None
         rates: list[pd.DataFrame] = []                # считается один раз и только если нужен группам
 
         def group_rates() -> pd.DataFrame:
             if not rates:
-                d = data[PRODUCTION]
-                d = an_wells.season_rows(d, kind, period)
+                d = an_wells.season_rows(whole_production(data), kind, period)
                 d['well'] = d.well.astype(str)
                 rates.append(daily_rates(d, well_scopes(data.mapping, ordered(d.well.unique()))))
             return rates[0]

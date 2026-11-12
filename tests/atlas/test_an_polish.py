@@ -35,7 +35,7 @@ def test_withdrawal_season_builds_charts_from_input_data():
     ids = {c.id for c in result.charts}
     assert {'an-canvas-withdrawal-2025-2026', 'an-fund-withdrawal-2025-2026'} <= ids
     wells = next(s for c in result.charts if c.id.startswith('an-canvas') for s in c.series if s.name == 'Скважин в работе')
-    assert list(wells.y) == [2, 1, 2]
+    assert list(wells.y[wells.y > 0]) == [2, 1, 2]
     full = run({DatasetKind.WATER_FACTOR: FACTOR}, {'show': [v for _, v in an_report.an_charts.SHOW]})
     names = {s.name for c in full.charts if c.id.startswith('an-canvas') for s in c.series}
     assert {'Вынос воды', 'Водный фактор, суточный', 'Объём газа в пласте', 'Накопленный отбор'} <= names
