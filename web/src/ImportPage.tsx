@@ -236,7 +236,7 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
   const uploads = useUploads()
   const [view, setView] = useState<'simple' | 'detailed'>('simple')
   const [mode, setMode] = useState('auto')
-  const [kind, setKind] = useState('withdrawal')
+  const [kind, setKind] = useState('auto')
   const [punit, setPunit] = useState('м³/сут')
   const [gunit, setGunit] = useState('тыс. м³/сут')
   const [pressureUnit, setPressureUnit] = useState('кгс/см²')
@@ -344,8 +344,8 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
         <label className="field">Тип таблицы
           <select value={mode} onChange={e => setMode(e.target.value)}>{options.types.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</select>
         </label>
-        <label className="field">Динамика без названия
-          <select value={kind} onChange={e => setKind(e.target.value)}><option value="withdrawal">Отбор</option><option value="injection">Закачка</option></select>
+        <label className="field" title="Для матрицы расходов и таблиц без колонки вида. «По расписанию сезонов» берёт даты отбора и закачки из расписания в «Настройках» (без него — по месяцам); причина каждого решения видна в журнале проверки.">Вид динамики без названия
+          <select value={kind} onChange={e => setKind(e.target.value)}><option value="auto">По расписанию сезонов проекта</option><option value="withdrawal">Всё — отбор</option><option value="injection">Всё — закачка</option></select>
         </label>
         <label className="field">Расходы динамики
           <select value={punit} onChange={e => setPunit(e.target.value)}><option>м³/сут</option><option>тыс. м³/сут</option></select>
