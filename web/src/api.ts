@@ -88,6 +88,7 @@ export interface AxisStyle {
   // модель v2 (atlas/chart_style.py): деления, линия оси, поворот подписей, единицы отображения, положение названия, доп. шаг, пересечение
   ticks?: TickMark; minor_ticks?: TickMark; line?: boolean; line_color?: string; line_width?: number; label_rotate?: number
   units?: 'thousands' | 'millions' | 'billions'; title_place?: 'end' | 'middle'; minor_step?: number; cross?: number
+  positive?: boolean                           // числа без минуса в подписях и подсказках
   break_lo?: number; break_hi?: number         // разрыв оси: вырезаемый диапазон (мс у оси дат)
 }
 /** Ручное оформление графика: заголовок, шрифты, легенда, сетка, фон (atlas/chart_style.py). */

@@ -13,7 +13,7 @@ import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, SIZE, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { clickAction } from './chartClick'
 import { buildTracks, canExclude, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
-import { STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
+import { positiveNumber, STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, crosshairSync, tooltipsOn, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { applyFormat, chartKey, mergeFormats, type ChartFormat } from './chartFormat'
@@ -186,6 +186,7 @@ function formatter(a: Axis, span: number) {
       return formatDate(span < 3 * 86400e3 ? iso.slice(0, 16) : iso.slice(0, 10))
     }
     if (typeof v !== 'number') return String(v)
+    v = positiveNumber(v, a.style?.positive)
     return formatNumber(v, Math.abs(v) >= 1e4 ? Math.min(decimals, 1) : decimals).replace(/(,\d*?)0+$/, '$1').replace(/,$/, '')
   }
 }
@@ -352,7 +353,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         ...(as.label_rotate ? { rotate: as.label_rotate } : {}),
         ...(a.scale === 'time'
           ? dateFormat ? { formatter: dateFormat } : { formatter: { year: '{yyyy}', month: '{MM}.{yyyy}', day: '{dd}.{MM}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', none: '{dd}.{MM}.{yyyy}' } }
-          : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(v / factor, as.decimals ?? null) }),
+          : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(positiveNumber(v, as.positive) / factor, as.decimals ?? null) }),
       },
       splitLine: { show: showGrid && (position === 'y' || position === 'x') && (y || a.scale !== 'category'),
         lineStyle: { color: cs.grid_color || tk.grid, width: cs.grid_width ?? 1, ...(cs.grid_dash ? { type: DASH[cs.grid_dash] } : {}) } },

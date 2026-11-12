@@ -118,7 +118,7 @@ LABELS = {
     'subtitle_size': 'размер подзаголовка', 'legend_columns': 'колонок легенды', 'legend_border': 'рамка легенды',
     'legend_background': 'фон легенды', 'grid_dash': 'штрих сетки', 'minor_grid_dash': 'штрих доп. линий',
     'border_color': 'рамка рисунка', 'border_width': 'толщина рамки рисунка', 'plot_border_color': 'рамка области построения',
-    'plot_border_width': 'толщина рамки области построения', 'group_digits': 'разделять числа по разрядам',
+    'plot_border_width': 'толщина рамки области построения', 'positive': 'положительные числа', 'group_digits': 'разделять числа по разрядам',
 }
 
 LOOK = {'color': 'color', 'line': 'bool', 'width': ('num', 0.5, 12), 'dash': DASHES, 'marker': 'bool', 'shape': SHAPES,
@@ -137,7 +137,9 @@ AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FOR
             'title_size': ('num', 5, 30), 'title_bold': 'bool', 'title_italic': 'bool', 'tick_bold': 'bool', 'tick_italic': 'bool',
             # модель v2: деления, линия оси, поворот подписей, единицы отображения, положение названия
             'ticks': TICKS, 'minor_ticks': TICKS, 'line': 'bool', 'line_color': 'color', 'line_width': ('num', 0.2, 6),
-            'label_rotate': ('num', -90, 90), 'units': UNITS, 'title_place': TITLE_PLACES}
+            'label_rotate': ('num', -90, 90), 'units': UNITS, 'title_place': TITLE_PLACES,
+            # числа без минуса (уровень жидкости с отметкой ниже моря): меняется только вид подписей и подсказок, данные те же
+            'positive': 'bool'}
 AXIS_STYLE_KEYS = tuple(k for k in AXIS_FMT if k != 'color')     # что из настроек оси ложится в ``Axis.style`` (цвет — в ``Axis.color``)
 AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'cross', 'break_from', 'break_to')  # границы и деления: текст, проверяется по виду оси (``bound``)
 CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,
@@ -209,6 +211,8 @@ def clean_axis(raw: Any, name: str) -> dict[str, Any]:
     for key in ('log', 'inverse', 'from_zero'):
         if src.get(key) is True or str(src.get(key)).lower() in ('1', 'true'):
             out[key] = True
+    if src.get('inverse') is False or str(src.get('inverse')).lower() in ('0', 'false'):
+        out['inverse'] = False      # явное «нет»: снимает обратную ось, заданную модулем (уровень жидкости)
     return out
 
 
@@ -242,8 +246,8 @@ def style_axis(axis: Axis, spec: Mapping[str, Any], title: str, values: Iterable
     if 'color' in spec:
         axis.color = spec['color']
     axis.style = {**(axis.style or {}), **{k: v for k, v in spec.items() if k in AXIS_STYLE_KEYS}}
-    if spec.get('inverse'):
-        axis.inverse = True
+    if 'inverse' in spec:
+        axis.inverse = bool(spec['inverse'])
     if spec.get('from_zero') and axis.scale == 'value':
         axis.from_zero = True
     low = bound(spec['min'], f'Ось {title}, минимум', time) if 'min' in spec else None
