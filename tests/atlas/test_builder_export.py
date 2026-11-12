@@ -57,15 +57,17 @@ def test_no_style_figures_of_other_modules_unchanged():
     assert 'style' not in meta and 'format' not in meta
 
 
-def test_step_skips_alignment_only_in_builder():
-    """Шаг делений у чужих модулей (ГГХ, давление) не отключает общую сетку двух осей; в конструкторе шаг важнее."""
+def test_given_step_is_stronger_than_common_grid():
+    """Заданный шаг делений сильнее общей сетки шкал — одинаково в конструкторе и в модулях: границы кратны шагу, деления по шагу
+    (тот же расчёт, что на экране, ``atlas/axis_auto.py``)."""
     c = chart()
     c.y2 = c.y2 or contract.Axis('Y2', '')
     c.y.step = c.y2.step = 10
-    c.id = 'other-chart'
-    assert render.to_plotly(c).layout.yaxis.autorange is False      # выровнены
-    c.id = 'builder'
-    assert render.to_plotly(c).layout.yaxis.autorange is not False  # шаг задан вручную, выравнивания нет
+    for cid in ('other-chart', 'builder'):
+        c.id = cid
+        axis = render.to_plotly(c).layout.yaxis
+        assert axis.dtick == 10 and axis.autorange is False
+        assert all(v % 10 == 0 for v in axis.range) and axis.tick0 == axis.range[0]
 
 
 def combo(*views, **extra):

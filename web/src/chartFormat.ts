@@ -2,6 +2,7 @@
 // Уровни (тема проекта → тип графика → график) складываются mergeFormats: поле более позднего уровня главнее.
 import { errorSeries, trendSeries } from './trend'
 import type { Axis, AxisStyle, Chart, ChartStyle } from './api'
+import { withoutAutoFit } from './chartAxes'
 import { applyLooks, withFreshColors, type Look } from './chartStyle'
 
 export type AxisName = 'x' | 'y' | 'y2' | 'y3' | 'y4' | 'y5'
@@ -64,7 +65,7 @@ export function formatAxis(axis: Axis, spec: AxisFormat, values: number[]): Axis
   if (spec.color) out.color = spec.color
   for (const k of STYLE_KEYS) if (spec[k] !== undefined) (out.style as Record<string, unknown>)[k] = spec[k]
   if (spec.inverse !== undefined) out.inverse = spec.inverse
-  if (spec.from_zero && axis.scale === 'value') out.from_zero = true
+  if (spec.from_zero && axis.scale === 'value') Object.assign(out, withoutAutoFit(out), { from_zero: true })      // «с нуля» сильнее подобранных автоматом границ
   const low = parseBound(spec.min, time), high = parseBound(spec.max, time)
   if (low === null || high === null || low < high) {
     if (low !== null) out.minimum = low

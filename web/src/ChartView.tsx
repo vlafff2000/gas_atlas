@@ -191,7 +191,7 @@ function formatter(a: Axis, span: number) {
   }
 }
 
-const TICK_INTERVALS = 5      // то же число делений, что в atlas/render.py
+const TICK_INTERVALS = 5      // делений по умолчанию, когда шкалу не подбирал общий автоподбор (atlas/axis_fit.py)
 
 /** Наименьший «круглый» шаг (1, 2, 2.5, 5 × 10^k), не меньший raw. */
 function niceStep(raw: number) {
@@ -226,8 +226,11 @@ function alignedYAxes(chart: Chart, base: Chart): Record<YName, { min: number; m
   const out = {} as Record<YName, { min: number; max: number; step: number }>
   const hasData = base.series.some(s => s.kind !== 'box' && s.y.some(v => typeof v === 'number' && Number.isFinite(v)))
   if (!hasData) return null
+  const n = gridIntervals(chart)
   for (const key of names) {
     const spec = yAxisAt(chart, Y_NAMES.indexOf(key))
+    const fit = fittedAxis(spec)
+    if (fit) { out[key] = fit; continue }
     let lo = Infinity, hi = -Infinity
     const stacks = new Map<string, number[]>()      // стопка складывается по номеру точки: шкала по сумме, а не по одной серии
     for (const s of base.series) {
@@ -240,12 +243,23 @@ function alignedYAxes(chart: Chart, base: Chart): Record<YName, { min: number; m
       }
     }
     for (const sum of stacks.values()) for (const v of sum) if (v !== undefined) { lo = Math.min(lo, v); hi = Math.max(hi, v) }
-    if (lo > hi) { lo = 0; hi = 1 }      // у оси без данных всё равно те же 5 делений
+    if (lo > hi) { lo = 0; hi = 1 }      // у оси без данных всё равно те же деления
     if (spec.from_zero || hasBars(base, key)) { lo = Math.min(lo, 0); hi = Math.max(hi, 0) }
-    const { start, step } = alignedRange(lo, hi, spec.minimum, spec.maximum)
-    out[key] = { min: start, max: start + TICK_INTERVALS * step, step }
+    const { start, step } = alignedRange(lo, hi, spec.minimum, spec.maximum, n)
+    out[key] = { min: start, max: start + n * step, step }
   }
   return out
+}
+
+/** Границы и шаг шкалы, подобранные общим автоподбором (atlas/axis_auto.py): деления на экране ровно те же, что в файле. */
+function fittedAxis(a: Axis): { min: number; max: number; step: number } | null {
+  return a.auto && a.scale === 'value' && a.minimum != null && a.maximum != null && a.step ? { min: a.minimum, max: a.maximum, step: a.step } : null
+}
+
+/** Число делений общей сетки шкал Y: выбрано автоподбором (от 4 до 8), без него — привычные пять. */
+function gridIntervals(chart: Chart): number {
+  for (let i = 0; i < yCount(chart); i++) { const n = yAxisAt(chart, i).auto?.n; if (n) return n }
+  return TICK_INTERVALS
 }
 
 /** Размах оси времени в мс по всем сериям (для решения, нужен ли ползунок). */
@@ -287,7 +301,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const axis = (a: Axis, position: 'x' | YName) => {
     const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position !== 'x' ? dual?.[position] : undefined
     const st = steps[position]
-    if (fixed) return withStep({ ...plain, min: fixed[0], max: fixed[1], ...(twin ? { interval: (fixed[1] - fixed[0]) / TICK_INTERVALS } : {}) }, a, st)
+    if (fixed) return withStep({ ...plain, min: fixed[0], max: fixed[1], ...(twin ? { interval: (fixed[1] - fixed[0]) / gridIntervals(chart) } : {}) }, a, st)
     return withStep(grid ? { ...plain, min: grid.min, max: grid.max, interval: grid.step } : plain, a, st)
   }
   /** Ручной основной интервал: у числовой оси — interval, у оси дат — календарные деления по всему размаху рядов. */

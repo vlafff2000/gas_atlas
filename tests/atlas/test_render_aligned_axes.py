@@ -1,7 +1,9 @@
+"""Файлы берут шкалы Y из общего автоподбора (atlas/axis_auto.py): те же границы и деления, что на экране."""
 from __future__ import annotations
 
+from atlas import axis_auto
 from atlas.contract import Axis, Chart, Series
-from atlas.render import TICK_INTERVALS, aligned_range, chart_file, to_plotly
+from atlas.render import chart_file, to_plotly
 
 
 def _chart(**kw):
@@ -11,25 +13,39 @@ def _chart(**kw):
     return c
 
 
+def _counts(fig):
+    return [round((axis.range[1] - axis.range[0]) / axis.dtick) for axis in (fig.layout.yaxis, fig.layout.yaxis2)]
+
+
 def test_two_axes_share_tick_count_and_grid():
     fig = to_plotly(_chart(from_zero=True))
+    assert len(set(_counts(fig))) == 1 and 4 <= _counts(fig)[0] <= 8
     for axis in (fig.layout.yaxis, fig.layout.yaxis2):
-        lo, hi = axis.range
-        assert round((hi - lo) / axis.dtick) == TICK_INTERVALS
-        assert axis.tick0 == lo
+        assert axis.tick0 == axis.range[0]
     assert fig.layout.yaxis.range[0] <= 0 and fig.layout.yaxis.range[1] >= 120
+
+
+def test_file_axes_equal_screen_axes():
+    """Экран получает график после ``axis_auto.auto_chart``; файл рисует те же границы и шаг — и для одной шкалы тоже."""
+    for chart in (_chart(), Chart('t-2', 'Одна шкала', Axis('Дата', scale='time'), Axis('Давление'),
+                                  series=[Series('p', ['2024-01-01', '2024-02-01'], [44.3, 87.2], 'line')])):
+        shown, fig = axis_auto.auto_chart(chart), to_plotly(chart)
+        for name in shown.axis_names():
+            spec, axis = shown.axis_at(name), getattr(fig.layout, 'yaxis' if name == 'y' else 'yaxis' + name[1:])
+            assert (spec.minimum, spec.maximum, spec.step) == (axis.range[0], axis.range[1], axis.dtick)
 
 
 def test_fixed_maximum_is_kept():
     fig = to_plotly(_chart(from_zero=True, maximum=100))
     assert fig.layout.yaxis2.range[1] == 100
-    assert round((fig.layout.yaxis2.range[1] - fig.layout.yaxis2.range[0]) / fig.layout.yaxis2.dtick) == TICK_INTERVALS
+    assert len(set(_counts(fig))) == 1
 
 
-def test_range_always_covers_data():
-    for lo, hi in ((0.31, 0.97), (-5, 3), (1000, 1001), (0, 7)):
-        start, step = aligned_range(lo, hi)
-        assert start <= lo + 1e-9 and start + TICK_INTERVALS * step >= hi - 1e-9
+def test_inverse_axis_keeps_direction():
+    c = _chart(inverse=True)
+    fig = to_plotly(c)
+    lo, hi = fig.layout.yaxis2.range
+    assert lo > hi and fig.layout.yaxis2.tick0 == hi
 
 
 def test_png_export_runs():
@@ -41,6 +57,19 @@ def test_axis_without_data_still_aligned():
     c = _chart(from_zero=True)
     c.series.pop()      # у y2 нет данных
     fig = to_plotly(c)
-    for axis in (fig.layout.yaxis, fig.layout.yaxis2):
-        lo, hi = axis.range
-        assert round((hi - lo) / axis.dtick) == TICK_INTERVALS
+    assert len(set(_counts(fig))) == 1
+
+
+def test_manual_step_from_manual_minimum_in_file():
+    """Ручные минимум и шаг: деления в файле идут от минимума (37, 47, 57…), как на экране, а не по кратным шагу (40, 50…)."""
+    import matplotlib
+    matplotlib.use('Agg')
+    from matplotlib import pyplot as plt
+    from atlas.engine.core.export_style import apply_style
+    f, ax = plt.subplots()
+    try:
+        ax.plot([0, 1], [44, 87])
+        apply_style(f, ax, {}, {'chart': {}, 'axes': {'y': {'min': 37.0, 'max': 97.0, 'step': 10.0, 'scale': 'value'}}}, '', 1.0, 9, False)
+        assert [round(t, 6) for t in ax.get_yticks() if 37 <= t <= 97] == [37, 47, 57, 67, 77, 87, 97]
+    finally:
+        plt.close(f)
