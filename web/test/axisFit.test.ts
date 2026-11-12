@@ -17,7 +17,7 @@ for (const c of cases) {
 test('случайная сверочная таблица: те же числа, что у atlas/axis_fit.py', () => {
   const random: { needs: (Need | null)[]; expect: ([number, number, number, number | null, string] | null)[] }[] =
     JSON.parse(readFileSync(new URL('../../tests/fixtures/axis_fit_random.json', import.meta.url), 'utf-8'))
-  assert.equal(random.length, 300)
+  assert.equal(random.length, 360)        // 300 наборов шкал Y и 60 осей X
   for (const c of random) {
     const got = fitAxes(c.needs).map(f => f && [f.minimum, f.maximum, f.step, f.n, f.why])
     assert.deepEqual(got, c.expect, JSON.stringify(c.needs))
@@ -102,4 +102,17 @@ test('подсказки: почему такие пределы и выброс
   assert.equal(fitHint(axis() as never), '')
   assert.equal(outlierText({ kind: 'outlier', count: 1, values: [5000], share: 0.004, min: 45, max: 70 }), 'Выброс: значение 5000 — остальные данные занимают 1 % высоты поля. Ничего не отброшено.')
   assert.equal(boundText(98.60000000000001), '98,6')
+})
+
+test('ось X: числовая подбирается сама по себе, столбцы и даты не трогаются', () => {
+  const xy = (xs: number[], extra: object = {}) => ({ name: 's', kind: 'line', x: xs, y: xs.map((_v, i) => i + 1), axis: 'y', ...extra })
+  const once = fitChart(chart([xy([1, 50, 150])], { x: axis({ label: 'Сутки' }) }))
+  assert.deepEqual(bounds(once.x), [0, 150, 25])
+  assert.deepEqual(once.x.auto, { n: 6, zero: true, why: 'near', lo: 1, hi: 150, anchor: false, min: 0, max: 150, step: 25 })
+  assert.equal(fitChart(once), once)
+  assert.deepEqual(bounds(fitChart(chart([xy([100, 150, 200])], { x: axis() })).x), [100, 200, 20])      // без запаса у среза
+  assert.deepEqual(bounds(fitChart(chart([xy([1, 2, 3], { kind: 'bar' })], { x: axis() })).x), [null, null, null])
+  assert.deepEqual(bounds(fitChart({ ...once, x: { ...once.x, minimum: 10 } }).x), [10, 150, 20])           // ручной минимум сильнее
+  assert.deepEqual(bounds(fitChart({ ...once, x: { ...unfitted(once.x), scale: 'log' } }).x), [null, null, null])      // лог. шкала: подобранное снимается
+  assert.equal(fitHint(once.x, true), 'Сейчас: 0…150, шаг 25, делений 6. Данные: 1…150. Причина: нуль рядом с данными — шкала начата от нуля.')
 })

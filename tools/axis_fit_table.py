@@ -1,6 +1,6 @@
 """Случайная сверочная таблица автоподбора шкал для зеркала на экране (``web/src/axisFit.ts``).
 
-``tests/fixtures/axis_fit_random.json`` — 300 случайных наборов шкал с ответом ``atlas/axis_fit.py``; её читают и pytest
+``tests/fixtures/axis_fit_random.json`` — 300 случайных наборов шкал Y и 60 осей X с ответом ``atlas/axis_fit.py``; её читают и pytest
 (ответ Python не изменился), и тест интерфейса (TS даёт те же числа). После намеренной правки правил подбора:
 ``python tools/axis_fit_table.py`` — и посмотреть разницу в git."""
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 TABLE = ROOT / 'tests' / 'fixtures' / 'axis_fit_random.json'
-COUNT, SEED = 300, 20261112
+COUNT, X_COUNT, SEED = 300, 60, 20261112
 
 
 def _value(rng: random.Random, scale: float) -> float:
@@ -52,12 +52,20 @@ def build() -> list[dict]:
         needs = [_need(rng) for _ in range(rng.choice([1, 1, 2, 2, 3, 5]))]
         fits = fit_axes([None if n is None else Need(**n) for n in needs])
         out.append({'needs': needs, 'expect': [None if f is None else [f.minimum, f.maximum, f.step, f.n, f.why] for f in fits]})
+    across = random.Random(SEED + 1)        # ось X: одна шкала, без запаса у среза; свой генератор — прежние наборы не меняются
+    for _ in range(X_COUNT):
+        need = _need(across)
+        if need is not None:
+            need.pop('anchor', None)
+            need['margin'] = 0.0
+        fit = fit_axes([None if need is None else Need(**need)])[0]
+        out.append({'needs': [need], 'expect': [None if fit is None else [fit.minimum, fit.maximum, fit.step, fit.n, fit.why]]})
     return out
 
 
 def main() -> int:
     TABLE.write_text('[\n' + ',\n'.join(json.dumps(c, ensure_ascii=False) for c in build()) + '\n]\n', encoding='utf-8')
-    print(f'{TABLE.relative_to(ROOT)}: {COUNT} наборов')
+    print(f'{TABLE.relative_to(ROOT)}: {COUNT + X_COUNT} наборов')
     return 0
 
 

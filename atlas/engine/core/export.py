@@ -381,7 +381,7 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
             if not date_axis and isinstance(fig.layout.xaxis.dtick,(int,float)) and fig.layout.xaxis.dtick>0:
                 lo,hi=ax.get_xlim();step=fig.layout.xaxis.dtick
                 if (hi-lo)/step<=150:ax.xaxis.set_major_locator(MultipleLocator(step))
-                ax.xaxis.set_major_formatter(ru_tick('.0f' if step>=1 else '.2f'))
+                ax.xaxis.set_major_formatter(ru_tick('.0f' if step>=1 and float(step).is_integer() else '.10g'))      # дробный шаг (2,5; 0,25) — со своими знаками, как на экране
             if isinstance(fig.layout.yaxis.dtick,(int,float)) and fig.layout.yaxis.dtick>0:
                 lo,hi=ax.get_ylim();step=fig.layout.yaxis.dtick
                 if (hi-lo)/step<=150:ax.yaxis.set_major_locator(MultipleLocator(step))

@@ -270,7 +270,7 @@ export function FitChoice({ value, fromZero, onChange }: { value: AxisFormat['fi
  *  ``axis`` — шкала показанного графика: под полями видно, какие пределы подобраны и почему, и подсказка о выбросе. */
 export type ScaleFormat = Pick<AxisFormat, 'min' | 'max' | 'step' | 'minor_step' | 'log' | 'inverse' | 'from_zero' | 'fit'>
 export function AxisScaleFields({ id, value: f, set, time, inverseBase, axis }: { id: string; value: ScaleFormat; set: (patch: ScaleFormat) => void; time?: boolean; inverseBase?: boolean; axis?: Axis | null }) {
-  const hint = time ? '' : fitHint(axis)
+  const hint = time ? '' : fitHint(axis, id === 'x')
   const outlier = time ? undefined : axis?.auto?.hints?.find(h => h.kind === 'outlier')
   return (
     <fieldset>

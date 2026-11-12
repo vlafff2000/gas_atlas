@@ -344,7 +344,11 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       type: a.scale, inverse: a.inverse, scale: !zero,
       min: a.scale === 'category' ? undefined : a.minimum ?? (zero ? 0 : undefined),
       max: a.scale === 'category' ? undefined : a.maximum ?? undefined,
-      interval: a.step && a.scale === 'value' ? a.step : undefined,
+      // подобранный шаг оси X — не жёсткий interval: при увеличении делений стало бы 0–1. Число делений и предел шага дают
+      // тот же шаг на полном виде (как в файле) и более мелкий при увеличении
+      ...(!y && a.scale === 'value' && a.step && a.auto?.step === a.step
+        ? { splitNumber: a.auto.n ?? 5, maxInterval: a.step }
+        : { interval: a.step && a.scale === 'value' ? a.step : undefined }),
       ...(as.break_lo !== undefined && as.break_hi !== undefined && (a.scale === 'value' || a.scale === 'time') ? { breaks: [{ start: as.break_lo, end: as.break_hi, gap: 8 }] } : {}),
       minInterval: (a.unit === 'скв.' || a.unit === 'ед.') && a.scale === 'value' ? 1 : undefined,      // скважин — целое число, делений по 0,5 не бывает
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
