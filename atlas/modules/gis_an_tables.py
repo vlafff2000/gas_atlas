@@ -303,11 +303,24 @@ def _by_depth(blocks_of: dict[str, dict[str, pd.DataFrame]], gvk: dict, well: st
     return {pack: blocks_of[pack] for pack in sorted(blocks_of, key=top)}
 
 
+HG_PACK, HG_INTERVAL = 'pack', 'interval'
+
+
+def interval_h(interval: Any) -> float:
+    """Нг интервала: эффективная газонасыщенная толщина интервала из базы ГИС (``h_eff_m``: 0 для водонасыщенного, ниже ГВК и с низким Кг);
+    нет столбца — толщина интервала (подошва − кровля)."""
+    value = _num(getattr(interval, 'h_eff_m', float('nan')))
+    if not math.isnan(value):
+        return value
+    return _num(interval.to_m) - _num(interval.from_m)
+
+
 def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str], pack_names: list[str], labels: list[str],
-                  gvk: dict, span: str, colors: dict[str, str]) -> Table:
+                  gvk: dict, span: str, colors: dict[str, str], hg_mode: str = HG_PACK) -> Table:
     """5.4: по скважине и пачке блок строк. Интервалы сезона — в нижних строках блока (лишние строки сверху пустые);
     Нг — объединённая ячейка на весь блок пачки, ГВК (глубина и а.о.) — в строке интервала, где отбивается уровень. Нет исследования скважины в сезоне — «не исследовалась»
-    по ширине сезона на всю скважину; нет исследования пачки в сезоне — то же по блоку этой пачки."""
+    по ширине сезона на всю скважину; нет исследования пачки в сезоне — то же по блоку этой пачки.
+    ``hg_mode``: ``pack`` — Нг одной объединённой ячейкой на весь блок пачки (как в отчёте), ``interval`` — Нг отдельно в строке каждого интервала."""
     part = seasoned(intervals)
     part = part[part['season'].isin(labels) & part['well'].isin(wells) & part['pack'].isin(pack_names)]
     last = _last(part, ['well', 'pack', 'season'])[['well', 'pack', 'season', 'date']]
@@ -355,18 +368,24 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
                     number = None if math.isnan(kg) else percent(kg)
                     written = kg_as_written(interval)
                     rows[r][f's{i}_kg'] = written or number          # в таблице Кг как в отчёте («<20%»), в расчётах и подсветке — число
+                    if hg_mode == HG_INTERVAL:
+                        rows[r][f's{i}_h'] = _fmt(interval_h(interval), 1)
                     if number is not None and number <= LOW_KG:
                         low.append((r, i))
                 item = gvk.get((well, pack, label))
                 if item:
-                    rows[top][f's{i}_h'] = _fmt(item['h_eff'], 1)
-                    if height > 1:                       # Нг — на пачку целиком: объединение по всем строкам её блока
-                        merges.append(CellMerge(top, top + height - 1, [f's{i}_h']))
+                    if hg_mode != HG_INTERVAL:
+                        rows[top][f's{i}_h'] = _fmt(item['h_eff'], 1)
+                        if height > 1:                   # Нг — на пачку целиком: объединение по всем строкам её блока
+                            merges.append(CellMerge(top, top + height - 1, [f's{i}_h']))
                     at = top + height - len(b) + gvk_row(b, item['depth']) if len(b) else top + height - 1
                     rows[at][f's{i}_depth'], rows[at][f's{i}_abs'] = _fmt(item['depth'], 1), _fmt(item['abs'], 1)
         for i in well_gap:
             rows[well_top][f's{i}_from'] = NOT_STUDIED
             merges.append(CellMerge(well_top, len(rows) - 1, season_keys(i)))
+    if rows:
+        for i in range(1, len(labels)):       # граница сезона: толстая линия слева от первой колонки каждого сезона, кроме первого
+            styles.append(CellStyle(list(range(len(rows))), columns=[f's{i}_from'], border='left'))
     low_fill = colors[LOW_KEY]
     for r, i in low:      # голубой фон и синий шрифт — только у интервала (от, до, Кг) своего сезона, не у остальных ячеек строки
         styles.append(CellStyle([r], fill=low_fill, font=LOW_FONT, columns=[f's{i}_{n}' for n in ('from', 'to', 'kg')]))
@@ -374,7 +393,7 @@ def results_table(intervals: pd.DataFrame, packs: pd.DataFrame, wells: list[str]
     frame = pd.DataFrame(rows, columns=[c.key for c in columns])
     return Table(f'gis-an-5-{FIRST_NUMBER}', f'Таблица 5.{FIRST_NUMBER} – Результаты исследований ГИС-контроль, выполненных в {span}',
                  frame, columns, header=header, collapsed=True, styles=styles, merges=merges,
-                 note='Интервалы последнего замера сезона по пачке; Кг — в процентах. Нг (hг эф) — на всю пачку (объединённые ячейки), ГВК — в строке интервала, где отбивается уровень. '
+                 note='Интервалы последнего замера сезона по пачке; Кг — в процентах. ' + ('Нг (hг эф) — отдельно для каждого интервала, ' if hg_mode == HG_INTERVAL else 'Нг (hг эф) — на всю пачку (объединённые ячейки), ') + 'ГВК — в строке интервала, где отбивается уровень. '
                       f'Голубой фон и синий шрифт — интервалы с Кг ≤ {LOW_KG:g} %.')
 
 
@@ -434,7 +453,8 @@ def build(data: dict, params: dict[str, Any]) -> tuple[list[Table], list[str], s
         else:
             notes.append('Таблица 5.3 не построена: в замерах базы ГИС нет методов исследования (столбец methods; его даёт «БД ГИС из отчётов»).')
     if intervals is not None and len(intervals):
-        tables.append(results_table(intervals, packs, wells, pack_names, labels, gvk, span, palette(params.get('colors'))))
+        tables.append(results_table(intervals, packs, wells, pack_names, labels, gvk, span, palette(params.get('colors')),
+                                    HG_INTERVAL if params.get('an_hg_mode') == HG_INTERVAL else HG_PACK))
     else:
         notes.append('Таблица 5.4 не построена: нет интервалов ГИС («База ГИС», таблица интервалов).')
     last_only = bool(params.get('an_last_two', True))

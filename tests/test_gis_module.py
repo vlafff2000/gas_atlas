@@ -447,6 +447,21 @@ def test_54_xlsx_draws_the_well_line_and_keeps_gvk_in_one_row():
     assert ws.cell(row4, 1).border.top.style == 'medium'
 
 
+def test_54_xlsx_draws_thick_lines_between_seasons():
+    # жирные линии между сезонами, как между скважинами: слева от первой колонки каждого сезона (кроме первого), в шапке и в строках данных
+    import io
+    from openpyxl import load_workbook
+    from atlas import render
+    table = _an_five_four()
+    firsts = [s.columns[0] for s in table.styles if s.border == 'left']
+    assert firsts == [f's{i}_from' for i in range(1, len(firsts) + 1)] and firsts
+    content, _, _ = render.tables_file([table], 'Таблица 5.4')
+    ws = load_workbook(io.BytesIO(content)).worksheets[0]
+    col = 2 + 6 + 1                       # колонка 's1_from': № скв., Пачка, 6 колонок первого сезона
+    assert ws.cell(3, col).border.left.style == 'medium' and ws.cell(ws.max_row, col).border.left.style == 'medium'
+    assert ws.cell(ws.max_row, 3).border.left.style != 'medium'     # внутри сезона линия обычная
+
+
 def test_54_xlsx_header_keeps_well_and_pack_titles_and_centres_merged_h():
     import io
     from openpyxl import load_workbook
@@ -640,6 +655,18 @@ def test_an_results_table_shows_kg_as_written_and_math_uses_number():
     table = next(t for t in res.tables if t.id == 'gis-an-5-4')
     kg = [v for c in table.frame.columns if c.endswith('_kg') for v in table.frame[c] if v == v and v is not None]
     assert '<20%' in kg and 62.0 in kg                       # текст как в отчёте; остальные — числом в процентах
+
+
+def test_an_results_table_hg_in_merged_cell_or_per_interval():
+    # Нг пачки — одной объединённой ячейкой на весь блок (как в отчёте) или отдельно в строке каждого интервала (hэф интервала из базы ГИС)
+    iv = _an_intervals().assign(h_eff_m=[1.4, 0.0, 1.4])
+    pack = GisModule().run({GIS: _an_packs(), INTERVALS: iv}, _params(view='an')).tables[0]
+    assert [m for m in pack.merges if m.columns == ['s0_h']] and pack.frame[pack.frame['well'] == '1']['s0_h'].dropna().tolist() == [2.5]
+    each = GisModule().run({GIS: _an_packs(), INTERVALS: iv}, _params(view='an', an_hg_mode='interval')).tables[0]
+    assert not [m for m in each.merges if m.columns == ['s0_h']]
+    assert each.frame[each.frame['well'] == '1']['s0_h'].dropna().tolist() == [1.4, 0.0] and 'отдельно для каждого интервала' in each.note
+    plain = GisModule().run({GIS: _an_packs(), INTERVALS: _an_intervals()}, _params(view='an', an_hg_mode='interval')).tables[0]
+    assert plain.frame[plain.frame['well'] == '1']['s0_h'].dropna().tolist() == [1.4, 1.2]                   # нет hэф в базе: толщина интервала
 
 
 def _an_annotations():

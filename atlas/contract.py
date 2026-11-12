@@ -277,7 +277,7 @@ class CellStyle:
     fill: str = ''                    # HEX без «#», например 'FCD5B4'
     font: str = ''
     columns: list[str] = field(default_factory=list)
-    border: str = ''                  # 'top' — толстая линия сверху: граница блока (скважины)
+    border: str = ''                  # 'top' — толстая линия сверху: граница блока (скважины); 'left' — толстая линия слева: граница группы колонок (сезона)
 
 
 @dataclass
