@@ -43,7 +43,8 @@ def _values(values, scale: str) -> list[Any]:
     return list(values)
 
 
-def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
+def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False) -> Chart:
+    """``drawn_only`` — без скрытых рядов (``visible`` False или «только в легенде»): то, что попадёт в файл."""
     layout = fig.layout
     x, y = _axis(layout.xaxis), _axis(layout.yaxis)
     right = {}
@@ -57,7 +58,7 @@ def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
     for t in fig.data:
         meta = t.meta if isinstance(t.meta, dict) else {}
         kind = type(t).__name__
-        if kind not in ('Scatter', 'Bar'):
+        if kind not in ('Scatter', 'Bar') or (drawn_only and t.visible in (False, 'legendonly')):
             continue
         color = ''
         symbol = str(getattr(t.marker, 'symbol', None) or 'circle') if t.marker is not None else 'circle'      # у столбцов символа нет
@@ -86,3 +87,64 @@ def to_chart(fig, chart_id: str = 'export-preview') -> Chart:
             markers=mark == 'line' and 'markers' in (t.mode or ''), axis=t.yaxis if t.yaxis in right else 'y',
             ids=ids, dataset=dataset))
     return Chart(id=chart_id, title=_text(layout.title), x=x, y=y, y2=y2, y3=y3, y4=y4, y5=y5, series=series)
+
+
+def _manual(fig, name: str) -> dict[str, Any]:
+    """Границы и шаг шкалы, заданные инженером в оформлении выгрузки (``meta.format`` — поля формы, ``meta.style`` — модель оформления)."""
+    meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
+    form = ((meta.get('format') or {}).get('axes') or {}).get(name) or {}
+    style = ((meta.get('style') or {}).get('axes') or {}).get(name) or {}
+    out = {}
+    for field, keys in (('minimum', ('min',)), ('maximum', ('max',)), ('step', ('step', 'major'))):
+        value = next((spec[k] for spec in (style, form) for k in keys if isinstance(spec.get(k), (int, float)) and not isinstance(spec.get(k), bool)), None)
+        if value is not None:
+            out[field] = float(value)
+    return out
+
+
+def _levels(fig, name: str) -> list[float]:
+    """Уровни линий и подписей, привязанных к шкале (``add_hline``, ``add_annotation``): подбор не должен вынести их за поле."""
+    ref = 'y' if name == 'y' else name
+    out = []
+    for item in fig.layout.shapes or ():
+        if (item.yref or 'y') == ref:
+            out += [v for v in (item.y0, item.y1) if isinstance(v, (int, float))]
+    for item in fig.layout.annotations or ():
+        if (item.yref or 'y') == ref and isinstance(item.y, (int, float)):
+            out.append(item.y)
+    return out
+
+
+def fit_figure(fig):
+    """Шкалы Y графика выгрузки подбирает та же функция, что на экране разделов и в их файлах (``atlas/axis_auto.py``):
+    пакетные вкладки «Экспорта» получают те же границы, шаг и общее число делений, что интерактивный предпросмотр.
+
+    Заданное инженером в оформлении сильнее: такая шкала участвует в подборе как ручная и остаётся как есть.
+    График, размах которого по рядам оценить нельзя (ящики, планки погрешностей, стопки), и шкала, за пределы которой
+    вышла бы линия уровня или подпись, не трогаются — рисуются, как раньше. Меняет и возвращает ту же фигуру."""
+    from .axis_auto import auto_chart
+    from .render import align_y_axes
+    drawn = [t for t in fig.data if t.visible not in (False, 'legendonly')]
+    if not drawn or fig.layout.barmode in ('stack', 'relative'):
+        return fig
+    for t in drawn:
+        meta = t.meta if isinstance(t.meta, dict) else {}
+        plain = type(t).__name__ in ('Scatter', 'Bar') and not getattr(t, 'stackgroup', None) and getattr(t, 'base', None) is None
+        bars = getattr(t, 'error_y', None)
+        if not plain or meta.get('cat_stack') or meta.get('fill') or (bars is not None and (bars.array is not None or bars.value is not None)):
+            return fig
+    chart = to_chart(fig, drawn_only=True)
+    names = chart.axis_names()
+    manual = {name: _manual(fig, name) for name in names}
+    for name in names:
+        axis = chart.axis_at(name)
+        for field, value in manual[name].items():
+            setattr(axis, field, value)
+    chart = auto_chart(chart)
+    for name in names:
+        axis = chart.axis_at(name)
+        outside = axis.minimum is not None and axis.maximum is not None and any(not axis.minimum <= v <= axis.maximum for v in _levels(fig, name))
+        if manual[name] or not axis.auto or outside:
+            axis.step = None        # align_y_axes такую шкалу пропускает
+    align_y_axes(fig, chart)
+    return fig

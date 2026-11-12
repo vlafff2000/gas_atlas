@@ -12,6 +12,7 @@ import re
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from . import chart_format
+from .export_chart import fit_figure
 
 FIELDS = ('title', 'x', 'y', 'y2', 'legend', 'template')
 GDI_FIELDS = ('дата', 'метод', 'исследование')
@@ -135,11 +136,13 @@ class LabelledJob:
             raise AttributeError(name)
         return getattr(self._job, name)
 
-    def render(self):
+    def render(self, fit: bool = True):
+        """``fit=False`` — без подбора шкал: интерактивному предпросмотру подбор делает ``axis_auto.auto_chart`` (с причиной для панели)."""
         figure = self._job.render()
         if self._format:
             figure = chart_format.apply(figure, self._format)
-        return apply(figure, self._cfg) if self._cfg else figure
+        figure = apply(figure, self._cfg) if self._cfg else figure
+        return fit_figure(figure) if fit else figure      # шкалы — после оформления: ручное сильнее подбора
 
 
 def labelled(plan, form: Mapping[str, Any]):
@@ -147,13 +150,11 @@ def labelled(plan, form: Mapping[str, Any]):
     from dataclasses import replace
     cfgs, formats = configs(form), chart_format.configs(form)
     own = chart_format.parse_overrides(form.get('fmt_overrides'))
-    if not cfgs and not formats and not own:
-        return plan
     jobs = []
     for job in plan.jobs:
         module = getattr(job, 'module', '') or ''
         look = chart_format.for_module(formats, module)
         if getattr(job, 'name', None) in own:
             look = chart_format.merge(look or chart_format.common(form), own[job.name])
-        jobs.append(LabelledJob(job, cfgs.get(module, {}), look) if module in cfgs or look else job)
+        jobs.append(LabelledJob(job, cfgs.get(module, {}), look))      # и без подписей: шкалы подбираются общей функцией (fit_figure)
     return replace(plan, jobs=jobs)
