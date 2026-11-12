@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from .export_combo import Areas,Bars,ghost,is_back,is_combo,overlay,sync
 from .export_style import group_default_ticks,group_digits_on,group_thousands,grouping,ru_tick
+from .export_scene import Names,collect,mark
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -191,7 +192,7 @@ def pick_key(v):
     return str(v)
 
 
-def point_labels(ax,x,y,family,size,opts):
+def point_labels(ax,x,y,family,size,opts,series=''):
     """Подписи значений у точек линии и облака (оформление ряда: положение, знаки, размер)."""
     place=opts.get('label_position','top');size=opts.get('label_size',size);decimals=opts.get('label_decimals')
     offset={'top':(0,4),'bottom':(0,-4),'left':(-4,0),'right':(4,0),'inside':(0,0),'center':(0,0)}.get(place,(0,4))
@@ -204,10 +205,10 @@ def point_labels(ax,x,y,family,size,opts):
         angle=opts.get('label_angle')
         rot={'rotation':float(angle),'rotation_mode':'anchor'} if angle else {}
         if angle and place in('top','bottom'):ha='left' if (angle>0)==(place=='top') else 'right'
-        ax.annotate(text,(xi,v),xytext=offset,textcoords='offset points',ha=ha,va=va,fontsize=size,family=family,**rot)
+        mark(ax.annotate(text,(xi,v),xytext=offset,textcoords='offset points',ha=ha,va=va,fontsize=size,family=family,**rot),f'label:{series}:{pick_key(xi)}',series=series,point=pick_key(xi))
 
 
-def value_labels(ax,bars,values,family,size,opts=None,keys=None):
+def value_labels(ax,bars,values,family,size,opts=None,keys=None,series=''):
     """Подписи значений над столбцами: целые числа, строго над столбиком. Если текст шире столбца, он ставится вертикально, чтобы соседние подписи не налезали."""
     opts=opts or {};size=opts.get('label_size',size);decimals=opts.get('label_decimals',0)
     pts=ax.get_position().width*ax.figure.get_figwidth()*72/(abs(np.diff(ax.get_xlim())[0]) or 1)
@@ -218,8 +219,9 @@ def value_labels(ax,bars,values,family,size,opts=None,keys=None):
         text=group_thousands(f'{v:.{decimals}f}' if decimals else f'{v:.0f}').replace('.',',');wide=len(text)*size*.5>rect.get_width()*pts
         angle=opts.get('label_angle');turn=float(angle) if angle is not None else (90 if wide else 0)
         up=v>=0;edge=rect.get_y()+rect.get_height() if up else rect.get_y()
-        ax.annotate(text,(rect.get_x()+rect.get_width()/2,edge),xytext=(0,2 if up else -2),textcoords='offset points',
-                    ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=turn,rotation_mode='anchor' if turn else 'default')
+        point=pick_key(keys[i]) if keys is not None and i<len(keys) else str(i)
+        mark(ax.annotate(text,(rect.get_x()+rect.get_width()/2,edge),xytext=(0,2 if up else -2),textcoords='offset points',
+                    ha='center',va='bottom' if up else 'top',fontsize=size,family=family,rotation=turn,rotation_mode='anchor' if turn else 'default'),f'label:{series}:{point}',series=series,point=point)
 
 def _legend_key(label):
     # подпись «дд.мм.гггг…» (даты исследований ГДИ) сортируется по году, месяцу, дню
@@ -241,11 +243,12 @@ def figure_bytes(fig,fmt='png',*args,**kwargs):
         return _figure_bytes(fig,fmt,*args,**kwargs)
 
 
-def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default'):
+def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default',scene=None):
     """``font`` / ``font_size`` — шрифт (``atlas.engine.core.fonts.FONTS``) и основной размер в пт; заголовок и легенда масштабируются вместе с ним.
     ``look='excel'`` — вид диаграммы Excel (Office: Calibri, палитра, тонкие серые горизонтальные линии сетки, легенда внизу); шрифт по умолчанию — Calibri.
     ``compact`` (листы приложений, ``height_mm`` задаёт высоту): график заполняет рисунок, легенда в одну-две строки под осями,
-    не больше 6 делений на оси — числа не налезают друг на друга."""
+    не больше 6 делений на оси — числа не налезают друг на друга.
+    ``scene`` — список, в который складывается сцена рисунка (``export_scene.collect``): элементы с именами и рамками в долях рисунка."""
     import matplotlib
     matplotlib.use('Agg')
     from matplotlib import pyplot as plt
@@ -300,9 +303,10 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                 categories=list(fig.layout.xaxis.categoryarray or [])
                 if not categories:categories=list(dict.fromkeys(str(x) for t in (bars or boxes) for x in (t.x if t.x is not None else [t.name])))
             cat_stack={};combo_bars=Bars([t for t in bars if is_combo(t)]);combo_areas=Areas();bar_values=[]
-            layered=any(is_back(t) for t in traces) and not excel;overlays={};bases={}
+            layered=any(is_back(t) for t in traces) and not excel;overlays={};bases={};names=Names()
             for t in traces:
                 target=rights.get(t.yaxis,ax)
+                sid=names.series(t.name);part={'series':sid,'axis':t.yaxis if t.yaxis in rights else 'y'}      # элемент сцены
                 base_axes=target
                 if layered and is_combo(t) and not is_back(t):target=overlays.setdefault(id(target),overlay(ax));bases[id(target)]=base_axes      # линии и точки — над столбцами и областями
                 x=list(decode_arrays(t.x)) if t.x is not None else [];y=np.array(decode_arrays(t.y),dtype=float) if t.y is not None else np.array([])
@@ -314,10 +318,10 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                     pi=next(i for i,b in enumerate(peers) if b is t);width=.7/max(1,len(peers));position=pos-.35+width/2+pi*width
                     result=target.boxplot([y[np.isfinite(y)]],positions=[position],widths=width*.9,patch_artist=True,manage_ticks=False,showfliers=t.boxpoints is not False,whis=1.5)
                     color=t.marker.color or '#2563eb'
-                    for patch in result['boxes']:patch.set_facecolor(color);patch.set_alpha(.7)
+                    for patch in result['boxes']:patch.set_facecolor(color);patch.set_alpha(.7);mark(patch,'series:'+sid,**part)
                     if label!='_nolegend_':result['boxes'][0].set_label(label)
                 elif t.type=='bar' and is_combo(t):
-                    combo_bars.draw(target,t,x,y,label,decode_arrays(t.marker.color),date_axis)
+                    for bar in combo_bars.draw(target,t,x,y,label,decode_arrays(t.marker.color),date_axis):mark(bar,'series:'+sid,**part)
                 elif t.type=='bar':
                     bi=next(i for i,b in enumerate(bars) if b is t);w=.8/max(1,len(bars))
                     if date_axis:
@@ -333,11 +337,11 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                         drawn=target.bar(pos,top,width=.8,bottom=below,label=label,color=decode_arrays(t.marker.color))
                         for p,v in zip(pos,top):base[p]=base.get(p,0.0)+v
                     else:drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
-                    for bar in drawn:bar._own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set()     # ручной цвет столбцов: вид Excel его не перекрашивает
+                    for bar in drawn:bar._own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set();mark(bar,'series:'+sid,**part)     # ручной цвет столбцов: вид Excel его не перекрашивает
                     if isinstance(t.meta,dict) and t.meta.get('hatch'):
                         from .export_style import HATCH_MPL
                         for bar in drawn:bar.set_hatch(HATCH_MPL.get(t.meta['hatch'],'//'));bar.set_edgecolor(t.meta.get('hatch_color') or '#000000');bar.set_linewidth(0)     # штриховка для чёрно-белой печати
-                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y,t.meta,x))
+                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):bar_values.append((target,drawn,y,t.meta,x,sid))
                 else:
                     # Plotly JSON serializes dates to strings. Preserve calendar spacing.
                     if x and (date_axis or isinstance(x[0],(pd.Timestamp,np.datetime64,datetime.datetime,datetime.date)) or isinstance(x[0],str) and re.match(r'^\d{4}-\d{2}-\d{2}',x[0])):
@@ -355,16 +359,16 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                     if fill:
                         upper=combo_areas.lower(t,len(y));lower=upper;upper=lower+np.nan_to_num(y);combo_areas.remember(t,upper)
                         area=target.fill_between(x,lower,upper,where=np.isfinite(y),step='post' if stepped else None,color=color,alpha=meta.get('alpha',.6),linewidth=0,zorder=1.5,label=label if line_off else '_nolegend_')
-                        y=np.where(np.isfinite(y),upper,np.nan)
+                        y=np.where(np.isfinite(y),upper,np.nan);mark(area,'series:'+sid,**part)
                         if line_off:mode=mode.replace('lines','')
                     ln,=target.plot(x,y,label=label,color=color,linestyle=dash if 'lines' in mode else 'None',marker=marker,drawstyle='steps-post' if stepped else 'default',
                         markerfacecolor=face,markeredgecolor=edge,markeredgewidth=t.marker.line.width or .7,
                         markersize=msize/2 if msize and 'size' in own else 3,linewidth=twidth if twidth and 'width' in own else 1.2,
                         alpha=t.opacity if 'alpha' in own and isinstance(t.opacity,(int,float)) else None)
-                    ln._own=own
-                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):point_labels(target,x,np.asarray(y,dtype=float),family_for('times'),max(5,base*.85),t.meta)
+                    ln._own=own;mark(ln,'series:'+sid,**part)
+                    if isinstance(t.meta,dict) and t.meta.get('value_labels'):point_labels(target,x,np.asarray(y,dtype=float),family_for('times'),max(5,base*.85),t.meta,sid)
                     if target is not base_axes:ghost(base_axes,x,y)
-            for target,drawn,y,opts,keys in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85),opts,keys)
+            for target,drawn,y,opts,keys,sid in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85),opts,keys,sid)
             if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
             title=mpl_text(fig.layout.title.text or '')
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}
@@ -431,7 +435,11 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                 from .export_style import apply_style
                 apply_style(f,ax,rights,fig.layout.meta['style'],title,k,base,date_axis)      # ручное оформление конструктора: последнее слово за инженером
             for top in overlays.values():sync(bases[id(top)],top)
+            if scene is not None and fmt=='png':f.set_dpi(dpi)      # рамки сцены — при том же разрешении, что и файл
             buf=io.BytesIO();f.savefig(buf,format=fmt,dpi=dpi)
+            if scene is not None:      # после сохранения: файл от сцены не зависит; у PNG сцена — ровно сохранённый рисунок
+                if fmt!='png':f.set_dpi(dpi);f.canvas.draw()      # вектор рисовал другой движок: расстановка для рамок — отдельной отрисовкой
+                scene.extend(collect(f,{'y':ax,**rights}))
             return buf.getvalue()
         finally:plt.close(f)
 

@@ -45,7 +45,8 @@ class Bars:
         stack = t.meta.get('stack') if isinstance(t.meta, dict) else ''
         return (t.yaxis or 'y', stack or id(t))
 
-    def draw(self, target, t, x, y, label, color, date_axis: bool) -> None:
+    def draw(self, target, t, x, y, label, color, date_axis: bool):
+        """Рисует столбцы ряда и возвращает их (для сцены рисунка)."""
         pos = positions(x, date_axis)
         step = step_of(pos)
         unit = self.units.index(self.key(t))
@@ -57,7 +58,7 @@ class Bars:
         for p, h in zip(pos, height):
             acc[p] = acc.get(p, 0.0) + h
         alpha = t.opacity if isinstance(t.opacity, (int, float)) else None
-        target.bar(left, height, width=w, bottom=bottom, align='edge', label=label, color=color, alpha=alpha, zorder=1.5)
+        return target.bar(left, height, width=w, bottom=bottom, align='edge', label=label, color=color, alpha=alpha, zorder=1.5)
 
 
 class Areas:
