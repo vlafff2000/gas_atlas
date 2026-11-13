@@ -71,3 +71,18 @@ def test_full_style_panel_reaches_every_module():
     assert styled.layout.meta['style']['axes']['y']['line_color'] == '#ff0000'
     with pytest.raises(ParamError):
         chart_format.configs({'fmt_style': json.dumps({'chart': {'legend_size': 99}})})
+
+
+def test_series_rule_carries_full_look():
+    """Правило набора данных вкладок экспорта несёт вид ряда «Любого графика»: штрих, форма маркера, подписи, имя в легенде."""
+    import json
+    rule = [{'match': 'ряд', 'look': {'dash': 'dot', 'shape': 'square', 'opacity': 0.5, 'valueLabels': True, 'label_decimals': 1,
+                                    'legend_name': 'Новое имя'}}]
+    cfg = chart_format.configs({'fmt_gdi_series': json.dumps(rule)})
+    f = go.Figure(go.Scatter(x=[0, 1], y=[1, 2], mode='lines+markers', name='Ряд 1'))
+    out = chart_format.apply(f, chart_format.for_module(cfg, 'gdi'))
+    t = out.data[0]
+    assert t.line.dash == 'dot' and t.marker.symbol == 'square' and t.opacity == 0.5 and t.name == 'Новое имя'
+    assert t.meta['value_labels'] is True and t.meta['label_decimals'] == 1
+    with pytest.raises(ParamError):
+        chart_format.configs({'fmt_gdi_series': json.dumps([{'match': 'a', 'look': {'opacity': 5}}])})

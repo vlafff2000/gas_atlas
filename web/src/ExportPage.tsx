@@ -9,7 +9,8 @@ import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, 
 import { Toast, type PageProps } from './ProjectPage'
 import { wellPresetApi, type WellPreset } from './api_wells'
 import { ExportAnyChart } from './ExportAnyChart'
-import { AxisStyleFields, ChartStyleFields, compact } from './FormatFields'
+import { AxisStyleFields, ChartStyleFields, Choice, Color, Num as FNum, SeriesExtraFields, compact } from './FormatFields'
+import { LINE_STYLES, MARKER_SHAPES, type Look } from './chartStyle'
 import type { AxisStyle, ChartStyle } from './api'
 import { ResizableFrame } from './ResizableFrame'
 import { PeriodDate } from './PeriodDate'
@@ -1124,7 +1125,7 @@ function ChartLabels({ form, set, choices, modules, projectId, ready }: FieldPro
   )
 }
 
-interface SeriesRule { match: string; color?: string; width?: number | string; marker?: number | string; hide?: boolean }
+interface SeriesRule { match: string; color?: string; width?: number | string; marker?: number | string; hide?: boolean; look?: Look }
 
 const ANGLE_OPTIONS: Opt[] = [['auto', 'Как есть'], ['0', 'Горизонтально'], ['30', '30°'], ['45', '45°'], ['60', '60°'], ['90', 'Вертикально']]
 
@@ -1329,6 +1330,10 @@ function RulesEditor({ rules, names, save }: { rules: SeriesRule[]; names: strin
                       onChange={e => edit(i, { marker: e.target.value })} />
                     <label className="toggle"><input type="checkbox" checked={!!r.hide} onChange={e => edit(i, { hide: e.target.checked })} /><span>скрыть</span></label>
                     <button type="button" aria-label="Удалить правило" onClick={() => save(rules.filter((_, j) => j !== i))}>✕</button>
+                    <details className="cs-templates">
+                      <summary>Все настройки ряда</summary>
+                      <RuleLook look={r.look ?? {}} onChange={look => edit(i, { look: Object.keys(look).length ? look : undefined })} />
+                    </details>
                   </div>
                 ))}
                 <button type="button" disabled={rules.length >= 50} onClick={() => save([...rules, { match: '' }])}>+ набор данных</button>
@@ -1393,5 +1398,22 @@ function StylePanel({ form, set }: { form: Form; set: (key: string, value: unkno
         <AxisStyleFields value={axes} set={p => put({ chart, axes: { ...axes, ...p } })} />
       </fieldset>
     </details>
+  )
+}
+
+/** Вид ряда во вкладке экспорта: те же поля, что в панели «Формат» (штрих, форма и граница маркера, прозрачность, подписи данных, штриховка, имя в легенде). */
+function RuleLook({ look, onChange }: { look: Look; onChange: (look: Look) => void }) {
+  const set = (p: Partial<Look>) => onChange(compact({ ...look, ...p }))
+  return (
+    <>
+      <fieldset>
+        <legend>Линия и маркер</legend>
+        <Choice label="Стиль линии" value={look.dash} options={LINE_STYLES} onChange={v => set({ dash: v })} />
+        <Choice label="Форма маркера" value={look.shape} options={MARKER_SHAPES} onChange={v => set({ shape: v })} />
+        <Color label="Цвет маркеров" value={look.markerColor} onChange={v => set({ markerColor: v })} />
+        <FNum label="Непрозрачность" value={look.opacity} min={0.05} max={1} step={0.05} onChange={v => set({ opacity: v })} />
+      </fieldset>
+      <SeriesExtraFields value={look} set={set} marker labels hatch />
+    </>
   )
 }
