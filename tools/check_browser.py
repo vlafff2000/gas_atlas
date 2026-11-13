@@ -24,8 +24,8 @@ BASE = f'http://127.0.0.1:{PORT}'
 PAGE_TIMEOUT_MS = 30_000
 
 
-def call(path: str, data: dict | None = None):
-    req = urllib.request.Request(BASE + path, method='POST' if data is not None else 'GET',
+def call(path: str, data: dict | None = None, method: str | None = None):
+    req = urllib.request.Request(BASE + path, method=method or ('POST' if data is not None else 'GET'),
                                  data=json.dumps(data).encode() if data is not None else None,
                                  headers={'content-type': 'application/json'})
     with urllib.request.urlopen(req, timeout=60) as r:
@@ -59,7 +59,10 @@ CANVAS_JS = """() => [...document.querySelectorAll('[_echarts_instance_] canvas'
 })"""
 
 
-def stage_scenario(page) -> list[str]:
+STAGE_MODULE, STAGE_PARAMS = 'gdi', {'wells': ['31', '70']}
+
+
+def stage_scenario(page, pid: str) -> list[str]:
     """Предпросмотр «как в файле» (Экспорт → Любой график): перетащенный заголовок в новом рисунке стоит там, куда его отпустили,
     а остальное осталось на месте. Рисунок предпросмотра — тот же PNG, что уходит на выгрузку (tests/atlas/test_export_any.py)."""
     def is_preview(r):
@@ -68,10 +71,16 @@ def stage_scenario(page) -> list[str]:
     def boxes(response):
         return {e['id']: e['box'] for e in response.json()['scene']}
 
+    # Раздел, скважины и график заданы заранее (как «последний выбор» в проекте): сценарий не зависит от значений по умолчанию.
+    found = call(f'/api/projects/{pid}/export/any/charts', {'module': STAGE_MODULE, 'params': STAGE_PARAMS})['charts']
+    if not found:
+        return ['в разделе «ГДИ» демо-проекта нет графиков для предпросмотра']
+    last = {'module': STAGE_MODULE, 'chart': found[0]['id'], 'params': STAGE_PARAMS}
+    call(f'/api/projects/{pid}/settings', {'values': {'export_any': {'last': last}}}, 'PATCH')
     page.evaluate("location.hash = '#/@export'")
-    page.get_by_text('Любой график', exact=True).first.click()
+    page.reload(wait_until='networkidle')
     with page.expect_response(is_preview, timeout=PAGE_TIMEOUT_MS) as first:
-        page.locator('label:has-text("Раздел программы") select').first.select_option('production')
+        page.get_by_text('Любой график', exact=True).first.click()
     before = boxes(first.value)
     stage = page.locator('.stage')
     stage.wait_for(timeout=PAGE_TIMEOUT_MS)
@@ -148,7 +157,7 @@ def main() -> int:
                     log.clear()
                 t0 = time.monotonic()
                 try:
-                    bad = stage_scenario(page)
+                    bad = stage_scenario(page, pid)
                 except Exception as e:
                     bad = [f'{type(e).__name__}: {str(e)[:200]}']
                 bad += [l for l in log if not any(a in l for a in allow)]
