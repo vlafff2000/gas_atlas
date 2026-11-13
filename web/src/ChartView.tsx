@@ -1709,7 +1709,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         <FormatPane chart={chart} element={element} onElement={setElement} scope="project" onScope={() => {}} scopeLabel={format.label}
           doc={format.doc} onDoc={format.onDoc} colorOf={colorOf(chart)} looks={format.doc.series ?? {}}
           onLooks={series => format.onDoc({ ...format.doc, series: Object.keys(series).length ? series : undefined })}
-          onReplace={format.onDoc} onClose={() => setSettings(false)} />
+          onReplace={d => format.onDoc({ ...d, elements: format.doc.elements })} onClose={() => setSettings(false)} />
       ) : (
         <FormatPane chart={chart} element={element} onElement={setElement} scope={module ? scope : 'project'}
           onScope={module ? setScope : () => {}} doc={formatDoc(store, module ? scope : 'project', module ?? '', given.id)}

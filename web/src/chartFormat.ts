@@ -12,10 +12,13 @@ export type AxisFormat = Omit<AxisStyle, 'minor_step' | 'cross'> & {
   break_from?: string; break_to?: string     // разрыв оси: от и до (число или дата дд.мм.гггг)
   log?: boolean; inverse?: boolean; from_zero?: boolean
 }
+/** Ручное положение элемента файла: сдвиг вправо и вниз в долях рисунка; hide — спрятать (одну подпись точки). */
+export interface ElementPlace { dx?: number; dy?: number; hide?: boolean }
 export interface ChartFormat {
   chart?: ChartStyle
   axes?: Partial<Record<AxisName, AxisFormat>>
   series?: Record<string, Look>      // ключ ряда — seriesLookKey: группа или имя, и вид ряда
+  elements?: Record<string, ElementPlace>      // имя элемента сцены (atlas/engine/core/export_scene.py): только у «этого графика»
 }
 
 /** Уровни оформления по порядку: поле более позднего уровня главнее, остальное наследуется. */
@@ -26,6 +29,7 @@ export function mergeFormats(...docs: (ChartFormat | null | undefined)[]): Chart
     if (d.chart) out.chart = { ...out.chart, ...d.chart }
     for (const [k, v] of Object.entries(d.axes ?? {})) out.axes = { ...out.axes, [k]: { ...out.axes?.[k as AxisName], ...v } }
     for (const [k, v] of Object.entries(d.series ?? {})) out.series = { ...out.series, [k]: { ...out.series?.[k], ...v } }
+    for (const [k, v] of Object.entries(d.elements ?? {})) out.elements = { ...out.elements, [k]: { ...out.elements?.[k], ...v } }
   }
   return out
 }

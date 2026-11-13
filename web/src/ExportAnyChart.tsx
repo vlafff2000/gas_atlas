@@ -13,6 +13,8 @@ import { ParamBar } from './ParamBar'
 import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields'
 import { savedRanges, seriesLooks } from './chartPrefs'
 import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type AnyStore, type Form } from './api_projects'
+import { ExportStage } from './ExportStage'
+import { formatTarget, type SceneElement } from './exportStage'
 
 const FORMATS: Opt[] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
 const FONTS: Opt[] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]
@@ -99,6 +101,8 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const [chartId, setChartId] = useState('')
   const [settings, setSettings] = useState<AnySettings>({})
   const [image, setImage] = useState<string | null>(null)
+  const [scene, setScene] = useState<SceneElement[]>([])       // что и где нарисовано на предпросмотре
+  const [missing, setMissing] = useState<string[]>([])         // своё положение задано, а элемента на графике нет
   const [live, setLive] = useState<Chart | null>(null)
   const [fmtOpen, setFmtOpen] = useState(false)             // панель «Формат» у графиков, которые рисуются только в файле
   const [fmtElement, setFmtElement] = useState<FormatElement>('chart')
@@ -250,11 +254,11 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
     const mine = ++previewSeq.current
     const timer = setTimeout(() => {
       setBusy('preview')
-      anyApi.file(project.id, moduleId, params, shownId, { ...settings, format: 'png', dpi: 150 }).then(r => {
+      anyApi.preview(project.id, moduleId, params, shownId, settings).then(r => {
         if (mine !== previewSeq.current) return
-        setImage(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(r.blob) })
-        setNotes(r.notes); setError(null)
-      }).catch(e => { if (mine === previewSeq.current) { setError((e as Error).message); setImage(null) } })
+        setImage(r.image); setScene(r.scene); setMissing(r.missing)
+        setNotes(r.notes.filter(n => !n.startsWith('Ручное положение не применено'))); setError(null)      // об этом говорит сам предпросмотр
+      }).catch(e => { if (mine === previewSeq.current) { setError((e as Error).message); setImage(null); setScene([]); setMissing([]) } })
         .finally(() => { if (mine === previewSeq.current) setBusy(null) })
     }, 500)
     return () => clearTimeout(timer)
@@ -479,11 +483,6 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
                 <p className="muted small-text">Этот вид графика рисуется только в файле (предпросмотр ниже). Заголовок, легенда, фон, шрифты и цвета рядов настраиваются в той же панели «Формат», что и у остальных графиков.</p>
                 <button type="button" disabled={!live} onClick={() => setFmtOpen(true)}>Формат…</button>
               </div>
-              {fmtOpen && live && createPortal(
-                <FormatPane chart={live} element={fmtElement} onElement={setFmtElement} scope="project" onScope={() => {}} scopeLabel="этот график" plain withAxes={chart.kind === 'stack'}
-                  doc={doc} onDoc={onDoc} colorOf={colorOf(live)} looks={doc.series ?? {}}
-                  onLooks={series => onDoc({ ...doc, series: Object.keys(series).length ? series : undefined })}
-                  onReplace={onDoc} onClose={() => setFmtOpen(false)} />, document.body)}
             </section>
           )}
           {!special && (
@@ -521,7 +520,21 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
             <button type="button" className="primary" disabled={busy === 'download'} onClick={download}>Скачать {FORMATS.find(f => f[0] === format)?.[1]}</button>
           </div>
           {notes.map((n, i) => <div key={i} className="note info">{n}</div>)}
-          {image && <section className="table-block"><div className="pad"><img src={image} alt={chart.title} style={{ maxWidth: '100%' }} /></div></section>}
+          {image && (
+            <section className="table-block">
+              <div className="block-head"><h3>Предпросмотр файла</h3></div>
+              <div className="pad">
+                <ExportStage image={image} scene={scene} alt={chart.title} doc={doc} onDoc={onDoc} missing={missing} busy={busy === 'preview'}
+                  onFormat={live ? e => { setFmtElement(formatTarget(e, live.series.map(s => s.name))); setFmtOpen(true) } : undefined} />
+              </div>
+            </section>
+          )}
+          {fmtOpen && live && createPortal(
+            <FormatPane chart={live} element={fmtElement} onElement={setFmtElement} scope="project" onScope={() => {}} scopeLabel="этот график"
+              plain={special} withAxes={!special || chart.kind === 'stack'}
+              doc={doc} onDoc={onDoc} colorOf={colorOf(live)} looks={doc.series ?? {}}
+              onLooks={series => onDoc({ ...doc, series: Object.keys(series).length ? series : undefined })}
+              onReplace={d => onDoc({ ...d, elements: doc.elements })} onClose={() => setFmtOpen(false)} />, document.body)}
         </>
       )}
     </>
