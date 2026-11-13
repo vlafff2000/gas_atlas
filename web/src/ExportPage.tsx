@@ -5,7 +5,7 @@ import { MultiSelect } from './MultiSelect'
 import { ChartView } from './ChartView'
 import { api, type Chart } from './api'
 import { WordViewerPane } from './WordViewer'
-import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type WordPreview } from './api_projects'
+import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type LayoutCheck, type WordPreview } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
 import { wellPresetApi, type WellPreset } from './api_wells'
 import { ExportAnyChart } from './ExportAnyChart'
@@ -713,6 +713,19 @@ function ReadyFiles({ files, pid, busy, onBundle }: { files: string[]; pid: stri
   )
 }
 
+/** Отчёт проверки раскладки Word: что не вошло в ячейку или на лист. Документ строится в любом случае, решает инженер. */
+function LayoutChecks({ checks }: { checks?: LayoutCheck[] }) {
+  if (!checks?.length) return null
+  return (
+    <div className="layout-checks">
+      {checks.map(c => {
+        const names = [...new Set(c.items)]
+        return <div key={c.code} className={'note ' + (c.level === 'warn' ? 'warning' : 'info') + ' pad-x'}>{c.text} Затронуто: {names.length} ({names.slice(0, 3).join(', ')}{names.length > 3 ? ` и ещё ${names.length - 3}` : ''}).</div>
+      })}
+    </div>
+  )
+}
+
 function Outcome({ title, result, pid, word, pack, ggh }: { title: string; result: ExportResult; pid: string; word?: boolean; pack?: boolean; ggh?: boolean }) {
   const partial = result.errors.length > 0
   return (
@@ -730,6 +743,7 @@ function Outcome({ title, result, pid, word, pack, ggh }: { title: string; resul
           : partial ? `Экспорт завершен частично: графиков ${result.completed}/${result.planned}; ошибок ${result.errors.length}. Готовые файлы сохранены. Журнал export_errors.csv включен в архив соответствующего модуля.`
             : `Готово: ${result.completed} графиков, ${result.chart_files} файлов графиков; единых архивов модулей: ${result.files.length}. Таблицы и журнал включены в каждый архив.`}
       </div>
+      {word && <LayoutChecks checks={result.layout_checks} />}
       {partial && (
         <div className="table-scroll">
           <table>
@@ -1038,6 +1052,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
           </Section>
         </div>
         <div className="word-shot">
+          <LayoutChecks checks={shot?.layout_checks} />
           {!ready ? <p className="muted">Включите хотя бы один модуль.</p> : (
             <WordViewerPane shot={shot} busy={busy} error={error} page={page} setPage={f => setPage(f(page))} doc={doc} setDoc={setDoc} per={per} />
           )}

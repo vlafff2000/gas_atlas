@@ -325,6 +325,9 @@ def test_word_layout_landscape_fill_and_preview(env):
     preview = client.post(f'/api/projects/{pid}/export/word-preview', json={'form': form, 'page': 2}).json()
     assert preview['pages'] == 2 and preview['exact'] and preview['png'].startswith('data:image/png;base64,')
     assert preview['page_mm'] == [297.0, 210.0]
+    assert preview['layout_checks'] == [] and word['layout_checks'] == []      # нарисованное под ячейку проверку проходит
+    narrow = client.post(f'/api/projects/{pid}/export/word-preview', json={'form': {**form, 'word_orientation': 'portrait', 'word_columns': 3, 'word_per_page': 0}}).json()
+    assert [c['code'] for c in narrow['layout_checks']] == ['narrow'] and narrow['layout_checks'][0]['items']      # третья часть листа: график уже 60 мм
     bad = client.post(f'/api/projects/{pid}/export/word', json={'form': {**form, 'word_columns': 7}})
     assert bad.status_code == 400 and 'Колонок' in bad.json()['error']
     one = client.post(f'/api/projects/{pid}/export/word', json={'form': {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31'], 'word_columns': 2, 'word_caption_mode': 'text'}}).json()

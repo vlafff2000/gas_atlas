@@ -60,7 +60,11 @@ export interface ExportPlan { modules: string[]; charts: { name: string; module:
 export interface ExportResult {
   files: string[]; planned: number; completed: number; chart_files: number
   errors: { 'График': string; 'Формат': string; 'Ошибка': string }[]
+  /** Проверка раскладки Word (atlas/word_export.check_layout): что не вошло в ячейку или на лист. */
+  layout_checks?: LayoutCheck[]
 }
+
+export interface LayoutCheck { code: string; level: 'warn' | 'info'; text: string; items: string[] }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
   let response: Response
@@ -111,6 +115,7 @@ export const projectsApi = {
 export interface WordPreview {
   documents: { id: string; label: string; charts: number }[]; doc: number; page: number; pages: number; exact: boolean
   page_mm: [number, number]; image_mm: [number, number]; png: string
+  layout_checks?: LayoutCheck[]
 }
 
 export interface AnyModule { id: string; title: string; group: string; order: number; ready: boolean; missing: string[] }
