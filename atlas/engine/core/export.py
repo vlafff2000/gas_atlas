@@ -229,9 +229,14 @@ def _legend_key(label):
     if m:return [int(m[3]),int(m[2]),int(m[1])]
     return [int(t) for t in re.findall(r'\d+',str(label))]
 
+def _legend_skeleton(label):
+    # «№ 5 · 2023-2024», «2023/24», «2023-2024 (прогноз)» — один вид: числа и разделители между ними схлопываются, скобки отбрасываются
+    text=re.sub(r'\([^)]*\)','',str(label))
+    return re.sub(r'#(?:\s*[-–/.]\s*#)*','#',re.sub(r'\d+','#',text)).strip()
+
 def sort_legend(handles,labels):
-    # годы, сезоны («2023/24»), даты и номера групп — по возрастанию; остальные подписи не трогаем
-    skeleton={re.sub(r'\d+','#',str(l)) for l in labels}
+    # годы, сезоны («2023/24», «2023-2024»), даты и номера групп — по возрастанию, как на экране (atlas.legend_order); остальные подписи не трогаем
+    skeleton={_legend_skeleton(l) for l in labels}
     if len(labels)<2 or len(skeleton)!=1 or '#' not in skeleton.copy().pop():return handles,labels
     order=sorted(range(len(labels)),key=lambda i:_legend_key(labels[i]))
     return [handles[i] for i in order],[labels[i] for i in order]

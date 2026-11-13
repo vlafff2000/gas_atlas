@@ -19,3 +19,9 @@ def test_study_dates_ascending_by_day_month_year():
 def test_other_labels_untouched():
     assert sort_legend([1, 2], ['Факт', 'Прогноз'])[1] == ['Факт', 'Прогноз']
     assert sort_legend([1, 2], ['Факт 2023', 'Модель 2022'])[1] == ['Факт 2023', 'Модель 2022']
+
+
+def test_mixed_season_formats_and_suffixes_chronological():
+    # разные записи сезонов в одной легенде файла: «2023-2024», «2024/25», «2025-2026 (прогноз)» — по времени, не по порядку появления
+    labels = ['2025-2026 (прогноз)', '2022-2023', '2024/25', '2023-2024']
+    assert sort_legend(list(range(4)), labels)[1] == ['2022-2023', '2023-2024', '2024/25', '2025-2026 (прогноз)']
