@@ -22,6 +22,8 @@ export interface Finding {
   text: string
   elements: string[]
   skipped?: boolean
+  /** Исправление в один щелчок: что сделать с положением элементов (null — вернуть на автоматическое место). */
+  fix?: { text: string; places: Record<string, ElementPlace | null> }
 }
 
 /** Оформление графика, в котором находка снята (``on``) или возвращена: ключи снятых лежат в ``checks.skip``. */
@@ -76,6 +78,11 @@ export function withPlace(doc: ChartFormat, id: string, patch: ElementPlace | nu
   else delete all[id]
   const { elements: _old, ...rest } = doc
   return Object.keys(all).length ? { ...rest, elements: all } : rest
+}
+
+/** Оформление с применённым исправлением находки: все изменения положения разом, чтобы «Отменить» вернуло их одним шагом. */
+export function withFix(doc: ChartFormat, fix: NonNullable<Finding['fix']>): ChartFormat {
+  return Object.entries(fix.places).reduce((d, [id, place]) => withPlace(d, id, place), doc)
 }
 
 /** Сдвинуть элемент ещё на (dx, dy) долей рисунка — к тому, что уже записано. */

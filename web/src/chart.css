@@ -275,5 +275,6 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .stage-checks li .text { flex: 1 1 320px; min-width: 0; }
 .stage-checks li .mark { flex: none; width: 16px; height: 16px; line-height: 16px; border-radius: 50%; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--warn); }
 .stage-checks li.warn .mark { background: var(--danger); }
+.stage-checks li button.fix { font-size: 12px; padding: 2px 8px; border: 1px solid var(--accent); border-radius: 6px; background: transparent; color: var(--accent-strong); cursor: pointer; }
 .stage-checks summary { cursor: pointer; color: var(--muted); }
 .stage-checks details ul { margin-top: 4px; }

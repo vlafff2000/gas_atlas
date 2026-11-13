@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { dragTarget, elementAt, elementTitle, formatTarget, isShifted, movable, shifted, unshifted, withPlace, withSkip, type SceneElement } from '../src/exportStage.ts'
+import { dragTarget, elementAt, elementTitle, formatTarget, isShifted, movable, shifted, unshifted, withFix, withPlace, withSkip, type SceneElement } from '../src/exportStage.ts'
 
 const el = (id: string, kind: string, box: [number, number, number, number], extra: Partial<SceneElement> = {}): SceneElement => ({ id, kind, box, ...extra })
 const scene: SceneElement[] = [
@@ -83,4 +83,11 @@ test('снятая находка проверки качества хранит
   assert.deepEqual(doc, { elements: { title: { dx: 0.1 } }, checks: { skip: ['overlap:legend|title', 'small-font'] } })
   assert.deepEqual(withSkip(doc, 'overlap:legend|title', false).checks, { skip: ['small-font'] })
   assert.deepEqual(withSkip(withSkip(doc, 'overlap:legend|title', false), 'small-font', false), moved)      // пустого раздела не остаётся
+})
+
+test('исправление находки меняет положение нескольких элементов разом', () => {
+  let doc = withPlace(withPlace({}, 'legend', { dx: -0.3, dy: -0.9 }), 'title', { dx: 0.1 })
+  doc = withFix(doc, { text: 'x', places: { legend: null, 'label:а:1': { hide: true }, 'label:а:2': { hide: true } } })
+  assert.deepEqual(doc, { elements: { title: { dx: 0.1 }, 'label:а:1': { hide: true }, 'label:а:2': { hide: true } } })
+  assert.deepEqual(withFix({}, { text: 'x', places: { legend: null } }), {})
 })
