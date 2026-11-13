@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { dragTarget, elementAt, elementTitle, formatTarget, isShifted, movable, shifted, unshifted, withPlace, type SceneElement } from '../src/exportStage.ts'
+import { dragTarget, elementAt, elementTitle, formatTarget, isShifted, movable, shifted, unshifted, withPlace, withSkip, type SceneElement } from '../src/exportStage.ts'
 
 const el = (id: string, kind: string, box: [number, number, number, number], extra: Partial<SceneElement> = {}): SceneElement => ({ id, kind, box, ...extra })
 const scene: SceneElement[] = [
@@ -73,4 +73,14 @@ test('за пункт легенды тянется вся легенда; ря�
   assert.equal(dragTarget(scene, scene[2]), null)
   assert.equal(dragTarget(scene, null), null)
   assert.equal(dragTarget(scene, { ...scene[3], hidden: true }), null)
+})
+
+test('снятая находка проверки качества хранится в оформлении графика и возвращается', () => {
+  const moved = withPlace({}, 'title', { dx: 0.1 })
+  let doc = withSkip(moved, 'overlap:legend|title', true)
+  doc = withSkip(doc, 'overlap:legend|title', true)      // повторное снятие не дублирует ключ
+  doc = withSkip(doc, 'small-font', true)
+  assert.deepEqual(doc, { elements: { title: { dx: 0.1 } }, checks: { skip: ['overlap:legend|title', 'small-font'] } })
+  assert.deepEqual(withSkip(doc, 'overlap:legend|title', false).checks, { skip: ['small-font'] })
+  assert.deepEqual(withSkip(withSkip(doc, 'overlap:legend|title', false), 'small-font', false), moved)      // пустого раздела не остаётся
 })

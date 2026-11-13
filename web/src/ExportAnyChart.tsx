@@ -14,7 +14,7 @@ import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields
 import { savedRanges, seriesLooks } from './chartPrefs'
 import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type AnyStore, type Form } from './api_projects'
 import { ExportStage } from './ExportStage'
-import { formatTarget, type SceneElement } from './exportStage'
+import { formatTarget, type Finding, type SceneElement } from './exportStage'
 
 const FORMATS: Opt[] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
 const FONTS: Opt[] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]
@@ -103,6 +103,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const [image, setImage] = useState<string | null>(null)
   const [scene, setScene] = useState<SceneElement[]>([])       // что и где нарисовано на предпросмотре
   const [missing, setMissing] = useState<string[]>([])         // своё положение задано, а элемента на графике нет
+  const [checks, setChecks] = useState<Finding[]>([])          // находки проверки качества рисунка
   const [live, setLive] = useState<Chart | null>(null)
   const [fmtOpen, setFmtOpen] = useState(false)             // панель «Формат» у графиков, которые рисуются только в файле
   const [fmtElement, setFmtElement] = useState<FormatElement>('chart')
@@ -256,9 +257,9 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
       setBusy('preview')
       anyApi.preview(project.id, moduleId, params, shownId, settings).then(r => {
         if (mine !== previewSeq.current) return
-        setImage(r.image); setScene(r.scene); setMissing(r.missing)
+        setImage(r.image); setScene(r.scene); setMissing(r.missing); setChecks(r.checks ?? [])
         setNotes(r.notes.filter(n => !n.startsWith('Ручное положение не применено'))); setError(null)      // об этом говорит сам предпросмотр
-      }).catch(e => { if (mine === previewSeq.current) { setError((e as Error).message); setImage(null); setScene([]); setMissing([]) } })
+      }).catch(e => { if (mine === previewSeq.current) { setError((e as Error).message); setImage(null); setScene([]); setMissing([]); setChecks([]) } })
         .finally(() => { if (mine === previewSeq.current) setBusy(null) })
     }, 500)
     return () => clearTimeout(timer)
@@ -524,7 +525,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
             <section className="table-block">
               <div className="block-head"><h3>Предпросмотр файла</h3></div>
               <div className="pad">
-                <ExportStage image={image} scene={scene} alt={chart.title} doc={doc} onDoc={onDoc} missing={missing} busy={busy === 'preview'}
+                <ExportStage image={image} scene={scene} alt={chart.title} doc={doc} onDoc={onDoc} missing={missing} checks={checks} busy={busy === 'preview'}
                   onFormat={live ? e => { setFmtElement(formatTarget(e, live.series.map(s => s.name))); setFmtOpen(true) } : undefined} />
               </div>
             </section>
@@ -534,7 +535,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
               plain={special} withAxes={!special || chart.kind === 'stack'}
               doc={doc} onDoc={onDoc} colorOf={colorOf(live)} looks={doc.series ?? {}}
               onLooks={series => onDoc({ ...doc, series: Object.keys(series).length ? series : undefined })}
-              onReplace={d => onDoc({ ...d, elements: doc.elements })} onClose={() => setFmtOpen(false)} />, document.body)}
+              onReplace={d => onDoc({ ...d, elements: doc.elements, checks: doc.checks })} onClose={() => setFmtOpen(false)} />, document.body)}
         </>
       )}
     </>

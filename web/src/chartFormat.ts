@@ -19,6 +19,7 @@ export interface ChartFormat {
   axes?: Partial<Record<AxisName, AxisFormat>>
   series?: Record<string, Look>      // ключ ряда — seriesLookKey: группа или имя, и вид ряда
   elements?: Record<string, ElementPlace>      // имя элемента сцены (atlas/engine/core/export_scene.py): только у «этого графика»
+  checks?: { skip?: string[] }      // находки проверки качества, снятые инженером (atlas/chart_qc.py): только у «этого графика»
 }
 
 /** Уровни оформления по порядку: поле более позднего уровня главнее, остальное наследуется. */
@@ -30,6 +31,7 @@ export function mergeFormats(...docs: (ChartFormat | null | undefined)[]): Chart
     for (const [k, v] of Object.entries(d.axes ?? {})) out.axes = { ...out.axes, [k]: { ...out.axes?.[k as AxisName], ...v } }
     for (const [k, v] of Object.entries(d.series ?? {})) out.series = { ...out.series, [k]: { ...out.series?.[k], ...v } }
     for (const [k, v] of Object.entries(d.elements ?? {})) out.elements = { ...out.elements, [k]: { ...out.elements?.[k], ...v } }
+    if (d.checks) out.checks = d.checks
   }
   return out
 }

@@ -259,5 +259,21 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .stage-box.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
 .stage-box.selected.movable { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .stage-box.hidden { outline: 1px dashed var(--line-strong); outline-offset: 1px; background: repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, var(--muted) 25%, transparent) 3px 4px); }
+.stage-box.flag { outline: 2px solid var(--danger); outline-offset: 2px; background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .stage-veil { background: rgb(255 255 255 / 0.8); }
 .stage-ghost { background-repeat: no-repeat; box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.stage-count { font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.stage-count.warn { color: var(--danger-ink); background: var(--danger-soft); border-color: var(--danger-line); }
+.stage-count.info { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.stage-checks { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.stage-checks-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.stage-checks ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.stage-checks li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); }
+.stage-checks li.warn { background: var(--danger-soft); border-color: var(--danger-line); }
+.stage-checks li.info { background: var(--warn-soft); border-color: transparent; }
+.stage-checks li.off { color: var(--muted); }
+.stage-checks li .text { flex: 1 1 320px; min-width: 0; }
+.stage-checks li .mark { flex: none; width: 16px; height: 16px; line-height: 16px; border-radius: 50%; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--warn); }
+.stage-checks li.warn .mark { background: var(--danger); }
+.stage-checks summary { cursor: pointer; color: var(--muted); }
+.stage-checks details ul { margin-top: 4px; }

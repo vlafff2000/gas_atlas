@@ -1,9 +1,10 @@
 // Предпросмотр «как в файле»: рисунок, который уйдёт на выгрузку, и его сцена поверх. Щелчок выделяет элемент, двойной щелчок
 // открывает его «Формат», заголовок, легенду, названия осей, подписи точек и тексты аннотаций можно перетащить мышью или
 // подвинуть стрелками. Сдвиг пишется в оформление графика (ChartFormat.elements) в долях рисунка — файл рисует элемент там же.
+// Под рисунком — находки проверки качества (atlas/chart_qc.py): подсказки, что читается плохо; ненужную инженер снимает.
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { ChartFormat } from './chartFormat'
-import { dragTarget, elementAt, elementTitle, hidable, isShifted, movable, nudgeStep, shifted, unshifted, withPlace, type SceneElement } from './exportStage'
+import { dragTarget, elementAt, elementTitle, hidable, isShifted, movable, nudgeStep, shifted, unshifted, withPlace, withSkip, type Finding, type SceneElement } from './exportStage'
 
 interface Props {
   image: string
@@ -15,6 +16,8 @@ interface Props {
   onFormat?: (e: SceneElement) => void
   /** Имена из оформления, которых на рисунке нет (сдвиг не применён). */
   missing?: string[]
+  /** Находки проверки качества рисунка; снятые инженером приходят с пометкой skipped. */
+  checks?: Finding[]
   busy?: boolean
 }
 
@@ -32,18 +35,21 @@ function ghostStyle(e: SceneElement, image: string, offset: Offset): CSSProperti
     backgroundPosition: `${w < 1 ? (e.box[0] / (1 - w)) * 100 : 0}% ${h < 1 ? (e.box[1] / (1 - h)) * 100 : 0}%` }
 }
 
-export function ExportStage({ image, scene, alt, doc, onDoc, onFormat, missing = [], busy }: Props) {
+export function ExportStage({ image, scene, alt, doc, onDoc, onFormat, missing = [], checks = [], busy }: Props) {
   const frame = useRef<HTMLDivElement>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [drag, setDrag] = useState<{ id: string; sx: number; sy: number; dx: number; dy: number } | null>(null)
   const [pending, setPending] = useState<Record<string, Offset>>({})      // сдвиги, которых ещё нет на рисунке
   const [past, setPast] = useState<ChartFormat[]>([])
+  const [flagged, setFlagged] = useState<string[]>([])      // элементы находки, на которую навели в списке
   useEffect(() => setPending({}), [image, scene])      // пришёл ответ сервера: всё сдвинутое уже на рисунке
 
   const byId = new Map(scene.map(e => [e.id, e]))
   const chosen = selected ? byId.get(selected) ?? null : null
   const placed = Object.keys(doc.elements ?? {}).length
+  const open = checks.filter(f => !f.skipped), skipped = checks.filter(f => f.skipped)
+  const warns = open.filter(f => f.level === 'warn').length
 
   const change = (next: ChartFormat) => { setPast(p => [...p.slice(-HISTORY + 1), doc]); onDoc(next) }
   const undo = () => { const last = past[past.length - 1]; if (last) { setPast(p => p.slice(0, -1)); setPending({}); onDoc(last) } }
@@ -131,6 +137,9 @@ export function ExportStage({ image, scene, alt, doc, onDoc, onFormat, missing =
               осей, подписи точек и аннотаций можно перетащить.</span>}
         <span className="spacer" />
         {busy && <span className="pulse">Обновление…</span>}
+        {open.length > 0
+          ? <span className={'stage-count ' + (warns ? 'warn' : 'info')} title="Список — под рисунком">Замечаний: {open.length}</span>
+          : <span className="stage-count ok" title="Проверка качества: наложений, выхода за край, мелкого шрифта и тесных делений не найдено">Замечаний нет{skipped.length > 0 ? ` (снято: ${skipped.length})` : ''}</span>}
         {placed > 0 && <span className="muted">Своё положение: {placed}</span>}
         <button type="button" className="quiet" disabled={!past.length} title="Отменить последнее изменение положения (Ctrl+Z)" onClick={undo}>Отменить</button>
         <button type="button" className="quiet" disabled={!placed} title="Вернуть все элементы на автоматические места и показать скрытые подписи"
@@ -151,7 +160,38 @@ export function ExportStage({ image, scene, alt, doc, onDoc, onFormat, missing =
         {scene.filter(e => e.hidden).map(e => <div key={'hidden' + e.id} className="stage-box hidden" style={boxStyle(e)} title="Подпись скрыта" />)}
         {hovered && <div className={'stage-box hover' + (movable(hovered) ? ' movable' : '')} style={boxStyle(hovered, offsetOf(hovered))} />}
         {chosen && <div className={'stage-box selected' + (movable(chosen) ? ' movable' : '')} data-element={chosen.id} style={boxStyle(chosen, offsetOf(chosen))} />}
+        {flagged.map(id => byId.get(id)).map(e => e && <div key={'flag' + e.id} className="stage-box flag" style={boxStyle(e, offsetOf(e))} />)}
       </div>
+      {checks.length > 0 && (
+        <div className="stage-checks" data-checks={open.length}>
+          <div className="stage-checks-head">
+            <b>Проверка качества</b>
+            <span className="muted">Это подсказки: файл выгрузится и с ними. Наведите на строку, чтобы увидеть место на рисунке; ненужную подсказку можно снять.</span>
+          </div>
+          {open.length > 0 && <ul>{open.map(f => {
+            const first = f.elements.find(id => byId.has(id))
+            return (
+              <li key={f.key} className={f.level} onMouseEnter={() => setFlagged(f.elements)} onMouseLeave={() => setFlagged([])}>
+                <span className="mark" aria-hidden="true">{f.level === 'warn' ? '!' : 'i'}</span>
+                <span className="text">{f.text}</span>
+                {first && <button type="button" className="link" onClick={() => { setSelected(first); frame.current?.focus({ preventScroll: true }) }}>Выделить</button>}
+                <button type="button" className="link" title="Убрать подсказку для этого графика; её можно вернуть" onClick={() => { setFlagged([]); change(withSkip(doc, f.key, true)) }}>Не показывать</button>
+              </li>
+            )
+          })}</ul>}
+          {skipped.length > 0 && (
+            <details>
+              <summary>Снято вами: {skipped.length}</summary>
+              <ul>{skipped.map(f => (
+                <li key={f.key} className="off">
+                  <span className="text">{f.text}</span>
+                  <button type="button" className="link" onClick={() => change(withSkip(doc, f.key, false))}>Вернуть</button>
+                </li>
+              ))}</ul>
+            </details>
+          )}
+        </div>
+      )}
     </div>
   )
 }

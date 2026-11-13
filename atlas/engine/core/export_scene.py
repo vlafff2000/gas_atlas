@@ -4,7 +4,7 @@
 Matplotlib (на вид и на содержимое файла метка не влияет). После отрисовки ``collect`` находит помеченное и стандартные части
 (заголовок, легенду и её пункты, оси, область построения) и возвращает список::
 
-    {'id': 'label:сезон 2024:2024-05-17', 'kind': 'label', 'box': [x0, y0, x1, y1], 'text': '87,2', 'series': 'сезон 2024', 'point': '2024-05-17'}
+    {'id': 'label:сезон 2024:2024-05-17', 'kind': 'label', 'box': [x0, y0, x1, y1], 'text': '87,2', 'size': 10.2, 'series': 'сезон 2024', 'point': '2024-05-17'}
 
 ``box`` — в долях рисунка, начало в левом верхнем углу (как в браузере): по сцене предпросмотр понимает, по какому элементу
 щёлкнули, проверки качества находят наложения и выход за край, а ручной сдвиг элемента хранится в тех же долях.
@@ -166,34 +166,44 @@ def collect(f: Any, axes: Mapping[str, Any], frame: Any = None) -> list[dict[str
     left, bottom, width, height = frame.x0, frame.y0, frame.width, frame.height
     out: list[dict[str, Any]] = []
 
+    def share(span: tuple[float, float, float, float]) -> list[float]:
+        x0, y0, x1, y1 = span
+        return [round(float(v), 4) for v in ((x0 - left) / width, 1 - (y1 - bottom) / height, (x1 - left) / width, 1 - (y0 - bottom) / height)]
+
     def add(key: str, boxes: list[Any], /, **extra: Any) -> None:
         span = _union(boxes)
         if span is None:
             return
-        x0, y0, x1, y1 = span
-        box = [round(float(v), 4) for v in ((x0 - left) / width, 1 - (y1 - bottom) / height, (x1 - left) / width, 1 - (y0 - bottom) / height)]
-        out.append({'id': key, 'kind': _kind(key), 'box': box, **{k: v for k, v in extra.items() if v not in (None, '')}})
+        out.append({'id': key, 'kind': _kind(key), 'box': share(span), **{k: v for k, v in extra.items() if v not in (None, '')}})
+
+    def size(text: Any) -> float | None:
+        """Размер шрифта в пунктах — для проверки «мелкий шрифт»."""
+        return round(float(text.get_fontsize()), 1) if hasattr(text, 'get_fontsize') else None
 
     main = axes['y']
     plot = main.get_window_extent(renderer)
-    add('plot', [plot])
+    add('plot', [plot], mm=[round(float(width) / f.dpi * 25.4, 1), round(float(height) / f.dpi * 25.4, 1)])      # размер сохранённого рисунка, мм
     if _title(main) is not None:
-        add('title', [_extent(_title(main), renderer)], text=_title(main).get_text())
+        add('title', [_extent(_title(main), renderer)], text=_title(main).get_text(), size=size(_title(main)))
     for name, target in (('x', main), *axes.items()):
         axis = target.xaxis if name == 'x' else target.yaxis
         lo, hi = sorted(axis.get_view_interval())
         slack = (hi - lo) * 1e-6
         # подписи делений за пределами шкалы Matplotlib держит, но не рисует: в рамку оси идут только деления в пределах шкалы
-        inside = [_extent(t, renderer) for t in axis.get_ticklabels()
-                  if t.get_visible() and t.get_text() and lo - slack <= t.get_position()[0 if name == 'x' else 1] <= hi + slack]
-        add(f'axis:{name}', inside, axis=name)
+        shown = [t for t in axis.get_ticklabels()
+                 if t.get_visible() and t.get_text() and lo - slack <= t.get_position()[0 if name == 'x' else 1] <= hi + slack]
+        inside = [_extent(t, renderer) for t in shown]
+        ticks = [share(span) for span in (_union([b]) for b in inside) if span is not None]      # каждая подпись деления: проверка «налезают друг на друга»
+        add(f'axis:{name}', inside, axis=name, ticks=ticks, size=size(shown[0]) if shown else None,
+            rotation=round(float(shown[0].get_rotation()) % 180, 1) if shown else None)
         if axis.label.get_text() and axis.label.get_visible():
-            add(f'axis-title:{name}', [_extent(axis.label, renderer)], axis=name, text=axis.label.get_text())
+            add(f'axis-title:{name}', [_extent(axis.label, renderer)], axis=name, text=axis.label.get_text(), size=size(axis.label))
     for key, legend in _legends(f):
-        add(key, [_extent(legend, renderer)])
+        texts = legend.get_texts()
+        add(key, [_extent(legend, renderer)], size=size(texts[0]) if texts else None)
         handles = getattr(legend, 'legend_handles', None) or getattr(legend, 'legendHandles', [])
         seen = Names()
-        for handle, text in zip(handles, legend.get_texts()):
+        for handle, text in zip(handles, texts):
             label = ' '.join(text.get_text().split())
             add(f'{key}:' + seen.series(label), [_extent(handle, renderer), _extent(text, renderer)], text=label)
     groups: dict[str, tuple[list[Any], dict[str, Any]]] = {}
@@ -215,6 +225,7 @@ def collect(f: Any, axes: Mapping[str, Any], frame: Any = None) -> list[dict[str
             found[0].append(box)
             if hasattr(artist, 'get_text') and 'text' not in found[1]:
                 found[1]['text'] = artist.get_text()
+                found[1]['size'] = size(artist)
     for key, (boxes, extra) in groups.items():
         add(key, boxes, **extra)
     return out
