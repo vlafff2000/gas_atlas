@@ -28,11 +28,16 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Mapping
 
-from .chart_style import clean_axis, clean_chart
+from .chart_style import clean_axis, clean_chart, clean_look
 
 ANGLES = ('auto', '0', '30', '45', '60', '90')
 LEGENDS = ('bottom', 'top', 'right', 'hide')
 COLOR = re.compile(r'^#[0-9a-fA-F]{6}$')
+
+
+# что из вида ряда «Любого графика» доступно в правилах наборов данных вкладок экспорта
+SERIES_LOOK = ('dash', 'shape', 'markerColor', 'opacity', 'hollow', 'marker_border', 'marker_border_width', 'valueLabels', 'label_position',
+               'label_decimals', 'label_size', 'label_angle', 'legend_name', 'hatch', 'hatch_color')
 
 
 class FormatError(ValueError):
@@ -74,6 +79,11 @@ def parse_series(text: Any) -> List[Dict[str, Any]]:
             item['marker'] = number(rule['marker'], 'Размер маркеров набора', 0, 20)
         if rule.get('hide'):
             item['hide'] = True
+        if rule.get('look'):        # полный вид ряда, как в «Любом графике»: штрих, форма маркера, подписи данных, штриховка, имя в легенде
+            look = clean_look(rule['look'], len(out) + 1)
+            look = {k: v for k, v in look.items() if k in SERIES_LOOK}
+            if look:
+                item['look'] = look
         out.append(item)
     return out
 
@@ -310,8 +320,42 @@ def apply(figure, cfg: Mapping[str, Any]):
                 own.add('color')
         elif color:
             trace.marker.color = color
+        _look(trace, [r['look'] for r in rules if r['match'] in name and r.get('look')], own)
         if own:
             tmeta = dict(trace.meta) if isinstance(trace.meta, dict) else {}
             tmeta['own'] = sorted(own)
             trace.meta = tmeta
     return fig
+
+
+def _look(trace, looks: List[Dict[str, Any]], own: set) -> None:
+    """Вид ряда из правил (штрих, маркер, прозрачность, подписи, штриховка, имя в легенде) — теми же значениями, что в ``render.py``."""
+    if not looks:
+        return
+    from .render import LOOK_DASH, SYMBOLS, labels_meta
+    look: Dict[str, Any] = {}
+    for one in looks:
+        look.update(one)
+    if trace.type in (None, 'scatter'):
+        if 'dash' in look:
+            trace.line.dash = LOOK_DASH[look['dash']]
+        marked = 'markers' in (trace.mode or '')
+        if marked and ('shape' in look or 'hollow' in look):
+            symbol = str(trace.marker.symbol or 'circle').replace('-open', '')
+            symbol = SYMBOLS[look['shape']] if 'shape' in look else symbol
+            trace.marker.symbol = symbol + ('-open' if look.get('hollow') else '')
+        if marked and 'markerColor' in look:
+            trace.marker.color = look['markerColor']
+        if marked and ('marker_border' in look or 'marker_border_width' in look):
+            trace.marker.line = {'color': look.get('marker_border') or look.get('markerColor') or trace.marker.color,
+                                 'width': look.get('marker_border_width', 1)}
+        if 'opacity' in look:
+            trace.opacity = look['opacity']
+            own.add('alpha')
+    tmeta = dict(trace.meta) if isinstance(trace.meta, dict) else {}
+    tmeta.update(labels_meta(look))
+    tmeta.update({k: look[k] for k in ('hatch', 'hatch_color') if k in look})
+    if tmeta != (trace.meta if isinstance(trace.meta, dict) else {}):
+        trace.meta = tmeta
+    if look.get('legend_name'):
+        trace.name = look['legend_name']
