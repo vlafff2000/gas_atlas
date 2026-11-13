@@ -41,3 +41,17 @@ def test_empty_fields_change_nothing():
 def test_style_values_validated(bad):
     with pytest.raises(ParamError):
         chart_format.configs(bad)
+
+
+def test_legend_columns_from_export_tabs_reach_drawing():
+    """Колонки легенды из вкладок экспорта доходят до рисунка: легенда не бьётся на строки сама."""
+    def multi():
+        f = go.Figure([go.Scatter(x=[0, 1], y=[0, i], name='Длинное название ряда %d' % i) for i in range(6)])
+        return f
+    cfg = chart_format.configs({'fmt_legend_columns': 1})
+    assert cfg['*']['style']['chart']['legend_columns'] == 1
+    one = figure_bytes(chart_format.apply(multi(), chart_format.for_module(cfg, 'gdi')), 'png', 150, 150)
+    auto = figure_bytes(chart_format.apply(multi(), {}), 'png', 150, 150)
+    assert one != auto
+    with pytest.raises(ParamError):
+        chart_format.configs({'fmt_legend_columns': 40})

@@ -489,6 +489,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <Select {...F} field="fmt_title" label="Шапка графика" def="show" options={[['show', 'Показывать'], ['hide', 'Скрыть']]} />
           <Select {...F} field="fmt_legend" label="Легенда" def="bottom"
             options={[['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]} />
+          <Num {...F} field="fmt_legend_columns" label="Колонок легенды (пусто = авто)" def={0} min={0} max={12} step={1} />
           <Select {...F} field="fmt_grid" label="Сетка" def="" options={GRID_OPTIONS} />
           <Num {...F} field="fmt_grid_width" label="Толщина основной сетки, пт" def={0.7} min={0.2} max={4} step={0.1} />
           <Color label="Цвет основной сетки" value={form.fmt_grid_color} onChange={v => set('fmt_grid_color', v)} />
