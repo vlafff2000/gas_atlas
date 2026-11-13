@@ -9,9 +9,11 @@ import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, 
 import { Toast, type PageProps } from './ProjectPage'
 import { wellPresetApi, type WellPreset } from './api_wells'
 import { ExportAnyChart } from './ExportAnyChart'
+import { AxisStyleFields, ChartStyleFields, compact } from './FormatFields'
+import type { AxisStyle, ChartStyle } from './api'
 import { ResizableFrame } from './ResizableFrame'
 import { PeriodDate } from './PeriodDate'
-import { Check, Color, GRID_OPTIONS, MINOR_GRID_OPTIONS, Num, Opt, Section, Select, SizePick, Text, type FieldProps as SharedFieldProps } from './exportFields'
+import { Check, Num, Opt, Section, Select, SizePick, Text, type FieldProps as SharedFieldProps } from './exportFields'
 
 /** Поля формы раздела «Экспорт»: общие поля получают ещё и перечень выбора (choices). */
 interface FieldProps extends SharedFieldProps { choices: ExportChoices }
@@ -487,19 +489,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
           <Select {...F} field="fmt_angle" label="Подписи оси X" def="auto" options={ANGLE_OPTIONS} />
           <Select {...F} field="fmt_title" label="Шапка графика" def="show" options={[['show', 'Показывать'], ['hide', 'Скрыть']]} />
-          <Select {...F} field="fmt_legend" label="Легенда" def="bottom"
-            options={[['bottom', 'Снизу'], ['top', 'Сверху'], ['right', 'Справа'], ['hide', 'Скрыть']]} />
-          <Num {...F} field="fmt_legend_columns" label="Колонок легенды (пусто = авто)" def={0} min={0} max={12} step={1} />
-          <Select {...F} field="fmt_grid" label="Сетка" def="" options={GRID_OPTIONS} />
-          <Num {...F} field="fmt_grid_width" label="Толщина основной сетки, пт" def={0.7} min={0.2} max={4} step={0.1} />
-          <Color label="Цвет основной сетки" value={form.fmt_grid_color} onChange={v => set('fmt_grid_color', v)} />
-          <Select {...F} field="fmt_minor_grid" label="Доп. линии сетки" def="" options={MINOR_GRID_OPTIONS} />
-          <Num {...F} field="fmt_minor_grid_width" label="Толщина доп. линий, пт" def={0.5} min={0.2} max={4} step={0.1} />
-          <Color label="Цвет доп. линий" value={form.fmt_minor_grid_color} onChange={v => set('fmt_minor_grid_color', v)} />
-          <Check {...F} field="fmt_axis_title_bold" label="Названия осей жирным" def={false} />
-          <Check {...F} field="fmt_axis_title_italic" label="Названия осей курсивом" def={false} />
-          <Check {...F} field="fmt_tick_bold" label="Деления осей жирным" def={false} />
-          <Check {...F} field="fmt_tick_italic" label="Деления осей курсивом" def={false} />
+          <StylePanel form={form} set={set} />
           <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
             options={[[null, 'Авто (12)'], ...[8, 9, 10, 11, 12, 14, 16, 18].map(n => [n, String(n)] as [number, string])]} />
           <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
@@ -1380,6 +1370,28 @@ function ChartFormat({ form, set, choices, modules, projectId, ready }: FieldPro
           )
         })}
       </div>
+    </details>
+  )
+}
+
+/** Полное оформление графиков вкладки: те же поля, что у «Любого графика» (заголовок, шрифты, легенда, сетка, фон, оси).
+ *  Хранится одним полем ``fmt_style`` (JSON) и применяется ко всем графикам выгрузки. */
+function StylePanel({ form, set }: { form: Form; set: (key: string, value: unknown) => void }) {
+  let doc: { chart?: ChartStyle; axes?: Omit<AxisStyle, 'minor_step' | 'cross'> & { color?: string } } = {}
+  try { doc = JSON.parse((form.fmt_style as string | undefined) || '{}') } catch { doc = {} }
+  const chart = doc.chart ?? {}, axes = doc.axes ?? {}
+  const put = (next: typeof doc) => {
+    const c = compact(next.chart ?? {}), a = compact(next.axes ?? {})
+    set('fmt_style', Object.keys(c).length || Object.keys(a).length ? JSON.stringify({ ...(Object.keys(c).length ? { chart: c } : {}), ...(Object.keys(a).length ? { axes: a } : {}) }) : '')
+  }
+  return (
+    <details className="cs-templates">
+      <summary>Оформление графиков: все настройки «Формата»</summary>
+      <ChartStyleFields value={chart} set={p => put({ chart: { ...chart, ...p }, axes })} />
+      <fieldset>
+        <legend>Оси (все)</legend>
+        <AxisStyleFields value={axes} set={p => put({ chart, axes: { ...axes, ...p } })} />
+      </fieldset>
     </details>
   )
 }

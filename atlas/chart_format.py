@@ -186,6 +186,9 @@ def common(form: Mapping[str, Any]) -> Dict[str, Any]:
     style = style_of(form)
     if style:
         out['style'] = style
+        where = (style.get('chart') or {}).get('legend')      # положение легенды из полной панели, если не задано полем fmt_legend
+        if where and 'legend' not in out and where != 'bottom':
+            out['legend'] = where
     return out
 
 
@@ -193,13 +196,28 @@ STYLE_CHART = ('grid', 'grid_width', 'grid_color', 'minor_grid', 'minor_grid_col
 STYLE_TEXT = ('title_bold', 'title_italic', 'tick_bold', 'tick_italic')
 
 
+def parse_style(text: Any) -> Dict[str, Dict[str, Any]]:
+    """Поле ``fmt_style``: JSON ``{"chart": {...оформление графика...}, "axes": {...оформление всех осей...}}``."""
+    if not str(text or '').strip():
+        return {'chart': {}, 'axes': {}}
+    try:
+        doc = json.loads(text) if isinstance(text, str) else dict(text)
+    except ValueError:
+        raise FormatError('Оформление: неверный формат') from None
+    if not isinstance(doc, dict):
+        raise FormatError('Оформление: неверный формат')
+    return {'chart': dict(doc.get('chart') or {}), 'axes': dict(doc.get('axes') or {})}
+
+
 def style_of(form: Mapping[str, Any]) -> Dict[str, Any]:
     """Сетка графика и жирный/курсив подписей осей из общих полей формы; пустые поля не передаются."""
+    whole = parse_style(form.get('fmt_style'))       # полная панель «Формат»: те же поля, что у «Любого графика»
     raw = {key: form.get('fmt_' + key) for key in STYLE_CHART}
     if raw['legend_columns'] in (0, '0'):
         raw['legend_columns'] = None    # 0 = «авто»
-    chart = clean_chart(raw)
-    text = clean_axis({key: form.get('fmt_axis_' + key if key.startswith('title') else 'fmt_' + key) for key in STYLE_TEXT}, 'общие')
+    chart = clean_chart({**whole['chart'], **{k: v for k, v in raw.items() if v not in (None, '')}})
+    own = {key: form.get('fmt_axis_' + key if key.startswith('title') else 'fmt_' + key) for key in STYLE_TEXT}
+    text = clean_axis({**whole['axes'], **{k: v for k, v in own.items() if v not in (None, '')}}, 'общие')
     out: Dict[str, Any] = {}
     if chart:
         out['chart'] = chart
