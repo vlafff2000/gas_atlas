@@ -30,10 +30,10 @@ BASE = png(figure())
 # поле модели → (куда пишется, пример значения). Поля оси лежат в style.axes.y, поля графика — в style.chart.
 AXIS = {'ticks': 'in', 'minor_ticks': 'out', 'line': False, 'line_color': '#cc0000', 'line_width': 3, 'label_rotate': 45,
         'units': 'thousands', 'title_place': 'end', 'decimals': 3, 'tick_size': 14, 'title_size': 16, 'title_bold': True,
-        'title_italic': True, 'tick_bold': True, 'tick_italic': True, 'font': 'times', 'color': '#2255aa', 'minor_step': 0.25, 'cross': 1.5}
+        'title_italic': True, 'tick_bold': True, 'tick_italic': True, 'font': 'calibri', 'color': '#2255aa', 'minor_step': 0.25, 'cross': 1.5}
 CHART = {'subtitle': 'Подзаголовок', 'legend_columns': 1, 'legend_border': True, 'legend_background': '#ffffcc', 'grid_dash': 'dash',
          'minor_grid_dash': 'dot', 'border_color': '#aa0000', 'border_width': 4, 'plot_border_color': '#00aa00', 'plot_border_width': 3,
-         'title_size': 20, 'title_bold': True, 'title_color': '#aa00aa', 'title_align': 'center', 'font': 'times', 'text_color': '#115599',
+         'title_size': 20, 'title_bold': True, 'title_color': '#aa00aa', 'title_align': 'center', 'font': 'calibri', 'text_color': '#115599',
          'legend_size': 12, 'grid_color': '#ff0000', 'grid_width': 2, 'minor_grid_color': '#00ff00', 'minor_grid_width': 1,
          'background': '#eeeeee', 'plot_background': '#ddeeff'}
 # поля, которые для файла не имеют смысла или проверяются отдельно (дата, положение легенды, шрифт легенды; group_digits — test_export_digit_grouping.py; fresh_colors красит ряды с Series.age до отрисовки — test_fresh_colors.py)
