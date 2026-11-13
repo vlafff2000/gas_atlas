@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { UndoButtons, useUndo, useUndoValue } from './useUndo'
 import { Icon } from './Icon'
 import { useProjectLooks } from './projectLooks'
 import { GroupColorsButton } from './GroupColorsButton'
@@ -382,6 +383,11 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     }
     setParams(next)
   }
+  // Конструктор: отмена и повтор любой правки макета (ряды, оси, оформление), Ctrl+Z только на его странице.
+  const layoutUndo = useUndo({ hotkey: builder })
+  const latest = useRef({ params, changeParams })
+  latest.current = { params, changeParams }
+  useUndoValue(params?.layout, layout => { void latest.current.changeParams({ ...latest.current.params, layout }) }, layoutUndo, 'правка графика', project.id + spec.id + resets + (params ? '+' : '-'))
 
   const exclusionDone = async (text: string, undo = true) => {
     setToast({ text, undo })
@@ -496,6 +502,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             </select>
           </label>
         )}
+        {builder && <UndoButtons undo={layoutUndo} />}
         {result && spec.save_label && <button type="button" className="quiet" onClick={saveView}>{spec.save_label}</button>}
         {result && result.tables.length > 0 && (
           <button type="button" className="quiet" onClick={() => api.exportTables(spec.id, project.id, params).catch(e => setToast({ text: (e as Error).message, undo: false }))}>

@@ -62,6 +62,27 @@ CANVAS_JS = """() => [...document.querySelectorAll('[_echarts_instance_] canvas'
 STAGE_MODULE, STAGE_PARAMS = 'gdi', {'wells': ['31', '70']}
 
 
+def builder_undo_scenario(page) -> list[str]:
+    """Конструктор: выбор готового графика можно отменить и вернуть кнопками «Отменить» и «Вернуть»; сразу после открытия отменять нечего."""
+    page.evaluate("location.hash = '#/builder'")
+    page.reload(wait_until='networkidle')
+    page.wait_for_selector('.undo-buttons', timeout=PAGE_TIMEOUT_MS)
+    undo, redo = page.locator('.undo-buttons button').nth(0), page.locator('.undo-buttons button').nth(1)
+    page.wait_for_timeout(1500)
+    out = []
+    if undo.is_enabled() or redo.is_enabled():
+        out.append('после открытия конструктора уже есть что отменять')
+    page.get_by_text('Сумма расходов по скважинам за каждые сутки').first.click()
+    page.wait_for_timeout(1500)
+    if not undo.is_enabled():
+        out.append('выбор готового графика не попал в историю отмены')
+    undo.click()
+    page.wait_for_timeout(1500)
+    if undo.is_enabled() or not redo.is_enabled():
+        out.append('после «Отменить» кнопки в неверном состоянии')
+    return out
+
+
 def stage_scenario(page, pid: str) -> list[str]:
     """Сценарий предпросмотра с диагностикой: при сбое в замечание попадает, какие запросы вкладки ушли и что показывает страница."""
     seen: list[str] = []
@@ -188,6 +209,14 @@ def main() -> int:
                 for l in bad:
                     print('     ', l[:300])
                     problems.append(f'export-stage: {l[:300]}')
+                try:
+                    bad = builder_undo_scenario(page)
+                except Exception as e:
+                    bad = [f'{type(e).__name__}: {str(e)[:200]}']
+                print(f'{"ОК " if not bad else "ОШИБКА"} {"конструктор: отмена":<22}', flush=True)
+                for l in bad:
+                    print('     ', l[:300])
+                    problems.append(f'builder-undo: {l[:300]}')
                 browser.close()
         finally:
             proc.terminate()
