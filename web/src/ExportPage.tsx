@@ -32,7 +32,7 @@ function filterFields(tab: string): { groups?: string; wells: string } | null {
   if (tab === 'pack') return { groups: 'pack_groups', wells: 'pack_wells' }
   if (tab === 'ggh') return { wells: 'ggh_wells' }
   if (tab === 'gis') return { wells: 'gis_wells' }
-  if (tab === 'any' || tab === 'custom' || tab === 'waterfactor') return null
+  if (tab === 'any' || tab === 'custom' || tab === 'waterfactor' || tab === 'gis_tiles') return null
   return { groups: tab + '_groups', wells: (tab === 'well_dashboard' ? 'dashboard' : tab) + '_wells' }
 }
 /** Скважины, которые предлагает вкладка (ГГХ — с учетом выбранных горизонтов). */
@@ -845,6 +845,28 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
     )
   }
 
+  if (module === 'gis_tiles') {
+    const t = choices.gis_tiles
+    if (!t) return <>{head}<p className="muted pad">В проекте нет «Базы ГИС» (таблицы пачек).</p></>
+    return (
+      <>
+        {head}
+        <Section title="Что строить">
+          <Multi {...F} field="gis_tiles_wells" label="Скважины" options={t.wells} def={t.wells.slice(0, 3)} empty="ничего" />
+          <Multi {...F} field="gis_tiles_packs" label="Пачки" options={t.packs} def={[]} empty="все" />
+          <Multi {...F} field="gis_tiles_seasons" label="Сезоны" options={t.seasons} def={[]} empty="все" />
+        </Section>
+        <Section title="Оси (пусто — автоматически)">
+          <Text {...F} field="gis_tiles_gnt_min" label="ГНТ, м: от" def="" />
+          <Text {...F} field="gis_tiles_gnt_max" label="ГНТ, м: до" def="" />
+          <Text {...F} field="gis_tiles_kg_min" label="Кг, %: от" def="" />
+          <Text {...F} field="gis_tiles_kg_max" label="Кг, %: до" def="" />
+        </Section>
+        <p className="muted pad">График на скважину и пачку: столбцы ГНТ по сезонам (голубой — закачка, красный — отбор) и линия Кг. Цвета, подписи, легенда и оси — в общих настройках «Формат» ниже; файлы, архив и Word — теми же кнопками, что у остальных вкладок. Границы осей выше — подсказка автоподбору, последнее слово за вами.</p>
+      </>
+    )
+  }
+
   const groups = choices.groups[module] ?? []
   const prefix = module === 'well_dashboard' ? 'dashboard' : module
   const chosenGroups = ((form[module + '_groups'] as string[] | undefined) ?? groups).filter(g => groups.includes(g))
@@ -989,7 +1011,7 @@ function WordLayout({ form, set, choices, projectId, ready, revision }: FieldPro
   const [shot, setShot] = useState<WordPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('fmt_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k.startsWith('waterfactor_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size' || k === 'look'), doc, page])
+  const wordKey = JSON.stringify([revision, Object.entries(form).filter(([k]) => k.startsWith('word_') || k.startsWith('label_') || k.startsWith('fmt_') || k.startsWith('caption_') || k.startsWith('gdi_') || k.startsWith('production_') || k.startsWith('response_') || k.startsWith('waterfactor_') || k.startsWith('gis_tiles_') || k === 'modules' || k === 'width' || k === 'height' || k === 'font' || k === 'font_size' || k === 'look'), doc, page])
   useEffect(() => {
     if (!open || !ready) return
     let alive = true

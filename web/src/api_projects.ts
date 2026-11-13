@@ -55,6 +55,8 @@ export interface ExportChoices {
   /** Данные ГГХ проекта: скважины, их горизонты и число замеров (блок «Графики ГГХ для отчёта»). */
   ggh?: { wells: string[]; horizon_of: Record<string, string>; points: Record<string, number> }
   gis?: { wells: string[]; seasons?: string[] }
+  /** Вкладка «ГИС и ГВК: плитка ГНТ и Кг»: скважины, пачки и сезоны «Базы ГИС». */
+  gis_tiles?: { wells: string[]; packs: string[]; seasons: string[] }
 }
 export interface ExportPlan { modules: string[]; charts: { name: string; module: string }[]; tables: string[]; note: string }
 export interface ExportResult {

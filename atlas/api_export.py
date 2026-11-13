@@ -41,18 +41,21 @@ from .projects import Conflict, Projects
 log = logging.getLogger(__name__)
 
 ORDER = ('production', 'histograms', 'gdi', 'response', 'object_pressure', 'well_dashboard',
-         'operations', 'water', 'bottom', 'construction', 'pressure_match', 'waterfactor')
+         'operations', 'water', 'bottom', 'construction', 'pressure_match', 'waterfactor', 'gis_tiles')
 WATERFACTOR = 'waterfactor'      # «Вынос воды и водный фактор» (модуль Атласа 6, в 5.8 его не было)
-EXTRA_MODULES = {WATERFACTOR: 'Вынос воды и водный фактор'}
+GIS_TILES = 'gis_tiles'          # «ГИС и ГВК: плитка ГНТ и Кг» (график на скважину и пачку; модуль Атласа 6)
+EXTRA_MODULES = {WATERFACTOR: 'Вынос воды и водный фактор', GIS_TILES: 'ГИС и ГВК: плитка ГНТ и Кг'}
 EXTRA_CAPTIONS = {WATERFACTOR: {'section': '11', 'start': 1,
-                                'template': 'Рисунок {раздел}.{номер} - Вынос воды и водный фактор: {период}'}}
+                                'template': 'Рисунок {раздел}.{номер} - Вынос воды и водный фактор: {период}'},
+                 GIS_TILES: {'section': '12', 'start': 1,
+                             'template': 'Рисунок {раздел}.{номер} - ГНТ и Кг по сезонам, скважина №{скважина}, пачка {период}'}}
 DEFAULT_MODULES = ('production', 'gdi', 'response', 'object_pressure')
 STYLE_FIELDS = (('points', 'Экспорт: точки'), ('legend', 'Экспорт: легенда'), ('grid', 'Экспорт: сетка'))
 GDI_DASHBOARD = (('n', 'n'), ('orientation', 'orientation'), ('curves', 'curves'), ('db', 'db_curves'),
                  ('crosshair', 'crosshair'), ('excluded', 'show_excluded'), ('seasons', 'seasons'))
 # Поля, которые 5.8 кладёт в шаблон экспорта (``export_panel``: «Сохранить шаблон экспорта»).
 PRESET_FIELDS = ('look', 'modules', 'formats', 'dpi', 'width', 'height', 'font', 'font_size', 'exclusions', 'raw', 'auto')
-PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_', 'waterfactor_')
+PRESET_PREFIXES = ('ggh_', 'production_', 'histograms_', 'gdi_', 'response_', 'dashboard_', 'pressure_', 'periods_', 'caption_', 'style_', 'pack_', 'word_', 'label_', 'fmt_', 'waterfactor_', 'gis_tiles_')
 
 
 # Пакет графиков по фонду («Приложение»): режим → (раздел, слово в подписи).
@@ -91,7 +94,7 @@ def frames_of(data: Data, apply_exclusions: bool = True) -> tuple[dict, dict]:
 def available(raw: Mapping[str, pd.DataFrame]) -> list[str]:
     """Вкладки модулей экспорта — тот же отбор, что в 5.8."""
     water = 'water_factor' in raw or ('production' in raw and ('water' in raw or 'operations' in raw))
-    return [m for m in ORDER if (m == 'histograms' and 'production' in raw) or (m == WATERFACTOR and water)
+    return [m for m in ORDER if (m == 'histograms' and 'production' in raw) or (m == WATERFACTOR and water) or (m == GIS_TILES and 'gis_packs' in raw)
             or (m == 'well_dashboard' and any(k != 'object_pressure' for k in raw)) or m in raw]
 
 
@@ -139,7 +142,7 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
                            'default_modules': [m for m in DEFAULT_MODULES if m in raw],
                            'wells': {}, 'groups': {}, 'mapping': {w: group_of(mapping, w) for w in well_choices('well_dashboard', raw)}}
     for m in mods:
-        if m in ('object_pressure', 'pressure_match', WATERFACTOR):
+        if m in ('object_pressure', 'pressure_match', WATERFACTOR, GIS_TILES):
             continue
         wells = well_choices(m, raw)
         out['wells'][m] = wells
@@ -177,6 +180,11 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
     if WATERFACTOR in mods:
         from .modules.water import WaterModule
         out['water'] = {'periods': WaterModule().options('periods', data, {})}
+    if GIS_TILES in mods:
+        from .modules import gis_an_tables
+        packs = raw['gis_packs']
+        out['gis_tiles'] = {'wells': ordered(packs['well'].astype(str).unique()), 'packs': ordered(packs['pack'].dropna().astype(str).unique()),
+                            'seasons': gis_an_tables.available(packs, keep=True)}
     out['captions'] = {m: EXTRA_CAPTIONS.get(m) or DEFAULT_CAPTIONS.get(m, DEFAULT_CAPTIONS['well_dashboard']) for m in mods}
     out['presets'] = {name: migrate_preset(v) for name, v in (settings.get('export_presets') or {}).items()}
     out['style'] = {f: settings.get('chart_style', {}).get(f, True) for f, _ in STYLE_FIELDS}
@@ -217,6 +225,9 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             continue
         if module == WATERFACTOR:
             options[module] = water_cfg(form, data)
+            continue
+        if module == GIS_TILES:
+            options[module] = gis_tiles_cfg(form, raw)
             continue
         if module == 'pressure_match':
             options[module] = cfg = pressure_cfg(form, data)
@@ -313,6 +324,49 @@ def water_cfg(form: Mapping[str, Any], data: Data) -> dict[str, Any]:
               'start': form.get('waterfactor_start', 0.0), 'metric': form.get('waterfactor_metric', 'all'),
               'xaxis': form.get('waterfactor_xaxis', 'volume'), 'inverse': form.get('waterfactor_inverse', True)}
     return module.spec.coerce(params)
+
+
+def gis_tiles_cfg(form: Mapping[str, Any], raw: Mapping[str, pd.DataFrame]) -> dict[str, Any]:
+    """«ГИС и ГВК: плитка»: параметры вида ``tile`` раздела (скважины, пачки, сезоны, ручные границы осей ГНТ и Кг).
+    Скважины не выбраны ни разу — первые три, как на экране; выбор есть, но пуст — ничего (решает инженер)."""
+    from .modules.gis import GisModule
+    wells = ordered(raw['gis_packs']['well'].astype(str).unique())
+    chosen = form.get('gis_tiles_wells')
+    params = {'view': 'tile', 'wells': wells[:3] if chosen is None else [str(w) for w in chosen if str(w) in wells],
+              'packs': [str(p) for p in form.get('gis_tiles_packs') or []], 'seasons': [str(p) for p in form.get('gis_tiles_seasons') or []]}
+    for key in ('gnt_min', 'gnt_max', 'kg_min', 'kg_max'):
+        params[key] = form.get('gis_tiles_' + key, '')
+    return GisModule.spec.coerce(params)
+
+
+def with_gis_tiles(plan, data: Data, options: Mapping[str, Any]):
+    """Графики плитки «ГНТ и Кг» добавляются к плану 5.8 (его код о них не знает): тот же расчёт, что на экране раздела."""
+    from functools import partial
+    from atlas.engine.core.reporting import FigureJob
+    from .modules.gis import GisModule
+    from .render import to_plotly
+    if GIS_TILES not in options['modules']:
+        return plan
+    try:
+        result = GisModule().run(data, options[GIS_TILES])
+    except ParamError as exc:
+        raise Failure(400, str(exc)) from None
+
+    def figure(chart, well, pack):
+        fig = to_plotly(chart)
+        fig.update_layout(meta={'module': GIS_TILES, 'wells': [well], 'periods': [pack]})
+        return fig
+    style = options.get('style', {})
+    for chart in result.charts:
+        rest = chart.id.removeprefix('gis-tile-')      # id = «скважина-пачка»; номер скважины может содержать дефис, поэтому сверяем со списком
+        well = next((w for w in sorted(options[GIS_TILES]['wells'], key=len, reverse=True) if rest.startswith(w + '-')), rest.split('-', 1)[0])
+        pack = rest[len(well) + 1:]
+        plan.jobs.append(FigureJob('ГИС · ' + chart.title, partial(figure, chart, well, pack), style, GIS_TILES))
+    for table in result.tables:
+        name = 'ГИС_плитка_' + table.id
+        plan.tables[name] = table.frame
+        plan.module_tables.setdefault(GIS_TILES, {})[name] = table.frame
+    return plan
 
 
 def with_water(plan, data: Data, options: Mapping[str, Any]):
@@ -653,9 +707,9 @@ def routes(projects: Projects) -> list[Route]:
 
         def build():
             options, source, raw = options_from(form, data)
-            if not options['modules'] or (not options['wells'] and not {'object_pressure', WATERFACTOR} & set(options['modules'])):
+            if not options['modules'] or (not options['wells'] and not {'object_pressure', WATERFACTOR, GIS_TILES} & set(options['modules'])):
                 return options, None, data
-            return options, with_elpro(with_water(reporting.plan(source, data.mapping, data.settings, options, raw), data, options), data, options), data
+            return options, with_elpro(with_gis_tiles(with_water(reporting.plan(source, data.mapping, data.settings, options, raw), data, options), data, options), data, options), data
         return plans.get(key, build)
 
     def need_plan(pid, form):
