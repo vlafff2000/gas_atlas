@@ -419,3 +419,10 @@ def test_preview_shows_moved_title_and_reports_lost_shift(env):
     assert abs(now['title'][0] - base['title'][0] - 0.1) < 0.002 and abs(now['title'][1] - base['title'][1] - 0.05) < 0.002
     assert now['plot'] == base['plot']
     assert moved['missing'] == ['label:нет такого ряда:1'] and any('Ручное положение не применено' in n for n in moved['notes'])
+
+
+def test_default_font_is_times():
+    from atlas.engine.core.fonts import check
+    assert settings_of({})['font'] == 'times' and settings_of({'font': ''})['font'] == 'times'
+    assert settings_of({'font': 'default'})['font'] == 'default'      # ручной выбор остаётся
+    assert check(None, None)[0] == 'times' and check('', None)[0] == 'times' and check('calibri', None)[0] == 'calibri'

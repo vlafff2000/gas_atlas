@@ -243,9 +243,9 @@ def figure_bytes(fig,fmt='png',*args,**kwargs):
         return _figure_bytes(fig,fmt,*args,**kwargs)
 
 
-def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='default',font_size=None,look='default',scene=None):
+def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=False,font='times',font_size=None,look='default',scene=None):
     """``font`` / ``font_size`` — шрифт (``atlas.engine.core.fonts.FONTS``) и основной размер в пт; заголовок и легенда масштабируются вместе с ним.
-    ``look='excel'`` — вид диаграммы Excel (Office: Calibri, палитра, тонкие серые горизонтальные линии сетки, легенда внизу); шрифт по умолчанию — Calibri.
+    ``look='excel'`` — вид диаграммы Excel (Office: Calibri, палитра, тонкие серые горизонтальные линии сетки, легенда внизу); шрифт — как выбран (по умолчанию Times New Roman).
     ``compact`` (листы приложений, ``height_mm`` задаёт высоту): график заполняет рисунок, легенда в одну-две строки под осями,
     не больше 6 делений на оси — числа не налезают друг на друга.
     ``scene`` — список, в который складывается сцена рисунка (``export_scene.collect``): элементы с именами и рамками в долях рисунка."""
@@ -263,7 +263,6 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
     from .fonts import family_for,check
     if look not in ('default','excel'):raise ValueError('Вид графика: default или excel')
     excel=look=='excel'
-    if excel and font=='default':font='calibri'
     font,font_size=check(font,font_size)
     base=font_size or (9.5 if compact else 12);k=base/(7 if compact else 9)
     traces=[t for t in fig.data if t.visible not in (False,'legendonly')]

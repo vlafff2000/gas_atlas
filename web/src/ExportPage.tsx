@@ -485,7 +485,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           </div>
           <Select {...F} field="dpi" label="Разрешение PNG" def={300} options={[[300, '300'], [600, '600'], [1200, '1200']]} />
           <SizePick {...F} />
-          <Select {...F} field="font" label="Шрифт" def="default"
+          <Select {...F} field="font" label="Шрифт" def="times"
             options={[['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]} />
           <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
           <Select {...F} field="fmt_angle" label="Подписи оси X" def="auto" options={ANGLE_OPTIONS} />
