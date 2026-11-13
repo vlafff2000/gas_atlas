@@ -5,7 +5,7 @@ import { MultiSelect } from './MultiSelect'
 import { ChartView } from './ChartView'
 import { api, type Chart } from './api'
 import { WordViewerPane } from './WordViewer'
-import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type LayoutCheck, type WordPreview } from './api_projects'
+import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type LayoutCheck, type QualityReport, type WordPreview } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
 import { wellPresetApi, type WellPreset } from './api_wells'
 import { ExportAnyChart } from './ExportAnyChart'
@@ -59,6 +59,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const [liveChart, setLiveChart] = useState<Chart | null>(null)
   const [excludeMode, setExcludeMode] = useState(false)
   const [archive, setArchive] = useState<{ key: string; result: ExportResult } | null>(null)
+  const [quality, setQuality] = useState<{ key: string; report: QualityReport } | null>(null)
   const [word, setWord] = useState<{ key: string; result: ExportResult } | null>(null)
   const [pack, setPack] = useState<{ key: string; result: ExportResult } | null>(null)
   const [ggh, setGgh] = useState<{ key: string; result: ExportResult } | null>(null)
@@ -148,6 +149,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     if (modules.includes('pack') && pack?.key !== key) { setBusy('pack'); setPack({ key, result: await exportApi.pack(project.id, form) }) }
     if (modules.includes('ggh') && ggh?.key !== key) { setBusy('ggh'); setGgh({ key, result: await exportApi.ggh(project.id, form) }) }
   }
+  const checkQuality = () => run('quality', async () => { if (readyPlan) { await prepare(); setQuality({ key, report: await exportApi.quality(project.id, form) }) } })
   const makeArchive = () => run('archive', async () => {
     if (readyPlan) { await prepare(); setArchive({ key, result: await exportApi.archive(project.id, form) }) }
     await makeExtras()
@@ -558,6 +560,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         <button type="button" className="quiet" disabled={!ready || busy !== null} onClick={preview}>Предпросмотр</button>
         <button type="button" className="primary" disabled={busy !== null || packNoSeasons} onClick={exportAll}
           title="Все включённые вкладки (модули, пакет, ГГХ, ГИС при включении) одним ZIP">Скачать всё</button>
+        <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={checkQuality}
+          title="Найти графики, где что-то налезает, обрезано или слишком мелко; файлы не создаются">Проверить качество</button>
         <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={makeArchive}>Сформировать архив</button>
         <button type="button" className="quiet" disabled={!ready || busy !== null || packNoSeasons} onClick={makeWord}>Создать отчет Word</button>
       </div>
@@ -621,6 +625,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       )}
 
       {word?.key === key && <Outcome title="Отчет Word" result={word.result} pid={project.id} word />}
+      {quality?.key === key && <QualityOutcome report={quality.report} />}
       {archive?.key === key && <Outcome title="Архив результатов" result={archive.result} pid={project.id} />}
       {pack?.key === key && <Outcome title="Пакет графиков по фонду" result={pack.result} pid={project.id} pack />}
       {ggh?.key === key && <Outcome title="Графики ГГХ для отчета" result={ggh.result} pid={project.id} ggh />}
@@ -723,6 +728,29 @@ function LayoutChecks({ checks }: { checks?: LayoutCheck[] }) {
         return <div key={c.code} className={'note ' + (c.level === 'warn' ? 'warning' : 'info') + ' pad-x'}>{c.text} Затронуто: {names.length} ({names.slice(0, 3).join(', ')}{names.length > 3 ? ` и ещё ${names.length - 3}` : ''}).</div>
       })}
     </div>
+  )
+}
+
+/** Сводка проверки качества плана выгрузки: какие графики стоит открыть и посмотреть. Это подсказки: выгрузка идёт при любых замечаниях. */
+function QualityOutcome({ report }: { report: QualityReport }) {
+  return (
+    <section className="table-block">
+      <div className="block-head"><h3>Проверка качества графиков</h3></div>
+      <div className={'note ' + (report.with_findings ? 'warning' : 'info') + ' pad-x'}>
+        {report.with_findings
+          ? `Замечания у ${report.with_findings} из ${report.checked} графиков. Это подсказки: выгрузка идёт при любых замечаниях. Откройте график во вкладке «Любой график», чтобы поправить и снять лишнее.`
+          : `Проверено графиков: ${report.checked}. Наложений, выхода за край, мелкого шрифта и тесных делений не найдено.`}
+        {report.errors.length > 0 && ` Не удалось проверить: ${report.errors.length}.`}
+      </div>
+      {report.charts.length > 0 && (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>График</th><th>Замечания</th></tr></thead>
+            <tbody>{report.charts.map(c => <tr key={c.name}><td>{c.name}</td><td>{c.findings.map(f => f.text).join(' ')}</td></tr>)}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
   )
 }
 

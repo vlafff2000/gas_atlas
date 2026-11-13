@@ -647,3 +647,17 @@ def test_long_chart_title_wraps_instead_of_being_cut():
     assert fit_title(f, 'Скважина № 31', 12) == 'Скважина № 31'          # короткое название не трогаем
     assert fit_title(f, 'Две\nстроки', 12) == 'Две\nстроки'              # своё разбиение сохраняется
     plt.close(f)
+
+
+def test_quality_report_for_the_plan(env):
+    """«Проверить качество»: по каждому графику плана находки проверки (atlas/chart_qc.py), файлы не создаются.
+    Узкая ширина даёт мелкий шрифт после уменьшения, обычная — чистый отчёт."""
+    client, pid, _, store = env
+    base = {**FORM, 'modules': ['gdi'], 'gdi_wells': ['31', '70']}
+    ok = client.post(f'/api/projects/{pid}/export/quality', json={'form': base}).json()
+    assert ok['checked'] >= 2 and ok['errors'] == [] and ok['with_findings'] == len(ok['charts'])
+    wide = client.post(f'/api/projects/{pid}/export/quality', json={'form': {**base, 'width': 300}}).json()
+    assert wide['with_findings'] == wide['checked'] > 0
+    one = wide['charts'][0]
+    assert one['name'] and {f['code'] for f in one['findings']} == {'small-font'} and 'после уменьшения' in one['findings'][0]['text']
+    assert not (store.path(pid) / 'exports').exists() or not list((store.path(pid) / 'exports').glob('*.zip'))      # файлов не появилось

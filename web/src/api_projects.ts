@@ -64,6 +64,12 @@ export interface ExportResult {
   layout_checks?: LayoutCheck[]
 }
 
+/** Находки проверки качества графиков плана выгрузки (POST /export/quality): только графики с замечаниями. */
+export interface QualityReport {
+  checked: number; with_findings: number; errors: { 'График': string; 'Ошибка': string }[]
+  charts: { name: string; module: string; findings: { key: string; code: string; level: 'warn' | 'info'; text: string }[] }[]
+}
+
 export interface LayoutCheck { code: string; level: 'warn' | 'info'; text: string; items: string[] }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
@@ -154,6 +160,7 @@ export const exportApi = {
     URL.createObjectURL(await (await send(`${P(pid)}/export/extras-preview`, json('POST', { form, chart }))).blob()),
   chart: (pid: string, form: Form, chart: string) => request<Chart>(`${P(pid)}/export/chart`, json('POST', { form, chart })),
   series: (pid: string, form: Form, chart?: string) => request<{ series: Record<string, string[]>; labels: Record<string, Record<string, string>>; chart: string[] }>(`${P(pid)}/export/series`, json('POST', { form, chart })),
+  quality: (pid: string, form: Form) => request<QualityReport>(`${P(pid)}/export/quality`, json('POST', { form })),
   archive: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/archive`, json('POST', { form })),
   word: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/word`, json('POST', { form })),
   wordPreview: (pid: string, form: Form, doc: number, page: number, scale = 6) =>
