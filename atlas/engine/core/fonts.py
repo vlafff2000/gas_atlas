@@ -16,6 +16,7 @@ FONTS = {
     'arial_narrow': ('Arial Narrow', 'Arial Narrow', 'Atlas Sans Narrow'),
     'calibri': ('Calibri (как в Excel)', 'Calibri', 'Carlito'),
 }
+DEFAULT_FONT = 'times'      # шрифт выгрузки по умолчанию; ручной выбор остаётся
 SIZE_RANGE = (5.0, 20.0)
 _registered = False
 
@@ -54,7 +55,7 @@ def family_for(key):
 
 def check(font, size):
     """Проверка параметров из запроса: (ключ шрифта, размер в пт или None)."""
-    font = font or 'default'
+    font = font or DEFAULT_FONT
     if font not in FONTS:
         raise ValueError('Шрифт: ' + ', '.join(FONTS))
     if size in (None, ''):

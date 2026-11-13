@@ -98,7 +98,7 @@ def settings_of(raw: Any) -> dict[str, Any]:
     preset = SIZES.get(str(src.get('size') or ''), (None, None))
     width = _number(src.get('width'), 'Ширина, мм', 80, 300) or preset[0] or 220
     height = _number(src.get('height'), 'Высота, мм', 40, 400) or preset[1]
-    font = str(src.get('font') or 'default')
+    font = str(src.get('font') or 'times')
     if font not in FONTS:
         raise ParamError('Шрифт: ' + ', '.join(FONTS))
     size = _number(src.get('font_size'), 'Размер шрифта, пт', 5, 30)

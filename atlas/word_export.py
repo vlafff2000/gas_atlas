@@ -233,7 +233,7 @@ def fit(layout: Layout, aspect: float, caption_h: float) -> Tuple[float, float]:
     return w, h
 
 
-def render_png(figure, layout: Layout, caption_h: float, font: str = 'default', font_size=None, look: str = 'default') -> Tuple[bytes, float, float]:
+def render_png(figure, layout: Layout, caption_h: float, font: str = 'times', font_size=None, look: str = 'default') -> Tuple[bytes, float, float]:
     """PNG графика, построенный сразу в размер на листе (без сжатия картинки), и этот размер в мм."""
     from atlas.engine.core.export import figure_bytes
     inner = layout.image_width()

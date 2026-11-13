@@ -260,7 +260,7 @@ def add_layout_charts(result: Result, data: Data, names: list[str], wells: list[
 
 # ---------- Word: один график с заголовком и подписью ----------
 
-def word_file(chart, title: str, caption: str, orientation: str = 'landscape', font: str = 'default', font_size=None,
+def word_file(chart, title: str, caption: str, orientation: str = 'landscape', font: str = 'times', font_size=None,
               caption_mode: str = 'field') -> tuple[bytes, str]:
     """Документ Word с одним графиком: заголовок, рисунок и подпись «Рисунок N – …».
 

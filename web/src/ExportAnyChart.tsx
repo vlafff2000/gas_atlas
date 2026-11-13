@@ -311,7 +311,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const setField = (field: string, value: unknown) => {
     if (field === 'format') set('format', value === 'png' ? '' : value)
     else if (field === 'dpi') set('dpi', Number(value) === 300 ? '' : value)
-    else if (field === 'look' || field === 'font') set(field, value === 'default' ? '' : value)
+    else if (field === 'look') set(field, value === 'default' ? '' : value)
     else if (field === 'legend') sub('chart', 'legend', value === 'auto' ? '' : value)
     else if (['title', 'title_align', 'grid', 'grid_width', 'minor_grid', 'minor_grid_width'].includes(field)) sub('chart', field, value === 'auto' ? '' : value)
     else if (field === 'hide_title') set('hide_title', value ? true : '')
@@ -385,7 +385,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
               <Select {...F} field="format" label="Формат" def="png" options={FORMATS} />
               <Select {...F} field="dpi" label="Разрешение, DPI" def={300} options={DPIS.map(d => [d, String(d)] as Opt)} />
               <SizePick {...F} />
-              <Select {...F} field="font" label="Шрифт" def="default" options={FONTS} />
+              <Select {...F} field="font" label="Шрифт" def="times" options={FONTS} />
               <Select {...F} field="look" label="Вид графиков" def="default" options={[['default', 'Обычный'], ['excel', 'Как диаграммы Excel']]} />
               <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
                 options={[[null, 'Авто (12)'], ...[8, 9, 10, 11, 12, 14, 16, 18].map(n => [n, String(n)] as Opt)]} />

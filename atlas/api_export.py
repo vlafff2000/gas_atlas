@@ -816,7 +816,7 @@ def routes(projects: Projects) -> list[Route]:
         pid, form = request.path_params['pid'], form_of(body)
         options, plan, data = need_plan(pid, form)
         meta = metadata(pid, data, options, form)
-        params = (meta['formats'], meta['dpi'], meta['width_mm'], meta.get('height_mm'), meta.get('font', 'default'), meta.get('font_size'), meta.get('look', 'default'))
+        params = (meta['formats'], meta['dpi'], meta['width_mm'], meta.get('height_mm'), meta.get('font', 'times'), meta.get('font_size'), meta.get('look', 'default'))
         # один пул на весь план: графики модулей в том порядке, в каком их берёт export_plan
         groups: dict = {}
         for job in plan.jobs:
@@ -835,7 +835,7 @@ def routes(projects: Projects) -> list[Route]:
         pid, form = request.path_params['pid'], form_of(body)
         options, plan, data = need_plan(pid, form)
         meta = metadata(pid, data, options, form)
-        params = (meta['width_mm'], meta.get('height_mm'), meta.get('font', 'default'), meta.get('font_size'), meta.get('look', 'default'))
+        params = (meta['width_mm'], meta.get('height_mm'), meta.get('font', 'times'), meta.get('font_size'), meta.get('look', 'default'))
         jobs = list(plan.jobs)
         charts, failed = [], []
         for job, (found, error) in zip(jobs, render_pool.run(jobs, _quality_work, params)):

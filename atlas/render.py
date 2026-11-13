@@ -521,7 +521,7 @@ def chart_file(chart: Chart, fmt: str, dpi: int, font: str | None = None, font_s
         raise ValueError('Формат графика: svg, pdf, png, xlsx или csv')
     if chart_special.is_special(chart):      # подписи в сегментах, выноски, таблица под графиком, тепловая карта — общий экспортёр их не рисует
         return chart_special.figure_file(chart, fmt, dpi, scene=scene), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
-    return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'default', font_size=font_size, scene=scene), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
+    return figure_bytes(to_plotly(chart), fmt, dpi, font=font or 'times', font_size=font_size, scene=scene), f'{safe_name(plain(chart.title))}.{fmt}', FORMATS[fmt]
 
 
 def column_titles(table: Table) -> list[str]:

@@ -83,9 +83,9 @@ def _figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None =
     plt = _setup()
     o = opts or {}
     try:
-        if o.get('font') and o['font'] != 'default':
+        if (o.get('font') or 'times') != 'default':
             from atlas.engine.core.fonts import family_for
-            plt.rcParams['font.family'] = family_for(o['font'])
+            plt.rcParams['font.family'] = family_for(o.get('font') or 'times')
         fig = _heat_figure(plt, chart, o) if chart.heat is not None else _strip_figure(plt, chart, o) if chart.strips is not None \
             else _stack_figure(plt, chart, group_colors(chart), series_color, o)
         _dress(fig, chart, o)

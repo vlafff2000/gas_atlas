@@ -55,7 +55,7 @@ def export_plan(plan,store,pid,formats=('svg','pdf'),dpi=300,width_mm=220,metada
                                     if ready is not None:
                                         content=next(c for f,c,_ in ready if f==fmt)
                                         if content is None:raise ValueError(next(e for f,_,e in ready if f==fmt))
-                                    else:content=figure_bytes(fig,fmt,dpi,width_mm,height_mm,font=metadata.get('font','default'),font_size=metadata.get('font_size'),look=metadata.get('look','default'))
+                                    else:content=figure_bytes(fig,fmt,dpi,width_mm,height_mm,font=metadata.get('font','times'),font_size=metadata.get('font_size'),look=metadata.get('look','default'))
                                     member='charts/{:05}_{}.{}'.format(i,safe_name(job.name),fmt)
                                     z.writestr(member,content);files+=1;good=True;records.append({'chart':job.name,'format':fmt,'file':member,'status':'ok'})
                                     del content
