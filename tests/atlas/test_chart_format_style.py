@@ -55,3 +55,19 @@ def test_legend_columns_from_export_tabs_reach_drawing():
     assert one != auto
     with pytest.raises(ParamError):
         chart_format.configs({'fmt_legend_columns': 40})
+
+
+def test_full_style_panel_reaches_every_module():
+    """Поле fmt_style несёт всё оформление «Любого графика»: подзаголовок, рамку легенды, размер подписей осей."""
+    import json
+    doc = {'chart': {'subtitle': 'Подзаголовок', 'legend_border': True, 'legend_size': 9, 'plot_background': '#eeeeee'},
+           'axes': {'tick_size': 11, 'line_color': '#ff0000'}}
+    cfg = chart_format.configs({'fmt_style': json.dumps(doc), 'fmt_grid': 'both'})
+    style = cfg['*']['style']
+    assert style['chart']['subtitle'] == 'Подзаголовок' and style['chart']['grid'] == 'both'
+    assert style['text']['tick_size'] == 11
+    assert chart_format.configs({'fmt_style': json.dumps({'chart': {'legend': 'left'}})})['*']['legend'] == 'left'
+    styled = chart_format.apply(figure(), chart_format.for_module(cfg, 'gdi'))
+    assert styled.layout.meta['style']['axes']['y']['line_color'] == '#ff0000'
+    with pytest.raises(ParamError):
+        chart_format.configs({'fmt_style': json.dumps({'chart': {'legend_size': 99}})})
