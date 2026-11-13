@@ -127,6 +127,8 @@ def _stage_scenario(page, pid: str) -> list[str]:
         out.append('после сдвига заголовка изменилась область построения')
     if 'Своё положение: 1' not in page.inner_text('.stage-bar'):
         out.append('панель предпросмотра не показывает, что у элемента своё положение')
+    if 'Замечаний' not in page.inner_text('.stage-bar'):
+        out.append('панель предпросмотра не показывает итог проверки качества')
     return out
 
 

@@ -139,3 +139,16 @@ def test_no_scene_requested_no_work():
     """Без ``scene`` рисовальщик ничего не собирает: обычная выгрузка идёт прежним путём."""
     data, name, kind = chart_file(_chart(), 'svg', 150)
     assert data.lstrip().startswith(b'<?xml') and name.endswith('.svg') and kind == 'image/svg+xml'
+
+
+def test_scene_carries_what_quality_checks_need():
+    """Проверке качества (atlas/chart_qc.py) нужны размер шрифта, рамка каждой подписи деления, наклон и размер рисунка в мм."""
+    png, scene = _scene(_chart())
+    w, h = Image.open(io.BytesIO(png)).size
+    assert np.allclose(scene['plot']['mm'], [w / 150 * 25.4, h / 150 * 25.4], atol=0.2) and all(type(v) is float for v in scene['plot']['mm'])
+    assert scene['title']['size'] > scene['axis:x']['size'] > 0 and scene['legend']['size'] > 0 and scene['axis-title:y']['size'] > 0
+    assert all(e['size'] > 0 for e in scene.values() if e['kind'] == 'label')
+    axis = scene['axis:x']
+    assert axis['rotation'] == 0.0 and len(axis['ticks']) == len(DATES)
+    for x0, y0, x1, y1 in axis['ticks']:      # каждая подпись деления лежит внутри рамки оси
+        assert axis['box'][0] - 0.001 <= x0 < x1 <= axis['box'][2] + 0.001 and axis['box'][1] - 0.001 <= y0 < y1 <= axis['box'][3] + 0.001

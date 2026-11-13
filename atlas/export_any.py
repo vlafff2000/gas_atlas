@@ -11,7 +11,7 @@ import dataclasses
 import logging
 from typing import Any, Mapping
 
-from . import chart_special, chart_view, render
+from . import chart_qc, chart_special, chart_view, render
 from .chart_style import FONTS, apply_format, clean_axes, clean_chart, clean_format
 from .contract import Chart, Note, ParamError
 
@@ -153,13 +153,16 @@ def unplaced_notes(scene: list | None) -> list[str]:
 
 def preview(chart: Chart, raw_settings: Any) -> dict[str, Any]:
     """Предпросмотр «как в файле»: тот же рисунок, что уйдёт на выгрузку (PNG, 150 DPI), и его сцена — элементы с именами и
-    рамками в долях рисунка (``atlas/engine/core/export_scene.py``). По сцене экран понимает, по чему щёлкнули и что перетащили."""
+    рамками в долях рисунка (``atlas/engine/core/export_scene.py``). По сцене экран понимает, по чему щёлкнули и что перетащили.
+    ``checks`` — находки проверки качества (``atlas/chart_qc.py``): подсказки, что на рисунке читается плохо."""
     import base64
     scene: list = []
     settings = {**(raw_settings if isinstance(raw_settings, Mapping) else {}), 'format': 'png', 'dpi': 150}
     content, _, _, notes = export(chart, settings, scene)
+    drawn = prepared(chart, settings_of(settings))[0]
     return {'image': 'data:image/png;base64,' + base64.b64encode(content).decode('ascii'),
-            'scene': [e for e in scene if not e.get('missing')], 'missing': [e['id'] for e in scene if e.get('missing')], 'notes': notes}
+            'scene': [e for e in scene if not e.get('missing')], 'missing': [e['id'] for e in scene if e.get('missing')], 'notes': notes,
+            'checks': chart_qc.check(scene, drawn, (drawn.style.get('checks') or {}).get('skip') or ())}
 
 
 def export(chart: Chart, raw_settings: Any, scene: list | None = None) -> tuple[bytes, str, str, list[str]]:

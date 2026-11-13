@@ -14,6 +14,24 @@ export interface SceneElement {
   hidden?: boolean
 }
 
+/** Находка проверки качества рисунка (atlas/chart_qc.py): подсказка, которую инженер может снять. */
+export interface Finding {
+  key: string
+  code: string
+  level: 'warn' | 'info'
+  text: string
+  elements: string[]
+  skipped?: boolean
+}
+
+/** Оформление графика, в котором находка снята (``on``) или возвращена: ключи снятых лежат в ``checks.skip``. */
+export function withSkip(doc: ChartFormat, key: string, on: boolean): ChartFormat {
+  const skip = (doc.checks?.skip ?? []).filter(k => k !== key)
+  if (on) skip.push(key)
+  const { checks: _old, ...rest } = doc
+  return skip.length ? { ...rest, checks: { skip } } : rest
+}
+
 /** Что инженер может сдвинуть рукой и что спрятать по одному (как MOVABLE и HIDABLE на сервере). */
 export const MOVABLE = ['title', 'subtitle', 'legend', 'axis-title', 'label', 'annotation-text']
 export const HIDABLE = ['label']

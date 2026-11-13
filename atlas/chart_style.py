@@ -296,7 +296,7 @@ def style_axis(axis: Axis, spec: Mapping[str, Any], title: str, values: Iterable
 
 # --- Документ оформления (модель v2) ---------------------------------------------------------------------------------
 
-FORMAT_PARTS = ('chart', 'axes', 'series', 'elements')
+FORMAT_PARTS = ('chart', 'axes', 'series', 'elements', 'checks')
 AXIS_NAMES = ('x', 'y', 'y2', 'y3', 'y4', 'y5')
 ELEMENTS = 2000                # элементов со своим положением на одном графике
 ELEMENT = {'dx': ('num', -1, 1), 'dy': ('num', -1, 1), 'hide': 'bool'}      # сдвиг вправо и вниз в долях рисунка; спрятать (одну подпись точки)
@@ -324,6 +324,23 @@ def clean_elements(raw: Any) -> dict[str, dict[str, Any]]:
     return out
 
 
+CHECK_SKIPS = 200              # снятых находок проверки качества на одном графике
+
+
+def clean_checks(raw: Any) -> dict[str, Any]:
+    """Решения инженера по проверке качества (``atlas/chart_qc.py``): ``{'skip': [ключ находки или код проверки, …]}`` —
+    находки, которые он снял. Проверка их не теряет, а возвращает с пометкой «снято»."""
+    if _empty(raw) or raw == {}:
+        return {}
+    skip = raw.get('skip') if isinstance(raw, Mapping) else None
+    if skip is None:
+        return {}
+    if not isinstance(skip, (list, tuple)) or len(skip) > CHECK_SKIPS:
+        raise ParamError(f'Проверка качества: снятых находок не больше {CHECK_SKIPS}')
+    keys = list(dict.fromkeys(str(key)[:400] for key in skip if str(key).strip()))
+    return {'skip': keys} if keys else {}
+
+
 def series_key(s: Series) -> str:
     """Ключ ряда в документе — тот же, что на экране (``seriesLookKey``): группа или имя, и вид ряда."""
     return f'{s.group or s.name}|{s.kind}'
@@ -341,7 +358,8 @@ def clean_format(raw: Any) -> dict[str, Any]:
         one = clean_look(look, i)
         if one:
             series[str(key)[:300]] = one
-    for name, part in (('chart', chart), ('axes', axes), ('series', series), ('elements', clean_elements(src.get('elements')))):
+    for name, part in (('chart', chart), ('axes', axes), ('series', series), ('elements', clean_elements(src.get('elements'))),
+                       ('checks', clean_checks(src.get('checks')))):
         if part:
             out[name] = part
     return out
@@ -358,6 +376,8 @@ def merge_formats(*docs: Mapping[str, Any] | None) -> dict[str, Any]:
         for part in ('axes', 'series', 'elements'):
             for key, value in (doc.get(part) or {}).items():
                 out.setdefault(part, {})[key] = {**out.get(part, {}).get(key, {}), **value}
+        if doc.get('checks'):      # снятые находки проверки качества: список более позднего уровня заменяет прежний
+            out['checks'] = doc['checks']
     return copy.deepcopy(out)
 
 
@@ -381,6 +401,8 @@ def apply_format(chart: Chart, doc: Mapping[str, Any] | None, notes: list[Note] 
         for key, value in doc['elements'].items():
             placed[key] = {**placed.get(key, {}), **value}
         out = dataclasses.replace(out, style={**out.style, 'elements': placed})
+    if doc.get('checks'):
+        out = dataclasses.replace(out, style={**out.style, 'checks': doc['checks']})
     names = set(out.axis_names()) | {'x'}
     for name, spec in (doc.get('axes') or {}).items():
         if name not in names:
@@ -497,6 +519,7 @@ def _shared_format(raw: Any) -> dict[str, Any]:
     """Документ общего уровня (тема, тип, шаблон): положение элементов относится к одному графику и на общий уровень не переносится."""
     doc = clean_format(raw)
     doc.pop('elements', None)
+    doc.pop('checks', None)      # снятые находки проверки качества — тоже решение по одному графику
     return doc
 
 
