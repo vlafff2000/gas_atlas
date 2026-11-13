@@ -28,6 +28,7 @@ PAGE_MM = 170.0             # ширина текста листа A4: рису�
 PLOT_SHARE = 0.3            # область построения меньше этой доли рисунка
 FLAT_SHARE = 0.2            # кривые шкалы занимают меньше этой доли высоты поля…
 FLAT_MIN = 0.012            # …но это не прямая линия (у неё высота — толщина линии)
+FIX_LIMIT = 500             # столько подписей прячет одно исправление
 SHOWN = 12                  # столько имён элементов держит одна сводная находка
 
 TITLES = {'overlap': 'Наложение', 'off-edge': 'Выход за край', 'small-font': 'Мелкий шрифт', 'ticks': 'Тесные деления',
@@ -85,6 +86,7 @@ def _overlaps(texts: list[dict[str, Any]], width: float, height: float) -> list[
     pairs = 0
     crowded: list[str] = []
     onto: dict[str, list[str]] = {}
+    hide: list[str] = []      # какие подписи спрятать, чтобы остальные читались: из каждой тесной пары — вторая по X
     order = sorted(texts, key=lambda e: e['box'][0])      # заметание по X: сравниваются только рамки, пересекающиеся по ширине
     for i, a in enumerate(order):
         for b in order[i + 1:]:
@@ -96,6 +98,8 @@ def _overlaps(texts: list[dict[str, Any]], width: float, height: float) -> list[
             if len(labels) == 2:
                 pairs += 1
                 crowded += [a['id'], b['id']]
+                if a['id'] not in hide and b['id'] not in hide:
+                    hide.append(b['id'])
             elif len(labels) == 1:
                 other = b if labels[0] is a else a
                 onto.setdefault(other['id'], []).append(labels[0]['id'])
@@ -109,10 +113,10 @@ def _overlaps(texts: list[dict[str, Any]], width: float, height: float) -> list[
     for other, labels in onto.items():
         n = len(set(labels))
         out.append(_finding('overlap', 'warn', f'{element_title(by_id[other])} и подписи точек накладываются: {n} {_plural(n, "подпись", "подписи", "подписей")}.',
-                            [by_id[other]['owner'], *labels[:SHOWN]], f'labels|{by_id[other]["owner"]}'))
+                            [by_id[other]['owner'], *labels[:SHOWN]], f'labels|{by_id[other]["owner"]}') | {'_hide': list(dict.fromkeys(labels))})
     if pairs:
         out.append(_finding('overlap', 'warn', f'Подписи точек накладываются друг на друга: {pairs} {_plural(pairs, "пара", "пары", "пар")}. '
-                            'Часть подписей можно скрыть или отодвинуть.', crowded[:SHOWN], 'labels'))
+                            'Часть подписей можно скрыть или отодвинуть.', crowded[:SHOWN], 'labels') | {'_hide': hide})
     return out
 
 
@@ -187,6 +191,20 @@ def _data(chart: Chart) -> list[dict[str, Any]]:
     return out
 
 
+def _fix(found: dict[str, Any], placed: Mapping[str, Any], by_id: Mapping[str, Mapping[str, Any]]) -> None:
+    """Предложение исправления в один щелчок: ``fix = {'text', 'places': {имя элемента: None | {'hide': True}}}``. ``None`` — вернуть
+    элемент на автоматическое место (сдвинутый рукой элемент — самая частая причина наложения), ``hide`` — спрятать лишние подписи
+    точек. Применяет исправление инженер, одним шагом отмены; сервер ничего не меняет сам."""
+    hide = found.pop('_hide', None) or []
+    back = [name for name in found['elements'] if (placed.get(name) or {}).get('dx') or (placed.get(name) or {}).get('dy')]
+    if found['code'] in ('overlap', 'off-edge') and back:
+        names = ', '.join(_low(element_title(by_id[n])) if n in by_id else n for n in back[:3])
+        found['fix'] = {'text': f'Вернуть на место: {names}', 'places': {name: None for name in back}}
+    elif found['code'] == 'overlap' and hide:
+        n = len(hide)
+        found['fix'] = {'text': f'Скрыть {n} {_plural(n, "подпись", "подписи", "подписей")}', 'places': {name: {'hide': True} for name in hide[:FIX_LIMIT]}}
+
+
 def check(scene: Sequence[Mapping[str, Any]], chart: Chart | None = None, skip: Iterable[str] = (), page_mm: float | None = PAGE_MM) -> list[dict[str, Any]]:
     """Находки по сцене рисунка и по данным графика. ``skip`` — ключи (или коды проверок), снятые инженером: такие находки
     возвращаются с ``skipped: True``. ``page_mm`` — ширина места на листе: рисунок шире уменьшат до неё, и шрифт проверяется
@@ -252,6 +270,9 @@ def check(scene: Sequence[Mapping[str, Any]], chart: Chart | None = None, skip: 
 
     if chart is not None:
         out += _data(chart)
+    placed = (chart.style.get('elements') or {}) if chart is not None else {}
+    for one in out:
+        _fix(one, placed, by_id)
     off = set(skip)
     for one in out:
         if one['key'] in off or one['code'] in off:

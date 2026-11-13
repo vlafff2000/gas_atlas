@@ -4,7 +4,7 @@
 // Под рисунком — находки проверки качества (atlas/chart_qc.py): подсказки, что читается плохо; ненужную инженер снимает.
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { ChartFormat } from './chartFormat'
-import { dragTarget, elementAt, elementTitle, hidable, isShifted, movable, nudgeStep, shifted, unshifted, withPlace, withSkip, type Finding, type SceneElement } from './exportStage'
+import { dragTarget, elementAt, elementTitle, hidable, isShifted, movable, nudgeStep, shifted, unshifted, withFix, withPlace, withSkip, type Finding, type SceneElement } from './exportStage'
 
 interface Props {
   image: string
@@ -174,6 +174,7 @@ export function ExportStage({ image, scene, alt, doc, onDoc, onFormat, missing =
               <li key={f.key} className={f.level} onMouseEnter={() => setFlagged(f.elements)} onMouseLeave={() => setFlagged([])}>
                 <span className="mark" aria-hidden="true">{f.level === 'warn' ? '!' : 'i'}</span>
                 <span className="text">{f.text}</span>
+                {f.fix && <button type="button" className="fix" title="Изменить положение элементов; «Отменить» вернёт" onClick={() => { setFlagged([]); setPending({}); change(withFix(doc, f.fix!)) }}>{f.fix.text}</button>}
                 {first && <button type="button" className="link" onClick={() => { setSelected(first); frame.current?.focus({ preventScroll: true }) }}>Выделить</button>}
                 <button type="button" className="link" title="Убрать подсказку для этого графика; её можно вернуть" onClick={() => { setFlagged([]); change(withSkip(doc, f.key, true)) }}>Не показывать</button>
               </li>

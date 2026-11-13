@@ -196,3 +196,42 @@ def test_preview_returns_findings_and_file_is_not_blocked():
     assert [(f['key'], f.get('skipped')) for f in skipped['checks']] == [('overlap:legend|title', True)]
     assert skipped['image'] == body['image']      # снятая находка рисунок не меняет
     assert export_any.export(_chart(), {'format': 'png', 'dpi': 150, 'doc': doc})[0][:4] == b'\x89PNG'      # с находкой файл всё равно выгружается
+
+
+# ---- исправления в один щелчок ----
+
+def _apply(doc, fix):
+    """То же, что делает экран (``withPlace``): ``None`` — вернуть на место, иначе — дописать поля."""
+    placed = dict(doc.get('elements') or {})
+    for name, place in fix['places'].items():
+        if place is None:
+            placed.pop(name, None)
+        else:
+            placed[name] = {**placed.get(name, {}), **place}
+    return {**doc, 'elements': placed}
+
+
+def test_fix_returns_moved_element_and_finding_goes_away():
+    doc = {'elements': {'legend': {'dx': -0.3, 'dy': -0.94}}}
+    found = _found(_chart(), doc)
+    assert found[0]['fix'] == {'text': 'Вернуть на место: легенда', 'places': {'legend': None}}
+    assert _found(_chart(), _apply(doc, found[0]['fix'])) == []
+    edge = _found(_chart(), {'elements': {'title': {'dx': -0.2}}})[0]
+    assert edge['code'] == 'off-edge' and edge['fix']['places'] == {'title': None}
+
+
+def test_fix_hides_crowded_labels_and_the_rest_reads():
+    c = Chart('t', 'Подписи', Axis('Дата', scale='time'), Axis('Давление, кгс/см²'))
+    c.series.append(Series('пласт', DAYS, [50.0] * len(DAYS), 'line', look={'valueLabels': True}))
+    found = _found(c)
+    fix = found[0]['fix']
+    assert fix['text'].startswith('Скрыть ') and all(p == {'hide': True} for p in fix['places'].values())
+    assert 0 < len(fix['places']) < len(DAYS)      # прячется часть подписей, не все
+    assert _found(c, _apply({}, fix)) == []
+
+
+def test_no_fix_when_nothing_to_return_or_hide():
+    scene = [_box('plot', 'plot', [0.3, 0.3, 0.8, 0.8], mm=[160.0, 100.0])]
+    assert all('fix' not in f for f in chart_qc.check(scene, page_mm=None))
+    scene = [PLOT, _box('title', 'title', [0.1, 0.01, 0.5, 0.05]), _box('subtitle', 'subtitle', [0.1, 0.03, 0.4, 0.065])]
+    assert 'fix' not in chart_qc.check(scene, page_mm=None)[0]      # наложение без ручного сдвига: решает инженер
