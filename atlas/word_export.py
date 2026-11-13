@@ -281,6 +281,63 @@ def paginate(layout: Layout, items: Sequence[Item]) -> List[List[List[int]]]:
     return pages
 
 
+# ---------- проверка раскладки: ничто не выходит за ячейку и лист ----------
+
+TOLERANCE = 0.2                 # мм: округление размеров не считается нарушением
+MIN_DPI = 150                   # ниже картинка на бумаге заметно «мылится»
+MIN_WIDTH = 60.0                # уже этого подписи и деления на графике мелкие
+
+
+def check_layout(layout: Layout, items: Sequence[Item]) -> List[dict]:
+    """Жёсткая проверка раскладки по уже посчитанным размерам: график не шире ячейки и не выше места на листе, ряды помещаются на
+    лист, разрешение картинки достаточно. Возвращает находки ``{'code', 'level', 'text', 'items'}`` (пусто — всё на месте): это отчёт
+    инженеру, документ строится в любом случае. Находки по одному графику сворачиваются в одну строку с перечнем."""
+    found: dict = {}
+
+    def add(code: str, level: str, text: str, name: str) -> None:
+        found.setdefault(code, {'code': code, 'level': level, 'text': text, 'items': []})['items'].append(name)
+
+    cell, (_, page_h) = layout.cell(), layout.content()
+    for it in items:
+        cap = caption_height(layout, it.text, cell)
+        if it.w > cell + TOLERANCE:
+            add('wider', 'warn', f'График шире ячейки ({cell:.0f} мм): выйдет за поле листа или за соседнюю колонку.', it.name)
+        if it.h > layout.max_image_height(cap) + TOLERANCE:
+            add('taller', 'warn', 'График выше, чем помещается на листе вместе с подписью.', it.name)
+        if it.w < MIN_WIDTH - TOLERANCE:
+            add('narrow', 'info', f'График уже {MIN_WIDTH:.0f} мм: подписи и деления на нём получатся мелкими. Уменьшите число колонок или графиков в ряду.', it.name)
+        if it.png and it.w > 0:
+            pixels = struct.unpack('>I', it.png[16:20])[0]
+            if pixels / (it.w / 25.4) < MIN_DPI - 1:
+                add('dpi', 'info', f'Разрешение картинки ниже {MIN_DPI} точек на дюйм: на бумаге она будет нечёткой.', it.name)
+    if layout.per_page:
+        for n, rows in enumerate(paginate(layout, items), 1):
+            need = sum(row_height(layout, [items[i] for i in row]) for row in rows)
+            if need > page_h + TOLERANCE:
+                add('page', 'warn', f'Заданные {layout.per_page} графиков не помещаются на лист по высоте ({need:.0f} мм при {page_h:.0f} мм): '
+                    'Word перенесёт ряд на следующий лист. Уменьшите высоту графика или число на листе.', f'лист {n}')
+    return list(found.values())
+
+
+def merge_checks(findings: Sequence[Mapping[str, Any]]) -> List[dict]:
+    """Находки нескольких документов одного отчёта: одинаковые коды сливаются, перечни графиков складываются."""
+    merged: dict = {}
+    for f in findings:
+        one = merged.setdefault(f['code'], {**f, 'items': []})
+        one['items'] = list(dict.fromkeys([*one['items'], *f['items']]))
+    return list(merged.values())
+
+
+def check_summary(findings: Sequence[Mapping[str, Any]]) -> List[str]:
+    """Строки отчёта для интерфейса: суть и первые графики."""
+    out = []
+    for f in findings:
+        names = list(dict.fromkeys(f['items']))
+        shown = ', '.join(names[:3]) + (f' и ещё {len(names) - 3}' if len(names) > 3 else '')
+        out.append(f"{f['text']} Затронуто: {len(names)} ({shown}).")
+    return out
+
+
 # ---------- Word ----------
 
 def twips(mm: float) -> int:

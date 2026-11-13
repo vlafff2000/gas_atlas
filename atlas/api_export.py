@@ -877,7 +877,7 @@ def routes(projects: Projects) -> list[Route]:
         font, font_size = font_from(form)
         meta = {**metadata(pid, data, options, form), 'captions': captions, 'word': {k: v for k, v in form.items() if k.startswith('word_')}}
         name = projects.manifest(pid)['name']
-        paths, errors, done = [], [], 0
+        paths, errors, done, checks = [], [], 0, []
         exports = projects.store.path(pid) / 'exports'
         exports.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='pending_word_', dir=str(exports)) as tmp:
@@ -886,13 +886,15 @@ def routes(projects: Projects) -> list[Route]:
                 errors.extend(local)
                 if not items:
                     continue
+                checks.extend(word_export.check_layout(layout, items))
                 target = Path(tmp) / 'document.docx'
                 word_export.build_docx(items, layout, name + ' · ' + label, local, target=target)
                 done += len(items)
                 paths.append(projects.store.save_export_file(pid, safe_name(label) + '.docx', target, {**meta, 'module': module, 'errors': local}))
         if not paths:
             raise Failure(400, 'Word не создан: ни один график не построился. ' + (errors[0]['Ошибка'] if errors else ''))
-        return {'files': [p.name for p in map(_path, paths)], 'planned': len(plan.jobs), 'completed': done, 'chart_files': len(paths), 'errors': errors}
+        return {'files': [p.name for p in map(_path, paths)], 'planned': len(plan.jobs), 'completed': done, 'chart_files': len(paths), 'errors': errors,
+                'layout_checks': word_export.merge_checks(checks)}
 
     def word_preview(request, body):
         """Лист будущего документа картинкой: тот же расчёт, что у ``word``; строятся только графики показанного листа."""
@@ -923,7 +925,8 @@ def routes(projects: Projects) -> list[Route]:
                                            scale=min(max(float(body.get('scale') or 3.0), 2.0), 9.0),
                                            project=projects.manifest(pid)['name'] + ' · ' + label)
         pw, ph = layout.page()
-        return {'documents': [{'id': m, 'label': lb, 'charts': len(js)} for m, lb, js in groups], 'doc': doc, 'page': min(page, pages), 'pages': pages,
+        return {'layout_checks': word_export.check_layout(layout, items),
+                'documents': [{'id': m, 'label': lb, 'charts': len(js)} for m, lb, js in groups], 'doc': doc, 'page': min(page, pages), 'pages': pages,
                 'exact': bool(layout.per_page), 'page_mm': [pw, ph], 'image_mm': [round(items[shown[0]].w), round(items[shown[0]].h)] if shown else [0, 0],
                 'png': 'data:image/png;base64,' + base64.b64encode(image).decode('ascii')}
 
