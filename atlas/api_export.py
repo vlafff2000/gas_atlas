@@ -441,6 +441,16 @@ def _archive_work(job, params, _payload) -> list:
     return out
 
 
+def _quality_work(job, params, _payload) -> list:
+    """Находки проверки качества одного графика (``atlas/chart_qc.py``) — в процессе-исполнителе: тот же рисунок, что уйдёт в файл
+    (ширина, шрифты и вид архива), PNG 150 DPI только ради сцены; сам график и файлы не меняются."""
+    from atlas import chart_qc
+    width_mm, height_mm, font, font_size, look = params
+    scene: list = []
+    figure_bytes(job.render(), 'png', 150, width_mm, height_mm, font=font, font_size=font_size, look=look, scene=scene)
+    return [{k: f[k] for k in ('key', 'code', 'level', 'text')} for f in chart_qc.check(scene) if not f.get('skipped')]
+
+
 def _pack_work(job, params, _payload) -> bytes:
     """PNG графика пакета (в процессе-исполнителе)."""
     dpi, image_w, image_h, font, font_size, look = params
@@ -765,6 +775,22 @@ def routes(projects: Projects) -> list[Route]:
             stream.close()
         projects.store.event(pid, 'Экспорт', meta)
         return result_json(result)
+
+    def quality(request, body):
+        """Проверка качества всех графиков плана перед выгрузкой: что на файлах читается плохо. Только отчёт, файлы не создаются."""
+        pid, form = request.path_params['pid'], form_of(body)
+        options, plan, data = need_plan(pid, form)
+        meta = metadata(pid, data, options, form)
+        params = (meta['width_mm'], meta.get('height_mm'), meta.get('font', 'default'), meta.get('font_size'), meta.get('look', 'default'))
+        jobs = list(plan.jobs)
+        charts, failed = [], []
+        for job, (found, error) in zip(jobs, render_pool.run(jobs, _quality_work, params)):
+            if error is not None:
+                failed.append({'График': job.name, 'Ошибка': error})
+            else:
+                charts.append({'name': job.name, 'module': getattr(job, 'module', ''), 'findings': found})
+        bad = [c for c in charts if c['findings']]
+        return {'checked': len(charts), 'with_findings': len(bad), 'charts': bad, 'errors': failed}
 
     def word_groups(plan, layout):
         """Графики по модулям (один документ на модуль) или все вместе, если выбран один документ."""
@@ -1233,6 +1259,7 @@ def routes(projects: Projects) -> list[Route]:
         Route(base + '/gis', E(gis), methods=['POST']),
         Route(base + '/gis-hikg', E(gis_sums), methods=['POST']),
         Route(base + '/bundle', E(bundle), methods=['POST']),
+        Route(base + '/quality', E(quality), methods=['POST']),
         Route(base + '/presets', E(save_preset), methods=['POST']),
         Route(base + '/sync', E(sync)),
     ]
