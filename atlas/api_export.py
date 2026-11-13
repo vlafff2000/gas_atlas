@@ -33,7 +33,7 @@ from .modules._production import visible_periods
 from atlas.engine.core.documents import DEFAULT_CAPTIONS, grid_pdf, report_docx
 from atlas.engine.core.export import figure_bytes
 
-from . import VERSION, chart_format, chart_labels, render_pool, word_export
+from . import VERSION, chart_format, chart_labels, export_memory, render_pool, word_export
 from .contract import Data, ParamError
 from .modules._elpro_series import EXTRAS as ELPRO_EXTRAS
 from .projects import Conflict, Projects
@@ -736,6 +736,22 @@ def routes(projects: Projects) -> list[Route]:
         projects.manifest(pid)
         return choices(projects.data(pid), request.query_params.get('exclusions', '1') != '0')
 
+    def memory_get(request, body):
+        pid = request.path_params['pid']
+        projects.manifest(pid)
+        return export_memory.read(projects.store.path(pid))
+
+    def memory_save(request, body):
+        pid = request.path_params['pid']
+        projects.manifest(pid)
+        return export_memory.write(projects.store.path(pid), body.get('form'), body.get('tab'))
+
+    def memory_reset(request, body):
+        pid = request.path_params['pid']
+        projects.manifest(pid)
+        export_memory.reset(projects.store.path(pid))
+        return {'form': {}, 'tab': None}
+
     def plan_view(request, body):
         options, plan, _ = prepared(request.path_params['pid'], form_of(body))
         if plan is None:
@@ -1299,6 +1315,9 @@ def routes(projects: Projects) -> list[Route]:
     base = '/api/projects/{pid}/export'
     return [
         Route(base + '/form', E(form_choices)),
+        Route(base + '/memory', E(memory_get)),
+        Route(base + '/memory', E(memory_save), methods=['POST']),
+        Route(base + '/memory/reset', E(memory_reset), methods=['POST']),
         Route(base + '/plan', E(plan_view), methods=['POST']),
         Route(base + '/preview', E(preview), methods=['POST']),
         Route(base + '/chart', E(chart), methods=['POST']),
