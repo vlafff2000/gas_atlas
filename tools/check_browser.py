@@ -63,6 +63,27 @@ STAGE_MODULE, STAGE_PARAMS = 'gdi', {'wells': ['31', '70']}
 
 
 def stage_scenario(page, pid: str) -> list[str]:
+    """Сценарий предпросмотра с диагностикой: при сбое в замечание попадает, какие запросы вкладки ушли и что показывает страница."""
+    seen: list[str] = []
+
+    def note(r):
+        if '/export/any/' in r.url:
+            seen.append(f'{r.status} {r.url.rsplit("/", 1)[-1]}')
+
+    page.on('response', note)
+    try:
+        return _stage_scenario(page, pid)
+    except Exception as e:
+        try:
+            shown = f'предпросмотров на странице: {page.locator(".stage").count()}, заметки: {page.locator(".note").all_inner_texts()[:3]}'
+        except Exception:
+            shown = 'страница не отвечает'
+        return [f'{type(e).__name__}: {str(e)[:160]}; ответы вкладки: {seen[-8:]}; {shown}']
+    finally:
+        page.remove_listener('response', note)
+
+
+def _stage_scenario(page, pid: str) -> list[str]:
     """Предпросмотр «как в файле» (Экспорт → Любой график): перетащенный заголовок в новом рисунке стоит там, куда его отпустили,
     а остальное осталось на месте. Рисунок предпросмотра — тот же PNG, что уходит на выгрузку (tests/atlas/test_export_any.py)."""
     def is_preview(r):
