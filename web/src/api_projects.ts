@@ -154,6 +154,10 @@ export const anyApi = {
 
 export const exportApi = {
   choices: (pid: string, exclusions: boolean) => request<ExportChoices>(`${P(pid)}/export/form?exclusions=${exclusions ? 1 : 0}`),
+  /** Память экспорта: последние настройки вкладок и открытая вкладка (папка проекта, atlas/export_memory.py). */
+  memory: (pid: string) => request<{ form: Form; tab: string | null }>(`${P(pid)}/export/memory`),
+  saveMemory: (pid: string, form: Form, tab: string | null) => request<{ form: Form; tab: string | null }>(`${P(pid)}/export/memory`, json('POST', { form, tab })),
+  resetMemory: (pid: string) => request<{ form: Form; tab: string | null }>(`${P(pid)}/export/memory/reset`, json('POST', {})),
   plan: (pid: string, form: Form) => request<ExportPlan>(`${P(pid)}/export/plan`, json('POST', { form })),
   preview: async (pid: string, form: Form, chart: string) =>
     URL.createObjectURL(await (await send(`${P(pid)}/export/preview`, json('POST', { form, chart }))).blob()),

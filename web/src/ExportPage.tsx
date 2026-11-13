@@ -105,6 +105,39 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id])
+  // Память экспорта: последние настройки всех вкладок и открытая вкладка запоминаются в проекте (в том числе при выходе из раздела и между запусками).
+  // Сохранённое подставляется только в то, что ещё не задано; «Сбросить настройки» возвращает умолчания.
+  const [memoryReady, setMemoryReady] = useState(false)
+  const memoryTimer = useRef<number | undefined>(undefined)
+  const keptTab = useRef<string | null>(null)             // вкладка, открытая в разделе «Экспорт»; страницы «Пакет» и «ГГХ» её не затирают
+  useEffect(() => {
+    let alive = true
+    setMemoryReady(false)
+    exportApi.memory(project.id).then(m => {
+      if (!alive) return
+      setForm(f => ({ ...m.form, ...f }))
+      keptTab.current = m.tab
+      if (m.tab && view === 'export') setTab(t => t ?? m.tab)
+      setMemoryReady(true)
+    }).catch(() => alive && setMemoryReady(true))
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id])
+  useEffect(() => {
+    if (!memoryReady) return
+    window.clearTimeout(memoryTimer.current)
+    memoryTimer.current = window.setTimeout(() => { exportApi.saveMemory(project.id, form, view === 'export' ? tab : keptTab.current).catch(() => undefined) }, 600)
+    return () => window.clearTimeout(memoryTimer.current)
+  }, [form, tab, memoryReady, project.id, view])
+  const resetMemory = async () => {
+    setMemoryReady(false)
+    try {
+      await exportApi.resetMemory(project.id)
+      setForm(f => Object.fromEntries(Object.entries(f).filter(([k]) => k.endsWith('_wells') || k.endsWith('_groups'))))   // фильтры скважин — отдельно, их не трогаем
+      setToast('Настройки экспорта сброшены к умолчаниям.')
+    } catch (e) { setError((e as Error).message) }
+    setMemoryReady(true)
+  }
   const setTabFilter = (tab: string, groups: string[] | undefined, wells: string[] | undefined) => {
     const fields = filterFields(tab)
     if (!fields) return
@@ -464,6 +497,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
             <input value={presetName} maxLength={120} onChange={e => setPresetName(e.target.value)} />
           </label>
           <button type="button" className="quiet" disabled={!presetName.trim() || busy !== null} onClick={savePreset}>Сохранить шаблон экспорта</button>
+          <button type="button" className="quiet" onClick={resetMemory} title="Последние настройки вкладок запоминаются сами; кнопка возвращает умолчания (фильтры скважин остаются)">Сбросить настройки к умолчаниям</button>
         </div>
       </details>
 
