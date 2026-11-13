@@ -189,13 +189,16 @@ def common(form: Mapping[str, Any]) -> Dict[str, Any]:
     return out
 
 
-STYLE_CHART = ('grid', 'grid_width', 'grid_color', 'minor_grid', 'minor_grid_color', 'minor_grid_width')
+STYLE_CHART = ('grid', 'grid_width', 'grid_color', 'minor_grid', 'minor_grid_color', 'minor_grid_width', 'legend_columns')
 STYLE_TEXT = ('title_bold', 'title_italic', 'tick_bold', 'tick_italic')
 
 
 def style_of(form: Mapping[str, Any]) -> Dict[str, Any]:
     """Сетка графика и жирный/курсив подписей осей из общих полей формы; пустые поля не передаются."""
-    chart = clean_chart({key: form.get('fmt_' + key) for key in STYLE_CHART})
+    raw = {key: form.get('fmt_' + key) for key in STYLE_CHART}
+    if raw['legend_columns'] in (0, '0'):
+        raw['legend_columns'] = None    # 0 = «авто»
+    chart = clean_chart(raw)
     text = clean_axis({key: form.get('fmt_axis_' + key if key.startswith('title') else 'fmt_' + key) for key in STYLE_TEXT}, 'общие')
     out: Dict[str, Any] = {}
     if chart:
