@@ -19,3 +19,5 @@
 .figure-chart .well-schematic { margin: 0 auto; }
 svg.zoomable { cursor: grab; touch-action: none; user-select: none; }
 svg.zoomable:active { cursor: grabbing; }
+.gis-date-switch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.gis-date-switch button { min-width: 32px; }

@@ -263,3 +263,37 @@ def test_construction_checks_reaming_downgrades_and_inverted():
     assert 'inverted' in {c['code'] for c in bad['checks']} and 'tubing_below_casing' in {c['code'] for c in bad['checks']}
     clean = pc.schematic(frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('НКТ', 0, 940, 73, 62), ('Фильтр', 960, 1005, None, None)]), 1000.0)
     assert clean['checks'] == []
+
+
+def gis_frames():
+    iv = pd.DataFrame({'well': ['7'] * 5, 'date': pd.to_datetime(['2024-04-01', '2024-04-01', '2024-10-01', '2024-10-01', '2024-10-01']),
+                       'pack': ['A'] * 5, 'from_m': [950, 960, 950, 960, 970], 'to_m': [960, 970, 960, 970, 980],
+                       'kg': [.8, None, .4, None, None], 'note': ['', 'не ясно', '', 'заглинизирован', 'водонасыщен']})
+    fl = pd.DataFrame({'well': ['7'], 'date': pd.to_datetime(['2024-10-01']), 'fill': ['вода'], 'from_m': [990.], 'to_m': [1005.]})
+    return iv, fl
+
+
+def test_gis_columns_collector_rule_and_dates():
+    from atlas import gis_columns as gc
+    iv, fl = gis_frames()
+    gis = gc.prepare('7', iv, fl)
+    assert gis['dates'] == ['2024-04-01', '2024-10-01']
+    coll = {(s['y0'], s['y1']): s['fill'] for s in gis['shapes'] if s['col'] == 'collector'}
+    assert coll[(960, 970)] == gc.COLORS['non_collector']        # «заглинизирован» — неколлектор, глина проверяется первой
+    assert coll[(970, 980)] == gc.COLORS['collector']            # «водонасыщен» без Кг — коллектор
+    assert gc.prepare('7', iv.iloc[:0], None) is None and gc.prepare('99', iv, fl) is None
+    sat = [s for s in gis['shapes'] if s['col'] == 'saturation' and s['date'] == '2024-10-01']
+    assert {s_['fill'] for s_ in sat} == {gc.kg_color(.4), gc.COLORS['water']}      # Кг 0,4 — градация, «водонасыщен» — синий; глина без насыщения
+    bore = [s for s in gis['shapes'] if s['col'] == 'bore']
+    assert {s['date'] for s in bore} == {'2024-10-01'} and len(bore) == 2     # на 01.04.2024 заполнения нет — колонка пустая
+
+
+def test_schematic_carries_gis_columns_and_dates():
+    iv, fl = gis_frames()
+    from atlas import gis_columns as gc
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None)])
+    sch = pc.schematic(cons, None, gis=gc.prepare('7', iv, fl))
+    assert sch['gis']['dates'] == ['2024-04-01', '2024-10-01'] and sch['gis']['shift'] == gc.SHIFT
+    assert {s.get('col') for s in sch['shapes']} >= {'collector', 'saturation', 'bore'}
+    assert all(sch['top'] <= s['y0'] <= s['y1'] <= sch['bottom'] for s in sch['shapes'] if s.get('col'))
+    assert 'gis' not in pc.schematic(cons, None)

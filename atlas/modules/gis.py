@@ -316,7 +316,8 @@ class GisModule(Module):
                     result.charts.append(gis_well.construction_chart(well, cons, data.get(DatasetKind.BOTTOM), data[GIS], bool(params['scheme_gis']),
                                                                       data.get(DatasetKind.WELL_GEO), params.get('perf_depth', 'abs'), date,
                                                                       artificial=bool(params.get('scheme_artificial', True)),
-                                                                      break_m=float(params.get('scheme_break_m', 50) or 0)))
+                                                                      break_m=float(params.get('scheme_break_m', 50) or 0),
+                                                                      intervals=data.get(INTERVALS), filling=data.get(DatasetKind.GIS_FILLING)))
             result.notes.extend(Note(n) for n in dict.fromkeys(c.figure.data['perf_note'] for c in result.charts if c.figure.data['perf_note']))
             result.notes.append(Note('Схема забоя та же, что в паспорте скважины: показаны эксплуатационная колонна, НКТ, фильтр, перфорация, '
                                      'расширка, пакер и забой. Ширина условная, диаметры — в подписях.'))

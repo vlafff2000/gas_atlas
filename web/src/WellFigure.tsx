@@ -56,7 +56,11 @@ function useDepthView(full: [number, number], g: { vbH: number; y0: number; h: n
 
 /** Забойная часть: рисуется по фигурам ядра (те же, что на странице PDF), глубина вниз. */
 export function WellSchematic({ s }: { s: Schematic }) {
-  const W = 720, H = 500, left = 46, scaleX = 68, cx = left + 3.2 * scaleX
+  const shift = s.gis?.shift ?? 0, scaleX = 68, W = 720 + shift * scaleX, H = 500, left = 46, cx = left + (3.2 + shift) * scaleX
+  const dates = s.gis?.dates ?? []
+  const [picked, setPicked] = useState<string | null>(null)
+  const date = picked && dates.includes(picked) ? picked : dates[dates.length - 1] ?? null     // по умолчанию самый свежий замер
+  const at = dates.indexOf(date ?? '')
   const zoom = useDepthView([s.top, s.bottom], { vbH: H, y0: 12, h: H - 24 })
   const clip = useId()
   if (!s.shapes || s.items.length === 0) return <p className="muted">{s.notes[0] ?? 'Нет конструкции.'}</p>
@@ -70,7 +74,18 @@ export function WellSchematic({ s }: { s: Schematic }) {
   } else {
     for (let t = Math.ceil(v0 / step) * step; t <= v1; t += step) ticks.push([t, t])
   }
+  const shown = s.shapes.filter(f => !f.date || f.date === date)
+  const fmt = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}`
   return (
+    <>
+    {dates.length > 0 && (
+      <div className="gis-date-switch">
+        <button type="button" disabled={at <= 0} onClick={() => setPicked(dates[at - 1])} aria-label="Предыдущий замер">◀</button>
+        <select value={date ?? ''} onChange={e => setPicked(e.target.value)} aria-label="Дата исследования">
+          {[...dates].reverse().map(d => <option key={d} value={d}>{fmt(d)}</option>)}</select>
+        <button type="button" disabled={at >= dates.length - 1} onClick={() => setPicked(dates[at + 1])} aria-label="Следующий замер">▶</button>
+        <span className="muted small">Насыщение пласта и ствола — на дату исследования; коллектор — по последнему замеру пачки. Нет записи на дату — колонка пустая.</span>
+      </div>)}
     <svg ref={zoom.ref} className="well-schematic zoomable" viewBox={`0 0 ${W} ${H}`} role="img"
          aria-label="Схема забойной части: эксплуатационная колонна, НКТ, фильтр, интервалы расширки, забой">
       <defs>
@@ -91,7 +106,9 @@ export function WellSchematic({ s }: { s: Schematic }) {
           <text x={left - 9} y={y(pos)} className="schematic-tick-text" textAnchor="end" dominantBaseline="middle">{real}</text></g>))}
       <text x={left - 9} y="10" className="schematic-tick-text" textAnchor="end">м</text>
       <g clipPath={`url(#${clip})`}>
-      {s.shapes.map((f, i) => f.t === 'poly'
+      {s.gis && (['Коллектор', 'Насыщение пласта'] as const).map((t, i) =>
+        <text key={t} x={x(i ? -4.25 : -5.55)} y={H - 1} className="schematic-tick-text" textAnchor="middle" fontSize="10">{t}</text>)}
+      {shown.map((f, i) => f.t === 'poly'
         ? <polyline key={i} points={f.pts!.map(([u, m]) => `${x(u)},${y(m)}`).join(' ')} fill="none" stroke={f.stroke} strokeWidth={f.width} strokeLinejoin="miter" />
         : f.t === 'rect'
         ? <rect key={i} x={x(f.x0)} y={y(f.y0)} width={(f.x1 - f.x0) * scaleX} height={Math.max(y(f.y1) - y(f.y0), 1)}
@@ -106,6 +123,7 @@ export function WellSchematic({ s }: { s: Schematic }) {
         </g>))}
       </g>
     </svg>
+    </>
   )
 }
 

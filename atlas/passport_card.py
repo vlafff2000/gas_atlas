@@ -133,7 +133,7 @@ def merge_items(items: list[dict[str, Any]], touch: float = .5) -> tuple[list[di
     return out, merged
 
 
-def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M) -> dict[str, Any]:
+def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M, gis: dict[str, Any] | None = None) -> dict[str, Any]:
     """Забойная часть: интервалы по типам, окно глубин и пояснение, чего не хватает. Глубины — метры от одного нуля."""
     items: list[dict[str, Any]] = []
     skipped: list[str] = []
@@ -179,6 +179,15 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
                             f'перекрыто {filter_end - bottom_m:g} м (песчаная пробка).')
     out['checks'] = check_construction(raw_items, bottom_m)      # подсказки: только показать причину, не исправлять
     out['shapes'], out['labels'] = shapes(out)
+    if gis:                                # колонки ГИС: коллектор, насыщение пласта и ствола (общее ядро gis_columns)
+        low_edge = max(out['bottom'], out['bottom_m'] or 0)
+        for sh in gis['shapes']:
+            if sh['y1'] is None:
+                sh = {**sh, 'y1': low_edge}
+            a, b = max(sh['y0'], out['top']), min(sh['y1'], out['bottom'])
+            if b > a:
+                out['shapes'].append({**sh, 'y0': a, 'y1': b})
+        out['gis'] = {'dates': gis['dates'], 'shift': GIS_SHIFT}
     out['ticks'] = None
     gaps = _gaps(out['items'], out['top'], out['bottom'], break_m) if break_m and break_m > 0 else []
     if gaps:
@@ -206,6 +215,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
 
 
 PACK_FILLS = [('#fdf0c0', '#a16207'), ('#d9f0d0', '#3f7d2a'), ('#d6e6fa', '#1d5fa8'), ('#f6d9e8', '#a3235f'), ('#e4dcf5', '#5b3fa0')]   # заливка и цвет подписи пачки
+GIS_SHIFT = 2.9      # сдвиг схемы вправо ради колонок ГИС (как gis_columns.SHIFT)
 HALF = {'casing': 1.0, 'tubing': .45}          # условные полуширины, без масштаба диаметров (диаметры — в подписях)
 
 
