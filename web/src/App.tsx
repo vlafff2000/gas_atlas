@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { UndoButtons, useUndo, useUndoValue } from './useUndo'
 import { swapEntry } from './undoStack'
+import { scrollRestore } from './scrollMemory'
 import { Icon } from './Icon'
 import { useProjectLooks } from './projectLooks'
 import { GroupColorsButton } from './GroupColorsButton'
@@ -372,6 +373,43 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     const timer = setTimeout(() => setToast(null), 9000)
     return () => clearTimeout(timer)
   }, [toast])
+
+  // Прокрутка раздела: запоминаем и возвращаем туда, где были, когда результат отрисован (пока страница дорастает — до 3 с).
+  const scrollKey = `scroll:${project.id}:${spec.id}` + (panel ? `:${panel}` : '')
+  const scrollArmed = useRef(false)      // писать позицию можно только после возврата: смена раздела сама сбрасывает окно вверх
+  const scrollRestored = useRef('')
+  const scrollKeyNow = useRef(scrollKey)
+  scrollKeyNow.current = scrollKey
+  useEffect(() => {
+    let raf = 0
+    const save = () => {
+      if (!scrollArmed.current) return
+      cancelAnimationFrame(raf); raf = requestAnimationFrame(() => remembered.set(scrollKey, Math.round(window.scrollY)))
+    }
+    window.addEventListener('scroll', save, { passive: true })
+    return () => { window.removeEventListener('scroll', save); cancelAnimationFrame(raf); scrollArmed.current = false }
+  }, [scrollKey])
+  useEffect(() => {
+    if (status.kind !== 'done' || !result || scrollRestored.current === scrollKey) return
+    scrollRestored.current = scrollKey
+    const saved = remembered.get<number | null>(scrollKey, null)
+    let stop = false, tries = 0, timer = 0
+    const cancel = () => { stop = true }
+    const events = ['wheel', 'keydown', 'touchstart', 'pointerdown'] as const
+    events.forEach(n => window.addEventListener(n, cancel, { once: true, passive: true }))
+    const step = () => {
+      if (stop) { scrollArmed.current = true; return }       // пользователь сам начал листать: не перебиваем
+      const r = scrollRestore(saved, document.documentElement.scrollHeight, window.innerHeight)
+      window.scrollTo(0, r.y)
+      if (r.done || ++tries > 30) { scrollArmed.current = true; events.forEach(n => window.removeEventListener(n, cancel)); return }
+      timer = window.setTimeout(step, 100)
+    }
+    step()
+    return () => {
+      clearTimeout(timer); events.forEach(n => window.removeEventListener(n, cancel))
+      if (scrollKeyNow.current === scrollKey) scrollArmed.current = true      // пересчёт посреди возврата: дальше пишем позицию как обычно
+    }
+  }, [status.kind, result, scrollKey])
 
   const refreshProject = useCallback(() => api.project(project.id).then(onProject), [project.id, onProject])
 
