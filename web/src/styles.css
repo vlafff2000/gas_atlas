@@ -507,3 +507,10 @@ table.frozen tbody tr.is-synced td:first-child { background: var(--accent-soft);
 /* Стрелки листания скважин (общий WellStepper) */
 .well-stepper { display: inline-flex; gap: 6px; align-items: flex-end; }
 .well-stepper > button.quiet { padding: 4px 10px; }
+
+/* заглушка на месте результата, пока идёт первый расчёт раздела */
+.skeleton-page { display: grid; gap: 12px; }
+.skeleton { height: 54px; border-radius: var(--radius); background: linear-gradient(90deg, var(--head-bg) 25%, var(--line) 50%, var(--head-bg) 75%); background-size: 200% 100%; animation: skeleton 1.4s linear infinite; }
+.skeleton.tall { height: 300px; }
+@keyframes skeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
