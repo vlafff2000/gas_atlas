@@ -55,6 +55,11 @@ export class UndoStack {
   clear() { this.past = []; this.future = [] }
 }
 
+/** Запись отмены для обратимой пары «добавить / убрать» (исключение точек): отмена меняет их местами. */
+export function swapEntry(label: string, run: (add: string[], remove: string[]) => Promise<unknown>, add: string[], remove: string[]): UndoEntry {
+  return { label, undo: async () => { await run(remove, add) }, redo: async () => { await run(add, remove) } }
+}
+
 /** Ctrl+Z / Cmd+Z — отмена, Ctrl+Shift+Z и Ctrl+Y — повтор. В полях ввода работает встроенная отмена текста. */
 export function undoKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean; target?: unknown }): 'undo' | 'redo' | null {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return null

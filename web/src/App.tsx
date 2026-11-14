@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { UndoButtons, useUndo, useUndoValue } from './useUndo'
+import { swapEntry } from './undoStack'
 import { Icon } from './Icon'
 import { useProjectLooks } from './projectLooks'
 import { GroupColorsButton } from './GroupColorsButton'
@@ -383,11 +384,13 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
     }
     setParams(next)
   }
-  // Конструктор: отмена и повтор любой правки макета (ряды, оси, оформление), Ctrl+Z только на его странице.
-  const layoutUndo = useUndo({ hotkey: builder })
+  // Единая история раздела: параметры и фильтры, макет графика и исключения точек откатываются Ctrl+Z / Ctrl+Y (журнал очищается при смене раздела и проекта).
+  const pageUndo = useUndo({ onNotice: text => setToast({ text, undo: false }) })
   const latest = useRef({ params, changeParams })
   latest.current = { params, changeParams }
-  useUndoValue(params?.layout, layout => { void latest.current.changeParams({ ...latest.current.params, layout }) }, layoutUndo, 'правка графика', project.id + spec.id + resets + (params ? '+' : '-'))
+  const paramsKey = JSON.stringify(params ?? null)
+  const stableParams = useMemo(() => params, [paramsKey])   // eslint-disable-line react-hooks/exhaustive-deps
+  useUndoValue(stableParams, p => { if (p) void latest.current.changeParams(p) }, pageUndo, builder ? 'правка графика' : 'изменение параметров', project.id + spec.id + resets + (params ? '+' : '-'))
 
   const exclusionDone = async (text: string, undo = true) => {
     setToast({ text, undo })
@@ -396,7 +399,10 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
   const excludePoint = async (dataset: string, id: string) => {
     try {
       const r = await api.exclude(project.id, dataset, [id], [], 'Исключено кликом на графике')
-      if (r.added) await exclusionDone(`Точка исключена. Всего исключено: ${r.excluded}.`)
+      if (r.added) {
+        pageUndo.push(swapEntry('исключение точки', (add, remove) => api.exclude(project.id, dataset, add, remove, 'Исключено кликом на графике').then(refreshProject), [id], []))
+        await exclusionDone(`Точка исключена. Всего исключено: ${r.excluded}.`)
+      }
     } catch (e) { setToast({ text: (e as Error).message, undo: false }) }
   }
   // последний список подтверждённых точек, сохранённый в этой сессии: два подтверждения подряд не затирают друг друга
@@ -415,6 +421,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
   }
   const applyTable = (dataset: string) => async (add: string[], remove: string[], reason: string) => {
     const r = await api.exclude(project.id, dataset, add, remove, reason)
+    if (r.added || r.removed) pageUndo.push(swapEntry('фильтр точек', (a, rm) => api.exclude(project.id, dataset, a, rm, reason).then(refreshProject), add, remove))
     await exclusionDone(`Фильтр сохранен: исключено ${r.added}, возвращено ${r.removed}. Кривые и таблицы пересчитаны.`)
   }
   const assignGroups = async (changes: Assignments, journal: string) => {
@@ -502,7 +509,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
             </select>
           </label>
         )}
-        {builder && <UndoButtons undo={layoutUndo} />}
+        <UndoButtons undo={pageUndo} />
         {result && spec.save_label && <button type="button" className="quiet" onClick={saveView}>{spec.save_label}</button>}
         {result && result.tables.length > 0 && (
           <button type="button" className="quiet" onClick={() => api.exportTables(spec.id, project.id, params).catch(e => setToast({ text: (e as Error).message, undo: false }))}>
