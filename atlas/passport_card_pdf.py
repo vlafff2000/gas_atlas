@@ -19,10 +19,18 @@ def _fmt(value, digits=1) -> str:
 
 
 def draw_schematic(ax, sch: dict[str, Any]) -> None:
-    ax.set_xlim(-3.2, 6.6)
+    gis = sch.get('gis')
+    day = gis['dates'][-1] if gis and gis['dates'] else None          # в PDF — самый свежий замер скважины
+    edge = -3.2 - (gis['shift'] if gis else 0)
+    ax.set_xlim(edge, 6.6)
     ax.set_ylim(sch['bottom'], sch['top'])
     ax.axis('off')
+    if gis:
+        ax.text(-5.55, sch['bottom'], 'Коллектор', fontsize=6.5, color=MUTED, ha='center', va='top')
+        ax.text(-4.25, sch['bottom'], f'Пласт, {day[8:10]}.{day[5:7]}.{day[:4]}' if day else 'Пласт', fontsize=6.5, color=MUTED, ha='center', va='top')
     for s in sch['shapes']:
+        if s.get('date') and s['date'] != day:
+            continue
         if s['t'] == 'rect':
             hatch = {'slots': '////', 'sand': '....', 'cement': 'xxxx'}.get(s['pattern'])
             ax.add_patch(Rectangle((s['x0'], s['y0']), s['x1'] - s['x0'], s['y1'] - s['y0'], facecolor=s['fill'],
@@ -36,16 +44,16 @@ def draw_schematic(ax, sch: dict[str, Any]) -> None:
                     arrowprops={'arrowstyle': '-', 'color': label['color'], 'linewidth': .6, 'shrinkA': 0, 'shrinkB': 0})
     if sch.get('ticks'):                       # сжатые участки: отметки в реальных глубинах на своих позициях
         for pos, real in sch['ticks']:
-            ax.plot([-3.0, -2.8], [pos, pos], color=MUTED, linewidth=.6)
-            ax.text(-3.05, pos, f'{real:g}', fontsize=7, color=MUTED, ha='right', va='center')
+            ax.plot([edge + .2, edge + .4], [pos, pos], color=MUTED, linewidth=.6)
+            ax.text(edge + .15, pos, f'{real:g}', fontsize=7, color=MUTED, ha='right', va='center')
     else:
         step = max(int((sch['bottom'] - sch['top']) / 5 / 10) * 10, 5)
         y = (int(sch['top']) // step + 1) * step
         while y < sch['bottom']:
-            ax.plot([-3.0, -2.8], [y, y], color=MUTED, linewidth=.6)
-            ax.text(-3.05, y, f'{y:g}', fontsize=7, color=MUTED, ha='right', va='center')
+            ax.plot([edge + .2, edge + .4], [y, y], color=MUTED, linewidth=.6)
+            ax.text(edge + .15, y, f'{y:g}', fontsize=7, color=MUTED, ha='right', va='center')
             y += step
-    ax.text(-3.0, sch['top'], 'м', fontsize=7, color=MUTED, ha='left', va='bottom')
+    ax.text(edge + .2, sch['top'], 'м', fontsize=7, color=MUTED, ha='left', va='bottom')
 
 
 def _table(ax, header: list[str], rows: list[list[str]], widths: list[float], size=7.2) -> None:

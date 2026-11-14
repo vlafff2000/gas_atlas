@@ -297,3 +297,20 @@ def test_schematic_carries_gis_columns_and_dates():
     assert {s.get('col') for s in sch['shapes']} >= {'collector', 'saturation', 'bore'}
     assert all(sch['top'] <= s['y0'] <= s['y1'] <= sch['bottom'] for s in sch['shapes'] if s.get('col'))
     assert 'gis' not in pc.schematic(cons, None)
+
+
+def test_passport_page_draws_gis_columns_for_latest_date():
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from atlas import gis_columns as gc, passport_card_pdf as pdf
+    iv, fl = gis_frames()
+    iv['date'] = iv['date'].dt.strftime('%d.%m.%Y')        # сырые таблицы проекта хранят даты строками
+    fl['date'] = fl['date'].dt.strftime('%d.%m.%Y')
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None)])
+    sch = pc.schematic(cons, None, gis=gc.prepare('7', iv, fl))
+    assert sch['gis']['dates'] == ['2024-04-01', '2024-10-01']
+    fig, ax = plt.subplots()
+    pdf.draw_schematic(ax, sch)
+    assert ax.get_xlim()[0] == -3.2 - gc.SHIFT                   # место под колонки слева
+    plt.close(fig)

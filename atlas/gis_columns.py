@@ -69,6 +69,10 @@ def prepare(well: str, intervals: pd.DataFrame | None, filling: pd.DataFrame | N
     """Данные колонок скважины: фигуры (метры от стола) и список дат её замеров. Нет ни интервалов, ни заполнения — None."""
     shapes: list[dict[str, Any]] = []
     dates: set[str] = set()
+    if intervals is not None and len(intervals) and 'date' in intervals:       # сырые таблицы проекта: даты могут быть строками
+        intervals = intervals.assign(date=pd.to_datetime(intervals['date'], errors='coerce', dayfirst=True))
+    if filling is not None and len(filling) and 'date' in filling:
+        filling = filling.assign(date=pd.to_datetime(filling['date'], errors='coerce', dayfirst=True))
     if intervals is not None and len(intervals) and {'well', 'date', 'from_m', 'to_m'} <= set(intervals.columns):
         part = intervals[intervals['well'].astype(str) == str(well)].copy()
         part = part[part['date'].notna()]
