@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { UndoStack, undoKey } from '../src/undoStack.ts'
+import { UndoStack, undoKey, swapEntry } from '../src/undoStack.ts'
 
 test('отмена и повтор идут в обратном порядке', async () => {
   let v = 0
@@ -45,4 +45,14 @@ test('горячие клавиши: в текстовых полях отмен
   assert.equal(undoKey({ ...base, key: 'z', target: { tagName: 'INPUT', type: 'text' } }), null)
   assert.equal(undoKey({ ...base, key: 'z', target: { tagName: 'INPUT', type: 'checkbox' } }), 'undo')
   assert.equal(undoKey({ ...base, ctrlKey: false, key: 'z' }), null)
+})
+
+test('swapEntry: отмена меняет «добавить» и «убрать» местами, повтор возвращает как было', async () => {
+  const calls: string[] = []
+  const run = async (add: string[], remove: string[]) => { calls.push(`+${add.join(',')}|-${remove.join(',')}`) }
+  const e = swapEntry('исключение точек', run, ['a', 'b'], ['c'])
+  await e.undo()
+  await e.redo?.()
+  assert.deepEqual(calls, ['+c|-a,b', '+a,b|-c'])
+  assert.equal(e.label, 'исключение точек')
 })
