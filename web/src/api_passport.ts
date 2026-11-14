@@ -14,12 +14,14 @@ export interface PassportInfo {
   note?: string
 }
 
-export interface Shape { t: 'rect' | 'line' | 'poly'; x0: number; x1: number; y0: number; y1: number; pts?: [number, number][]; fill?: string; pattern?: string; stroke?: string; width?: number; name: string }
+export interface Shape { t: 'rect' | 'line' | 'poly'; x0: number; x1: number; y0: number; y1: number; pts?: [number, number][]; fill?: string; pattern?: string; stroke?: string; width?: number; name: string
+  col?: 'collector' | 'saturation' | 'bore'; date?: string }      // колонки ГИС: ``date`` — ISO, фигура видна на эту дату; без даты — всегда
 export interface Tag { y: number; at: number; text: string; color: string }
 export interface Schematic {
   items: { kind: string; label: string; top: number; bottom: number }[]
   notes: string[]; skipped: string[]; top: number; bottom: number; bottom_m: number | null
   shapes?: Shape[]; labels?: Tag[]; covered_m?: number
+  gis?: { dates: string[]; shift: number }     // колонки ГИС (коллектор, насыщение пласта и ствола): даты замеров скважины и сдвиг схемы
   ticks?: [number, number][] | null     // [позиция на схеме, реальная глубина] — при сжатых участках
   breaks?: { from: number; to: number }[]
   checks?: { code: string; level: 'warning' | 'info'; text: string; top: number | null; bottom: number | null }[]   // подсказки-проверки, без автоисправления
