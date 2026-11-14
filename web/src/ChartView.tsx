@@ -13,7 +13,7 @@ import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, SIZE, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { clickAction } from './chartClick'
 import { buildTracks, canExclude, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
-import { positiveNumber, STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
+import { positiveNumber, STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, wheelZooms, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, crosshairSync, tooltipsOn, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { applyFormat, chartKey, mergeFormats, type ChartFormat } from './chartFormat'
@@ -1335,7 +1335,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       const box = host.getBoundingClientRect()
       const px = e.clientX - box.left, py = e.clientY - box.top
       const a = zone(px, py)
-      if (!a) return
+      if (!a || !wheelZooms(e)) return
       e.preventDefault(); e.stopPropagation()
       const r = rangeOf(a), ax = axisOf(a)
       if (!r) return

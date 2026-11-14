@@ -62,6 +62,9 @@ export function shiftRange([lo, hi]: Range, frac: number, log: boolean): Range |
   return Number.isFinite(next[0]) && Number.isFinite(next[1]) ? next : null
 }
 
+/** Колесо масштабирует только с Ctrl (⌘ на Mac; щипок на тачпаде приходит как Ctrl+колесо): иначе оно листает страницу. */
+export const wheelZooms = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey
+
 /** Колесо мыши → множитель окна: прокрутка вперёд приближает. */
 export const wheelFactor = (deltaY: number) => Math.exp(Math.max(-300, Math.min(300, deltaY)) * 0.0015)
 

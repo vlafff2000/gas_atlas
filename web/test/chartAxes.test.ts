@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { calendarTicks, fitAxisName, parseStep } from '../src/chartAxes.ts'
+import { calendarTicks, fitAxisName, parseStep, wheelZooms } from '../src/chartAxes.ts'
 
 test('короткое название с единицами: название и единицы отдельной строкой', () => {
   const n = fitAxisName('Рпл', 'кгс/см²', 56, 12)
@@ -52,4 +52,10 @@ test('положительные числа: знак убирается тол�
   assert.equal(positiveNumber(-12.5, true), 12.5)
   assert.equal(positiveNumber(-12.5, false), -12.5)
   assert.equal(positiveNumber(7, true), 7)
+})
+
+test('колесо масштабирует только с Ctrl или ⌘, иначе страница прокручивается', () => {
+  assert.equal(wheelZooms({ ctrlKey: false, metaKey: false }), false)
+  assert.equal(wheelZooms({ ctrlKey: true, metaKey: false }), true)
+  assert.equal(wheelZooms({ ctrlKey: false, metaKey: true }), true)
 })

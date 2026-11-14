@@ -4,6 +4,7 @@ import type { Schematic } from './api_passport'
 import { CopyButton, DownloadMenu } from './ChartView'
 import { formatNumberUpTo } from './format'
 import { GVK_COLOR } from './chartTheme'
+import { wheelZooms } from './chartAxes'
 
 /** Масштаб и сдвиг оси глубины: колесо — масштаб около курсора, перетаскивание — сдвиг, двойной щелчок — сброс (как у остальных графиков).
  *  Окно не выходит за полный диапазон ``full``; ``g`` — геометрия поля графика в единицах viewBox. */
@@ -27,6 +28,7 @@ function useDepthView(full: [number, number], g: { vbH: number; y0: number; h: n
       return c[0] + ((clientY - r.top) / r.height * geo.vbH - geo.y0) / geo.h * (c[1] - c[0])
     }
     const wheel = (e: WheelEvent) => {
+      if (!wheelZooms(e)) return
       e.preventDefault()
       const { cur: c, full: f } = live.current
       const z = zAt(e.clientY), span = Math.min(Math.max((c[1] - c[0]) * (e.deltaY > 0 ? 1.25 : 0.8), (f[1] - f[0]) / 200), f[1] - f[0])
