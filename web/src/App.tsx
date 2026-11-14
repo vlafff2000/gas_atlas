@@ -3,6 +3,8 @@ import { UndoButtons, useUndo, useUndoValue } from './useUndo'
 import { swapEntry } from './undoStack'
 import { scrollRestore } from './scrollMemory'
 import { LazyMount } from './LazyMount'
+import { isHelpKey } from './shortcuts'
+import { ShortcutsHelp } from './ShortcutsHelp'
 import { Icon } from './Icon'
 import { useProjectLooks } from './projectLooks'
 import { GroupColorsButton } from './GroupColorsButton'
@@ -86,6 +88,7 @@ export function App() {
   const collapsed = usePref(sidebarCollapsed)
   const currentTheme = usePref(theme)
   const [search, setSearch] = useState(false)
+  const [help, setHelp] = useState(false)
   const menu = usePref(menuPrefs)
   const hiddenGroups = new Set(menu?.groups ?? [])
   const [menuOpen, setMenuOpen] = useState(false)
@@ -93,6 +96,7 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K' || e.code === 'KeyK')) { e.preventDefault(); setSearch(o => !o) }
+      else if (isHelpKey(e)) { e.preventDefault(); setHelp(o => !o) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -185,6 +189,7 @@ export function App() {
         </div>
         <ResourceBadge url={'/api/resources' + (project ? '?project=' + project.id : '')} />
       </aside>
+      {help && <ShortcutsHelp onClose={() => setHelp(false)} />}
       <SectionSearch sections={sections} open={search} onClose={() => setSearch(false)} onGo={id => { location.hash = '#/' + id }} />
       {menuOpen && <MenuWindow groups={groups} project={project} onClose={closeMenu} />}
 

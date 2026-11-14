@@ -19,3 +19,10 @@
 .menu-items { list-style: none; margin: 2px 0 8px 28px; padding: 0; }
 .menu-items label { display: flex; align-items: center; gap: 8px; padding: 4px 6px; cursor: pointer; }
 .menu-items input:disabled + span { color: var(--muted); }
+
+/* окно «Сочетания клавиш» (ShortcutsHelp.tsx) */
+.shortcut-list { margin: 0; padding: 0 14px 10px; display: grid; gap: 6px; }
+.shortcut-list > div { display: grid; grid-template-columns: minmax(150px, 38%) 1fr; gap: 12px; align-items: baseline; }
+.shortcut-list dt { margin: 0; }
+.shortcut-list dd { margin: 0; color: var(--muted); font-size: 13px; }
+.shortcut-list kbd { font: inherit; font-size: 12px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--head-bg); }
