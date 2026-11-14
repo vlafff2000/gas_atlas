@@ -14,7 +14,7 @@ import { Check, Section, Select, SizePick, Text, type Opt } from './exportFields
 import { savedRanges, seriesLooks } from './chartPrefs'
 import { anyApi, type AnyChartInfo, type AnyModule, type AnySettings, type AnyStore, type Form } from './api_projects'
 import { ExportStage } from './ExportStage'
-import { formatTarget, type Finding, type SceneElement } from './exportStage'
+import { formatTarget, type Finding, type SceneElement } from './exportStageLogic'
 
 const FORMATS: Opt[] = [['png', 'PNG'], ['svg', 'SVG'], ['pdf', 'PDF'], ['xlsx', 'Excel (данные)'], ['csv', 'CSV (данные)']]
 const FONTS: Opt[] = [['default', 'Стандартный (DejaVu Sans)'], ['times', 'Times New Roman'], ['arial_narrow', 'Arial Narrow'], ['calibri', 'Calibri (как в Excel)']]

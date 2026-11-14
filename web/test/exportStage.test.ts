@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { dragTarget, elementAt, elementTitle, formatTarget, isShifted, movable, shifted, unshifted, withFix, withPlace, withSkip, type SceneElement } from '../src/exportStage.ts'
+import { dragTarget, elementAt, elementTitle, formatTarget, isShifted, movable, shifted, unshifted, withFix, withPlace, withSkip, type SceneElement } from '../src/exportStageLogic.ts'
 
 const el = (id: string, kind: string, box: [number, number, number, number], extra: Partial<SceneElement> = {}): SceneElement => ({ id, kind, box, ...extra })
 const scene: SceneElement[] = [
