@@ -78,3 +78,17 @@ def test_open_runs_on_server_and_page_has_no_blank_popup(tmp_path, monkeypatch):
     finally:
         hub.stop_all()
         server.shutdown()
+
+
+def test_open_app_linux_uses_default_browser(monkeypatch):
+    """РЕД ОС: приложение открывается в браузере по умолчанию (как меню), а не в Яндексе через --app."""
+    from pxg_hub import __main__ as menu
+    from atlas import app_window
+    opened = []
+    monkeypatch.setattr(menu.sys, 'platform', 'linux')
+    monkeypatch.setattr(menu.webbrowser, 'open', lambda url: opened.append(url))
+    monkeypatch.setattr(app_window, 'open_app_window', lambda *a: (_ for _ in ()).throw(AssertionError('--app на Linux')))
+    app = type('A', (), {'title': 'Карты', 'port': 8767, 'id': 'maps'})()
+    monkeypatch.setattr(menu, 'app_url', lambda a: 'http://127.0.0.1:8767/')
+    menu.open_app(app)
+    assert opened == ['http://127.0.0.1:8767/']
