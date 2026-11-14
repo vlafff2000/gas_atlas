@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { UndoButtons, useUndo, useUndoValue } from './useUndo'
 import { swapEntry } from './undoStack'
 import { scrollRestore } from './scrollMemory'
+import { LazyMount } from './LazyMount'
 import { Icon } from './Icon'
 import { useProjectLooks } from './projectLooks'
 import { GroupColorsButton } from './GroupColorsButton'
@@ -619,13 +620,13 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
                     onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
                 ) : (
-                  <ChartView key={c.id} chart={c} module={spec.id} excludeMode={excludeMode} onExclude={excludePoint} onConfirm={confirmPoint} onNote={text => setToast({ text, undo: false })}
+                  <LazyMount key={c.id}><ChartView chart={c} module={spec.id} excludeMode={excludeMode} onExclude={excludePoint} onConfirm={confirmPoint} onNote={text => setToast({ text, undo: false })}
                     mapLink={mapLink}
                     onOpenWell={spec.id === 'pressure' && params ? (well, date) => changeParams({
                       ...params, view: 'dynamics', wells: [well], groups: [], scope_groups: [], scope_wells: [], focus: `${well}|${date}` }) : undefined}
                     fetchWindow={(x0, x1, raw) => api.window(spec.id, project.id, params, c.id, x0, x1, raw, result.revision)}
                     onCopy={view => api.chartPng(spec.id, project.id, params, c.id, view)}
-                    onDownload={(format, dpi, view) => api.exportChart(spec.id, project.id, params, c.id, format, dpi, view)} />
+                    onDownload={(format, dpi, view) => api.exportChart(spec.id, project.id, params, c.id, format, dpi, view)} /></LazyMount>
                 ))}
               </div>
               {result.charts.length > 1 && (
