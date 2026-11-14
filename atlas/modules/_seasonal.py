@@ -66,6 +66,26 @@ def real_periods(df: pd.DataFrame) -> list[str]:
     return [p for p in df.period.dropna().unique() if not str(p).startswith(NEUTRAL_PREFIXES)]
 
 
+def use_reference(ref_stats: Mapping[str, Any], wells_stats: Mapping[str, Any], source: str = SOURCE_AUTO) -> bool:
+    """Единое правило источника объёма сезона: узел учёта (БД по учету газа), если он выбран или в «авто» покрывает не меньше
+    ``REF_COVERAGE`` суток с расходом по скважинам; иначе сумма по скважинам. Им пользуются все разделы (сезонные показатели, Авторский надзор)."""
+    return bool(ref_stats) and (source == SOURCE_REF or (source == SOURCE_AUTO and ref_stats['days'] >= REF_COVERAGE * wells_stats['days']))
+
+
+def object_daily(df: pd.DataFrame, ref: pd.DataFrame | None, kind: str, period: str, source: str = SOURCE_AUTO) -> tuple[pd.Series, str]:
+    """Суточный расход объекта за сезон (м³/сут, по датам) и источник (``SOURCE_WELLS`` / ``SOURCE_REF``) — по тому же правилу,
+    что и объём в «Сезонных показателях». Узел учёта обрезается по границам сезона по скважинам. Пусто — сезона нет."""
+    wells = _daily(rows_of(df, kind, period))
+    stats = _stats(wells)
+    refd = _ref_daily(ref, kind)
+    if not stats or refd is None:
+        return wells, SOURCE_WELLS
+    part = refd[(refd.index >= stats['start']) & (refd.index <= stats['end'])]
+    if use_reference(_stats(part), stats, source):
+        return part, SOURCE_REF
+    return wells, SOURCE_WELLS
+
+
 def season_table(df: pd.DataFrame, ref: pd.DataFrame | None = None, source: str = SOURCE_AUTO,
                  periods: list[str] | None = None) -> pd.DataFrame:
     """Одна строка на сезон и вид: границы, сутки, объём (млн м³), средний и максимальный расход (тыс. м³/сут), скважин,
@@ -87,7 +107,7 @@ def season_table(df: pd.DataFrame, ref: pd.DataFrame | None = None, source: str 
             ref_s = {}
             if refd is not None:
                 ref_s = _stats(refd[(refd.index >= wells['start']) & (refd.index <= wells['end'])])
-            use_ref = bool(ref_s) and (source == SOURCE_REF or (source == SOURCE_AUTO and ref_s['days'] >= REF_COVERAGE * wells['days']))
+            use_ref = use_reference(ref_s, wells, source)
             used = ref_s if use_ref else wells
             row = {'kind': kind, 'period': period, 'cycle': cycle_of(kind, used['start']),
                    'span': (used['end'] - used['start']).days + 1,

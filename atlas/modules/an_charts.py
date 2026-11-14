@@ -26,11 +26,13 @@ OBJECT_COLOR = '#6b7c84'        # объект целиком — нейтрал
 MONTHS = ('январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь')
 
 
-def daily_of(prod: pd.DataFrame, kind: str, period: str) -> tuple[pd.Series, pd.Series]:
+def daily_of(prod: pd.DataFrame, kind: str, period: str, ref: pd.DataFrame | None = None) -> tuple[pd.Series, pd.Series]:
     """Суточный расход объекта (м³/сут) и число работающих скважин по всем календарным суткам сезона.
 
     Как у соседних разделов: ноль и день без записи — 0 (падают на ось X), исключённая вручную точка — NaN (разрыв линии).
-    Границы — первые и последние сутки с расходом (нейтральный период до закачки/отбора не рисуется)."""
+    Границы — первые и последние сутки с расходом (нейтральный период до закачки/отбора не рисуется).
+    ``ref`` — «БД по учету газа»: объём объекта берётся из узла учёта по тому же правилу, что в «Сезонных показателях» (``_seasonal.object_daily``);
+    число работающих скважин остаётся по скважинам."""
     rows = an_wells.season_rows(prod, kind, period)
     pos = rows[rows.q.gt(0)]
     if pos.empty:
@@ -39,6 +41,11 @@ def daily_of(prod: pd.DataFrame, kind: str, period: str) -> tuple[pd.Series, pd.
     sums = rows.groupby('date').q.sum(min_count=1)
     daily = sums.reindex(days).where(days.isin(sums.index), 0.0)      # нет записи → 0; все записи суток исключены → NaN
     wells = pos.groupby('date').well.nunique().reindex(days, fill_value=0)
+    if ref is not None:
+        from ._seasonal import SOURCE_REF, object_daily
+        node, source = object_daily(prod, ref, kind, period)
+        if source == SOURCE_REF:
+            daily = node.reindex(days, fill_value=0.0)
     return daily, wells
 
 

@@ -35,6 +35,7 @@ from .plan_fact import UNIT, PlanFactModule, compare as plan_compare, month_labe
 
 PRODUCTION, FACTOR = DatasetKind.PRODUCTION, DatasetKind.WATER_FACTOR
 ANNULUS = DatasetKind.ANNULUS
+GAS_DB = DatasetKind.GAS_DB
 PLAN, WATER = DatasetKind.PLAN, DatasetKind.WATER
 Q_UNIT = 'тыс. м³/сут'
 P_UNIT = 'кгс/см²'
@@ -207,9 +208,16 @@ def whole_production(data: Data) -> pd.DataFrame:
     return base[PRODUCTION]
 
 
-def daily_rates(d: pd.DataFrame, scopes: Mapping[str, str]) -> pd.DataFrame:
+def node_ref(data: Data) -> pd.DataFrame | None:
+    """«БД по учету газа» проекта (узел учёта) или None: эталон объёма объекта, как в «Сезонных показателях»."""
+    return data[GAS_DB] if GAS_DB in data else None
+
+
+def daily_rates(d: pd.DataFrame, scopes: Mapping[str, str], object_daily: pd.Series | None = None) -> pd.DataFrame:
     """Суточный расход (м³/сут) объекта и каждой группы: scope, date, q; только сутки с положительным расходом."""
     obj = d.groupby('date').q.sum(min_count=1).reset_index().assign(scope=OBJECT_SCOPE)
+    if object_daily is not None and len(object_daily):          # объект целиком — узел учёта, группы — по скважинам
+        obj = object_daily.rename('q').rename_axis('date').reset_index().assign(scope=OBJECT_SCOPE)
     grp = d.assign(scope=d.well.map(scopes)).groupby(['scope', 'date']).q.sum(min_count=1).reset_index()
     out = pd.concat([obj, grp], ignore_index=True)
     out = out[out.q.gt(0)].copy()
@@ -252,7 +260,8 @@ def injection_group_table(prod: pd.DataFrame, plan: pd.DataFrame | None, mapping
 
 
 def season_report(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], pressure: pd.DataFrame | None,
-                  kind: str, period: str, water: pd.DataFrame | None = None) -> tuple[dict[str, Any] | None, pd.DataFrame]:
+                  kind: str, period: str, water: pd.DataFrame | None = None,
+                  ref: pd.DataFrame | None = None) -> tuple[dict[str, Any] | None, pd.DataFrame]:
     """Сводка одного сезона и средние по объекту и группам (за весь сезон и по месяцам).
 
     ``water`` — «Вынос воды по объекту» (см. ``water_table``); учитывается только для отбора.
@@ -261,7 +270,12 @@ def season_report(prod: pd.DataFrame, mapping: Mapping[str, Mapping[str, str]], 
     d = an_wells.season_rows(prod, kind, period)
     d['well'] = d.well.astype(str)
     scopes = well_scopes(mapping, ordered(d.well.unique())) if not d.empty else {}
-    daily = daily_rates(d, scopes)
+    node = None
+    if ref is not None:
+        from ._seasonal import SOURCE_REF, object_daily
+        series, source = object_daily(prod, ref, kind, period)
+        node = series if source == SOURCE_REF else None
+    daily = daily_rates(d, scopes, node)
     obj = daily[daily.scope.eq(OBJECT_SCOPE)]
     if obj.empty:
         return None, pd.DataFrame(columns=['scope', 'period', 'days', 'mean'])
@@ -376,7 +390,7 @@ class AuthorReportModule(Module):
         group='Авторский надзор',
         description='Статистика сезона для глав отчёта АН: даты, нейтральный период, средние по объекту и группам, пик, вода.',
         needs=(PRODUCTION,),
-        optional=(SURVEY, FACTOR, PLAN, WATER, ANNULUS),
+        optional=(SURVEY, FACTOR, PLAN, WATER, ANNULUS, GAS_DB),
         order=110,
         save_label='Сохранить вид',
         params=(
@@ -470,7 +484,7 @@ class AuthorReportModule(Module):
         if kind == 'withdrawal' and WATER not in data:
             result.notes.append(Note('«Контроль воды» не загружен: таблица «Вода по группам» пропущена.', 'warning'))
         for period in periods:
-            summary, table = season_report(data[PRODUCTION], data.mapping, pressure, kind, period, water)
+            summary, table = season_report(data[PRODUCTION], data.mapping, pressure, kind, period, water, node_ref(data))
             if summary is None:
                 result.notes.append(Note(f'Сезон {period}: нет суток с расходом — расчёт пропущен.'))
                 continue
@@ -483,7 +497,7 @@ class AuthorReportModule(Module):
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
             by_cum = params.get('group_x') == 'cumulative'
             group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'],
-                                                            an_charts.daily_of(whole_production(data), kind, period)[0] if by_cum else None)
+                                                            an_charts.daily_of(whole_production(data), kind, period, node_ref(data))[0] if by_cum else None)
             if group_pressure is not None:
                 result.charts.append(group_pressure)
             self.plan_details(result, data, kind, period)
@@ -638,7 +652,7 @@ class AuthorReportModule(Module):
                       means: pd.DataFrame, pressure: pd.DataFrame | None, params: dict[str, Any],
                       fund_frame: pd.DataFrame) -> None:
         """Графики сезона: основной по выбранному виду и второй («Правый график»: по умолчанию фонд скважин)."""
-        daily, wells = an_charts.daily_of(whole_production(data), kind, period)
+        daily, wells = an_charts.daily_of(whole_production(data), kind, period, node_ref(data))
         start, stop = summary['start'], summary['stop']
         factor = data[FACTOR] if FACTOR in data else None
         rates: list[pd.DataFrame] = []                # считается один раз и только если нужен группам
@@ -647,7 +661,12 @@ class AuthorReportModule(Module):
             if not rates:
                 d = an_wells.season_rows(whole_production(data), kind, period)
                 d['well'] = d.well.astype(str)
-                rates.append(daily_rates(d, well_scopes(data.mapping, ordered(d.well.unique()))))
+                node = None
+                if node_ref(data) is not None:
+                    from ._seasonal import SOURCE_REF, object_daily
+                    series, source = object_daily(whole_production(data), node_ref(data), kind, period)
+                    node = series if source == SOURCE_REF else None
+                rates.append(daily_rates(d, well_scopes(data.mapping, ordered(d.well.unique())), node))
             return rates[0]
 
         def charts_of(view: str) -> list[Chart | None]:

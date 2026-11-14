@@ -400,3 +400,14 @@ def test_season_object_total_ignores_well_filter():
     data = Data({an_report.PRODUCTION: whole.iloc[:1]})
     data.unfiltered = Data({an_report.PRODUCTION: whole})
     assert an_report.whole_production(data).q.sum() == 1500
+
+
+def test_object_daily_follows_gas_accounting_like_seasonal():
+    """Объём объекта в «Надзоре» — по узлу учёта, если он покрывает сезон (как в «Сезонных показателях»); иначе по скважинам."""
+    frame = production([('1', '2024-01-01', 1000), ('1', '2024-01-02', 1000), ('1', '2024-01-03', 1000)], '2023-2024')
+    ref = pd.DataFrame({'kind': 'withdrawal', 'date': pd.to_datetime(['2024-01-01', '2024-01-02', '2024-01-03']), 'gas': [1.1, 1.1, 1.1]})
+    daily, _ = an_charts.daily_of(frame, 'withdrawal', '2023-2024', ref)
+    assert daily.sum() == pytest.approx(3300.0)                        # тыс. м³ → м³, узел учёта
+    assert an_charts.daily_of(frame, 'withdrawal', '2023-2024')[0].sum() == pytest.approx(3000.0)
+    sparse = ref.iloc[:1]                                              # покрытие < 80 % → скважины
+    assert an_charts.daily_of(frame, 'withdrawal', '2023-2024', sparse)[0].sum() == pytest.approx(3000.0)
