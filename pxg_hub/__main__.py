@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,10 +12,13 @@ from .hub import Hub, app_url, port_open
 
 
 def open_app(app) -> None:
-    """Отдельное окно приложения (Chromium --app), нет браузера — обычная вкладка. Окно меню остаётся."""
-    from atlas.app_window import open_app_window
-    if open_app_window(app_url(app), app.title) is None:
-        webbrowser.open(app_url(app))
+    """Windows: отдельное окно приложения (Chromium --app), нет браузера — вкладка. Linux (РЕД ОС): тот же браузер по
+    умолчанию, где открыто меню, без привязки к Яндексу. Окно меню остаётся."""
+    if sys.platform.startswith('win'):
+        from atlas.app_window import open_app_window
+        if open_app_window(app_url(app), app.title) is not None:
+            return
+    webbrowser.open(app_url(app))
 
 PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ПХГ — все приложения</title><style>
