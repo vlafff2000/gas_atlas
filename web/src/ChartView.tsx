@@ -13,6 +13,7 @@ import { RichText } from './RichField'
 import { alpha, chartTokens, FONT, SIZE, fontCss, PALETTE, palette, seriesColor, setDarkPalette, type ChartTokens } from './chartTheme'
 import { clickAction } from './chartClick'
 import { buildTracks, canExclude, decimalsFor, hover, placeTip, toNumber, type Hover, type HoverMode, type Track, type View } from './chartHover'
+import { attachWheelHint } from './wheelHint'
 import { positiveNumber, STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, wheelZooms, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, crosshairSync, tooltipsOn, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
@@ -1399,6 +1400,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       pan = null
     }
     host.addEventListener('wheel', onAxisWheel, { passive: false, capture: true })
+    const detachWheelHint = attachWheelHint(host)
     host.addEventListener('dblclick', onAxisDblclick)
     // правая кнопка: формат элемента под указателем — ось, ряд или график (вместо меню браузера)
     const onContext = (e: MouseEvent) => {
@@ -1543,6 +1545,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       window.removeEventListener('keydown', onKey); host.removeEventListener('click', onUnpin); host.removeEventListener('click', onOpen)
       host.removeEventListener('pointerdown', onGrab); host.removeEventListener('pointermove', onDrag)
       host.removeEventListener('pointerup', onDrop); host.removeEventListener('pointercancel', onDrop)
+      detachWheelHint()
       host.removeEventListener('wheel', onAxisWheel, { capture: true }); host.removeEventListener('dblclick', onAxisDblclick); host.removeEventListener('contextmenu', onContext)
       host.removeEventListener('pointerdown', onAxisDown); host.removeEventListener('pointermove', onAxisMove)
       host.removeEventListener('pointerup', onAxisUp); host.removeEventListener('pointercancel', onAxisUp)

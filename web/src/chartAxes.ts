@@ -65,6 +65,14 @@ export function shiftRange([lo, hi]: Range, frac: number, log: boolean): Range |
 /** Колесо масштабирует только с Ctrl (⌘ на Mac; щипок на тачпаде приходит как Ctrl+колесо): иначе оно листает страницу. */
 export const wheelZooms = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey
 
+const HINT_COOLDOWN_MS = 4000 // подсказка не чаще раза в это время на график
+const HINT_DWELL_MS = 300 // курсор уже стоит над графиком: при пролёте страницы мимо надпись не мигает
+
+/** Пора ли показать подсказку: колесо без Ctrl, курсор над графиком дольше DWELL_MS, прошлый показ был давно. */
+export function wheelHintDue(e: { ctrlKey: boolean; metaKey: boolean }, now: number, enteredAt: number, lastShown: number): boolean {
+  return !wheelZooms(e) && now - enteredAt >= HINT_DWELL_MS && now - lastShown >= HINT_COOLDOWN_MS
+}
+
 /** Колесо мыши → множитель окна: прокрутка вперёд приближает. */
 export const wheelFactor = (deltaY: number) => Math.exp(Math.max(-300, Math.min(300, deltaY)) * 0.0015)
 
