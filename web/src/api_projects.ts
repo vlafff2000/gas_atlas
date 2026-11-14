@@ -2,7 +2,7 @@ import { saveUrlAs } from './desktopDownload'
 // Клиент API разделов «Проекты», «Настройки» и «Экспорт» (atlas/api_projects.py, atlas/api_export.py).
 import { ApiError, type Chart, type Project } from './api'
 import { menuPrefs } from './menuPrefs'
-import type { Finding, SceneElement } from './exportStage'
+import type { Finding, SceneElement } from './exportStageLogic'
 
 export type Form = Record<string, unknown>
 

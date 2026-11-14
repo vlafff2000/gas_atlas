@@ -4,7 +4,7 @@
 // Под рисунком — находки проверки качества (atlas/chart_qc.py): подсказки, что читается плохо; ненужную инженер снимает.
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { ChartFormat } from './chartFormat'
-import { dragTarget, elementAt, elementTitle, hidable, isShifted, movable, nudgeStep, shifted, unshifted, withFix, withPlace, withSkip, type Finding, type SceneElement } from './exportStage'
+import { dragTarget, elementAt, elementTitle, hidable, isShifted, movable, nudgeStep, shifted, unshifted, withFix, withPlace, withSkip, type Finding, type SceneElement } from './exportStageLogic'
 
 interface Props {
   image: string

@@ -45,7 +45,7 @@ def _cut(text: Any, limit: int = 40) -> str:
 
 
 def element_title(e: Mapping[str, Any]) -> str:
-    """Имя элемента для человека — то же, что в предпросмотре (``web/src/exportStage.ts: elementTitle``)."""
+    """Имя элемента для человека — то же, что в предпросмотре (``web/src/exportStageLogic.ts: elementTitle``)."""
     kind, quoted = e.get('kind'), f' «{_cut(e["text"])}»' if e.get('text') else ''
     axis = AXES.get(str(e.get('axis') or ''), str(e.get('axis') or ''))
     return {'plot': 'Область построения', 'title': 'Заголовок' + quoted, 'subtitle': 'Подзаголовок' + quoted, 'legend': 'Легенда',
