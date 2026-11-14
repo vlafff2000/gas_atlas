@@ -518,6 +518,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
         <span className="spacer" />
         {groupNames.length > 1 && <GroupColorsButton groups={groupNames} onChange={() => params && run(params)} />}
         {status.kind === 'running' && <span className="pulse">Считаю…</span>}
+        {status.kind === 'running' && <button type="button" className="quiet small" onClick={() => { controller.current?.abort(); setStatus({ kind: 'idle' }) }} title="Остановить расчёт; прежний результат останется на экране">Остановить</button>}
         {status.kind === 'done' && result && <span className="muted">Расчет {Math.round(result.elapsed_ms)} мс</span>}
         {changed && <button type="button" className="quiet" onClick={reset}>Сбросить параметры</button>}
         {!spec.auto_run && <button type="button" className="primary" onClick={() => run(params)}>Рассчитать</button>}
@@ -580,6 +581,12 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               <button type="button" className="quiet" onClick={() => { navigator.clipboard?.writeText(status.message).catch(() => undefined) }}>Копировать текст ошибки</button>
             </div>
           )}
+        </div>
+      )}
+
+      {!result && status.kind === 'running' && (
+        <div className="skeleton-page" aria-busy="true" aria-label="Идёт расчёт">
+          <div className="skeleton" /><div className="skeleton tall" /><div className="skeleton tall" />
         </div>
       )}
 
