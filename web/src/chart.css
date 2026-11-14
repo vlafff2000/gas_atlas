@@ -142,8 +142,8 @@
 .cs-title { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .cs-close { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; border-radius: 4px; padding: 0 4px; }
 .cs-close:hover { color: var(--ink); background: var(--bg); }
-.cs-body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 0; overflow: auto; }
-.cs-list { list-style: none; margin: 0; padding: 6px; border-right: 1px solid var(--line); overflow: auto; }
+.cs-body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.cs-list { list-style: none; margin: 0; padding: 6px; border-right: 1px solid var(--line); overflow: auto; overscroll-behavior: contain; }
 .cs-list button {
   display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 5px 6px; border-radius: 4px;
   color: var(--ink); font: inherit; text-align: left; cursor: pointer;
@@ -210,7 +210,7 @@
 .chart-table.aligned tbody th { padding-left: 6px; overflow: hidden; text-overflow: ellipsis; }
 .chart-table.aligned td:first-of-type { font-weight: 600; }
 
-.strip-wrap { padding: 4px 8px 8px; overflow: auto; max-height: 640px; }
+.strip-wrap { padding: 4px 8px 8px; overflow: auto; max-height: 640px; overscroll-behavior: contain; }
 .strip-panels { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
 .strip-panels { display: block; }
 .strip-group { margin-bottom: 8px; }

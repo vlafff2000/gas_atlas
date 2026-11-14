@@ -33,12 +33,12 @@ button.link { background: none; border: 0; color: var(--accent-strong); cursor: 
 }
 .metrics span { font-size: 13px; color: var(--muted); }
 .metrics strong { font-size: 22px; }
-.table-scroll { overflow: auto; max-height: 560px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.table-scroll { overflow: auto; max-height: 560px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overscroll-behavior: contain; }
 .bad { color: var(--bad); }
 .boxed { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; background: var(--surface); }
 .boxed h3 { font-size: 17px; }
 .sheet-editor { display: grid; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
-.sheet-preview { overflow: auto; max-height: 260px; border: 1px solid var(--line); border-radius: var(--radius); }
+.sheet-preview { overflow: auto; max-height: 260px; border: 1px solid var(--line); border-radius: var(--radius); overscroll-behavior: contain; }
 .sheet-preview table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
 .sheet-preview th, .sheet-preview td { padding: 2px 8px; border-bottom: 1px solid var(--line); text-align: left; }
 .sheet-preview thead th { position: sticky; top: 0; background: var(--bg); }
