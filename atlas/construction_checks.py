@@ -45,6 +45,24 @@ def check_construction(items: list[dict[str, Any]], bottom_m: float | None = Non
             deep = max(w['bottom'] for w in working)
             out.append(_chk('tubing_below_work', 'warning', f'Башмак НКТ {tube:g} м глубже низа фильтра/перфорации {deep:g} м '
                             f'на {tube - deep:.1f} м: НКТ не должна быть глубже интервала работы.', deep, tube))
+    art = of('artificial')
+    if art:
+        iz = max(a['top'] for a in art)
+        for name, kind in (('НКТ', 'tubing'), ('фильтр', 'filter'), ('перфорация', 'perf')):
+            deep = max((i['bottom'] for i in of(kind)), default=None)
+            if deep is not None and deep > iz + TOL_M:
+                out.append(_chk('below_artificial', 'warning', f'{name[:1].upper() + name[1:]}: низ {deep:g} м глубже искусственного забоя {iz:g} м '
+                                f'на {deep - iz:.1f} м: ниже забоя элементов быть не может. Проверьте глубину забоя или интервал.', iz, deep))
+        if casing and iz > max(c['bottom'] for c in casing) + TOL_M and not (cased_out or of('reaming')):
+            shoe = max(c['bottom'] for c in casing)
+            out.append(_chk('artificial_below_shoe', 'info', f'Искусственный забой {iz:g} м глубже башмака колонны {shoe:g} м на {iz - shoe:.1f} м: '
+                            'если ниже башмака открытый ствол или хвостовик, это норма; иначе проверьте данные.', shoe, iz))
+        if bottom_m is not None and abs(bottom_m - iz) > TOL_M:
+            where = 'глубже' if bottom_m > iz else 'выше'
+            out.append(_chk('current_vs_artificial', 'warning' if bottom_m > iz else 'info',
+                            f'Текущий забой по замеру {bottom_m:g} м {where} искусственного {iz:g} м на {abs(bottom_m - iz):.1f} м. '
+                            + ('Прибор не может дойти глубже искусственного забоя: проверьте оба значения.' if bottom_m > iz else
+                               'Выше искусственного забоя — возможна пробка или отложения.'), min(bottom_m, iz), max(bottom_m, iz)))
     if bottom_m is not None and working:
         top_w = min(w['top'] for w in working)
         if bottom_m < top_w - TOL_M:

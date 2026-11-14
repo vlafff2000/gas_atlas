@@ -115,13 +115,14 @@ def merge_items(items: list[dict[str, Any]], touch: float = .5) -> tuple[list[di
     Исходные строки не меняются: слияние только для рисунка, причина видна в пояснении."""
     out: list[dict[str, Any]] = []
     merged = 0
-    for kind in dict.fromkeys(i['kind'] for i in items):
-        same = sorted((i for i in items if i['kind'] == kind), key=lambda i: (i['top'], i['bottom']))
+    # пачки ГИС («Пласт, пачка «…»») разных названий не сливаем: разделение пласта на пачки должно быть видно на схеме
+    for kind, label in dict.fromkeys((i['kind'], i['label'] if i['kind'] == 'pay' else '') for i in items):
+        same = sorted((i for i in items if i['kind'] == kind and (kind != 'pay' or i['label'] == label)), key=lambda i: (i['top'], i['bottom']))
         if kind not in MERGE:
             out += same
             continue
         for it in same:
-            last = out[-1] if out and out[-1]['kind'] == kind else None
+            last = out[-1] if out and out[-1]['kind'] == kind and (kind != 'pay' or out[-1]['label'] == label) else None
             if last is not None and it['top'] <= last['bottom'] + touch:
                 merged += 1
                 if it['bottom'] > last['bottom']:
@@ -204,6 +205,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
     return out
 
 
+PACK_FILLS = [('#fdf0c0', '#a16207'), ('#d9f0d0', '#3f7d2a'), ('#d6e6fa', '#1d5fa8'), ('#f6d9e8', '#a3235f'), ('#e4dcf5', '#5b3fa0')]   # заливка и цвет подписи пачки
 HALF = {'casing': 1.0, 'tubing': .45}          # условные полуширины, без масштаба диаметров (диаметры — в подписях)
 
 
@@ -225,9 +227,12 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
 
     def tag(y, text, color):
         labels.append({'y': y, 'text': text, 'color': color})
+    packs = list(dict.fromkeys(i['label'] for i in by['pay']))
     for i in by['pay']:
-        rect(-3, 3, i['top'], i['bottom'], '#fdf0c0', name='pay')
-        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"Пласт {i['top']:g}–{i['bottom']:g} м", '#a16207')
+        fill, ink = PACK_FILLS[packs.index(i['label']) % len(PACK_FILLS)] if len(packs) > 1 else PACK_FILLS[0]
+        rect(-3, 3, i['top'], i['bottom'], fill, name='pay')
+        title = i['label'].replace('Пласт, ', '', 1) if 'пачка' in i['label'] else 'Пласт'
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"{title[:1].upper() + title[1:]} {i['top']:g}–{i['bottom']:g} м", ink)
     for i in by['reaming']:
         rect(-1.9, 1.9, i['top'], i['bottom'], '#d6b48a', name='reaming')
         tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"Расширка {i['top']:g}–{i['bottom']:g} м"
