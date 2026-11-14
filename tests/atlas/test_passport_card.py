@@ -80,6 +80,33 @@ def test_overlapping_intervals_are_merged_for_drawing():
     assert any('слито строк — 3' in n for n in sch['notes'])
 
 
+def test_gis_packs_are_drawn_separately_with_own_colour_and_label():
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None),
+                  ('Пласт, пачка «верхняя»', 950, 980, None, None), ('Пласт, пачка «нижняя»', 975, 1005, None, None)])
+    sch = pc.schematic(cons, None)
+    pay = [i for i in sch['items'] if i['kind'] == 'pay']
+    assert len(pay) == 2                                  # соседние пачки с наложением не слиты
+    texts = [l['text'] for l in sch['labels'] if 'ачка' in l['text']]
+    assert any(t.startswith('Пачка «верхняя»') for t in texts) and any(t.startswith('Пачка «нижняя»') for t in texts)
+    fills = {s_['fill'] for s_ in sch['shapes'] if s_.get('name') == 'pay'}
+    assert len(fills) == 2
+
+
+def codes(sch):
+    return {c['code'] for c in sch['checks']}
+
+
+def test_artificial_bottom_conflicts_are_flagged_with_reason():
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None),
+                  ('НКТ', 0, 990, 73, 62), ('Искусственный забой', 995, 995, None, None)])
+    sch = pc.schematic(cons, 1003)
+    assert {'below_artificial', 'current_vs_artificial'} <= codes(sch)
+    deeper = [c for c in sch['checks'] if c['code'] == 'current_vs_artificial'][0]
+    assert deeper['level'] == 'warning' and 'глубже искусственного' in deeper['text']
+    ok = pc.schematic(frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Искусственный забой', 1005, 1005, None, None)]), 1005)
+    assert 'current_vs_artificial' not in codes(ok)
+
+
 def test_schematic_without_construction_is_a_note():
     sch = pc.schematic(frame([]), None)
     assert sch['items'] == [] and 'конструкции' in sch['notes'][0]
