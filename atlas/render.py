@@ -125,6 +125,16 @@ def style_meta(chart: Chart) -> dict:
 NARROW = 5      # сегмент стопки уже 5 % высоты: число не помещается внутрь (как на экране, ChartView.tsx)
 
 
+def narrow_of(chart: Chart) -> float:
+    """Порог узкого сегмента, % высоты стопки: из оформления (``segment_narrow``), иначе ``NARROW``."""
+    return float((chart.style or {}).get('segment_narrow') or NARROW)
+
+
+def callouts_of(chart: Chart) -> str:
+    """Вид выноски у узкого сегмента: из оформления (``segment_callouts``), иначе как задал модуль (``Chart.callouts``)."""
+    return (chart.style or {}).get('segment_callouts') or chart.callouts
+
+
 def stack_top(chart: Chart) -> float:
     """Высота самой высокой стопки с подписями сегментов: узкий сегмент — меньше NARROW % от неё."""
     bars = [s for s in chart.series if s.kind == 'bar' and s.segments is not None]
@@ -148,16 +158,16 @@ def segment_marks(fig, chart: Chart, palette: dict) -> None:
             y = 0.0 if y is None else float(y)
             middle = below[j] + y / 2
             below[j] += y
-            if not text or y / top >= NARROW / 100:
+            if not text or y / top >= narrow_of(chart) / 100:
                 continue
-            if chart.callouts == 'dot':
+            if callouts_of(chart) == 'dot':
                 fig.add_annotation(x=x, y=middle, text='●' * int(text) if text.isdigit() else '●', showarrow=False, font={'size': 9, 'color': '#111'})
                 continue
             side = 1 if used[j] % 2 == 0 else -1
             used[j] += 1
             fig.add_annotation(x=x, y=middle, text=text, showarrow=True, ax=side * 44, ay=0, axref='pixel', ayref='pixel', arrowhead=0,
                                arrowwidth=0.8, arrowcolor='#888', bordercolor=color, borderwidth=1.5, borderpad=2, bgcolor='white',
-                               font={'size': 12, 'color': '#111'})
+                               font={'size': (chart.style or {}).get('segment_text_size') or 12, 'color': '#111'})
     if chart.table is not None:
         t = chart.table
         colors = [(s.look or {}).get('color') or (series_color(s.color) if s.color else palette[s.group or s.name]) for s in bars] if t.swatches else []
@@ -228,7 +238,7 @@ def to_plotly(chart: Chart):
                              meta={'combo': True, 'stack': s.stack, **extra.get('meta', {})})
             if s.segments is not None:       # стопка с числами внутри сегментов: узкие — выноской или точкой (``segment_marks``)
                 top = stack_top(chart)
-                wide = [t if (y is not None and y / top >= NARROW / 100) else '' for t, y in zip(s.segments, s.y)]
+                wide = [t if (y is not None and y / top >= narrow_of(chart) / 100) else '' for t, y in zip(s.segments, s.y)]
                 extra.update(text=wide, textposition='inside', insidetextanchor='middle', textfont={'size': 13},
                              marker={'color': color, 'line': {'color': '#222', 'width': 0.4}})
                 extra.pop('marker_color', None)

@@ -195,6 +195,8 @@ def _dots(text: str) -> str:
 def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color: Any, o: dict[str, Any] | None = None):
     o = o or {}
     base = float(o.get('font_size') or 12)
+    sstyle = o.get('style') or chart.style or {}          # оформление: порог узкого сегмента, вид выноски, размер чисел
+    narrow = float(sstyle.get('segment_narrow') or NARROW)
     tfs = float(o.get('table_font_size') or round(base * 0.75, 1))
     row_k = float(o.get('table_row') or 1.0)
     bars = [s for s in chart.series if s.kind == 'bar']
@@ -218,9 +220,9 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
         for j, (v, text) in enumerate(zip(values, s.segments or [])):
             middle = below[j] + v / 2
             text = _g(text or '')
-            if text and v / top >= NARROW / 100:
-                ax.text(j, middle, text, ha='center', va='center', fontsize=float(o.get('segment_size') or base - 1), color='white' if _luma(color) < 140 else '#111')
-            elif text and chart.callouts == 'dot':
+            if text and v / top >= narrow / 100:
+                ax.text(j, middle, text, ha='center', va='center', fontsize=float(o.get('segment_size') or sstyle.get('segment_text_size') or base - 1), color='white' if _luma(color) < 140 else '#111')
+            elif text and (sstyle.get('segment_callouts') or chart.callouts) == 'dot':
                 ax.text(j, middle, _dots(text), ha='center', va='center', fontsize=9, color='white' if _luma(color) < 140 else '#111')
             elif text:
                 marks.append((j, middle, text, color))

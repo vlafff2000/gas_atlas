@@ -96,3 +96,31 @@ def test_heat_sort_and_totals_change_file():
     sorted_.heat.values, sorted_.heat.texts = low_first.heat.values, low_first.heat.texts
     sorted_.style = {'heat_sort': 'sum'}
     assert figure_file(low_first, 'png', 100) != figure_file(sorted_, 'png', 100)
+
+
+def _stack():
+    from atlas.contract import Axis, Chart, Series
+    cats = ['2023', '2024']
+    big = Series('Крупные', cats, [20.0, 20.0], 'bar', stack='s', color='#2a6f97', segments=['20', '20'])
+    small = Series('Узкие', cats, [1.0, 2.0], 'bar', stack='s', color='#d1495b', segments=['1', '2'])
+    return Chart('stack', 'Стопка', Axis('Год', scale='category', categories=cats), Axis('Скважин', 'скв.'), series=[big, small])
+
+
+def test_segment_style_changes_file_and_screen_render():
+    import pytest
+    from atlas.chart_special import figure_file
+    from atlas.chart_style import clean_chart
+    from atlas.contract import ParamError
+    from atlas.render import callouts_of, narrow_of
+    assert clean_chart({'segment_narrow': 12, 'segment_callouts': 'dot'})['segment_narrow'] == 12
+    with pytest.raises(ParamError):
+        clean_chart({'segment_callouts': 'arrow'})
+    chart = _stack()
+    assert narrow_of(chart) == 5 and callouts_of(chart) == chart.callouts
+    chart.style = {'segment_narrow': 12, 'segment_callouts': 'dot'}
+    assert narrow_of(chart) == 12 and callouts_of(chart) == 'dot'
+    plain = figure_file(_stack(), 'png', 100)
+    for style in ({'segment_narrow': 1}, {'segment_callouts': 'dot'}, {'segment_text_size': 18}):
+        c = _stack()
+        c.style = style
+        assert figure_file(c, 'png', 100) != plain, style

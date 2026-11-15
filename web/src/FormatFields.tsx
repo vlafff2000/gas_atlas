@@ -187,11 +187,12 @@ export function FreshColorsFields({ value, set }: { value: string[] | undefined;
   )
 }
 
-export function ChartStyleFields({ value: st, set, title, fresh, heat, strips }: Setter<ChartStyle> & { title?: ReactNode; fresh?: boolean; heat?: boolean; strips?: boolean }) {
+export function ChartStyleFields({ value: st, set, title, fresh, heat, strips, segments }: Setter<ChartStyle> & { title?: ReactNode; fresh?: boolean; heat?: boolean; strips?: boolean; segments?: boolean }) {
   return (
     <>
       {heat && <HeatFields value={st} set={set} />}
       {strips && <StripFields value={st} set={set} />}
+      {segments && <SegmentFields value={st} set={set} />}
       {fresh && <FreshColorsFields value={st.fresh_colors} set={v => set({ fresh_colors: v })} />}
       <fieldset>
         <legend>Заголовок</legend>
@@ -506,6 +507,19 @@ export function StripFields({ value: st, set }: Setter<ChartStyle>) {
       <Flag label="Легенда под плитками" value={st.strip_legend !== false} onChange={v => set({ strip_legend: v ? undefined : false })} />
       <Text label="Текст «нет ревизии»" value={st.strip_missing} placeholder="как у графика" onChange={v => set({ strip_missing: v || undefined })} />
       <Color label="Цвет квадрата «нет»" value={st.strip_empty_color} onChange={v => set({ strip_empty_color: v })} />
+    </fieldset>
+  )
+}
+
+/** Столбцы со стопкой и числами в сегментах (классы производительности): порог узкого сегмента, вид выноски, размер чисел. Те же поля на экране и в файле (segment_*). */
+export function SegmentFields({ value: st, set }: Setter<ChartStyle>) {
+  return (
+    <fieldset>
+      <legend>Числа в сегментах</legend>
+      <Num label="Узкий сегмент: меньше, % высоты стопки" value={st.segment_narrow} min={1} max={30} step={0.5} onChange={v => set({ segment_narrow: v })} />
+      <Choice label="Подпись узкого сегмента" value={st.segment_callouts} auto="как у графика"
+        options={[{ value: 'box', label: 'Выноска в рамке' }, { value: 'dot', label: 'Точки по числу' }]} onChange={v => set({ segment_callouts: v })} />
+      <Num label="Размер чисел" value={st.segment_text_size} min={5} max={30} onChange={v => set({ segment_text_size: v })} />
     </fieldset>
   )
 }

@@ -141,6 +141,8 @@ function decalOf(kind: NonNullable<Look['hatch']>, color = '#000000') {
 }
 
 const NARROW = 5     // сегмент стопки уже 5 % высоты: число не помещается внутрь — выноска или точка
+const narrowOf = (chart: Chart) => chart.style?.segment_narrow ?? NARROW      // порог из оформления (segment_narrow)
+const calloutsOf = (chart: Chart) => chart.style?.segment_callouts ?? chart.callouts       // вид выноски из оформления (segment_callouts)
 
 /** Высота самой высокой стопки с подписями сегментов: узкий сегмент — меньше NARROW % от неё. */
 function segmentTop(chart: Chart): number {
@@ -158,7 +160,7 @@ function calloutSides(chart: Chart): Map<string, 'left' | 'right'> {
   chart.series.forEach((s, i) => {
     if (!s.segments) return
     s.y.forEach((v, j) => {
-      if (!s.segments?.[j] || typeof v !== 'number' || v / top >= NARROW / 100) return
+      if (!s.segments?.[j] || typeof v !== 'number' || v / top >= narrowOf(chart) / 100) return
       const at = String(s.x[j]), n = used.get(at) ?? 0
       used.set(at, n + 1)
       out.set(`${i}:${j}`, n % 2 === 0 ? 'right' : 'left')
@@ -397,7 +399,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     ...(colored.length ? { visualMap: { type: 'continuous', min: shadeLo, max: shadeHi === shadeLo ? shadeLo + 1 : shadeHi, dimension: 4, seriesIndex: colored.map(c => c.i),
       right: 4, top: 'middle', itemHeight: 150, itemWidth: 12, calculable: false, text: [`${shadeTitle}\n${shadeFmt(shadeHi)}`, shadeFmt(shadeLo)],
       inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: SIZE.small } } } : {}),
-    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 78, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : chart.callouts === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(40, 24 + 20 * nameLines), bottom: navigator ? 90 : 54,
+    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 78, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : calloutsOf(chart) === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(40, 24 + 20 * nameLines), bottom: navigator ? 90 : 54,
       // область построения: фон и рамка (модель оформления: plot_background, plot_border_*)
       ...(chart.style?.plot_background || chart.style?.plot_border_color || chart.style?.plot_border_width ? { show: true,
         backgroundColor: chart.style.plot_background || 'transparent', borderColor: chart.style.plot_border_color || tk.axis,
@@ -493,17 +495,17 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         const wide = chart.id.startsWith('gis-combo')   // редких замеров мало: столбцы широкие, полупрозрачные, кривая поверх
         const share = !!s.segments                       // стопка с числами внутри сегментов (классы производительности)
         if (share) {
-          const sides = calloutSides(chart), fontFamily = fontCss('times'), stackTop = segmentTop(chart)
+          const sides = calloutSides(chart), fontFamily = fontCss('times'), stackTop = segmentTop(chart), segSize = chart.style?.segment_text_size ?? SIZE.callout
           const si = chart.series.indexOf(s)
           const items = rows.map((row, j) => {
             const text = s.segments?.[j] ?? '', v = Number(s.y[j])
             if (!text || !Number.isFinite(v)) return { value: row, label: { show: false } }
-            if (v / stackTop >= NARROW / 100) return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: SIZE.callout, color: onColor(c, tk.ink), formatter: text } }
-            if (chart.callouts === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: SIZE.callDot, color: onColor(c, tk.ink), formatter: /^\d+$/.test(text) ? '●'.repeat(Number(text)) : '●' } }
+            if (v / stackTop >= narrowOf(chart) / 100) return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: segSize, color: onColor(c, tk.ink), formatter: text } }
+            if (calloutsOf(chart) === 'dot') return { value: row, label: { show: true, position: 'inside', fontFamily, fontSize: SIZE.callDot, color: onColor(c, tk.ink), formatter: /^\d+$/.test(text) ? '●'.repeat(Number(text)) : '●' } }
             const side = sides.get(`${si}:${j}`) ?? 'right'
-            const label = { show: true, position: side, distance: 1, fontFamily, fontSize: SIZE.callout,
+            const label = { show: true, position: side, distance: 1, fontFamily, fontSize: segSize,
               formatter: side === 'right' ? `{ln|─}{bx|${text}}` : `{bx|${text}}{ln|─}`,
-              rich: { ln: { color: tk.faint, fontSize: SIZE.callout }, bx: { color: tk.ink, backgroundColor: tk.surface, borderColor: c, borderWidth: 1.5, borderRadius: 4, padding: [1, 4] } } }
+              rich: { ln: { color: tk.faint, fontSize: segSize }, bx: { color: tk.ink, backgroundColor: tk.surface, borderColor: c, borderWidth: 1.5, borderRadius: 4, padding: [1, 4] } } }
             return { value: row, label }
           })
           return { ...common, data: items, type: 'bar', barMaxWidth: 64, barGap: '12%', barCategoryGap: '55%', itemStyle: { color: c, borderColor: tk.ink, borderWidth: 0.4 }, emphasis: { focus: 'none', itemStyle: { color: c } } }
