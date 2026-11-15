@@ -56,13 +56,20 @@ function useDepthView(full: [number, number], g: { vbH: number; y0: number; h: n
 
 /** Забойная часть: рисуется по фигурам ядра (те же, что на странице PDF), глубина вниз. */
 export function WellSchematic({ s }: { s: Schematic }) {
-  const shift = s.gis?.shift ?? 0, scaleX = 68, W = 720 + shift * scaleX, H = 500, left = 46, cx = left + (3.2 + shift) * scaleX
+  const shift = s.gis?.shift ?? 0, scaleX = 68, W = 720 + shift * scaleX, H = 760, left = 46, cx = left + (3.2 + shift) * scaleX
   const dates = s.gis?.dates ?? []
   const [picked, setPicked] = useState<string | null>(null)
   const date = picked && dates.includes(picked) ? picked : dates[dates.length - 1] ?? null     // по умолчанию самый свежий замер
   const at = dates.indexOf(date ?? '')
   const zoom = useDepthView([s.top, s.bottom], { vbH: H, y0: 12, h: H - 24 })
   const clip = useId()
+  const [full, setFull] = useState(false)       // «Развернуть на весь экран»: схема на всё окно, Esc — выход
+  useEffect(() => {
+    if (!full) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFull(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [full])
   if (!s.shapes || s.items.length === 0) return <p className="muted">{s.notes[0] ?? 'Нет конструкции.'}</p>
   const [v0, v1] = zoom.view
   const y = (m: number) => 12 + (m - v0) / (v1 - v0) * (H - 24)
@@ -77,7 +84,10 @@ export function WellSchematic({ s }: { s: Schematic }) {
   const shown = s.shapes.filter(f => !f.date || f.date === date)
   const fmt = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}`
   return (
-    <>
+    <div className={full ? 'schematic-full' : 'schematic-wrap'}>
+    <div className="schematic-bar">
+      <button type="button" onClick={() => setFull(f => !f)} title={full ? 'Свернуть (Esc)' : 'Развернуть схему на весь экран'}>{full ? '✕ Свернуть (Esc)' : '⛶ Развернуть на весь экран'}</button>
+    </div>
     {dates.length > 0 && (
       <div className="gis-date-switch">
         <button type="button" disabled={at <= 0} onClick={() => setPicked(dates[at - 1])} aria-label="Предыдущий замер">◀</button>
@@ -133,7 +143,7 @@ export function WellSchematic({ s }: { s: Schematic }) {
         </g>))}
       </g>
     </svg>
-    </>
+    </div>
   )
 }
 
