@@ -343,7 +343,7 @@ def test_gis_frames_and_scale_meta_for_screen_and_pdf():
 WELL58 = [('Эксплуатационная колонна', 0, 768.4, 168, 152), ('Интервал расширки, м', 768.8, 782.3, None, None), ('НКТ', 0, 752.7, 89, 73),
           ('Перфорированный патрубок', 746.6, 751.8, None, None), ('Пакер', 751.8, 752.7, None, None), ('Лево-правый переводник', 748.91, 749.03, None, None),
           ('Надфильтровые трубы', 752.7, 770.4, None, None), ('Фильтр', 770.4, 780.2, None, None), ('Зумпфовая труба', 777.64, 778.75, None, None),
-          ('Клапанная система с хвостовиком', 778.75, 779.22, None, None)]
+          ('Клапанная система с хвостовиком', 778.75, 779.22, None, None), ('Элемент конструкции ЭК (не отмечен в мерах)', 751.0, 755.7, None, None)]
 
 
 def test_blank_pipes_and_perforated_nipple_are_not_filter_or_perforation():
@@ -358,6 +358,7 @@ def test_blank_pipes_and_perforated_nipple_are_not_filter_or_perforation():
     assert not [i for i in sch['items'] if i['kind'] == 'perf']
     texts = ' | '.join(lab['text'] for lab in sch['labels'])
     assert 'Фильтр 770.4–780.2 м' in texts and 'Надфильтровые трубы 752.7–770.4 м' in texts and 'Перфорированный патрубок 746.6–751.8 м' in texts
-    assert 'Зумпфовая труба' in texts
-    assert {'blank', 'perf_nipple', 'equipment'} <= {s['name'] for s in sch['shapes']}
+    assert 'Зумпфовая труба' in texts and 'Элемент конструкции ЭК (не отмечен в мерах) 751–755.7 м' in texts
+    assert pc.classify('Скважинное оборудование, не указанное в мере') == 'casing_mark'
+    assert {'blank', 'perf_nipple', 'equipment', 'casing_mark'} <= {s['name'] for s in sch['shapes']}
     assert not [c for c in sch['checks'] if c['code'] == 'overlap']

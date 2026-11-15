@@ -24,11 +24,12 @@ RULES = (('reaming', r'расшир|подзабой|каверн'), ('filter', 
 KIND_LABELS = {'casing': 'Эксплуатационная колонна', 'tubing': 'НКТ', 'filter': 'Фильтр', 'perf': 'Перфорация',
                'reaming': 'Расширка', 'packer': 'Пакер', 'bridge': 'Цементный мост', 'pay': 'Пласт', 'bottom': 'Забой',
                'artificial': 'Искусственный забой', 'blank': 'Надфильтровые трубы', 'perf_nipple': 'Перфорированный патрубок',
-               'equipment': 'Оборудование'}
+               'equipment': 'Оборудование', 'casing_mark': 'Элемент ЭК'}
 # Элементы фильтровой компоновки, у которых в названии есть «фильтр»/«перфор», но которые сами не фильтр и не перфорация колонны:
 # проверяются раньше общих правил (иначе «Надфильтровые трубы» становились фильтром и сливались с ним на схеме).
 SPECIFIC = (('perf_nipple', r'перфорированн\w*\s+патруб|перфопатруб'), ('blank', r'надфильтр|затворн|глух\w*\s+труб'),
-            ('equipment', r'зумпф|подгоночн|клапан|переводник'))
+            ('equipment', r'зумпф|подгоночн|клапан|переводник'),
+            ('casing_mark', r'элемент\w*\s+конструкц|не\s*отмечен\w*\s+в\s+мер|не\s*указан\w*\s+в\s+мер'))   # отбит ГИС, в мерах нет
 SKIPPED = r'кондуктор|направлени|потайн|хвостовик|техническ'
 
 
@@ -73,7 +74,7 @@ def _date(value: Any) -> str:
 
 BREAK_M = 50.0          # пустой участок длиннее этого (м) на схеме сжимается; 0 — не сжимать (ручной режим)
 BREAK_KEEP_M = 12.0     # высота сжатого участка на схеме, м (подписи — реальные глубины)
-FOCUS = ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'artificial', 'bottom', 'blank', 'perf_nipple', 'equipment')
+FOCUS = ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'artificial', 'bottom', 'blank', 'perf_nipple', 'equipment', 'casing_mark')
 
 
 def _gaps(items: list[dict[str, Any]], top: float, low: float, threshold: float, pad: float = 6.0) -> list[tuple[float, float]]:
@@ -307,6 +308,11 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
             rect(x0, x1, i['top'], i['bottom'], '#2563eb', name='tubing')
         if clip(i['bottom'], i['bottom']):
             tag(i['bottom'], f"Башмак НКТ {i['bottom']:g} м" + (f", Ø{i['od']:g} мм" if i['od'] else ''), '#1d4ed8')
+    for i in by['casing_mark']:        # элемент на колонне, отбитый ГИС и не отмеченный в мерах: метка снаружи стенки колонны
+        for sign in (-1, 1):
+            x0, x1 = sorted((sign * 1.12, sign * 1.32))
+            rect(x0, x1, i['top'], i['bottom'], '#f59e0b', 'cement', 'casing_mark')
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"{_title(i, 'casing_mark')} {i['top']:g}–{i['bottom']:g} м", '#b45309')
     for i in by['perf_nipple']:        # перфорированный патрубок на НКТ (над пакером): стенка НКТ с отверстиями
         for sign in (-1, 1):
             x0, x1 = sorted((sign * .45, sign * .6))
