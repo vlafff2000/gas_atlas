@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from typing import Any, Mapping
 
 import numpy as np
@@ -303,20 +304,35 @@ def _aligned_table(plt: Any, fig: Any, ax: Any, table: Any, n: int, fs: float = 
             tab.text(k, i + 0.5, v, ha='center', va='center', fontsize=fs)
 
 
+def strip_order(rows: list[str], counts: list[int], idx: list[int], order: str | None) -> list[int]:
+    """Порядок плиток (``strip_order``): как в данных, по числу сезонов (больше — раньше) или по номеру скважины. Зеркало ``web/src/StripView.tsx``."""
+    if order == 'count':
+        return sorted(idx, key=lambda i: (-counts[i], i))
+    if order == 'number':
+        return sorted(idx, key=lambda i: ([int(n) for n in re.findall(r'\d+', rows[i])] or [10 ** 9], i))
+    return list(idx)
+
+
 def _strip_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
-    """Скважины × сезоны плитками: номер, ряд мелких квадратов (цвет ГСП; серый — нет; штриховка — ревизии не было), число сезонов."""
+    """Скважины × сезоны плитками: номер, ряд мелких квадратов (цвет ГСП; серый — нет; штриховка — нет ревизии) и число сезонов.
+    Плиток в строке, порядок, число сезонов, легенда, текст и цвет «нет» — из оформления (``chart.style``, ``strip_*``)."""
     from matplotlib.patches import Rectangle
     o = o or {}
+    style = o.get('style') or chart.style or {}
     cell = float(o.get('cell_size') or 9)
     base = float(o.get('font_size') or 12)
     st = chart.strips
     groups = list(dict.fromkeys(st.groups))
     palette = ['#2a6f97', '#d1495b', '#3a9d5d', '#e0a100', '#7b4fa3', '#e07a1f', '#2b9aa0', '#8c5a3c', '#5b6c8f', '#a3a33a']
     color = {g: st.colors.get(g) or palette[i % len(palette)] for i, g in enumerate(groups)}
-    blocks = [(g, [i for i, x in enumerate(st.groups) if x == g]) for g in groups] if st.layout == 'panels' else [('', list(range(len(st.rows))))]
+    order = style.get('strip_order')
+    blocks = [(g, strip_order(st.rows, st.counts, [i for i, x in enumerate(st.groups) if x == g], order)) for g in groups] if st.layout == 'panels' \
+        else [('', strip_order(st.rows, st.counts, list(range(len(st.rows))), order))]
     n, sq, gap = len(st.columns), 0.2, 0.03
-    chip_w = 0.7 + n * (sq + gap) + 0.45                 # номер + квадраты + число
-    per_row = 9
+    show_counts = style.get('strip_counts') is not False
+    empty = style.get('strip_empty_color') or '#e4eaec'
+    chip_w = 0.7 + n * (sq + gap) + (0.45 if show_counts else 0.1)                 # номер + квадраты + число
+    per_row = int(style.get('strip_per_row') or 9)
     lines = sum(-(-len(idx) // per_row) + (1 if name else 0) for name, idx in blocks)
     fig, ax = plt.subplots(figsize=(per_row * chip_w * 0.5 + 0.4, 0.42 * lines + 1.3))
     y = 0.0
@@ -333,14 +349,17 @@ def _strip_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
                 if v is None:
                     ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fc='#fff4d6', hatch='////', ec='#8a5a00', lw=0.8))
                 else:
-                    ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fc=color[st.groups[i]] if v else '#e4eaec', lw=0))
-            ax.text(x0 + chip_w - 0.1, y0 + 0.31, str(st.counts[i]), ha='right', va='center', fontsize=cell, color='#555')
+                    ax.add_patch(Rectangle((xs, y0 + 0.13), sq, 0.36, fc=color[st.groups[i]] if v else empty, lw=0))
+            if show_counts:
+                ax.text(x0 + chip_w - 0.1, y0 + 0.31, str(st.counts[i]), ha='right', va='center', fontsize=cell, color='#555')
         y += -(-len(idx) // per_row) * 0.8 + 0.2
     ax.set_xlim(-0.05, per_row * (chip_w + 0.15))
     ax.set_ylim(y, -0.2)
     ax.axis('off')
     ax.set_title(chart.title, fontsize=base + 1)
-    fig.text(0.01, 0.01, 'Квадраты слева направо: ' + ' · '.join(st.columns) + '; число справа — сколько сезонов', fontsize=cell, color='#555')
+    if style.get('strip_legend') is not False:
+        fig.text(0.01, 0.01, 'Квадраты слева направо: ' + ' · '.join(st.columns) + ('; число справа — сколько сезонов' if show_counts else '')
+                 + (' · ' + style['strip_missing'] + ' — штриховка' if style.get('strip_missing') else ''), fontsize=cell, color='#555')
     return fig
 
 
