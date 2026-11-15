@@ -53,12 +53,13 @@ def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.
     if not artificial and len(rows):
         rows = rows[~rows['element'].astype(str).str.contains('искусствен', case=False)]      # настройка «Искусственный забой на схеме»
     resource = bool(len(cons) and 'resource' in cons and cons['resource'].fillna('').astype(str).str.strip().str.lower().eq('да').any())       # bool, не numpy: уходит в JSON
-    bottom_m = None
+    bottom_m, stamp = None, ''
     if bottom is not None and len(bottom):
         b = bottom[bottom['well'].astype(str) == well].sort_values('date')
         if len(b) and len(cons) and not latest:
             b = b[b['date'] <= date]
         bottom_m = _num(b.iloc[-1]['bottom_m']) if len(b) else None
+        stamp = passport_card.bottom_stamp(b.iloc[-1]) if len(b) else ''
     gis_rows = []
     if with_gis and packs is not None and len(packs) and {'top_m', 'bottom_m'} <= set(packs.columns):
         part = packs[packs['well'].astype(str) == well].sort_values('date', kind='stable')
@@ -73,7 +74,7 @@ def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.
         gis_rows += [{'element': 'Перфорация', 'top_m': p['top'], 'bottom_m': p['bottom']} for p in perf]
     if gis_rows:
         rows = pd.concat([rows, pd.DataFrame(gis_rows)], ignore_index=True)
-    scheme = passport_card.schematic(rows, bottom_m, break_m, gis_columns.prepare(well, intervals, filling))
+    scheme = passport_card.schematic(rows, bottom_m, break_m, gis_columns.prepare(well, intervals, filling), bottom_date=stamp)
     stamp = f' на {date:%d.%m.%Y}' if len(cons) else ''
     chart = Chart(f'gis-construction-{well}-{date:%Y%m%d}' if len(cons) else f'gis-construction-{well}',
                   f'Скважина №{well}: конструкция у забоя{stamp}' + (' · «Ресурс»' if resource else ''), Axis('', ''), Axis('Глубина', 'м', inverse=True))
