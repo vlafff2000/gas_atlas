@@ -622,7 +622,7 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
               )}
               <div className={'chart-grid' + (columns ? ' fixed-cols' : '')} style={columns ? ({ '--cols': columns } as React.CSSProperties) : undefined}>
                 {shown.map(c => c.figure ? (
-                  <FigureView key={c.id} chart={c} />
+                  <FigureView key={c.id} chart={c} module={spec.id} />
                 ) : c.strips ? (
                   <StripView key={c.id} chart={c} module={spec.id}
                     onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}

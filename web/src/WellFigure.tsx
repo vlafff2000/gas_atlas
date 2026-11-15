@@ -5,6 +5,7 @@ import { CopyButton, DownloadMenu } from './ChartView'
 import { formatNumberUpTo } from './format'
 import { GVK_COLOR } from './chartTheme'
 import { wheelZooms } from './chartAxes'
+import { useSpecialFormat } from './SpecialFormat'
 
 /** Масштаб и сдвиг оси глубины: колесо — масштаб около курсора, перетаскивание — сдвиг, двойной щелчок — сброс (как у остальных графиков).
  *  Окно не выходит за полный диапазон ``full``; ``g`` — геометрия поля графика в единицах viewBox. */
@@ -256,7 +257,9 @@ export function WellPlanshet({ d }: { d: Extract<FigureData, { kind: 'planshet' 
 }
 
 /** Рисунок-график: схема скважины или планшет с теми же кнопками «Копировать» и «Скачать», что у остальных графиков (PNG и SVG делает экран). */
-export function FigureView({ chart }: { chart: Chart }) {
+export function FigureView({ chart: given, module }: { chart: Chart; module?: string }) {
+  const fmt = useSpecialFormat(given, module)
+  const chart = fmt.chart
   const f = chart.figure as FigureData | null | undefined
   const box = useRef<HTMLDivElement>(null)
   if (!f) return null
@@ -264,6 +267,8 @@ export function FigureView({ chart }: { chart: Chart }) {
     const svg = box.current?.querySelector('svg')
     if (!svg) throw new Error('Рисунок ещё не готов.')
     const clone = svg.cloneNode(true) as SVGSVGElement
+    const bg = chart.style?.background
+    if (bg) clone.style.background = bg
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
     const css = 'text{font-family:Arial,sans-serif}.schematic-bg{fill:#fff;stroke:#d1d5db}.schematic-tick{stroke:#6b7280;stroke-width:.8}' +
       '.schematic-tick-text{font-size:14px;fill:#6b7280}.schematic-label{font-size:16px;font-weight:600}.planshet-head{font-size:14px;font-weight:600;fill:#111827}' +
@@ -281,7 +286,7 @@ export function FigureView({ chart }: { chart: Chart }) {
       const canvas = document.createElement('canvas')
       canvas.width = Math.round(vb.width * scale); canvas.height = Math.round(vb.height * scale)
       const ctx = canvas.getContext('2d')!
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.fillStyle = chart.style?.background || '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
       canvas.toBlob(b => b ? resolve(b) : reject(new Error('Не удалось получить PNG.')), 'image/png')
     }
@@ -290,14 +295,16 @@ export function FigureView({ chart }: { chart: Chart }) {
   })
   const file = async (kind: 'png' | 'svg', dpi: number) => kind === 'png' ? png(dpi) : new Blob([svgText().text], { type: 'image/svg+xml' })
   return (
-    <figure className="chart figure-chart">
+    <figure className="chart figure-chart" style={fmt.frame}>
       <figcaption>
-        <span title={chart.title}>{chart.title}</span>
+        <span title={chart.title} style={fmt.title} onDoubleClick={() => fmt.open()}>{chart.title}</span>
         <span className="chart-actions">
+          <span className="chart-tools">{fmt.button}</span>
           <CopyButton onCopy={() => png(192)} />
           <DownloadMenu onDownload={async () => {}} screen={{ name: chart.title, file }} screenOnly />
         </span>
       </figcaption>
+      {fmt.pane}
       <div ref={box} className="figure-body">
         {f.kind === 'construction'
           ? <>
