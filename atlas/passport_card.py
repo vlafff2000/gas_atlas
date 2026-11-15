@@ -519,6 +519,18 @@ def season_label(kind: str, period: str) -> str:
     return f'{dict(KINDS)[kind]} {period}'
 
 
+def _well_rows(frames, name: str, well: str) -> pd.DataFrame:
+    """Строки таблицы проекта по скважине (все даты); нет таблицы или столбцов — пустая таблица."""
+    try:
+        d = frames[name] if name in frames else None
+    except (KeyError, TypeError):
+        d = None
+    if d is None or d.empty or not {'well', 'date'} <= set(d.columns):
+        return pd.DataFrame()
+    d = d[d['well'].astype(str) == str(well)]
+    return d[d['date'].notna()].copy()
+
+
 def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None),
           only: list[str] | None = None, gis: tuple[pd.DataFrame | None, ...] = (None, None)) -> dict[str, Any]:
     """Всё для карточки одной скважины. Пустые разделы — заметка, не ошибка.
@@ -540,10 +552,14 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
         if only and not d.empty:
             by_kind[kind]['daily'] = d[d.period.astype(str).map(lambda p, k=kind: season_label(k, p) in keep)]
     gdi_all = gdi_table(first['gdi_history'])
-    bottom = first['bottom']
+    # Схема — текущее состояние скважины: последний снимок конструкции и последний отбитый забой. Анализ сезонов берёт их «на конец сезона»,
+    # и снимок из отчёта ГИС, сделанного после сезона отбора (скв. 58: 02.07.2026), отсекался — «Нет конструкции на схему».
+    bottom = _well_rows(frames, 'bottom', well)
+    bottom = bottom.sort_values('date') if not bottom.empty else first['bottom']
     bottom_m = _num(bottom.iloc[-1].bottom_m) if not bottom.empty else None
     stamp = bottom_stamp(bottom.iloc[-1]) if not bottom.empty else ''
-    construction = first['construction']
+    construction = _well_rows(frames, 'construction', well)
+    construction = construction[construction['date'] == construction['date'].max()] if not construction.empty else first['construction']
     from atlas import gis_columns
     columns = gis_columns.prepare(well, gis[0], gis[1], gis[2] if len(gis) > 2 else None)   # колонки ГИС и техсостояние: те же, что в разделе «ГИС»
     cons = schematic(construction, bottom_m, gis=columns, bottom_date=stamp) if not construction.empty else schematic(pd.DataFrame(
