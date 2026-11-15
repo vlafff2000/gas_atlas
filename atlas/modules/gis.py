@@ -15,7 +15,7 @@ from atlas.engine.core.config import ordered
 from atlas.engine.modules import gis_hikg
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, ParamError, Result, Series, Stat, Table
-from .. import well_funds
+from .. import passport_card, well_funds
 from ..domain import DatasetKind
 from . import gis_an_tables, gis_cons_compare, gis_tiles, gis_well
 
@@ -148,6 +148,10 @@ class GisModule(Module):
                   help='Перфорация из «Базы ГИС» и «Положения и перфорации» задана в а.о. (как в файле «Глубины_перфораций»): положительное '
                        'число без знака минус тоже а.о. Пересчёт в MD — альтитуда − а.о. Если в вашем файле метры от стола, выберите MD. '
                        'Выбор запоминается в проекте для этого раздела.'),
+            Param('scheme_detail', 'Состав схемы', 'choice', default='full', section='Схема скважины', show_if={'view': 'construction'},
+                  options=tuple(Option(k, v) for k, v in passport_card.DETAILS),
+                  help='Подробная — все элементы конструкции из отчётов и свода (пакеры, переводники, патрубки, клапаны, зумпф, надфильтровые трубы). '
+                       'Упрощённая — только эксплуатационная колонна, НКТ, фильтры, перфорация и искусственный забой; проверки конструкции всё равно идут по всем элементам.'),
             Param('scheme_break_m', 'Сжимать пустые участки длиннее, м', 'number', default=50, section='Схема скважины', show_if={'view': 'construction'},
                   help='Участки без фильтра, перфорации, пакера, пласта и забоя длиннее этого значения сжимаются на схеме, подписи остаются реальными. 0 — не сжимать.'),
             Param('scheme_artificial', 'Искусственный забой на схеме', 'boolean', default=True, section='Схема скважины', show_if={'view': 'construction'},
@@ -317,6 +321,7 @@ class GisModule(Module):
                                                                       data.get(DatasetKind.WELL_GEO), params.get('perf_depth', 'abs'), date,
                                                                       artificial=bool(params.get('scheme_artificial', True)),
                                                                       break_m=float(params.get('scheme_break_m', 50) or 0),
+                                                                      detail=str(params.get('scheme_detail') or 'full'),
                                                                       intervals=data.get(INTERVALS), filling=data.get(DatasetKind.GIS_FILLING),
                                                                       annotations=data.get(ANNOTATIONS)))
             result.notes.extend(Note(n) for n in dict.fromkeys(c.figure.data['perf_note'] for c in result.charts if c.figure.data['perf_note']))

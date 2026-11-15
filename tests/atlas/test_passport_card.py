@@ -388,3 +388,14 @@ def test_tech_state_from_gis_report_annotations_on_scheme():
     assert 'tech' in [c['key'] for c in sch['gis']['columns']]
     kinds = [e.label for e in annotation_events(ann, ['58'])]
     assert any('за колонной' in k for k in kinds) and not any('не выявлено' in k or 'Толщина' in k for k in kinds)
+
+
+def test_simple_scheme_keeps_casing_tubing_filter_perf_and_artificial_only():
+    """Переключатель «Подробная / Упрощённая»: в упрощённой — ЭК, НКТ, фильтры, перфорация и ИЗ; второстепенное скрыто с пояснением."""
+    rows = WELL58 + [('Интервал перфорации', 760.0, 765.0, None, None), ('Искусственный забой', 779.22, 779.22, None, None)]
+    full = pc.schematic(frame(rows), 781.4)
+    simple = pc.schematic(frame(rows), 781.4, detail='simple')
+    assert {i['kind'] for i in full['items']} > {i['kind'] for i in simple['items']}
+    assert {i['kind'] for i in simple['items']} == {'casing', 'tubing', 'filter', 'perf', 'artificial'}
+    assert any(n.startswith('Упрощённая схема: скрыто элементов') and 'Пакер' in n for n in simple['notes'])
+    assert [c['code'] for c in simple['checks']] == [c['code'] for c in full['checks']]       # проверки — по всем элементам
