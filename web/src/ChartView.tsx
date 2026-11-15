@@ -1788,7 +1788,7 @@ function ChartTableView({ table, colors }: { table: NonNullable<Chart['table']>;
 // ---------- ручное оформление (конструктор) ----------
 
 /** Стиль заголовка графика из настроек: шрифт, размер, жирность, цвет, выравнивание. Пусто — как задано стилями страницы. */
-function titleStyle(st: ChartStyle | undefined): CSSProperties | undefined {
+export function titleStyle(st: ChartStyle | undefined): CSSProperties | undefined {
   if (!st) return undefined
   const out: CSSProperties = {}
   if (st.title_font || st.font) out.fontFamily = fontCss(st.title_font ?? st.font)
@@ -1800,7 +1800,7 @@ function titleStyle(st: ChartStyle | undefined): CSSProperties | undefined {
 }
 
 /** Рамка и фон всего рисунка (модель оформления: border_color, border_width, background). */
-function frameStyle(st: ChartStyle | undefined): CSSProperties | undefined {
+export function frameStyle(st: ChartStyle | undefined): CSSProperties | undefined {
   if (!st?.border_color && !st?.border_width) return undefined
   return { borderColor: st.border_color, borderWidth: st.border_width ?? 1, borderStyle: 'solid' }
 }

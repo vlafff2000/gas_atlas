@@ -107,6 +107,45 @@ def category_scenario(page) -> list[str]:
     return out
 
 
+HEAT = {'rows': ['ГСП 1', 'ГСП 2'], 'columns': ['2023/24', '2024/25'], 'values': [[10, 20], [None, 5]], 'texts': [['10', '20'], ['нет фонда', '5']],
+        'unit': 'Скважин', 'maximum': None, 'missing_text': 'нет данных'}
+STRIPS = {'rows': ['№ 1', '№ 2'], 'groups': ['ГСП 1', 'ГСП 2'], 'columns': ['2023/24', '2024/25'], 'cells': [[1, 0], [None, 1]], 'counts': [1, 1],
+          'layout': 'matrix', 'missing_text': 'нет ревизии', 'colors': {}}
+
+
+def heat_scenario(page) -> list[str]:
+    """Тепловая карта и полосы (в демо-проекте таких графиков нет, поэтому ответ раздела подменяется): кнопка «Формат» открывает общую панель."""
+    def patch(route):
+        r = route.fetch()
+        body = r.json()
+        if isinstance(body, dict) and body.get('charts'):
+            base = body['charts'][0]
+            body['charts'] = [{**base, 'id': 'x-heat', 'title': 'Тест: карта', 'series': [], 'heat': HEAT},
+                              {**base, 'id': 'x-strips', 'title': 'Тест: полосы', 'series': [], 'strips': STRIPS}]
+        route.fulfill(response=r, json=body)
+    page.route('**/api/modules/gdi/run', patch)
+    out = []
+    try:
+        page.evaluate("location.hash = '#/overview'")
+        page.wait_for_timeout(800)
+        page.evaluate("location.hash = '#/gdi'")
+        page.wait_for_selector('figure.chart.heat', timeout=PAGE_TIMEOUT_MS)
+        for selector in ('figure.chart.heat', 'figure.chart.strips'):
+            button = page.locator(selector + ' button[title^="Формат графика"]')
+            if not button.count():
+                out.append(f'{selector}: нет кнопки «Формат»')
+                continue
+            button.click()
+            page.wait_for_timeout(400)
+            if not page.get_by_text('Оформление графика и осей действует на').count():
+                out.append(f'{selector}: панель «Формат» не открылась')
+            button.click()
+            page.wait_for_timeout(300)
+    finally:
+        page.unroute('**/api/modules/gdi/run', patch)
+    return out
+
+
 def stage_scenario(page, pid: str) -> list[str]:
     """Сценарий предпросмотра с диагностикой: при сбое в замечание попадает, какие запросы вкладки ушли и что показывает страница."""
     seen: list[str] = []
@@ -249,6 +288,14 @@ def main() -> int:
                 for l in bad:
                     print('     ', l[:300])
                     problems.append(f'category: {l[:300]}')
+                try:
+                    bad = heat_scenario(page)
+                except Exception as e:
+                    bad = [f'{type(e).__name__}: {str(e)[:200]}']
+                print(f'{"ОК " if not bad else "ОШИБКА"} {"тепловая карта, полосы":<22}', flush=True)
+                for l in bad:
+                    print('     ', l[:300])
+                    problems.append(f'heat: {l[:300]}')
                 browser.close()
         finally:
             proc.terminate()

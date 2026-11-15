@@ -624,11 +624,11 @@ function ModulePanel({ spec, project, onProject, panel, labelled }:
                 {shown.map(c => c.figure ? (
                   <FigureView key={c.id} chart={c} />
                 ) : c.strips ? (
-                  <StripView key={c.id} chart={c}
+                  <StripView key={c.id} chart={c} module={spec.id}
                     onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
                 ) : c.heat ? (
-                  <HeatView key={c.id} chart={c}
+                  <HeatView key={c.id} chart={c} module={spec.id}
                     onCopy={() => api.chartPng(spec.id, project.id, params, c.id)}
                     onDownload={(format, dpi) => api.exportChart(spec.id, project.id, params, c.id, format, dpi)} />
                 ) : (
