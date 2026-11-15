@@ -8,13 +8,16 @@ function DeleteDatasets({ project, onProject }: { project: Project; onProject?: 
   const [options, setOptions] = useState<DatasetOption[]>([])
   const [chosen, setChosen] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [message, setMessage] = useState<{ text: string; ok: boolean; undo?: string } | null>(null)
 
   useEffect(() => {
+    setLoadError('')
     projectsApi.datasets(project.id).then(r => { setOptions(r.items); setChosen(c => c.filter(k => r.items.some(i => i.key === k))) })
-      .catch(() => setOptions([]))
+      .catch(e => { setOptions([]); setLoadError((e as Error).message) })
   }, [project.id, project.revision])
 
+  if (loadError) return <div className="note warning">Удаление наборов данных недоступно: {loadError}. Вероятно, программа обновлена не полностью — закройте её и распакуйте архив заново.</div>
   if (!options.length && !message) return null
   const toggle = (key: string) => setChosen(c => c.includes(key) ? c.filter(k => k !== key) : [...c, key])
   const remove = async () => {
