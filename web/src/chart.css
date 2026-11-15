@@ -293,3 +293,11 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
   display: grid; place-items: center; color: var(--muted); font-size: 13px;
   background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius);
 }
+/* шкала цвета справа (heat_bar = right) */
+.heat-wrap:has(.heat-scale.right) { display: flex; align-items: stretch; gap: 14px; }
+.heat-wrap:has(.heat-scale.right) .heat-table { flex: 1 1 auto; }
+.heat-scale.right { flex-direction: row; margin-top: 0; align-self: stretch; }
+.heat-scale.right > span:first-child { writing-mode: vertical-rl; transform: rotate(180deg); }
+.heat-scale.right i { width: 12px; height: auto; min-height: 100px; }
+.heat-scale.right .heat-ends { display: flex; flex-direction: column-reverse; justify-content: space-between; }
+.heat-scale.right .heat-ends { width: auto; }

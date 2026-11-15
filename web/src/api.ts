@@ -109,6 +109,9 @@ export interface ChartStyle {
   grid_dash?: string; minor_grid_dash?: string; border_color?: string; border_width?: number; plot_border_color?: string; plot_border_width?: number
   fresh_colors?: string[]     // цвета кривых по свежести: самая свежая — первый, вторая — второй…; ручной цвет ряда главнее
   group_digits?: boolean      // false — в файлах числа без разрядов; по умолчанию разряды включены
+  // тепловая карта (atlas/heat_scale.py)
+  heat_scale?: 'orange' | 'blue' | 'green' | 'redgreen' | 'gray'; heat_reverse?: boolean; heat_min?: number; heat_max?: number
+  heat_values?: boolean; heat_cell_size?: number; heat_missing?: string; heat_bar?: 'right' | 'bottom' | 'hide'
   annotations?: Annotation[]
 }
 export interface Axis {

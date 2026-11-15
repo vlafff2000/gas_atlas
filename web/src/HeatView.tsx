@@ -1,15 +1,9 @@
 import type { Chart } from './api'
 import { CopyButton, DownloadMenu } from './ChartView'
 import { useSpecialFormat } from './SpecialFormat'
+import { heatColor, isDark, rgb } from './heatScale'
 
-// Тепловая карта «строка × столбец» (ГСП × сезоны): цветная таблица с числами. Нет данных — штриховка с подписью.
-const SCALE = [[255, 247, 236], [253, 212, 158], [252, 141, 89], [215, 48, 31], [127, 0, 0]]
-
-function shade(t: number): string {
-  const x = Math.min(1, Math.max(0, t)) * (SCALE.length - 1), i = Math.min(SCALE.length - 2, Math.floor(x)), f = x - i
-  const c = SCALE[i].map((v, k) => Math.round(v + (SCALE[i + 1][k] - v) * f))
-  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`
-}
+// Тепловая карта «строка × столбец» (ГСП × сезоны): цветная таблица с числами. Нет данных — штриховка. Шкала, пределы, числа и текст «нет данных» — из оформления (chart.style, heat_*).
 
 interface Props {
   chart: Chart
@@ -23,7 +17,15 @@ export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
   const chart = fmt.chart
   const h = chart.heat
   if (!h) return null
-  const top = h.maximum || Math.max(1, ...h.values.flat().filter((v): v is number => v !== null))
+  const st = chart.style ?? {}
+  const scheme = st.heat_scale ?? 'orange', reverse = !!st.heat_reverse
+  const data = h.values.flat().filter((v): v is number => v !== null)
+  const low = st.heat_min ?? 0
+  const top = st.heat_max ?? (h.maximum || Math.max(1, ...data))
+  const span = top > low ? top - low : 1
+  const shade = (v: number) => heatColor((v - low) / span, scheme, reverse)
+  const missing = st.heat_missing || h.missing_text
+  const cellStyle = st.heat_cell_size ? { fontSize: st.heat_cell_size } : undefined
   return (
     <figure className="chart heat" style={fmt.frame}>
       <figcaption>
@@ -42,16 +44,16 @@ export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
             {h.rows.map((row, i) => (
               <tr key={row}><th scope="row">{row}</th>
                 {h.values[i].map((v, j) => v === null
-                  ? <td key={j} className="heat-missing" title={h.texts[i][j] || h.missing_text}>{h.texts[i][j] || h.missing_text}</td>
-                  : <td key={j} style={{ background: shade(v / top), color: v / top > 0.55 ? '#fff' : undefined }}>{h.texts[i][j]}</td>)}
+                  ? <td key={j} className="heat-missing" style={cellStyle} title={h.texts[i][j] || missing}>{h.texts[i][j] || missing}</td>
+                  : <td key={j} style={{ ...cellStyle, background: rgb(shade(v)), color: isDark(shade(v)) ? '#fff' : undefined }}>{st.heat_values === false ? '' : h.texts[i][j]}</td>)}
               </tr>))}
           </tbody>
         </table>
-        <div className="heat-scale" aria-hidden="true">
+        {st.heat_bar !== 'hide' && <div className={'heat-scale' + (st.heat_bar === 'right' ? ' right' : '')} aria-hidden="true">
           <span>{h.unit}</span>
-          <i style={{ background: `linear-gradient(to right, ${[0, 0.25, 0.5, 0.75, 1].map(shade).join(', ')})` }} />
-          <span className="heat-ends"><b>0</b><b>{Math.round(top)}</b></span>
-        </div>
+          <i style={{ background: `linear-gradient(to ${st.heat_bar === 'right' ? 'top' : 'right'}, ${[0, 0.25, 0.5, 0.75, 1].map(t => rgb(heatColor(t, scheme, reverse))).join(', ')})` }} />
+          <span className="heat-ends"><b>{Math.round(low)}</b><b>{Math.round(top)}</b></span>
+        </div>}
       </div>
     </figure>
   )
