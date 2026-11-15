@@ -68,6 +68,11 @@ def check_construction(items: list[dict[str, Any]], bottom_m: float | None = Non
         if bottom_m < top_w - TOL_M:
             out.append(_chk('bottom_above_filter', 'warning', f'Отбитый забой {bottom_m:g} м выше верха фильтра/перфорации {top_w:g} м: '
                             'интервал перекрыт целиком. Проверьте замер забоя.', bottom_m, top_w))
+    perfs, reamed = of('perf'), of('reaming')
+    if perfs and reamed:         # расширка/открытый ствол и интервал перфорации взаимоисключающие (правило инженера): подсказка, ничего не скрывается
+        a, b = min(p['top'] for p in perfs), max(p['bottom'] for p in perfs)
+        out.append(_chk('reaming_and_perf', 'warning', f'Есть и расширка {reamed[0]["top"]:g}–{reamed[0]["bottom"]:g} м, и перфорация {a:g}–{b:g} м: '
+                        'вместе они не бывают. Проверьте по отчёту ГИС, какая строка лишняя (перфорированная труба НКТ — не перфорация).', a, b))
     for kind, name in NAMES.items():
         group = sorted(of(kind), key=lambda i: (i['top'], i['bottom']))
         for a, b in zip(group, group[1:]):

@@ -428,3 +428,15 @@ def test_scheme_carries_both_compositions_for_the_screen_switch():
     assert simple['detail'] == 'simple' and len(simple['alt']['items']) == len(full['items'])
     only = pc.schematic(frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Фильтр', 960, 1005, None, None)]), None)
     assert 'alt' not in only          # нечего скрывать — переключателя нет
+
+
+def test_w32_perforated_pipe_and_reaming_perforation_rule():
+    """Скв. 32: «Перфорированный труба» — элемент НКТ, не перфорация; расширка и перфорация вместе — подсказка с причиной."""
+    assert pc.classify('Перфорированный труба') == 'perf_nipple' and pc.classify('Перфорированная труба НКТ') == 'perf_nipple'
+    ok = pc.schematic(frame([('Эксплуатационная колонна', 0, 757.8, 168, 150), ('Перфорированный труба', 729.3, 736.8, None, None),
+                             ('Фильтр', 757.9, 767.6, None, None), ('Расширка открытого ствола', 758.7, 768.8, None, None)]), 771.0)
+    assert not [c for c in ok['checks'] if c['code'] == 'reaming_and_perf']
+    bad = pc.schematic(frame([('Эксплуатационная колонна', 0, 757.8, 168, 150), ('Интервал перфорации', 750.0, 760.0, None, None),
+                              ('Расширка открытого ствола', 758.7, 768.8, None, None)]), 771.0)
+    hint = [c for c in bad['checks'] if c['code'] == 'reaming_and_perf']
+    assert hint and hint[0]['level'] == 'warning' and 'вместе они не бывают' in hint[0]['text'] and any(i['kind'] == 'perf' for i in bad['items'])     # не удаляется
