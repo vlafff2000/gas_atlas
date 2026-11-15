@@ -209,6 +209,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
             if b > a or (sh['t'] == 'text' and out['top'] <= sh['y0'] <= out['bottom']):
                 out['shapes'].append({**sh, 'y0': a, 'y1': b} if sh['t'] != 'text' else dict(sh))
         out['gis'] = {'dates': gis['dates'], 'shift': gis_columns.SHIFT, 'columns': gis_columns.COLUMNS}
+        out['notes'] += gis.get('notes') or []        # техсостояние из последнего отчёта ГИС: видно и то, что вне окна схемы
     out['ticks'] = None
     gaps = _gaps(out['items'], out['top'], out['bottom'], break_m) if break_m and break_m > 0 else []
     if gaps:
@@ -506,7 +507,7 @@ def season_label(kind: str, period: str) -> str:
 
 
 def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None),
-          only: list[str] | None = None, gis: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None)) -> dict[str, Any]:
+          only: list[str] | None = None, gis: tuple[pd.DataFrame | None, ...] = (None, None)) -> dict[str, Any]:
     """Всё для карточки одной скважины. Пустые разделы — заметка, не ошибка.
 
     ``only`` — подписи сезонов («Отбор 2025-2026»), которые показывать: показатели, таблица сезонов, графики и PDF считаются
@@ -531,7 +532,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     stamp = bottom_stamp(bottom.iloc[-1]) if not bottom.empty else ''
     construction = first['construction']
     from atlas import gis_columns
-    columns = gis_columns.prepare(well, gis[0], gis[1])       # колонки ГИС (коллектор, насыщение пласта и ствола): те же, что в разделе «ГИС»
+    columns = gis_columns.prepare(well, gis[0], gis[1], gis[2] if len(gis) > 2 else None)   # колонки ГИС и техсостояние: те же, что в разделе «ГИС»
     cons = schematic(construction, bottom_m, gis=columns, bottom_date=stamp) if not construction.empty else schematic(pd.DataFrame(
         columns=['element', 'top_m', 'bottom_m']), bottom_m)
     krs = krs_rows(krs[0], krs[1], well)

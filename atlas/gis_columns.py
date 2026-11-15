@@ -1,9 +1,11 @@
-"""Колонки ГИС рядом со схемой скважины: коллектор/неколлектор, насыщение пласта и заполнение ствола.
+"""Колонки ГИС рядом со схемой скважины: техсостояние (скопления газа, перетоки, дефекты), коллектор/неколлектор, насыщение пласта и заполнение ствола.
 
 Ядро общее для всех мест, где рисуется схема (``atlas.passport_card.schematic``): здесь только данные и фигуры в метрах от стола.
 Колонка коллектора одна на скважину (последний замер каждой пачки). Насыщение пласта и ствола зависят от даты исследования:
 фигуры помечены ``date`` (ISO), экран и PDF показывают выбранную дату. Ничего не подставляется: на дату без записи колонка пустая.
 Правило коллектора — подсказка с видимой причиной в подсказке фигуры (``name``); решение за инженером.
+Техсостояние — пометки отчётов («Аннотации» БД ГИС: «Скопление газа: за колонной», «Заколонный переток — не выявлено», «Толщина стенки ЭК (МИД): …»):
+интервалы «есть» — в колонке «Газ, ТС» на дату отчёта, всё сказанное в последнем отчёте — строкой пояснения под схемой (там видно и то, что вне окна).
 """
 from __future__ import annotations
 
@@ -12,12 +14,19 @@ from typing import Any
 
 import pandas as pd
 
+X_TECH = (-7.5, -6.4)              # колонка «Газ, ТС»: скопления газа за колонной, в покрышке, перетоки, дефекты (пометки отчётов)
 X_COLLECTOR = (-6.2, -5.1)          # колонка «коллектор / неколлектор»
 X_KG = (-5.0, -3.5)                 # трек «Кг» на дату замера: столбец интервала длиной по Кг на шкале 0–1
 X_BORE = ((-.95, -.58), (.58, .95))  # насыщение ствола: полосы внутри колонны по сторонам от НКТ
-COLUMNS = [{'key': 'collector', 'x0': X_COLLECTOR[0], 'x1': X_COLLECTOR[1], 'title': 'Коллектор'},
+COLUMNS = [{'key': 'tech', 'x0': X_TECH[0], 'x1': X_TECH[1], 'title': 'Газ, ТС'},
+           {'key': 'collector', 'x0': X_COLLECTOR[0], 'x1': X_COLLECTOR[1], 'title': 'Коллектор'},
            {'key': 'kg', 'x0': X_KG[0], 'x1': X_KG[1], 'title': 'Кг, д.ед.', 'scale': [0, 1]}]      # заголовки и шкала рисуют экран и PDF
-SHIFT = 3.1                          # на сколько условных единиц схема сдвигается вправо ради колонок (экран и PDF)
+SHIFT = 4.4                          # на сколько условных единиц схема сдвигается вправо ради колонок (экран и PDF)
+NO = ' — не выявлено'                # окончание вида пометки «нет» (как в сборке БД ГИС)
+TECH_KINDS = ('Скопление газа', 'Скопления газа', 'Заколонный переток', 'Дефекты', 'Изменение НГК', 'Толщина стенки', 'Насыщение пласта')
+TECH_COLORS = (('за колонной', '#dc2626', 'газ за колонной'), ('под башмаком', '#b91c1c', 'газ под башмаком'), ('покрышк', '#f97316', 'газ в покрышке'),
+               ('глинистый прослой', '#fb923c', 'газ в глинистом прослое'), ('вышележащ', '#eab308', 'газ выше пласта'), ('переток', '#7c3aed', 'переток'),
+               ('дефект', '#111827', 'дефект'), ('по стволу', '#facc15', 'газ'), ('пласте-коллекторе', '#fbbf24', 'газ в пласте'))
 
 CLAY, WATER = 'глин', 'водонасыщ'
 NOT_STUDIED = ('не исследован', 'не охвачен', 'не ясно', 'влияние конструкции')
@@ -67,10 +76,69 @@ def _iso(v: Any) -> str:
     return pd.Timestamp(v).strftime('%Y-%m-%d')
 
 
-def prepare(well: str, intervals: pd.DataFrame | None, filling: pd.DataFrame | None) -> dict[str, Any] | None:
-    """Данные колонок скважины: фигуры (метры от стола) и список дат её замеров. Нет ни интервалов, ни заполнения — None."""
+def tech_kind(kind: str) -> tuple[str, str] | None:
+    """Цвет и короткое название пометки техсостояния для колонки «Газ, ТС»; None — не рисуется (не техсостояние, «не выявлено», толщина, насыщение)."""
+    k = str(kind or '')
+    if not k.startswith(TECH_KINDS) or k.endswith(NO) or k.startswith(('Толщина', 'Насыщение', 'Изменение НГК')):
+        return None
+    low = k.lower()
+    return next(((c, name) for key, c, name in TECH_COLORS if key in low), ('#f59e0b', k))
+
+
+def _ru(v: float) -> str:
+    return f'{v:g}'.replace('.', ',')
+
+
+def tech_notes(well: str, annotations: pd.DataFrame | None) -> list[str]:
+    """Пояснение под схемой: что о техсостоянии сказано в последнем отчёте ГИС скважины (в том числе вне окна схемы и «не выявлено»)."""
+    if annotations is None or not len(annotations) or not {'well', 'date', 'kind'} <= set(annotations.columns):
+        return []
+    a = annotations[(annotations['well'].astype(str) == str(well)) & annotations['kind'].astype(str).str.startswith(TECH_KINDS)].copy()
+    a['date'] = pd.to_datetime(a['date'], errors='coerce', dayfirst=True)
+    a = a[a['date'].notna()]
+    if not len(a):
+        return []
+    last = a[a['date'] == a['date'].max()]
+    found, absent, other = [], [], []
+    for kind, g in last.groupby(last['kind'].astype(str), sort=False):
+        spans = ', '.join(f'{_ru(_num(r.from_m))}–{_ru(_num(r.to_m))} м' for r in g.itertuples() if _num(getattr(r, 'from_m', None)) is not None
+                          and _num(getattr(r, 'to_m', None)) is not None)
+        if kind.endswith(NO):
+            absent.append(kind[:-len(NO)].replace('Скопление газа: ', 'газ ').lower())
+        elif kind.startswith(('Толщина', 'Насыщение', 'Изменение НГК')):
+            other.append(kind + (f' {spans}' if spans and not kind.startswith('Толщина') else ''))
+        else:
+            found.append(kind + (f' {spans}' if spans else ''))
+    day = a['date'].max().strftime('%d.%m.%Y')
+    parts = (['есть: ' + '; '.join(found)] if found else []) + (['не выявлено: ' + ', '.join(absent)] if absent else []) + (['; '.join(other)] if other else [])
+    return [f'Техсостояние по ГИС {day}: ' + ' | '.join(parts) + '. Из текста отчёта; решение за инженером.']
+
+
+def prepare(well: str, intervals: pd.DataFrame | None, filling: pd.DataFrame | None, annotations: pd.DataFrame | None = None) -> dict[str, Any] | None:
+    """Данные колонок скважины: фигуры (метры от стола), список дат её замеров и пояснение о техсостоянии. Нет ничего — None."""
     shapes: list[dict[str, Any]] = []
     dates: set[str] = set()
+    if annotations is not None and len(annotations) and {'well', 'date', 'kind', 'from_m', 'to_m'} <= set(annotations.columns):
+        part = annotations[annotations['well'].astype(str) == str(well)].copy()
+        part['date'] = pd.to_datetime(part['date'], errors='coerce', dayfirst=True)
+        has_iv = intervals is not None and len(intervals) and 'well' in intervals and (intervals['well'].astype(str) == str(well)).any()
+        for _, r in part[part['date'].notna()].iterrows():
+            a, b, kind = _num(r['from_m']), _num(r['to_m']), str(r['kind'])
+            if a is None or b is None:
+                continue
+            lo, hi, day = min(a, b), max(a, b), _iso(r['date'])
+            text = str(r.get('text') or '')[:160]
+            look = tech_kind(kind)
+            if look:
+                dates.add(day)
+                shapes.append({'t': 'rect', 'x0': X_TECH[0], 'x1': X_TECH[1], 'y0': lo, 'y1': max(hi, lo + .3), 'fill': look[0], 'pattern': '',
+                               'name': f'{kind} {lo:g}–{hi:g} м (ГИС {r["date"]:%d.%m.%Y}): {text}', 'col': 'tech', 'date': day})
+            elif kind.startswith('Насыщение пласта') and not has_iv:      # отчёт без таблицы Кг (диагностика техсостояния): насыщение из текста, Кг нет
+                dates.add(day)
+                water = WATER in text.lower() and 'газонасыщ' not in text.lower()
+                shapes.append({'t': 'rect', 'x0': X_KG[0], 'x1': X_KG[1], 'y0': lo, 'y1': hi, 'fill': '#cfe3f4' if water else '#fde9b8', 'pattern': '',
+                               'name': f'{lo:g}–{hi:g} м: {"водонасыщен" if water else "газонасыщен"} по тексту отчёта, Кг не указан', 'col': 'kg', 'date': day})
+    notes = tech_notes(well, annotations)
     if intervals is not None and len(intervals) and 'date' in intervals:       # сырые таблицы проекта: даты могут быть строками
         intervals = intervals.assign(date=pd.to_datetime(intervals['date'], errors='coerce', dayfirst=True))
     if filling is not None and len(filling) and 'date' in filling:
@@ -126,9 +194,9 @@ def prepare(well: str, intervals: pd.DataFrame | None, filling: pd.DataFrame | N
             for x0, x1 in X_BORE:
                 shapes.append({'t': 'rect', 'x0': x0, 'x1': x1, 'y0': lo, 'y1': hi, 'fill': color, 'pattern': '', 'name': what,
                                'col': 'bore', 'date': day})
-    if not shapes:
+    if not shapes and not notes:
         return None
-    return {'shapes': shapes, 'dates': sorted(dates)}
+    return {'shapes': shapes, 'dates': sorted(dates), 'notes': notes}
 
 
 def frame_shapes(top: float, bottom: float) -> list[dict[str, Any]]:

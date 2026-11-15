@@ -88,6 +88,8 @@ def annotation_events(annotations: pd.DataFrame | None, wells: Iterable[str], st
     d = _pick(annotations, wells, start, end)
     if d is None or 'kind' not in d:
         return []
+    kind = d['kind'].astype(str)
+    d = d[~kind.str.endswith(' — не выявлено') & ~kind.str.startswith(('Толщина стенки', 'Насыщение пласта'))]     # «нет» и справочное — не события
     d = _thin(d.drop_duplicates(['well', 'date', 'kind']))
     return [Event(r.date, f'ГИС: {str(r.kind).strip()} · № {r.well}', 'gis', str(r.well)) for r in d.itertuples(index=False)]
 
