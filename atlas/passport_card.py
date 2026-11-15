@@ -50,6 +50,15 @@ def _num(value: Any) -> float | None:
     return v if math.isfinite(v) else None
 
 
+def bottom_stamp(row: Any) -> str:
+    """Когда отбит забой: дата дд.мм.гггг; нет даты, но есть год — «гггг г.»; иначе пусто (ничего не придумываем)."""
+    d = pd.to_datetime(row.get('date'), errors='coerce', dayfirst=True) if row is not None else pd.NaT
+    if pd.notna(d):
+        return d.strftime('%d.%m.%Y')
+    year = _num(row.get('year')) if row is not None else None
+    return f'{int(year)} г.' if year else ''
+
+
 def _date(value: Any) -> str:
     return '' if value is None or pd.isna(value) else pd.Timestamp(value).strftime('%d.%m.%Y')
 
@@ -133,7 +142,8 @@ def merge_items(items: list[dict[str, Any]], touch: float = .5) -> tuple[list[di
     return out, merged
 
 
-def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M, gis: dict[str, Any] | None = None) -> dict[str, Any]:
+def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M, gis: dict[str, Any] | None = None,
+              bottom_date: str = '') -> dict[str, Any]:
     """Забойная часть: интервалы по типам, окно глубин и пояснение, чего не хватает. Глубины — метры от одного нуля."""
     items: list[dict[str, Any]] = []
     skipped: list[str] = []
@@ -171,7 +181,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
     window_top = max(top_depth - max(span * .35, 15.0), 0.0)
     window_bottom = low_depth + max(span * .12, 8.0)
     out = {'items': sorted(items, key=lambda i: (i['top'], i['bottom'])), 'notes': notes, 'skipped': skipped,
-           'top': round(window_top, 1), 'bottom': round(window_bottom, 1), 'bottom_m': bottom_m}
+           'top': round(window_top, 1), 'bottom': round(window_bottom, 1), 'bottom_m': bottom_m, 'bottom_date': bottom_date}
     filter_end = max([i['bottom'] for i in items if i['kind'] in ('filter', 'perf')], default=None)
     if bottom_m is not None and filter_end is not None and bottom_m < filter_end - .05:
         out['covered_m'] = round(filter_end - bottom_m, 1)
@@ -297,7 +307,7 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
         rect(-.95, .95, bottom_m, bottom_m + cover, '#e8c987', 'sand', 'fill')
     if bottom_m and top <= bottom_m <= low:
         out.append({'t': 'line', 'x0': -1.7, 'x1': 1.7, 'y0': bottom_m, 'y1': bottom_m, 'stroke': '#dc2626', 'width': 3, 'name': 'bottom'})
-        tag(bottom_m, f'Забой {bottom_m:g} м (отбит)', '#b91c1c')
+        tag(bottom_m, f"Забой {bottom_m:g} м (отбит{' ' + sch['bottom_date'] if sch.get('bottom_date') else ''})", '#b91c1c')
     return out, labels
 
 
@@ -482,10 +492,11 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     gdi_all = gdi_table(first['gdi_history'])
     bottom = first['bottom']
     bottom_m = _num(bottom.iloc[-1].bottom_m) if not bottom.empty else None
+    stamp = bottom_stamp(bottom.iloc[-1]) if not bottom.empty else ''
     construction = first['construction']
     from atlas import gis_columns
     columns = gis_columns.prepare(well, gis[0], gis[1])       # колонки ГИС (коллектор, насыщение пласта и ствола): те же, что в разделе «ГИС»
-    cons = schematic(construction, bottom_m, gis=columns) if not construction.empty else schematic(pd.DataFrame(
+    cons = schematic(construction, bottom_m, gis=columns, bottom_date=stamp) if not construction.empty else schematic(pd.DataFrame(
         columns=['element', 'top_m', 'bottom_m']), bottom_m)
     krs = krs_rows(krs[0], krs[1], well)
     out_rows = [r for r in seasons if r['kind'] == 'withdrawal']

@@ -314,3 +314,13 @@ def test_passport_page_draws_gis_columns_for_latest_date():
     pdf.draw_schematic(ax, sch)
     assert ax.get_xlim()[0] == -3.2 - gc.SHIFT                   # место под колонки слева
     plt.close(fig)
+
+
+def test_bottom_label_shows_date_or_year():
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None)])
+    def label(**row):
+        sch = pc.schematic(cons, 1005, bottom_date=pc.bottom_stamp(row))
+        return next(l['text'] for l in sch['labels'] if l['text'].startswith('Забой'))
+    assert label(date=pd.Timestamp('2025-03-12')) == 'Забой 1005 м (отбит 12.03.2025)'
+    assert label(date=None, year=2019) == 'Забой 1005 м (отбит 2019 г.)'
+    assert label(date=None) == 'Забой 1005 м (отбит)'
