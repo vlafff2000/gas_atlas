@@ -1,5 +1,7 @@
 import type { Chart } from './api'
 import { CopyButton, DownloadMenu } from './ChartView'
+import { useState } from 'react'
+import { tooltipsOn, usePref } from './chartPrefs'
 import { useSpecialFormat } from './SpecialFormat'
 
 /** Порядок плиток (strip_order): как в данных, по числу сезонов (больше — раньше), по номеру скважины. Зеркало atlas/chart_special.py: strip_order. */
@@ -23,11 +25,17 @@ interface Props {
 
 export function StripView({ chart: given, onDownload, onCopy, module }: Props) {
   const fmt = useSpecialFormat(given, module)
+  const tips = usePref(tooltipsOn)
+  const [find, setFind] = useState('')                 // подсветка скважин по номеру: найденные яркие, остальные приглушены
+  const [pinned, setPinned] = useState<string[]>([])   // закреплённые щелчком по плитке
   const chart = fmt.chart
   const s = chart.strips
   if (!s) return null
   const st = chart.style ?? {}
   const groups = [...new Set(s.groups)]
+  const query = find.trim().toLowerCase()
+  const lit = (i: number) => pinned.includes(s.rows[i]) || (query !== '' && s.rows[i].replace('№ ', '').toLowerCase().includes(query))
+  const anyLit = query !== '' || pinned.length > 0
   const ordered = (idx: number[]) => stripOrder(s.rows, s.counts, idx, st.strip_order)
   const missingText = st.strip_missing || s.missing_text
   const empty = st.strip_empty_color
@@ -38,7 +46,7 @@ export function StripView({ chart: given, onDownload, onCopy, module }: Props) {
       {title && <p className="strip-sub" style={{ color: color(title) }}>{title}</p>}
       <div className="strip-chips" style={st.strip_per_row ? { display: 'grid', gridTemplateColumns: `repeat(${st.strip_per_row}, max-content)` } : undefined}>
         {ordered(idx).map(i => (
-          <span key={s.rows[i]} className="strip-chip" title={s.rows[i] + ' · ' + s.groups[i] + ': ' + s.columns.map((c, j) => c + ' ' + (s.cells[i][j] === null ? missingText : s.cells[i][j] ? 'да' : 'нет')).join(', ')}>
+          <span key={s.rows[i]} className={'strip-chip' + (anyLit ? (lit(i) ? ' lit' : ' dim') : '')} onClick={() => setPinned(p => p.includes(s.rows[i]) ? p.filter(x => x !== s.rows[i]) : [...p, s.rows[i]])} title={!tips ? undefined : s.rows[i] + ' · ' + s.groups[i] + ': ' + s.columns.map((c, j) => c + ' ' + (s.cells[i][j] === null ? missingText : s.cells[i][j] ? 'да' : 'нет')).join(', ')}>
             <b>{s.rows[i].replace('№ ', '')}</b>
             <span className="dots">
               {s.cells[i].map((v, j) => v === null ? <i key={j} className="miss" /> : <i key={j} className={v ? 'on' : ''} style={v ? { background: color(s.groups[i]) } : empty ? { background: empty, opacity: 1 } : undefined} />)}
@@ -60,6 +68,8 @@ export function StripView({ chart: given, onDownload, onCopy, module }: Props) {
         </span>
       </figcaption>
       {fmt.pane}
+      <div className="strip-find"><input value={find} onChange={e => setFind(e.target.value)} placeholder="Найти скважину по номеру" aria-label="Найти скважину по номеру" />
+        {(find || pinned.length > 0) && <button type="button" onClick={() => { setFind(''); setPinned([]) }}>Снять выделение</button>}</div>
       <div className="strip-wrap" role="img" aria-label={chart.title}>
         {s.layout === 'panels'
           ? <div className="strip-panels">{groups.map(g => block(all.filter(i => s.groups[i] === g), g, g))}</div>
