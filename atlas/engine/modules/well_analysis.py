@@ -252,7 +252,8 @@ def signals(d,stats,history,water,bottom,construction,threshold=10,resource=None
     if construction.empty:add('Конструкция','Конструкция не загружена на выбранную дату.','Схема и положение интервалов недоступны.','Загрузить полный снимок конструкции с датой.')
     elif not bottom.empty:
         depth=bottom.sort_values('date').iloc[-1].bottom_m
-        perf=construction[construction.element.str.contains('перфор|фильтр',case=False,regex=True)]
+        from atlas.passport_card import classify as element_kind   # «Надфильтровые трубы», «перфорированный патрубок» — не интервал работы
+        perf=construction[construction.element.map(element_kind).isin(['filter','perf'])]
         for _,r in perf[perf.bottom_m.gt(depth)].iterrows():
             add('Забой',f'Часть интервала {r.top_m:g}–{r.bottom_m:g} м расположена ниже отбитого забоя {depth:g} м.','Есть геометрическое несоответствие замера и интервала конструкции.','Проверить привязку глубин и актуальность снимка конструкции.')
     return pd.DataFrame(out)

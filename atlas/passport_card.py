@@ -23,7 +23,13 @@ RULES = (('reaming', r'расшир|подзабой|каверн'), ('filter', 
          ('casing', r'эксплуатационн|э/?к\b'))
 KIND_LABELS = {'casing': 'Эксплуатационная колонна', 'tubing': 'НКТ', 'filter': 'Фильтр', 'perf': 'Перфорация',
                'reaming': 'Расширка', 'packer': 'Пакер', 'bridge': 'Цементный мост', 'pay': 'Пласт', 'bottom': 'Забой',
-               'artificial': 'Искусственный забой'}
+               'artificial': 'Искусственный забой', 'blank': 'Надфильтровые трубы', 'perf_nipple': 'Перфорированный патрубок',
+               'equipment': 'Оборудование', 'casing_mark': 'Элемент ЭК'}
+# Элементы фильтровой компоновки, у которых в названии есть «фильтр»/«перфор», но которые сами не фильтр и не перфорация колонны:
+# проверяются раньше общих правил (иначе «Надфильтровые трубы» становились фильтром и сливались с ним на схеме).
+SPECIFIC = (('perf_nipple', r'перфорированн\w*\s+патруб|перфопатруб'), ('blank', r'надфильтр|затворн|глух\w*\s+труб'),
+            ('equipment', r'зумпф|подгоночн|клапан|переводник'),
+            ('casing_mark', r'элемент\w*\s+конструкц|не\s*отмечен\w*\s+в\s+мер|не\s*указан\w*\s+в\s+мер'))   # отбит ГИС, в мерах нет
 SKIPPED = r'кондуктор|направлени|потайн|хвостовик|техническ'
 
 
@@ -34,6 +40,9 @@ def classify(element: str) -> str | None:
         return 'artificial'
     if re.search(r'забой', text):
         return 'bottom'
+    for kind, pattern in SPECIFIC:
+        if re.search(pattern, text):
+            return kind
     if re.search(SKIPPED, text) and not re.search(r'фильтр|перфор|расшир', text):
         return None
     for kind, pattern in RULES:
@@ -65,7 +74,7 @@ def _date(value: Any) -> str:
 
 BREAK_M = 50.0          # пустой участок длиннее этого (м) на схеме сжимается; 0 — не сжимать (ручной режим)
 BREAK_KEEP_M = 12.0     # высота сжатого участка на схеме, м (подписи — реальные глубины)
-FOCUS = ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'artificial', 'bottom')
+FOCUS = ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'artificial', 'bottom', 'blank', 'perf_nipple', 'equipment', 'casing_mark')
 
 
 def _gaps(items: list[dict[str, Any]], top: float, low: float, threshold: float, pad: float = 6.0) -> list[tuple[float, float]]:
@@ -116,7 +125,7 @@ def _ticks(top: float, low: float, gaps: list[tuple[float, float]], f) -> list[l
     return out
 
 
-MERGE = ('casing', 'tubing', 'filter', 'perf', 'reaming', 'pay', 'bridge')      # наложенные интервалы этих типов сливаются в один
+MERGE = ('casing', 'tubing', 'filter', 'perf', 'reaming', 'pay', 'bridge', 'blank')      # наложенные интервалы этих типов сливаются в один
 
 
 def merge_items(items: list[dict[str, Any]], touch: float = .5) -> tuple[list[dict[str, Any]], int]:
@@ -172,7 +181,7 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
     if not kinds & {'filter', 'perf'}:
         notes.append('Не указан фильтр или интервал перфорации.')
     # Окно: от точки чуть выше самого верхнего элемента забойной части до забоя; колонна и НКТ идут сверху, их верх не берём.
-    tops = [i['top'] for i in items if i['kind'] in ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge')]
+    tops = [i['top'] for i in items if i['kind'] in ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'blank', 'perf_nipple', 'equipment')]
     tubing = [i['bottom'] for i in items if i['kind'] == 'tubing']
     ends = [i['bottom'] for i in items]
     top_depth = min(tops + tubing) if tops or tubing else min(i['top'] for i in items)
@@ -272,6 +281,16 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
             x0, x1 = sorted((sign * .96, sign * 1.16))
             rect(x0, x1, i['top'], i['bottom'], '#14b8a6', 'slots', 'filter')
         tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"Фильтр {i['top']:g}–{i['bottom']:g} м", '#0f766e')
+    for i in by['blank']:              # глухие (надфильтровые, затворные) трубы фильтровой компоновки: та же колонна, что фильтр, но сплошная (без щелей)
+        for sign in (-1, 1):
+            x0, x1 = sorted((sign * .96, sign * 1.16))
+            rect(x0, x1, i['top'], i['bottom'], '#115e59', name='blank')
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"{_title(i, 'blank')} {i['top']:g}–{i['bottom']:g} м", '#475569')
+    for i in by['equipment']:          # патрубки, клапаны, зумпф, переводники: короткие элементы компоновки, подпись — название из отчёта
+        for sign in (-1, 1):
+            x0, x1 = sorted((sign * .96, sign * 1.16))
+            rect(x0, x1, i['top'], i['bottom'], '#cbd5e1', name='equipment')
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"{_title(i, 'equipment')} {i['top']:g}–{i['bottom']:g} м", '#475569')
     for i in by['perf']:
         a, b = max(i['top'], top), min(i['bottom'], low)
         if b >= a:
@@ -289,6 +308,16 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
             rect(x0, x1, i['top'], i['bottom'], '#2563eb', name='tubing')
         if clip(i['bottom'], i['bottom']):
             tag(i['bottom'], f"Башмак НКТ {i['bottom']:g} м" + (f", Ø{i['od']:g} мм" if i['od'] else ''), '#1d4ed8')
+    for i in by['casing_mark']:        # элемент на колонне, отбитый ГИС и не отмеченный в мерах: метка снаружи стенки колонны
+        for sign in (-1, 1):
+            x0, x1 = sorted((sign * 1.12, sign * 1.32))
+            rect(x0, x1, i['top'], i['bottom'], '#f59e0b', 'cement', 'casing_mark')
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"Элемент ЭК, нет в мерах {i['top']:g}–{i['bottom']:g} м", '#b45309')
+    for i in by['perf_nipple']:        # перфорированный патрубок на НКТ (над пакером): стенка НКТ с отверстиями
+        for sign in (-1, 1):
+            x0, x1 = sorted((sign * .45, sign * .6))
+            rect(x0, x1, i['top'], i['bottom'], '#f59e0b', 'slots', 'perf_nipple')
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"{_title(i, 'perf_nipple')} {i['top']:g}–{i['bottom']:g} м", '#b45309')
     pack_h = max((low - top) * .018, 1.2)
     for i in by['packer']:
         mid = (i['top'] + i['bottom']) / 2
@@ -310,6 +339,12 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
         out.append({'t': 'line', 'x0': -1.7, 'x1': 1.7, 'y0': bottom_m, 'y1': bottom_m, 'stroke': '#dc2626', 'width': 3, 'name': 'bottom'})
         tag(bottom_m, f"Забой {bottom_m:g} м (отбит{' ' + sch['bottom_date'] if sch.get('bottom_date') else ''})", '#b91c1c')
     return out, labels
+
+
+def _title(item: dict[str, Any], kind: str) -> str:
+    """Подпись элемента: название из таблицы конструкции (без хвоста «, м»), иначе общее название типа."""
+    text = re.sub(r',?\s*м\s*$', '', str(item.get('label') or '')).strip()
+    return text or KIND_LABELS[kind]
 
 
 def _spread(labels: list[dict[str, Any]], gap: float, top: float, low: float) -> list[dict[str, Any]]:

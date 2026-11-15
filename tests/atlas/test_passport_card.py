@@ -338,3 +338,27 @@ def test_gis_frames_and_scale_meta_for_screen_and_pdf():
     assert len(frames) == 2 and all(f['y0'] == sch['top'] and f['y1'] == sch['bottom'] for f in frames)
     texts = [s for s in sch['shapes'] if s['t'] == 'text']
     assert {t['text'] for t in texts} == {'0,40', '0,80'} and all(sch['top'] <= t['y0'] <= sch['bottom'] for t in texts)      # числа Кг: по одному на интервал с Кг, на обе даты (фильтр даты — на экране)
+
+
+WELL58 = [('Эксплуатационная колонна', 0, 768.4, 168, 152), ('Интервал расширки, м', 768.8, 782.3, None, None), ('НКТ', 0, 752.7, 89, 73),
+          ('Перфорированный патрубок', 746.6, 751.8, None, None), ('Пакер', 751.8, 752.7, None, None), ('Лево-правый переводник', 748.91, 749.03, None, None),
+          ('Надфильтровые трубы', 752.7, 770.4, None, None), ('Фильтр', 770.4, 780.2, None, None), ('Зумпфовая труба', 777.64, 778.75, None, None),
+          ('Клапанная система с хвостовиком', 778.75, 779.22, None, None), ('Элемент конструкции ЭК (не отмечен в мерах)', 751.0, 755.7, None, None)]
+
+
+def test_blank_pipes_and_perforated_nipple_are_not_filter_or_perforation():
+    """Скв. 58 (отчёт ГИС 2026): «Надфильтровые трубы» 752,7–770,4 сливались с фильтром 770,4–780,2 — на схеме фильтр «с 752,7»."""
+    assert pc.classify('Надфильтровые трубы') == 'blank' and pc.classify('Трубы затворные (2 штуки)') == 'blank'
+    assert pc.classify('Перфорированный патрубок') == 'perf_nipple' and pc.classify('Перфопатрубок') == 'perf_nipple'
+    assert pc.classify('Зумпфовая труба') == 'equipment' and pc.classify('Клапанная система с хвостовиком') == 'equipment'
+    assert pc.classify('Фильтр ФСЩ-89 (3 секции)') == 'filter' and pc.classify('Потайная колонна-фильтр') == 'filter'
+    sch = pc.schematic(frame(WELL58), 781.4)
+    filters = [(i['top'], i['bottom']) for i in sch['items'] if i['kind'] == 'filter']
+    assert filters == [(770.4, 780.2)]
+    assert not [i for i in sch['items'] if i['kind'] == 'perf']
+    texts = ' | '.join(lab['text'] for lab in sch['labels'])
+    assert 'Фильтр 770.4–780.2 м' in texts and 'Надфильтровые трубы 752.7–770.4 м' in texts and 'Перфорированный патрубок 746.6–751.8 м' in texts
+    assert 'Зумпфовая труба' in texts and 'Элемент ЭК, нет в мерах 751–755.7 м' in texts
+    assert pc.classify('Скважинное оборудование, не указанное в мере') == 'casing_mark'
+    assert {'blank', 'perf_nipple', 'equipment', 'casing_mark'} <= {s['name'] for s in sch['shapes']}
+    assert not [c for c in sch['checks'] if c['code'] == 'overlap']
