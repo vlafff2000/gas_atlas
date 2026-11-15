@@ -1,5 +1,6 @@
 import type { Chart } from './api'
 import { CopyButton, DownloadMenu } from './ChartView'
+import { useSpecialFormat } from './SpecialFormat'
 
 // Скважины × сезоны: строка — скважина, квадрат — сезон. Цвет квадрата — цвет ГСП, штриховка — в сезоне по ГСП ревизии не было.
 const PALETTE = ['#2a6f97', '#d1495b', '#3a9d5d', '#e0a100', '#7b4fa3', '#e07a1f', '#2b9aa0', '#8c5a3c', '#5b6c8f', '#a3a33a']
@@ -8,9 +9,12 @@ interface Props {
   chart: Chart
   onDownload: (format: string, dpi: number) => Promise<void>
   onCopy?: () => Promise<Blob>
+  module?: string
 }
 
-export function StripView({ chart, onDownload, onCopy }: Props) {
+export function StripView({ chart: given, onDownload, onCopy, module }: Props) {
+  const fmt = useSpecialFormat(given, module)
+  const chart = fmt.chart
   const s = chart.strips
   if (!s) return null
   const groups = [...new Set(s.groups)]
@@ -33,14 +37,16 @@ export function StripView({ chart, onDownload, onCopy }: Props) {
   )
   const all = s.rows.map((_, i) => i)
   return (
-    <figure className="chart strips">
+    <figure className="chart strips" style={fmt.frame}>
       <figcaption>
-        <span title={chart.title}>{chart.title}</span>
+        <span title={chart.title} style={fmt.title} onDoubleClick={() => fmt.open()}>{chart.title}</span>
         <span className="chart-actions">
+          <span className="chart-tools">{fmt.button}</span>
           {onCopy && <CopyButton onCopy={onCopy} />}
           <DownloadMenu onDownload={onDownload} />
         </span>
       </figcaption>
+      {fmt.pane}
       <div className="strip-wrap" role="img" aria-label={chart.title}>
         {s.layout === 'panels'
           ? <div className="strip-panels">{groups.map(g => block(all.filter(i => s.groups[i] === g), g, g))}</div>

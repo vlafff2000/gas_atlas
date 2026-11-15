@@ -1,5 +1,6 @@
 import type { Chart } from './api'
 import { CopyButton, DownloadMenu } from './ChartView'
+import { useSpecialFormat } from './SpecialFormat'
 
 // Тепловая карта «строка × столбец» (ГСП × сезоны): цветная таблица с числами. Нет данных — штриховка с подписью.
 const SCALE = [[255, 247, 236], [253, 212, 158], [252, 141, 89], [215, 48, 31], [127, 0, 0]]
@@ -14,21 +15,26 @@ interface Props {
   chart: Chart
   onDownload: (format: string, dpi: number) => Promise<void>
   onCopy?: () => Promise<Blob>
+  module?: string
 }
 
-export function HeatView({ chart, onDownload, onCopy }: Props) {
+export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
+  const fmt = useSpecialFormat(given, module)
+  const chart = fmt.chart
   const h = chart.heat
   if (!h) return null
   const top = h.maximum || Math.max(1, ...h.values.flat().filter((v): v is number => v !== null))
   return (
-    <figure className="chart heat">
+    <figure className="chart heat" style={fmt.frame}>
       <figcaption>
-        <span title={chart.title}>{chart.title}</span>
+        <span title={chart.title} style={fmt.title} onDoubleClick={() => fmt.open()}>{chart.title}</span>
         <span className="chart-actions">
+          <span className="chart-tools">{fmt.button}</span>
           {onCopy && <CopyButton onCopy={onCopy} />}
           <DownloadMenu onDownload={onDownload} />
         </span>
       </figcaption>
+      {fmt.pane}
       <div className="heat-wrap">
         <table className="heat-table" role="img" aria-label={chart.title}>
           <thead><tr><th />{h.columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
