@@ -151,9 +151,14 @@ def merge_items(items: list[dict[str, Any]], touch: float = .5) -> tuple[list[di
     return out, merged
 
 
+SIMPLE = ('casing', 'tubing', 'filter', 'perf', 'artificial', 'pay')     # упрощённая схема: ЭК, НКТ, фильтры, перфорация, ИЗ (+ пачки ГИС, их включает своя настройка)
+DETAILS = (('full', 'Подробная'), ('simple', 'Упрощённая'))
+
+
 def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M, gis: dict[str, Any] | None = None,
-              bottom_date: str = '') -> dict[str, Any]:
-    """Забойная часть: интервалы по типам, окно глубин и пояснение, чего не хватает. Глубины — метры от одного нуля."""
+              bottom_date: str = '', detail: str = 'full') -> dict[str, Any]:
+    """Забойная часть: интервалы по типам, окно глубин и пояснение, чего не хватает. Глубины — метры от одного нуля.
+    ``detail='simple'`` — только ЭК, НКТ, фильтры, перфорация и ИЗ; второстепенные элементы скрыты только на рисунке (проверки — по всем)."""
     items: list[dict[str, Any]] = []
     skipped: list[str] = []
     for _, r in construction.iterrows():
@@ -167,7 +172,15 @@ def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float
                       'comment': str(r.get('comment') or '')})
     notes: list[str] = []
     raw_items = items                      # проверки логики идут по строкам как есть: слияние для рисунка прятало бы наложения
+    hidden: list[str] = []
+    if detail == 'simple':
+        hidden = [i['label'] for i in items if i['kind'] not in SIMPLE]
+        items = [i for i in items if i['kind'] in SIMPLE]
     items, merged = merge_items([dict(i) for i in items])
+    if hidden:
+        names = ', '.join(dict.fromkeys(hidden))
+        notes.append(f'Упрощённая схема: скрыто элементов — {len(hidden)} ({names[:160]}{"…" if len(names) > 160 else ""}). '
+                     'Полный состав — в режиме «Подробная».')
     if merged:
         notes.append(f'Перекрывающиеся и дублирующие интервалы одного типа показаны одним: слито строк — {merged}. В таблице конструкции строки остаются как есть.')
     if not items:
