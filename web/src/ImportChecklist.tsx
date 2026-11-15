@@ -44,7 +44,7 @@ function DeleteDatasets({ project, onProject }: { project: Project; onProject?: 
     setBusy(false)
   }
   return (
-    <details className="delete-datasets">
+    <details className="delete-datasets" open>
       <summary><strong>Удалить данные из проекта</strong></summary>
       <p className="muted small">Например, перед загрузкой обновлённой БД ГИС: отметьте наборы и удалите их, затем загрузите новые. Ничего не удаляется без подтверждения, перед удалением сохраняется копия проекта.</p>
       <ul className="checklist-items">
@@ -86,6 +86,7 @@ export function ImportChecklist({ project, onProject }: { project: Project; onPr
 
   return (
     <section className="import-checklist" aria-label="Чек-лист данных проекта">
+      <DeleteDatasets project={project} onProject={onProject} />
       <details open>
         <summary><strong>Чек-лист данных</strong> · загружено {have} из {items.length}</summary>
         <p className="muted small">Что можно загрузить в проект и что уже загружено. Щёлкните по строке: что именно загружено (скважины, сезоны, периоды) и в каком виде нужен файл.</p>
@@ -128,7 +129,6 @@ export function ImportChecklist({ project, onProject }: { project: Project; onPr
             </div>
           </div>
         )}
-        <DeleteDatasets project={project} onProject={onProject} />
       </details>
     </section>
   )
