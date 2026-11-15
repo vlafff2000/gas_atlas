@@ -5,7 +5,7 @@
 .small { font-size: 12.5px; }
 .well-schematic { width: 100%; max-width: none; height: auto; max-height: calc(100vh - 140px); display: block; }
 .schematic-bar { display: flex; justify-content: flex-end; margin-bottom: 4px; }
-.schematic-full { position: fixed; inset: 0; z-index: 1000; background: var(--bg, #fff); padding: 12px 16px; overflow: auto; }
+.schematic-full { position: fixed; inset: 0; z-index: 1000; background: var(--bg, #fff); padding: 12px 16px; overflow: auto; overscroll-behavior: contain; }
 .schematic-full .well-schematic { max-height: calc(100vh - 90px); }
 .schematic-bg { fill: #ffffff; stroke: var(--line); }
 .schematic-tick { stroke: #6b7280; stroke-width: .8; }
