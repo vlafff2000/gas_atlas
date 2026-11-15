@@ -141,6 +141,14 @@ def heat_scenario(page) -> list[str]:
                 out.append(f'{selector}: панель «Формат» не открылась')
             button.click()
             page.wait_for_timeout(300)
+        page.locator('figure.chart.heat td').first.hover()
+        if not page.locator('figure.chart.heat th.hl').count():
+            out.append('тепловая карта: наведение не подсвечивает строку и столбец')
+        if not (page.locator('figure.chart.heat td').first.get_attribute('title') or '').count('ГСП 1'):
+            out.append('тепловая карта: нет подсказки у ячейки')
+        page.locator('.strip-find input').fill('2')
+        if not page.locator('figure.chart.strips .strip-chip.dim').count() or not page.locator('figure.chart.strips .strip-chip.lit').count():
+            out.append('полосы: поиск по номеру не выделяет скважину')
     finally:
         page.unroute('**/api/modules/gdi/run', patch)
     return out

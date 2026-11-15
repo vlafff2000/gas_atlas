@@ -301,3 +301,14 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .heat-scale.right i { width: 12px; height: auto; min-height: 100px; }
 .heat-scale.right .heat-ends { display: flex; flex-direction: column-reverse; justify-content: space-between; }
 .heat-scale.right .heat-ends { width: auto; }
+/* тепловая карта: подсветка строки и столбца наведённой или закреплённой щелчком ячейки */
+.heat-table th.hl { color: var(--chart-accent, #0b6e63); text-decoration: underline; }
+.heat-table td { cursor: pointer; }
+.heat-table td.hl-line { outline: 1px solid color-mix(in srgb, var(--chart-accent, #0b6e63) 45%, transparent); outline-offset: -1px; }
+.heat-table td.hl-cell { outline: 2px solid var(--chart-accent, #0b6e63); outline-offset: -2px; }
+/* полосы скважин: поиск по номеру и закрепление плитки щелчком */
+.strip-find { display: flex; gap: 8px; align-items: center; padding: 0 8px 4px; }
+.strip-find input { width: 220px; font: inherit; }
+.strip-chip { cursor: pointer; }
+.strip-chip.dim { opacity: .35; }
+.strip-chip.lit { outline: 2px solid var(--chart-accent, #0b6e63); outline-offset: 1px; }

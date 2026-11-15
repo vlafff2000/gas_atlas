@@ -1,5 +1,7 @@
 import type { Chart } from './api'
 import { CopyButton, DownloadMenu } from './ChartView'
+import { useState } from 'react'
+import { tooltipsOn, usePref } from './chartPrefs'
 import { useSpecialFormat } from './SpecialFormat'
 import { heatColor, isDark, rgb } from './heatScale'
 
@@ -14,6 +16,9 @@ interface Props {
 
 export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
   const fmt = useSpecialFormat(given, module)
+  const tips = usePref(tooltipsOn)
+  const [mark, setMark] = useState<[number, number] | null>(null)      // наведённая ячейка: подсвечиваются её строка и столбец
+  const [pinned, setPinned] = useState<[number, number] | null>(null)  // закреплённая щелчком
   const chart = fmt.chart
   const h = chart.heat
   if (!h) return null
@@ -25,6 +30,10 @@ export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
   const span = top > low ? top - low : 1
   const shade = (v: number) => heatColor((v - low) / span, scheme, reverse)
   const missing = st.heat_missing || h.missing_text
+  const at = pinned ?? mark
+  const tip = (i: number, j: number, text: string) => tips ? `${h.rows[i]} · ${h.columns[j]}: ${text}${h.unit && h.values[i][j] !== null ? ' ' + h.unit : ''}` : undefined
+  const cls = (i: number, j: number) => at && (at[0] === i || at[1] === j) ? (at[0] === i && at[1] === j ? ' hl-cell' : ' hl-line') : ''
+  const hot = (i: number, j: number) => ({ onMouseEnter: () => setMark([i, j]), onMouseLeave: () => setMark(null), onClick: () => setPinned(p => p && p[0] === i && p[1] === j ? null : [i, j]) })
   const cellStyle = st.heat_cell_size ? { fontSize: st.heat_cell_size } : undefined
   return (
     <figure className="chart heat" style={fmt.frame}>
@@ -39,13 +48,13 @@ export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
       {fmt.pane}
       <div className="heat-wrap">
         <table className="heat-table" role="img" aria-label={chart.title}>
-          <thead><tr><th />{h.columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
+          <thead><tr><th />{h.columns.map((c, j) => <th key={c} className={at?.[1] === j ? 'hl' : undefined}>{c}</th>)}</tr></thead>
           <tbody>
             {h.rows.map((row, i) => (
-              <tr key={row}><th scope="row">{row}</th>
+              <tr key={row}><th scope="row" className={at?.[0] === i ? 'hl' : undefined}>{row}</th>
                 {h.values[i].map((v, j) => v === null
-                  ? <td key={j} className="heat-missing" style={cellStyle} title={h.texts[i][j] || missing}>{h.texts[i][j] || missing}</td>
-                  : <td key={j} style={{ ...cellStyle, background: rgb(shade(v)), color: isDark(shade(v)) ? '#fff' : undefined }}>{st.heat_values === false ? '' : h.texts[i][j]}</td>)}
+                  ? <td key={j} className={'heat-missing' + cls(i, j)} style={cellStyle} title={tip(i, j, h.texts[i][j] || missing)} {...hot(i, j)}>{h.texts[i][j] || missing}</td>
+                  : <td key={j} className={cls(i, j).trim() || undefined} title={tip(i, j, h.texts[i][j] || String(v))} {...hot(i, j)} style={{ ...cellStyle, background: rgb(shade(v)), color: isDark(shade(v)) ? '#fff' : undefined }}>{st.heat_values === false ? '' : h.texts[i][j]}</td>)}
               </tr>))}
           </tbody>
         </table>
