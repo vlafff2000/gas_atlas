@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { tooltipsOn, usePref } from './chartPrefs'
 import { useSpecialFormat } from './SpecialFormat'
 import { heatColor, isDark, rgb } from './heatScale'
+import { heatLayout, totalText } from './heatLayout'
 
 // Тепловая карта «строка × столбец» (ГСП × сезоны): цветная таблица с числами. Нет данных — штриховка. Шкала, пределы, числа и текст «нет данных» — из оформления (chart.style, heat_*).
 
@@ -23,6 +24,8 @@ export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
   const h = chart.heat
   if (!h) return null
   const st = chart.style ?? {}
+  const lay = heatLayout(h.rows, h.values, st)
+  const rows = lay.order.map(i => h.rows[i]), values = lay.order.map(i => h.values[i]), texts = lay.order.map(i => h.texts[i])
   const scheme = st.heat_scale ?? 'orange', reverse = !!st.heat_reverse
   const data = h.values.flat().filter((v): v is number => v !== null)
   const low = st.heat_min ?? 0
@@ -31,7 +34,7 @@ export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
   const shade = (v: number) => heatColor((v - low) / span, scheme, reverse)
   const missing = st.heat_missing || h.missing_text
   const at = pinned ?? mark
-  const tip = (i: number, j: number, text: string) => tips ? `${h.rows[i]} · ${h.columns[j]}: ${text}${h.unit && h.values[i][j] !== null ? ' ' + h.unit : ''}` : undefined
+  const tip = (i: number, j: number, text: string) => tips ? `${rows[i]} · ${h.columns[j]}: ${text}${h.unit && values[i][j] !== null ? ' ' + h.unit : ''}` : undefined
   const cls = (i: number, j: number) => at && (at[0] === i || at[1] === j) ? (at[0] === i && at[1] === j ? ' hl-cell' : ' hl-line') : ''
   const hot = (i: number, j: number) => ({ onMouseEnter: () => setMark([i, j]), onMouseLeave: () => setMark(null), onClick: () => setPinned(p => p && p[0] === i && p[1] === j ? null : [i, j]) })
   const cellStyle = st.heat_cell_size ? { fontSize: st.heat_cell_size } : undefined
@@ -48,14 +51,16 @@ export function HeatView({ chart: given, onDownload, onCopy, module }: Props) {
       {fmt.pane}
       <div className="heat-wrap">
         <table className="heat-table" role="img" aria-label={chart.title}>
-          <thead><tr><th />{h.columns.map((c, j) => <th key={c} className={at?.[1] === j ? 'hl' : undefined}>{c}</th>)}</tr></thead>
+          <thead><tr><th />{h.columns.map((c, j) => <th key={c} className={at?.[1] === j ? 'hl' : undefined}>{c}</th>)}{lay.rowTotals && <th>Итого</th>}</tr></thead>
           <tbody>
-            {h.rows.map((row, i) => (
+            {rows.map((row, i) => (
               <tr key={row}><th scope="row" className={at?.[0] === i ? 'hl' : undefined}>{row}</th>
-                {h.values[i].map((v, j) => v === null
-                  ? <td key={j} className={'heat-missing' + cls(i, j)} style={cellStyle} title={tip(i, j, h.texts[i][j] || missing)} {...hot(i, j)}>{h.texts[i][j] || missing}</td>
-                  : <td key={j} className={cls(i, j).trim() || undefined} title={tip(i, j, h.texts[i][j] || String(v))} {...hot(i, j)} style={{ ...cellStyle, background: rgb(shade(v)), color: isDark(shade(v)) ? '#fff' : undefined }}>{st.heat_values === false ? '' : h.texts[i][j]}</td>)}
+                {values[i].map((v, j) => v === null
+                  ? <td key={j} className={'heat-missing' + cls(i, j)} style={cellStyle} title={tip(i, j, texts[i][j] || missing)} {...hot(i, j)}>{texts[i][j] || missing}</td>
+                  : <td key={j} className={cls(i, j).trim() || undefined} title={tip(i, j, texts[i][j] || String(v))} {...hot(i, j)} style={{ ...cellStyle, background: rgb(shade(v)), color: isDark(shade(v)) ? '#fff' : undefined }}>{st.heat_values === false ? '' : texts[i][j]}</td>)}
+                {lay.rowTotals && <td className="heat-total" style={cellStyle}>{totalText(lay.rowTotals[i])}</td>}
               </tr>))}
+            {lay.colTotals && <tr><th scope="row">Итого</th>{lay.colTotals.map((t, j) => <td key={j} className="heat-total" style={cellStyle}>{totalText(t)}</td>)}{lay.rowTotals && <td />}</tr>}
           </tbody>
         </table>
         {st.heat_bar !== 'hide' && <div className={'heat-scale' + (st.heat_bar === 'right' ? ' right' : '')} aria-hidden="true">

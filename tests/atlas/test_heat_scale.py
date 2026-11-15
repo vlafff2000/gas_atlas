@@ -68,3 +68,31 @@ def test_strip_order_and_style_change_file():
         chart = _strips()
         chart.style = style
         assert figure_file(chart, 'png', 100) != plain, style
+
+
+def test_heat_layout_order_and_totals():
+    from atlas import heat_layout
+    rows, values = ['ГСП 10', 'ГСП 2', 'ГСП 1'], [[1, None], [5, 5], [2, 3]]
+    assert heat_layout.row_order(rows, values, None) == [0, 1, 2]
+    assert heat_layout.row_order(rows, values, 'sum') == [1, 2, 0]
+    assert heat_layout.row_order(rows, values, 'name') == [2, 1, 0]          # «ГСП 2» перед «ГСП 10»
+    assert heat_layout.total([1, None, 2], 'sum') == 3 and heat_layout.total([1, None, 2], 'mean') == 1.5 and heat_layout.total([None], 'sum') is None
+    lay = heat_layout.layout(rows, values, {'heat_sort': 'sum', 'heat_totals': 'both', 'heat_total': 'mean'})
+    assert lay['order'] == [1, 2, 0] and lay['row_totals'] == [5, 2.5, 1] and lay['col_totals'][0] == (5 + 2 + 1) / 3
+    assert heat_layout.layout(rows, values, {})['row_totals'] is None
+    assert heat_layout.text(2.25) == '2.2' and heat_layout.text(12.0) == '12'
+
+
+def test_heat_sort_and_totals_change_file():
+    from atlas.chart_special import figure_file
+    plain = figure_file(_heat(), 'png', 100)
+    for style in ({'heat_totals': 'rows'}, {'heat_totals': 'cols', 'heat_total': 'mean'}):
+        chart = _heat()
+        chart.style = style
+        assert figure_file(chart, 'png', 100) != plain, style
+    low_first = _heat()
+    low_first.heat.values, low_first.heat.texts = [[1, 2], [30, 40]], [['1', '2'], ['30', '40']]
+    sorted_ = _heat()
+    sorted_.heat.values, sorted_.heat.texts = low_first.heat.values, low_first.heat.texts
+    sorted_.style = {'heat_sort': 'sum'}
+    assert figure_file(low_first, 'png', 100) != figure_file(sorted_, 'png', 100)
