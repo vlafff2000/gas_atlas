@@ -83,6 +83,30 @@ def builder_undo_scenario(page) -> list[str]:
     return out
 
 
+def category_scenario(page) -> list[str]:
+    """График с категориями по X (раздел «Фонд»: столбцы по фондам) управляется так же, как остальные: кнопки в шапке и Ctrl + колесо по шкале Y."""
+    page.evaluate("location.hash = '#/fund_hist'")
+    page.wait_for_selector('figure.chart .chart-canvas', timeout=PAGE_TIMEOUT_MS)
+    page.wait_for_timeout(1500)
+    fig = page.locator('figure.chart').first
+    out = []
+    for title in ('Сбросить масштаб', 'Всплывающие подсказки'):
+        if not fig.locator(f'button[title^="{title}"]').count():
+            out.append(f'у графика с категориями нет кнопки «{title}»')
+    canvas = fig.locator('.chart-canvas')
+    canvas.scroll_into_view_if_needed()
+    box = canvas.bounding_box()
+    before = canvas.screenshot()
+    page.keyboard.down('Control')
+    page.mouse.move(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
+    page.mouse.wheel(0, -400)
+    page.keyboard.up('Control')
+    page.wait_for_timeout(600)
+    if canvas.screenshot() == before:
+        out.append('Ctrl + колесо не меняет масштаб графика с категориями')
+    return out
+
+
 def stage_scenario(page, pid: str) -> list[str]:
     """Сценарий предпросмотра с диагностикой: при сбое в замечание попадает, какие запросы вкладки ушли и что показывает страница."""
     seen: list[str] = []
@@ -217,6 +241,14 @@ def main() -> int:
                 for l in bad:
                     print('     ', l[:300])
                     problems.append(f'builder-undo: {l[:300]}')
+                try:
+                    bad = category_scenario(page)
+                except Exception as e:
+                    bad = [f'{type(e).__name__}: {str(e)[:200]}']
+                print(f'{"ОК " if not bad else "ОШИБКА"} {"категории по X":<22}', flush=True)
+                for l in bad:
+                    print('     ', l[:300])
+                    problems.append(f'category: {l[:300]}')
                 browser.close()
         finally:
             proc.terminate()

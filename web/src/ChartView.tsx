@@ -426,7 +426,10 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         })), [])
       },
     },
-    dataZoom: category ? [] : [
+    dataZoom: category ? [
+      // категории по X: масштаб только по шкалам Y (Ctrl + колесо), как у остальных графиков
+      { type: 'inside', yAxisIndex: yCount(chart) > 1 ? Array.from({ length: yCount(chart) }, (_, i) => i) : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false },
+    ] : [
       // Ctrl + колесо — масштаб; сдвиг полем (ЛКМ) — свой обработчик ниже, одинаковый по X и Y для любых графиков; страница при этом прокручивается колесом как обычно
       { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false },
       ...(time ? [] : [{ type: 'inside', yAxisIndex: yCount(chart) > 1 ? Array.from({ length: yCount(chart) }, (_, i) => i) : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false }]),
@@ -1358,8 +1361,8 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       }
       // поле графика: левая кнопка тянет окно сразу по X и по всем шкалам Y
       const g = gridRect()
-      if (st.chart.x.scale === 'category' || !g || px < g.x || px > g.x + g.width || py < g.y || py > g.y + g.height) return
-      const names: AxisName[] = ['x', ...Y_NAMES.slice(0, yCount(st.chart))]
+      if (!g || px < g.x || px > g.x + g.width || py < g.y || py > g.y + g.height) return
+      const names: AxisName[] = [...(st.chart.x.scale === 'category' ? [] : ['x' as AxisName]), ...Y_NAMES.slice(0, yCount(st.chart))]
       const starts = names.flatMap(n => { const r = rangeOf(n); return r ? [{ axis: n, start: r }] : [] })
       if (starts.length) pan = { axis: null, starts, from: px, fromY: py, id: e.pointerId, moved: false }
     }
@@ -1659,30 +1662,30 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
           <RichText value={chart.title} style={titleStyle(chart.style)} />
         </span>
         <span className="chart-actions">
-          {chart.x.scale !== 'category' && <>
+          {<>
             <span className="chart-tools">
               <button type="button" className={'icon' + (tipsEnabled ? ' on' : '')} aria-pressed={tipsEnabled} onClick={() => tooltipsOn.set(!tipsEnabled)}
                 title="Всплывающие подсказки при наведении: вкл/выкл на всех графиках. Закрепление щелчком работает и без них">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v6h-5l-3 3v-3h-3z" /><path d="M5 6.5h6" /></svg>
               </button>
-              <button type="button" className={'icon' + (crossEnabled ? ' on' : '')} aria-pressed={crossEnabled} onClick={() => crosshairSync.set(!crossEnabled)}
+              {chart.x.scale !== 'category' && <button type="button" className={'icon' + (crossEnabled ? ' on' : '')} aria-pressed={crossEnabled} onClick={() => crosshairSync.set(!crossEnabled)}
                 title="Общее перекрестие: линия курсора и значения повторяются на всех графиках с такой же осью X">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v13M1.5 8h13" /><circle cx="8" cy="8" r="2.2" /></svg>
-              </button>
+              </button>}
               {chart.x.scale === 'time' && <button type="button" className={'icon' + (syncZoom ? ' on' : '')} aria-pressed={syncZoom}
                 onClick={() => zoomSync.set(!syncZoom)}
                 title="Синхронизировать масштаб: окно по времени одинаково на всех графиках по времени, в том числе после перехода в другой раздел">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5l3-3" /><path d="M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1" /><path d="M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1" /></svg>
               </button>}
-              {state.current.sync && <button type="button" className={'icon' + (pinsOn ? ' on' : '')} aria-pressed={pinsOn}
+              {state.current.sync && chart.x.scale !== 'category' && <button type="button" className={'icon' + (pinsOn ? ' on' : '')} aria-pressed={pinsOn}
                 onClick={() => pinSync.set({ ...pinSyncAll, [kind]: !pinsOn })}
                 title={`Синхронизировать закреплённые точки: закреплённая подсказка появляется на всех графиках с такой же осью X. Отдельно от общего перекрестия; ${kind === 'time' ? 'для графиков по времени' : 'для остальных графиков'}`}>
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v6" /><path d="M5.5 8.5h5" /><path d="M6.5 8.5l-1 5M9.5 8.5l1 5" /><circle cx="8" cy="3.5" r="1.5" /></svg>
               </button>}
-              <button type="button" className="icon" onClick={() => state.current.fitY()}
+              {chart.x.scale !== 'category' && <button type="button" className="icon" onClick={() => state.current.fitY()}
                 title="Подогнать шкалу Y под точки в видимом окне по X">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h10M3 13.5h10" /><path d="M8 4.5v7M6 6.5l2-2 2 2M6 9.5l2 2 2-2" /></svg>
-              </button>
+              </button>}
               {ranges.y && <button type="button" className="icon" onClick={() => sharedRange.set({ key: yKey, range: ranges.y!, n: Date.now() })}
                 title="Те же границы оси Y — на все графики раздела с такой же осью">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></svg>
@@ -1691,12 +1694,12 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
                 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.6-3.7" /><path d="M3 2.5v3h3" /></svg>
               </button>
             </span>
-            <span className="segmented" role="radiogroup" aria-label="Подсказка на кривых">
+            {chart.x.scale !== 'category' && <span className="segmented" role="radiogroup" aria-label="Подсказка на кривых">
               <button type="button" role="radio" aria-checked={mode === 'smooth'} onClick={() => setHoverMode('smooth')}
                 title="Значения между замерами — по линии (интерполяция)">Плавно</button>
               <button type="button" role="radio" aria-checked={mode === 'facts'} onClick={() => setHoverMode('facts')}
                 title="Только фактические замеры, точки видны на линиях">Замеры</button>
-            </span>
+            </span>}
           </>}
           {!chart.id.startsWith('builder') && <span className="chart-tools">
             <button type="button" className={'icon' + (settings ? ' on' : '')} aria-pressed={settings} onClick={() => setSettings(v => !v)}
