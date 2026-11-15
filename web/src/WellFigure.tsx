@@ -106,14 +106,24 @@ export function WellSchematic({ s }: { s: Schematic }) {
           <text x={left - 9} y={y(pos)} className="schematic-tick-text" textAnchor="end" dominantBaseline="middle">{real}</text></g>))}
       <text x={left - 9} y="10" className="schematic-tick-text" textAnchor="end">м</text>
       <g clipPath={`url(#${clip})`}>
-      {s.gis && (['Коллектор', 'Насыщение пласта'] as const).map((t, i) =>
-        <text key={t} x={x(i ? -4.25 : -5.55)} y={H - 1} className="schematic-tick-text" textAnchor="middle" fontSize="10">{t}</text>)}
+      {(s.gis?.columns ?? []).map(c => (
+        <g key={c.key}>
+          <text x={(x(c.x0) + x(c.x1)) / 2} y={H - 1} className="schematic-tick-text" textAnchor="middle" fontSize="10" fontWeight="600">{c.title}</text>
+          {c.scale && <>
+            <text x={x(c.x0)} y={H - 12} className="schematic-tick-text" textAnchor="middle" fontSize="9">{c.scale[0]}</text>
+            <text x={x(c.x1)} y={H - 12} className="schematic-tick-text" textAnchor="middle" fontSize="9">{c.scale[1]}</text></>}
+        </g>))}
       {shown.map((f, i) => f.t === 'poly'
         ? <polyline key={i} points={f.pts!.map(([u, m]) => `${x(u)},${y(m)}`).join(' ')} fill="none" stroke={f.stroke} strokeWidth={f.width} strokeLinejoin="miter" />
         : f.t === 'rect'
         ? <rect key={i} x={x(f.x0)} y={y(f.y0)} width={(f.x1 - f.x0) * scaleX} height={Math.max(y(f.y1) - y(f.y0), 1)}
                 fill={f.pattern === 'slots' ? 'url(#pp-slots)' : f.pattern === 'sand' ? 'url(#pp-sand)' : f.pattern === 'cement' ? 'url(#pp-cement)' : f.fill}>
             <title>{f.name}</title></rect>
+        : f.t === 'frame'
+        ? <rect key={i} x={x(f.x0)} y={y(f.y0)} width={(f.x1 - f.x0) * scaleX} height={y(f.y1) - y(f.y0)} fill="none" stroke={f.stroke} strokeWidth={f.width}><title>{f.name}</title></rect>
+        : f.t === 'text'
+        ? (y(f.y0 + (f.span ?? 0) / 2) - y(f.y0 - (f.span ?? 0) / 2) >= 11
+            ? <text key={i} x={x(f.x0)} y={y(f.y0)} textAnchor="start" dominantBaseline="middle" fontSize="9" fill="#374151">{f.text}</text> : null)
         : <line key={i} x1={x(f.x0)} x2={x(f.x1)} y1={y(f.y0)} y2={y(f.y1)} stroke={f.stroke} strokeWidth={f.width} />)}
       {(s.labels ?? []).map((l, i) => (
         <g key={i}>
