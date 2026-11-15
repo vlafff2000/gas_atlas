@@ -30,6 +30,10 @@ export interface DataVersion {
   snapshot: string; date: string; action: string; revision: number | null; rows: Record<string, number>
   current: boolean; before: string | null
 }
+export interface DatasetItem { key: string; label: string; rows: number }
+export interface DatasetOption extends DatasetItem { tables: string[] }
+export interface DatasetPlan { items: DatasetItem[]; total: number }
+export interface DatasetDeleted { project: Project; deleted: DatasetItem[]; total: number; backup: string; undo: string | null }
 export interface Caption { section: string; start: number; template: string }
 export interface ExportChoices {
   modules: { id: string; label: string }[]
@@ -109,6 +113,10 @@ export const projectsApi = {
   settings: (pid: string, values: Record<string, unknown>) =>
     request<Project>(`${P(pid)}/settings`, json('PATCH', { values })),
   versions: (pid: string) => request<{ versions: DataVersion[]; keep: number }>(`${P(pid)}/versions`),
+  datasets: (pid: string) => request<{ items: DatasetOption[] }>(`${P(pid)}/datasets`),
+  datasetsPlan: (pid: string, keys: string[]) => request<DatasetPlan>(`${P(pid)}/datasets/delete`, json('POST', { keys })),
+  datasetsDelete: (pid: string, keys: string[], revision: number) =>
+    request<DatasetDeleted>(`${P(pid)}/datasets/delete`, json('POST', { keys, confirm: true, revision })),
   rollback: (pid: string, snapshot: string, revision: number) =>
     request<Project>(`${P(pid)}/rollback`, json('POST', { snapshot, revision })),
   backupUrl: (pid: string, originals: boolean) => `${P(pid)}/backup?originals=${originals ? 1 : 0}`,

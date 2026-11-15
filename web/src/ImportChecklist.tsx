@@ -1,9 +1,72 @@
 import { useEffect, useState } from 'react'
 import { importApi, type ChecklistItem } from './api_import'
 import type { Project } from './api'
+import { projectsApi, type DatasetOption } from './api_projects'
+
+/** Удаление наборов данных проекта: выбрать, посмотреть, что будет удалено, подтвердить. Перед удалением — резервная копия, после — «Вернуть». */
+function DeleteDatasets({ project, onProject }: { project: Project; onProject?: (p: Project) => void }) {
+  const [options, setOptions] = useState<DatasetOption[]>([])
+  const [chosen, setChosen] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<{ text: string; ok: boolean; undo?: string } | null>(null)
+
+  useEffect(() => {
+    projectsApi.datasets(project.id).then(r => { setOptions(r.items); setChosen(c => c.filter(k => r.items.some(i => i.key === k))) })
+      .catch(() => setOptions([]))
+  }, [project.id, project.revision])
+
+  if (!options.length && !message) return null
+  const toggle = (key: string) => setChosen(c => c.includes(key) ? c.filter(k => k !== key) : [...c, key])
+  const remove = async () => {
+    setBusy(true)
+    try {
+      const plan = await projectsApi.datasetsPlan(project.id, chosen)
+      const list = plan.items.map(i => `• ${i.label}: ${i.rows} строк`).join('\n')
+      if (window.confirm(`Будет удалено из проекта «${project.name}»:\n${list}\nВсего ${plan.total} строк.\n\nПеред удалением сохранится резервная копия проекта, потом данные можно вернуть. Удалить?`)) {
+        const done = await projectsApi.datasetsDelete(project.id, chosen, project.revision)
+        onProject?.(done.project)
+        setChosen([])
+        setMessage({ text: `Удалено строк: ${done.total}. Резервная копия: ${done.backup}.`, ok: true, undo: done.undo ?? undefined })
+      }
+    } catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
+    setBusy(false)
+  }
+  const undo = async () => {
+    if (!message?.undo) return
+    setBusy(true)
+    try {
+      onProject?.(await projectsApi.rollback(project.id, message.undo, project.revision))
+      setMessage({ text: 'Удаление отменено: данные возвращены.', ok: true })
+    } catch (e) { setMessage({ text: (e as Error).message, ok: false }) }
+    setBusy(false)
+  }
+  return (
+    <details className="delete-datasets">
+      <summary><strong>Удалить данные из проекта</strong></summary>
+      <p className="muted small">Например, перед загрузкой обновлённой БД ГИС: отметьте наборы и удалите их, затем загрузите новые. Ничего не удаляется без подтверждения, перед удалением сохраняется копия проекта.</p>
+      <ul className="checklist-items">
+        {options.map(o => (
+          <li key={o.key}>
+            <label><input type="checkbox" checked={chosen.includes(o.key)} onChange={() => toggle(o.key)} /> {o.label}</label>
+            <span className="muted small"> {o.rows} строк</span>
+          </li>
+        ))}
+      </ul>
+      <div className="row">
+        <button type="button" disabled={busy || !chosen.length} onClick={remove}>Удалить выбранное…</button>
+      </div>
+      {message && (
+        <div className={'note ' + (message.ok ? 'info' : 'warning')} role="status">
+          {message.text}
+          {message.undo && <> <button type="button" className="quiet small" disabled={busy} onClick={undo}>Вернуть удалённое</button></>}
+        </div>
+      )}
+    </details>
+  )
+}
 
 /** Чек-лист всего, что можно загрузить в проект: что уже есть (и сколько), чего нет. Щелчок по строке показывает, в каком виде нужен файл. */
-export function ImportChecklist({ project }: { project: Project }) {
+export function ImportChecklist({ project, onProject }: { project: Project; onProject?: (p: Project) => void }) {
   const [items, setItems] = useState<ChecklistItem[] | null>(null)
   const [open, setOpen] = useState('')
   const [error, setError] = useState('')
@@ -62,6 +125,7 @@ export function ImportChecklist({ project }: { project: Project }) {
             </div>
           </div>
         )}
+        <DeleteDatasets project={project} onProject={onProject} />
       </details>
     </section>
   )
