@@ -337,4 +337,4 @@ def test_gis_frames_and_scale_meta_for_screen_and_pdf():
     frames = [s for s in sch['shapes'] if s['t'] == 'frame']
     assert len(frames) == 2 and all(f['y0'] == sch['top'] and f['y1'] == sch['bottom'] for f in frames)
     texts = [s for s in sch['shapes'] if s['t'] == 'text']
-    assert {t['text'] for t in texts} == {'0,40'} and all(sch['top'] <= t['y0'] <= sch['bottom'] for t in texts)      # число Кг у интервала с Кг
+    assert {t['text'] for t in texts} == {'0,40', '0,80'} and all(sch['top'] <= t['y0'] <= sch['bottom'] for t in texts)      # числа Кг: по одному на интервал с Кг, на обе даты (фильтр даты — на экране)
