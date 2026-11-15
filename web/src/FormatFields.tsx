@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AxisFormat } from './chartFormat'
 import type { Annotation, Axis, AxisStyle, ChartStyle } from './api'
 import { boundText, fitHint, outlierText } from './axisFit'
+import { HEAT_LABELS, HEAT_SCALES } from './heatScale'
 import { LINE_STYLES, type Look } from './chartStyle'
 import { HEX } from './ChartSettings'
 import { FONT_CHOICES } from './chartTheme'
@@ -186,9 +187,10 @@ export function FreshColorsFields({ value, set }: { value: string[] | undefined;
   )
 }
 
-export function ChartStyleFields({ value: st, set, title, fresh }: Setter<ChartStyle> & { title?: ReactNode; fresh?: boolean }) {
+export function ChartStyleFields({ value: st, set, title, fresh, heat }: Setter<ChartStyle> & { title?: ReactNode; fresh?: boolean; heat?: boolean }) {
   return (
     <>
+      {heat && <HeatFields value={st} set={set} />}
       {fresh && <FreshColorsFields value={st.fresh_colors} set={v => set({ fresh_colors: v })} />}
       <fieldset>
         <legend>Заголовок</legend>
@@ -462,5 +464,25 @@ export function SeriesExtraFields({ value: look, set, marker, labels, trend = fa
         <RichField label="Имя в легенде" value={look.legend_name} placeholder="как у ряда" onChange={v => set({ legend_name: v || undefined })} />
       </fieldset>
     </>
+  )
+}
+
+/** Тепловая карта: схема и пределы шкалы, числа в ячейках, текст «нет данных», шкала цвета. Те же поля на экране и в файле (atlas/chart_style.py: heat_*). */
+export function HeatFields({ value: st, set }: Setter<ChartStyle>) {
+  return (
+    <fieldset>
+      <legend>Тепловая карта</legend>
+      <Choice label="Цветовая шкала" value={st.heat_scale} options={HEAT_SCALES.map(v => ({ value: v, label: HEAT_LABELS[v] }))} onChange={v => set({ heat_scale: v })} auto="оранжевая" />
+      <Flag label="Развернуть шкалу" value={st.heat_reverse} onChange={v => set({ heat_reverse: v || undefined })} />
+      <div className="cs-row">
+        <Num label="Минимум шкалы" value={st.heat_min} min={-1e9} max={1e9} step={1} onChange={v => set({ heat_min: v })} />
+        <Num label="Максимум шкалы" value={st.heat_max} min={-1e9} max={1e9} step={1} onChange={v => set({ heat_max: v })} />
+      </div>
+      <Flag label="Числа в ячейках" value={st.heat_values !== false} onChange={v => set({ heat_values: v ? undefined : false })} />
+      <Num label="Размер чисел в ячейках" value={st.heat_cell_size} min={5} max={30} onChange={v => set({ heat_cell_size: v })} />
+      <Text label="Текст «нет данных»" value={st.heat_missing} placeholder="как у графика" onChange={v => set({ heat_missing: v || undefined })} />
+      <Choice label="Шкала цвета" value={st.heat_bar} options={[{ value: 'right', label: 'Справа' }, { value: 'bottom', label: 'Снизу' }, { value: 'hide', label: 'Скрыть' }]}
+        onChange={v => set({ heat_bar: v })} auto="авто" />
+    </fieldset>
   )
 }

@@ -29,6 +29,8 @@ DASHES = ('solid', 'dash', 'dot', 'dashdot', 'longdash')
 LEGENDS = ('bottom', 'top', 'right', 'left', 'hide')
 GRIDS = ('both', 'h', 'v', 'none')
 MINOR_GRIDS = ('show', 'hide')
+HEAT_SCALES = ('orange', 'blue', 'green', 'redgreen', 'gray')      # зеркало atlas/heat_scale.py (без импорта: модуль лёгкий)
+HEAT_BARS = ('right', 'bottom', 'hide')
 ALIGNS = ('left', 'center', 'right')
 DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
 TICKS = ('out', 'in', 'cross', 'none')                       # деления оси: наружу, внутрь, пересекают, нет (как в Excel)
@@ -118,6 +120,8 @@ LABELS = {
     'legend_name': 'имя в легенде', 'ticks': 'основные деления', 'minor_ticks': 'доп. деления', 'line': 'линия оси',
     'line_color': 'цвет линии оси', 'line_width': 'толщина линии оси', 'label_rotate': 'поворот подписей', 'units': 'единицы отображения',
     'title_place': 'положение названия', 'minor_step': 'доп. шаг', 'cross': 'пересечение', 'subtitle': 'подзаголовок',
+    'heat_scale': 'схема шкалы', 'heat_reverse': 'развернуть шкалу', 'heat_min': 'минимум шкалы', 'heat_max': 'максимум шкалы',
+    'heat_values': 'числа в ячейках', 'heat_cell_size': 'размер чисел в ячейках', 'heat_missing': 'текст «нет данных»', 'heat_bar': 'шкала цвета',
     'subtitle_size': 'размер подзаголовка', 'legend_columns': 'колонок легенды', 'legend_border': 'рамка легенды',
     'legend_background': 'фон легенды', 'grid_dash': 'штрих сетки', 'minor_grid_dash': 'штрих доп. линий',
     'border_color': 'рамка рисунка', 'border_width': 'толщина рамки рисунка', 'plot_border_color': 'рамка области построения',
@@ -157,6 +161,9 @@ CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'b
              'border_width': ('num', 0.2, 6), 'plot_border_color': 'color', 'plot_border_width': ('num', 0.2, 6),
              # разряды чисел в файлах (80 000): включены по умолчанию, в оформлении хранится только выключение
              'group_digits': 'bool',
+             # тепловая карта (atlas/heat_scale.py): схема и направление шкалы, пределы вручную, подписи ячеек, текст «нет данных», шкала цвета
+             'heat_scale': HEAT_SCALES, 'heat_reverse': 'bool', 'heat_min': ('num', -1e9, 1e9), 'heat_max': ('num', -1e9, 1e9),
+             'heat_values': 'bool', 'heat_cell_size': ('num', 5, 30), 'heat_missing': 'text', 'heat_bar': HEAT_BARS,
              # цвета кривых по свежести: самая свежая — первый цвет, вторая — второй и т. д.; ручной цвет ряда главнее
              'fresh_colors': 'colors'}
 

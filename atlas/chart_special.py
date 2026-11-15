@@ -345,15 +345,24 @@ def _strip_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
 
 
 def _heat_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
+    """Тепловая карта. Схема шкалы, пределы, числа и «нет данных» берутся из оформления графика (``chart.style``, ``heat_*``)."""
     from matplotlib.patches import Rectangle
+    from . import heat_scale
     o = o or {}
-    cell = float(o.get('cell_size') or 10)
+    st = o.get('style') or chart.style or {}
+    cell = float(st.get('heat_cell_size') or o.get('cell_size') or 10)
     base = float(o.get('font_size') or 10)
     h = chart.heat
+    scheme, reverse = st.get('heat_scale') or 'orange', bool(st.get('heat_reverse'))
+    missing = st.get('heat_missing') or h.missing_text
     z = np.array([[np.nan if v is None else float(v) for v in row] for row in h.values])
     top = h.maximum or float(np.nanmax(z)) if np.isfinite(z).any() else 1.0
+    low = float(st['heat_min']) if st.get('heat_min') is not None else 0.0
+    top = float(st['heat_max']) if st.get('heat_max') is not None else top
+    if not top > low:
+        top = low + 1.0
     fig, ax = plt.subplots(figsize=(1.3 * len(h.columns) + 3.2, 0.5 * len(h.rows) + 2.2))
-    image = ax.imshow(np.ma.masked_invalid(z), cmap='OrRd', vmin=0, vmax=top, aspect='auto')
+    image = ax.imshow(np.ma.masked_invalid(z), cmap=heat_scale.colormap(scheme, reverse), vmin=low, vmax=top, aspect='auto')
     ax.set_xticks(range(len(h.columns)))
     ax.set_xticklabels(h.columns, fontsize=base)
     ax.set_yticks(range(len(h.rows)))
@@ -365,12 +374,14 @@ def _heat_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
             text = _g(h.texts[i][j] or '')
             if v is None:
                 ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, hatch='///', ec='#aaa', lw=0))
-                ax.text(j, i, text or h.missing_text, ha='center', va='center', fontsize=cell, color='#555')
-            elif text:
-                ax.text(j, i, text, ha='center', va='center', fontsize=cell, color='white' if v > top * 0.55 else '#111')
-    bar = fig.colorbar(image, ax=ax, label=h.unit)
-    bar.formatter = ru_format(0 if top >= 10 else 1)
-    bar.update_ticks()
+                ax.text(j, i, text or missing, ha='center', va='center', fontsize=cell, color='#555')
+            elif text and st.get('heat_values') is not False:
+                dark = heat_scale.is_dark(heat_scale.color((v - low) / (top - low), scheme, reverse))
+                ax.text(j, i, text, ha='center', va='center', fontsize=cell, color='white' if dark else '#111')
+    if st.get('heat_bar') != 'hide':
+        bar = fig.colorbar(image, ax=ax, label=h.unit, orientation='horizontal' if st.get('heat_bar') == 'bottom' else 'vertical')
+        bar.formatter = ru_format(0 if top >= 10 else 1)
+        bar.update_ticks()
     ax.set_title(chart.title, fontsize=base + 3)
     return fig
 

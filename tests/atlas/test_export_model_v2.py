@@ -38,7 +38,9 @@ CHART = {'subtitle': 'Подзаголовок', 'legend_columns': 1, 'legend_bo
          'background': '#eeeeee', 'plot_background': '#ddeeff'}
 # поля, которые для файла не имеют смысла или проверяются отдельно (дата, положение легенды, шрифт легенды; group_digits — test_export_digit_grouping.py; fresh_colors красит ряды с Series.age до отрисовки — test_fresh_colors.py)
 # fit (режим подбора пределов) действует до рисования, в общем автоподборе шкал: tests/atlas/test_render_aligned_axes.py::test_fit_mode_reaches_the_file
-SEPARATE = {'fresh_colors', 'group_digits', 'date_format', 'legend', 'legend_font', 'title_font', 'grid', 'minor_grid', 'subtitle_size', 'positive', 'fit'}
+SEPARATE = {'fresh_colors', 'group_digits', 'date_format', 'legend', 'legend_font', 'title_font', 'grid', 'minor_grid', 'subtitle_size', 'positive', 'fit',
+            # тепловая карта: отрисовка в файле проверяется в tests/atlas/test_heat_scale.py
+            'heat_scale', 'heat_reverse', 'heat_min', 'heat_max', 'heat_values', 'heat_cell_size', 'heat_missing', 'heat_bar'}
 
 
 def test_every_model_field_is_covered():
