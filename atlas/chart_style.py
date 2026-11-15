@@ -31,6 +31,9 @@ GRIDS = ('both', 'h', 'v', 'none')
 MINOR_GRIDS = ('show', 'hide')
 HEAT_SCALES = ('orange', 'blue', 'green', 'redgreen', 'gray')      # зеркало atlas/heat_scale.py (без импорта: модуль лёгкий)
 HEAT_BARS = ('right', 'bottom', 'hide')
+HEAT_SORTS = ('sum', 'name')              # строки тепловой карты: по сумме значений, по названию (atlas/heat_layout.py)
+HEAT_TOTALS = ('rows', 'cols', 'both')   # итоги: по строкам справа, по столбцам снизу, оба
+HEAT_KINDS = ('sum', 'mean')
 STRIP_ORDERS = ('rows', 'count', 'number')      # как в данных, по числу сезонов (больше — выше), по номеру скважины
 ALIGNS = ('left', 'center', 'right')
 DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
@@ -123,6 +126,7 @@ LABELS = {
     'title_place': 'положение названия', 'minor_step': 'доп. шаг', 'cross': 'пересечение', 'subtitle': 'подзаголовок',
     'heat_scale': 'схема шкалы', 'heat_reverse': 'развернуть шкалу', 'heat_min': 'минимум шкалы', 'heat_max': 'максимум шкалы',
     'heat_values': 'числа в ячейках', 'heat_cell_size': 'размер чисел в ячейках', 'heat_missing': 'текст «нет данных»', 'heat_bar': 'шкала цвета',
+    'heat_sort': 'порядок строк карты', 'heat_totals': 'итоги карты', 'heat_total': 'вид итога',
     'strip_per_row': 'плиток в строке', 'strip_order': 'порядок плиток', 'strip_counts': 'число сезонов', 'strip_legend': 'легенда полос',
     'strip_missing': 'текст «нет ревизии»', 'strip_empty_color': 'цвет «нет»',
     'subtitle_size': 'размер подзаголовка', 'legend_columns': 'колонок легенды', 'legend_border': 'рамка легенды',
@@ -169,6 +173,7 @@ CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'b
              # полосы «скважины × сезоны»: плиток в строке, порядок, число сезонов, легенда, текст и цвет «нет»
              'strip_per_row': ('int', 3, 30), 'strip_order': STRIP_ORDERS, 'strip_counts': 'bool', 'strip_legend': 'bool', 'strip_missing': 'text',
              'strip_empty_color': 'color',
+             'heat_sort': HEAT_SORTS, 'heat_totals': HEAT_TOTALS, 'heat_total': HEAT_KINDS,
              'heat_values': 'bool', 'heat_cell_size': ('num', 5, 30), 'heat_missing': 'text', 'heat_bar': HEAT_BARS,
              # цвета кривых по свежести: самая свежая — первый цвет, вторая — второй и т. д.; ручной цвет ряда главнее
              'fresh_colors': 'colors'}

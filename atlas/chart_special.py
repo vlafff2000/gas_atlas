@@ -366,7 +366,7 @@ def _strip_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
 def _heat_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
     """Тепловая карта. Схема шкалы, пределы, числа и «нет данных» берутся из оформления графика (``chart.style``, ``heat_*``)."""
     from matplotlib.patches import Rectangle
-    from . import heat_scale
+    from . import heat_layout, heat_scale
     o = o or {}
     st = o.get('style') or chart.style or {}
     cell = float(st.get('heat_cell_size') or o.get('cell_size') or 10)
@@ -374,29 +374,44 @@ def _heat_figure(plt: Any, chart: Chart, o: dict[str, Any] | None = None):
     h = chart.heat
     scheme, reverse = st.get('heat_scale') or 'orange', bool(st.get('heat_reverse'))
     missing = st.get('heat_missing') or h.missing_text
-    z = np.array([[np.nan if v is None else float(v) for v in row] for row in h.values])
+    lay = heat_layout.layout(h.rows, h.values, st)
+    order = lay['order']
+    rows = [h.rows[i] for i in order]
+    values = [h.values[i] for i in order]
+    texts = [h.texts[i] for i in order]
+    z = np.array([[np.nan if v is None else float(v) for v in row] for row in values])
     top = h.maximum or float(np.nanmax(z)) if np.isfinite(z).any() else 1.0
     low = float(st['heat_min']) if st.get('heat_min') is not None else 0.0
     top = float(st['heat_max']) if st.get('heat_max') is not None else top
     if not top > low:
         top = low + 1.0
-    fig, ax = plt.subplots(figsize=(1.3 * len(h.columns) + 3.2, 0.5 * len(h.rows) + 2.2))
+    n_rows, n_cols = len(rows), len(h.columns)
+    extra_col, extra_row = lay['row_totals'] is not None, lay['col_totals'] is not None
+    fig, ax = plt.subplots(figsize=(1.3 * (n_cols + extra_col) + 3.2, 0.5 * (n_rows + extra_row) + 2.2))
     image = ax.imshow(np.ma.masked_invalid(z), cmap=heat_scale.colormap(scheme, reverse), vmin=low, vmax=top, aspect='auto')
-    ax.set_xticks(range(len(h.columns)))
-    ax.set_xticklabels(h.columns, fontsize=base)
-    ax.set_yticks(range(len(h.rows)))
-    ax.set_yticklabels(h.rows, fontsize=base)
+    ax.set_xticks(range(n_cols + extra_col))
+    ax.set_xticklabels([*h.columns, *(['Итого'] if extra_col else [])], fontsize=base)
+    ax.set_yticks(range(n_rows + extra_row))
+    ax.set_yticklabels([*rows, *(['Итого'] if extra_row else [])], fontsize=base)
+    ax.set_xlim(-0.5, n_cols + extra_col - 0.5)
+    ax.set_ylim(n_rows + extra_row - 0.5, -0.5)
     ax.spines[:].set_visible(False)
     ax.tick_params(length=0)
-    for i, row in enumerate(h.values):
+    for i, row in enumerate(values):
         for j, v in enumerate(row):
-            text = _g(h.texts[i][j] or '')
+            text = _g(texts[i][j] or '')
             if v is None:
                 ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, hatch='///', ec='#aaa', lw=0))
                 ax.text(j, i, text or missing, ha='center', va='center', fontsize=cell, color='#555')
             elif text and st.get('heat_values') is not False:
                 dark = heat_scale.is_dark(heat_scale.color((v - low) / (top - low), scheme, reverse))
                 ax.text(j, i, text, ha='center', va='center', fontsize=cell, color='white' if dark else '#111')
+    for i, t in enumerate(lay['row_totals'] or []):
+        ax.text(n_cols, i, _g(heat_layout.text(t)), ha='center', va='center', fontsize=cell, fontweight='bold', color='#111')
+    for j, t in enumerate(lay['col_totals'] or []):
+        ax.text(j, n_rows, _g(heat_layout.text(t)), ha='center', va='center', fontsize=cell, fontweight='bold', color='#111')
+    if extra_col and extra_row:
+        ax.text(n_cols, n_rows, '', ha='center')
     if st.get('heat_bar') != 'hide':
         bar = fig.colorbar(image, ax=ax, label=h.unit, orientation='horizontal' if st.get('heat_bar') == 'bottom' else 'vertical')
         bar.formatter = ru_format(0 if top >= 10 else 1)

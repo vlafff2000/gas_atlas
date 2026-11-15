@@ -112,6 +112,7 @@ export interface ChartStyle {
   // тепловая карта (atlas/heat_scale.py)
   heat_scale?: 'orange' | 'blue' | 'green' | 'redgreen' | 'gray'; heat_reverse?: boolean; heat_min?: number; heat_max?: number
   heat_values?: boolean; heat_cell_size?: number; heat_missing?: string; heat_bar?: 'right' | 'bottom' | 'hide'
+  heat_sort?: 'sum' | 'name'; heat_totals?: 'rows' | 'cols' | 'both'; heat_total?: 'sum' | 'mean'
   // полосы «скважины × сезоны»
   strip_per_row?: number; strip_order?: 'rows' | 'count' | 'number'; strip_counts?: boolean; strip_legend?: boolean; strip_missing?: string; strip_empty_color?: string
   annotations?: Annotation[]

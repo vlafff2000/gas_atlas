@@ -312,3 +312,4 @@ figure.chart.compact { border: 0; padding: 0; background: transparent; }
 .strip-chip { cursor: pointer; }
 .strip-chip.dim { opacity: .35; }
 .strip-chip.lit { outline: 2px solid var(--chart-accent, #0b6e63); outline-offset: 1px; }
+.heat-table .heat-total { font-weight: 700; background: transparent; cursor: default; }

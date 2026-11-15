@@ -41,6 +41,7 @@ CHART = {'subtitle': 'Подзаголовок', 'legend_columns': 1, 'legend_bo
 SEPARATE = {'fresh_colors', 'group_digits', 'date_format', 'legend', 'legend_font', 'title_font', 'grid', 'minor_grid', 'subtitle_size', 'positive', 'fit',
             # тепловая карта: отрисовка в файле проверяется в tests/atlas/test_heat_scale.py
             'strip_per_row', 'strip_order', 'strip_counts', 'strip_legend', 'strip_missing', 'strip_empty_color',
+            'heat_sort', 'heat_totals', 'heat_total',
             'heat_scale', 'heat_reverse', 'heat_min', 'heat_max', 'heat_values', 'heat_cell_size', 'heat_missing', 'heat_bar'}
 
 

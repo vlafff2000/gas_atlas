@@ -479,6 +479,12 @@ export function HeatFields({ value: st, set }: Setter<ChartStyle>) {
         <Num label="Минимум шкалы" value={st.heat_min} min={-1e9} max={1e9} step={1} onChange={v => set({ heat_min: v })} />
         <Num label="Максимум шкалы" value={st.heat_max} min={-1e9} max={1e9} step={1} onChange={v => set({ heat_max: v })} />
       </div>
+      <Choice label="Порядок строк" value={st.heat_sort} auto="как в данных"
+        options={[{ value: 'sum', label: 'По сумме значений (больше — выше)' }, { value: 'name', label: 'По названию' }]} onChange={v => set({ heat_sort: v })} />
+      <Choice label="Итоги" value={st.heat_totals} auto="нет"
+        options={[{ value: 'rows', label: 'По строкам (справа)' }, { value: 'cols', label: 'По столбцам (снизу)' }, { value: 'both', label: 'И те и другие' }]}
+        onChange={v => set({ heat_totals: v })} />
+      {st.heat_totals && <Choice label="Вид итога" value={st.heat_total} auto="сумма" options={[{ value: 'mean', label: 'Среднее' }]} onChange={v => set({ heat_total: v })} />}
       <Flag label="Числа в ячейках" value={st.heat_values !== false} onChange={v => set({ heat_values: v ? undefined : false })} />
       <Num label="Размер чисел в ячейках" value={st.heat_cell_size} min={5} max={30} onChange={v => set({ heat_cell_size: v })} />
       <Text label="Текст «нет данных»" value={st.heat_missing} placeholder="как у графика" onChange={v => set({ heat_missing: v || undefined })} />
