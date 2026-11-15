@@ -25,6 +25,8 @@ export interface Schematic {
   ticks?: [number, number][] | null     // [позиция на схеме, реальная глубина] — при сжатых участках
   breaks?: { from: number; to: number }[]
   checks?: { code: string; level: 'warning' | 'info'; text: string; top: number | null; bottom: number | null }[]   // подсказки-проверки, без автоисправления
+  detail?: 'full' | 'simple'     // какой состав показан сначала
+  alt?: Schematic                // та же схема в другом составе («Подробная» / «Упрощённая»)
 }
 export interface Kpi { label: string; value: number | null; text?: string; unit?: string; digits?: number; hint?: string; extra?: string }
 export interface SeasonRow { kind: 'withdrawal' | 'injection'; period: string; volume: number | null; days: number; max_rate: number | null

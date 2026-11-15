@@ -417,3 +417,14 @@ def test_scheme_uses_latest_construction_even_after_selected_season(tmp_path):
     card = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
     assert card['schematic']['items'] and card['schematic']['bottom_m'] == 990.0
     assert card['construction_date'] == (last + pd.Timedelta(days=120)).strftime('%d.%m.%Y')
+
+
+def test_scheme_carries_both_compositions_for_the_screen_switch():
+    """Переключатель «Подробная / Упрощённая» на экране (паспорт, ГИС, развёрнутый вид) берёт обе схемы из одного ответа."""
+    rows = WELL58 + [('Искусственный забой', 779.22, 779.22, None, None)]
+    full = pc.schematic(frame(rows), 781.4)
+    assert full['detail'] == 'full' and {i['kind'] for i in full['alt']['items']} == {'casing', 'tubing', 'filter', 'artificial'}
+    simple = pc.schematic(frame(rows), 781.4, detail='simple')
+    assert simple['detail'] == 'simple' and len(simple['alt']['items']) == len(full['items'])
+    only = pc.schematic(frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Фильтр', 960, 1005, None, None)]), None)
+    assert 'alt' not in only          # нечего скрывать — переключателя нет
