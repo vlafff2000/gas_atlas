@@ -399,3 +399,21 @@ def test_simple_scheme_keeps_casing_tubing_filter_perf_and_artificial_only():
     assert {i['kind'] for i in simple['items']} == {'casing', 'tubing', 'filter', 'perf', 'artificial'}
     assert any(n.startswith('Упрощённая схема: скрыто элементов') and 'Пакер' in n for n in simple['notes'])
     assert [c['code'] for c in simple['checks']] == [c['code'] for c in full['checks']]       # проверки — по всем элементам
+
+
+def test_scheme_uses_latest_construction_even_after_selected_season(tmp_path):
+    """Скв. 58: снимок конструкции из отчёта ГИС (02.07.2026) позже конца последнего сезона отбора — паспорт отсекал его по дате сезона
+    и писал «Нет конструкции на схему». Схема — последний снимок и последний отбитый забой, с датой; сезоны на неё не влияют."""
+    from _wells_data import well_frames
+    projects = Projects(tmp_path)
+    pid = projects.create_demo()
+    frames = well_frames()
+    last = frames['production']['date'].max()
+    frames['construction'] = frames['construction'].assign(date=last + pd.Timedelta(days=120))
+    frames['bottom'] = pd.concat([frames['bottom'], pd.DataFrame({'well': ['31'], 'date': [last + pd.Timedelta(days=120)], 'bottom_m': [990.0]})],
+                                 ignore_index=True)
+    projects.store.commit(pid, frames=frames, action='Конструкция позже сезонов')
+    client = TestClient(create_app(projects))
+    card = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
+    assert card['schematic']['items'] and card['schematic']['bottom_m'] == 990.0
+    assert card['construction_date'] == (last + pd.Timedelta(days=120)).strftime('%d.%m.%Y')
