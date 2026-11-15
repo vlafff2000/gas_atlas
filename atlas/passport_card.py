@@ -312,7 +312,7 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
         for sign in (-1, 1):
             x0, x1 = sorted((sign * 1.12, sign * 1.32))
             rect(x0, x1, i['top'], i['bottom'], '#f59e0b', 'cement', 'casing_mark')
-        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"{_title(i, 'casing_mark')} {i['top']:g}–{i['bottom']:g} м", '#b45309')
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"Элемент ЭК, нет в мерах {i['top']:g}–{i['bottom']:g} м", '#b45309')
     for i in by['perf_nipple']:        # перфорированный патрубок на НКТ (над пакером): стенка НКТ с отверстиями
         for sign in (-1, 1):
             x0, x1 = sorted((sign * .45, sign * .6))

@@ -358,7 +358,7 @@ def test_blank_pipes_and_perforated_nipple_are_not_filter_or_perforation():
     assert not [i for i in sch['items'] if i['kind'] == 'perf']
     texts = ' | '.join(lab['text'] for lab in sch['labels'])
     assert 'Фильтр 770.4–780.2 м' in texts and 'Надфильтровые трубы 752.7–770.4 м' in texts and 'Перфорированный патрубок 746.6–751.8 м' in texts
-    assert 'Зумпфовая труба' in texts and 'Элемент конструкции ЭК (не отмечен в мерах) 751–755.7 м' in texts
+    assert 'Зумпфовая труба' in texts and 'Элемент ЭК, нет в мерах 751–755.7 м' in texts
     assert pc.classify('Скважинное оборудование, не указанное в мере') == 'casing_mark'
     assert {'blank', 'perf_nipple', 'equipment', 'casing_mark'} <= {s['name'] for s in sch['shapes']}
     assert not [c for c in sch['checks'] if c['code'] == 'overlap']
