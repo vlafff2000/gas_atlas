@@ -40,8 +40,8 @@ def _last_dates(frame: pd.DataFrame, well: str) -> pd.DataFrame:
 
 def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.DataFrame | None,
                        packs: pd.DataFrame | None, with_gis: bool, geo: pd.DataFrame | None = None, perf_mode: str = 'abs',
-                       date: pd.Timestamp | None = None, artificial: bool = True, break_m: float = passport_card.BREAK_M,
-                       intervals: pd.DataFrame | None = None, filling: pd.DataFrame | None = None) -> Chart:
+                       date: pd.Timestamp | None = None, artificial: bool = True, break_m: float = passport_card.BREAK_M, detail: str = 'full',
+                       intervals: pd.DataFrame | None = None, filling: pd.DataFrame | None = None, annotations: pd.DataFrame | None = None) -> Chart:
     """Схема забойной части скважины (конструкция из шаблона «Конструкция», отбитый забой и по желанию пачки ГИС).
     ``date`` — снимок конструкции; без неё самый поздний. Забой: у последнего снимка — последний замер, у прежнего — не позже его даты."""
     cons = construction[construction['well'].astype(str) == well] if construction is not None and len(construction) else pd.DataFrame()
@@ -74,7 +74,7 @@ def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.
         gis_rows += [{'element': 'Перфорация', 'top_m': p['top'], 'bottom_m': p['bottom']} for p in perf]
     if gis_rows:
         rows = pd.concat([rows, pd.DataFrame(gis_rows)], ignore_index=True)
-    scheme = passport_card.schematic(rows, bottom_m, break_m, gis_columns.prepare(well, intervals, filling), bottom_date=stamp)
+    scheme = passport_card.schematic(rows, bottom_m, break_m, gis_columns.prepare(well, intervals, filling, annotations), bottom_date=stamp, detail=detail)
     stamp = f' на {date:%d.%m.%Y}' if len(cons) else ''
     chart = Chart(f'gis-construction-{well}-{date:%Y%m%d}' if len(cons) else f'gis-construction-{well}',
                   f'Скважина №{well}: конструкция у забоя{stamp}' + (' · «Ресурс»' if resource else ''), Axis('', ''), Axis('Глубина', 'м', inverse=True))
