@@ -104,7 +104,8 @@ def tech_notes(well: str, annotations: pd.DataFrame | None) -> list[str]:
         spans = ', '.join(f'{_ru(_num(r.from_m))}–{_ru(_num(r.to_m))} м' for r in g.itertuples() if _num(getattr(r, 'from_m', None)) is not None
                           and _num(getattr(r, 'to_m', None)) is not None)
         if kind.endswith(NO):
-            absent.append(kind[:-len(NO)].replace('Скопление газа: ', 'газ ').lower())
+            name = kind[:-len(NO)].replace('Скопление газа: ', 'газ ')
+            absent.append(name[:1].lower() + name[1:])          # «дефекты НКТ и ЭК»: аббревиатуры не трогаем
         elif kind.startswith(('Толщина', 'Насыщение', 'Изменение НГК')):
             other.append(kind + (f' {spans}' if spans and not kind.startswith('Толщина') else ''))
         else:

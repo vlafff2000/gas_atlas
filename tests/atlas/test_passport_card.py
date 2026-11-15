@@ -382,7 +382,7 @@ def test_tech_state_from_gis_report_annotations_on_scheme():
     assert sorted((s['y0'], s['y1']) for s in tech) == [(5.1, 7.7), (760.0, 762.0)]
     assert any(s.get('col') == 'kg' and s['y0'] == 765.5 and 'газонасыщен' in s['name'] for s in cols['shapes'])     # Кг нет — полоса насыщения из текста
     note = cols['notes'][0]
-    assert note.startswith('Техсостояние по ГИС 02.07.2026') and 'за колонной 5,1–7,7 м' in note and 'заколонный переток' in note and 'Толщина стенки ЭК' in note
+    assert note.startswith('Техсостояние по ГИС 02.07.2026') and 'за колонной 5,1–7,7 м' in note and 'заколонный переток' in note and 'дефекты НКТ и ЭК' in note and 'Толщина стенки ЭК' in note
     sch = pc.schematic(frame([('Эксплуатационная колонна', 0, 768.4, 168, 152), ('НКТ', 0, 752.7, 89, 73), ('Фильтр', 770.4, 780.2, None, None)]), 781.4, gis=cols)
     assert note in sch['notes'] and any(s.get('col') == 'tech' and s['y0'] == 760.0 for s in sch['shapes'])
     assert 'tech' in [c['key'] for c in sch['gis']['columns']]
