@@ -157,6 +157,20 @@ DETAILS = (('full', 'Подробная'), ('simple', 'Упрощённая'))
 
 def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M, gis: dict[str, Any] | None = None,
               bottom_date: str = '', detail: str = 'full') -> dict[str, Any]:
+    """Схема в выбранном составе + вторая (``alt``) в другом: экран переключает «Подробная / Упрощённая» без нового запроса.
+    ``detail`` — состав по умолчанию; в ``detail`` результата — какой показан сначала."""
+    out = _schematic(construction, bottom_m, break_m, gis, bottom_date, detail)
+    other = 'simple' if detail == 'full' else 'full'
+    if out.get('items') and construction is not None and len(construction):
+        alt = _schematic(construction, bottom_m, break_m, gis, bottom_date, other)
+        if alt.get('items') and len(alt['items']) != len(out['items']):
+            out['alt'] = alt
+    out['detail'] = detail
+    return out
+
+
+def _schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M, gis: dict[str, Any] | None = None,
+               bottom_date: str = '', detail: str = 'full') -> dict[str, Any]:
     """Забойная часть: интервалы по типам, окно глубин и пояснение, чего не хватает. Глубины — метры от одного нуля.
     ``detail='simple'`` — только ЭК, НКТ, фильтры, перфорация и ИЗ; второстепенные элементы скрыты только на рисунке (проверки — по всем)."""
     items: list[dict[str, Any]] = []

@@ -55,13 +55,16 @@ function useDepthView(full: [number, number], g: { vbH: number; y0: number; h: n
 }
 
 /** Забойная часть: рисуется по фигурам ядра (те же, что на странице PDF), глубина вниз. */
-export function WellSchematic({ s }: { s: Schematic }) {
-  const shift = s.gis?.shift ?? 0, scaleX = 68, W = 720 + shift * scaleX, H = 760, left = 46, cx = left + (3.2 + shift) * scaleX
+export function WellSchematic({ s: base }: { s: Schematic }) {
+  const [detail, setDetail] = useState<'full' | 'simple' | null>(null)      // переключатель «Подробная / Упрощённая» (обе схемы приходят с сервера)
+  const mode = detail ?? base.detail ?? 'full'
+  const s = base.alt && mode !== (base.detail ?? 'full') ? base.alt : base
+  const shift = s.gis?.shift ?? 0, scaleX = 68, W = 720 + shift * scaleX, H = 760, PLOT = H - 64, left = 46, cx = left + (3.2 + shift) * scaleX
   const dates = s.gis?.dates ?? []
   const [picked, setPicked] = useState<string | null>(null)
   const date = picked && dates.includes(picked) ? picked : dates[dates.length - 1] ?? null     // по умолчанию самый свежий замер
   const at = dates.indexOf(date ?? '')
-  const zoom = useDepthView([s.top, s.bottom], { vbH: H, y0: 12, h: H - 24 })
+  const zoom = useDepthView([s.top, s.bottom], { vbH: H, y0: 12, h: PLOT })
   const clip = useId()
   const [full, setFull] = useState(false)       // «Развернуть на весь экран»: схема на всё окно, Esc — выход
   useEffect(() => {
@@ -72,7 +75,7 @@ export function WellSchematic({ s }: { s: Schematic }) {
   }, [full])
   if (!s.shapes || s.items.length === 0) return <p className="muted">{s.notes[0] ?? 'Нет конструкции.'}</p>
   const [v0, v1] = zoom.view
-  const y = (m: number) => 12 + (m - v0) / (v1 - v0) * (H - 24)
+  const y = (m: number) => 12 + (m - v0) / (v1 - v0) * PLOT
   const x = (u: number) => cx + u * scaleX
   const step = [1, 2, 5, 10, 20, 50, 100].find(k => (v1 - v0) / k <= 7) ?? 100
   const ticks: [number, number][] = []      // [позиция в координатах схемы, подпись]
@@ -86,6 +89,12 @@ export function WellSchematic({ s }: { s: Schematic }) {
   return (
     <div className={full ? 'schematic-full' : 'schematic-wrap'}>
     <div className="schematic-bar">
+      {base.alt && <div className="kind-group" role="radiogroup" aria-label="Состав схемы">
+        <span className="kind-label">Состав схемы</span>
+        {([['full', 'Подробная'], ['simple', 'Упрощённая']] as const).map(([k, t]) => (
+          <button key={k} type="button" role="radio" aria-checked={mode === k} className={'kind' + (mode === k ? ' on' : '')} onClick={() => setDetail(k)}
+                  title={k === 'simple' ? 'Только ЭК, НКТ, фильтры, перфорация и искусственный забой' : 'Все элементы конструкции'}>{t}</button>))}
+      </div>}
       <button type="button" onClick={() => setFull(f => !f)} title={full ? 'Свернуть (Esc)' : 'Развернуть схему на весь экран'}>{full ? '✕ Свернуть (Esc)' : '⛶ Развернуть на весь экран'}</button>
     </div>
     {dates.length > 0 && (
@@ -109,7 +118,7 @@ export function WellSchematic({ s }: { s: Schematic }) {
           <rect width="5" height="5" fill="#e8c987" /><circle cx="1.5" cy="1.5" r=".8" fill="#a8791f" /><circle cx="4" cy="4" r=".8" fill="#a8791f" />
         </pattern>
       </defs>
-      <clipPath id={clip}><rect x="0" y="6" width={W} height={H - 12} /></clipPath>
+      <clipPath id={clip}><rect x="0" y="6" width={W} height={H - 6} /></clipPath>
       <rect x="0" y="0" width={W} height={H} rx="8" className="schematic-bg" />
       {ticks.map(([pos, real]) => (
         <g key={pos}><line x1={left - 6} x2={left} y1={y(pos)} y2={y(pos)} className="schematic-tick" />
@@ -118,10 +127,10 @@ export function WellSchematic({ s }: { s: Schematic }) {
       <g clipPath={`url(#${clip})`}>
       {(s.gis?.columns ?? []).map(c => (
         <g key={c.key}>
-          <text x={(x(c.x0) + x(c.x1)) / 2} y={H - 1} className="schematic-tick-text" textAnchor="middle" fontSize="10" fontWeight="600">{c.title}</text>
+          <text x={(x(c.x0) + x(c.x1)) / 2} y={H - 8} className="schematic-tick-text" textAnchor="middle" fontSize="10" fontWeight="600">{c.title}</text>
           {c.scale && <>
-            <text x={x(c.x0)} y={H - 12} className="schematic-tick-text" textAnchor="middle" fontSize="9">{c.scale[0]}</text>
-            <text x={x(c.x1)} y={H - 12} className="schematic-tick-text" textAnchor="middle" fontSize="9">{c.scale[1]}</text></>}
+            <text x={x(c.x0)} y={H - 22} className="schematic-tick-text" textAnchor="middle" fontSize="9">{c.scale[0]}</text>
+            <text x={x(c.x1)} y={H - 22} className="schematic-tick-text" textAnchor="middle" fontSize="9">{c.scale[1]}</text></>}
         </g>))}
       {shown.map((f, i) => f.t === 'poly'
         ? <polyline key={i} points={f.pts!.map(([u, m]) => `${x(u)},${y(m)}`).join(' ')} fill="none" stroke={f.stroke} strokeWidth={f.width} strokeLinejoin="miter" />
