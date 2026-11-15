@@ -31,6 +31,7 @@ GRIDS = ('both', 'h', 'v', 'none')
 MINOR_GRIDS = ('show', 'hide')
 HEAT_SCALES = ('orange', 'blue', 'green', 'redgreen', 'gray')      # зеркало atlas/heat_scale.py (без импорта: модуль лёгкий)
 HEAT_BARS = ('right', 'bottom', 'hide')
+STRIP_ORDERS = ('rows', 'count', 'number')      # как в данных, по числу сезонов (больше — выше), по номеру скважины
 ALIGNS = ('left', 'center', 'right')
 DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
 TICKS = ('out', 'in', 'cross', 'none')                       # деления оси: наружу, внутрь, пересекают, нет (как в Excel)
@@ -122,6 +123,8 @@ LABELS = {
     'title_place': 'положение названия', 'minor_step': 'доп. шаг', 'cross': 'пересечение', 'subtitle': 'подзаголовок',
     'heat_scale': 'схема шкалы', 'heat_reverse': 'развернуть шкалу', 'heat_min': 'минимум шкалы', 'heat_max': 'максимум шкалы',
     'heat_values': 'числа в ячейках', 'heat_cell_size': 'размер чисел в ячейках', 'heat_missing': 'текст «нет данных»', 'heat_bar': 'шкала цвета',
+    'strip_per_row': 'плиток в строке', 'strip_order': 'порядок плиток', 'strip_counts': 'число сезонов', 'strip_legend': 'легенда полос',
+    'strip_missing': 'текст «нет ревизии»', 'strip_empty_color': 'цвет «нет»',
     'subtitle_size': 'размер подзаголовка', 'legend_columns': 'колонок легенды', 'legend_border': 'рамка легенды',
     'legend_background': 'фон легенды', 'grid_dash': 'штрих сетки', 'minor_grid_dash': 'штрих доп. линий',
     'border_color': 'рамка рисунка', 'border_width': 'толщина рамки рисунка', 'plot_border_color': 'рамка области построения',
@@ -163,6 +166,9 @@ CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'b
              'group_digits': 'bool',
              # тепловая карта (atlas/heat_scale.py): схема и направление шкалы, пределы вручную, подписи ячеек, текст «нет данных», шкала цвета
              'heat_scale': HEAT_SCALES, 'heat_reverse': 'bool', 'heat_min': ('num', -1e9, 1e9), 'heat_max': ('num', -1e9, 1e9),
+             # полосы «скважины × сезоны»: плиток в строке, порядок, число сезонов, легенда, текст и цвет «нет»
+             'strip_per_row': ('int', 3, 30), 'strip_order': STRIP_ORDERS, 'strip_counts': 'bool', 'strip_legend': 'bool', 'strip_missing': 'text',
+             'strip_empty_color': 'color',
              'heat_values': 'bool', 'heat_cell_size': ('num', 5, 30), 'heat_missing': 'text', 'heat_bar': HEAT_BARS,
              # цвета кривых по свежести: самая свежая — первый цвет, вторая — второй и т. д.; ручной цвет ряда главнее
              'fresh_colors': 'colors'}

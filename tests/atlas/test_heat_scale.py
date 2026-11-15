@@ -42,3 +42,29 @@ def test_style_validated_and_changes_file():
         chart = _heat()
         chart.style = style
         assert figure_file(chart, 'png', 100) != plain, style
+
+
+def _strips():
+    from atlas.contract import Axis, Chart, WellStrips
+    rows = [f'№ {n}' for n in (12, 3, 101, 7)]
+    s = WellStrips(rows, ['ГСП 1'] * 4, ['2023/24', '2024/25'], [[1, 0], [1, 1], [None, 1], [0, 0]], [1, 2, 1, 0])
+    return Chart('s', 'Полосы', Axis('Сезон'), Axis('Скважина'), strips=s)
+
+
+def test_strip_order_and_style_change_file():
+    import pytest
+    from atlas.chart_special import figure_file, strip_order
+    from atlas.chart_style import clean_chart
+    from atlas.contract import ParamError
+    c = _strips().strips
+    assert strip_order(c.rows, c.counts, [0, 1, 2, 3], None) == [0, 1, 2, 3]
+    assert strip_order(c.rows, c.counts, [0, 1, 2, 3], 'count') == [1, 0, 2, 3]
+    assert strip_order(c.rows, c.counts, [0, 1, 2, 3], 'number') == [1, 3, 0, 2]
+    assert clean_chart({'strip_per_row': 4, 'strip_order': 'count', 'strip_counts': False})['strip_per_row'] == 4
+    with pytest.raises(ParamError):
+        clean_chart({'strip_order': 'random'})
+    plain = figure_file(_strips(), 'png', 100)
+    for style in ({'strip_per_row': 3}, {'strip_order': 'count'}, {'strip_counts': False}, {'strip_legend': False}, {'strip_empty_color': '#ff0000'}):
+        chart = _strips()
+        chart.style = style
+        assert figure_file(chart, 'png', 100) != plain, style

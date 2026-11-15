@@ -187,10 +187,11 @@ export function FreshColorsFields({ value, set }: { value: string[] | undefined;
   )
 }
 
-export function ChartStyleFields({ value: st, set, title, fresh, heat }: Setter<ChartStyle> & { title?: ReactNode; fresh?: boolean; heat?: boolean }) {
+export function ChartStyleFields({ value: st, set, title, fresh, heat, strips }: Setter<ChartStyle> & { title?: ReactNode; fresh?: boolean; heat?: boolean; strips?: boolean }) {
   return (
     <>
       {heat && <HeatFields value={st} set={set} />}
+      {strips && <StripFields value={st} set={set} />}
       {fresh && <FreshColorsFields value={st.fresh_colors} set={v => set({ fresh_colors: v })} />}
       <fieldset>
         <legend>Заголовок</legend>
@@ -483,6 +484,22 @@ export function HeatFields({ value: st, set }: Setter<ChartStyle>) {
       <Text label="Текст «нет данных»" value={st.heat_missing} placeholder="как у графика" onChange={v => set({ heat_missing: v || undefined })} />
       <Choice label="Шкала цвета" value={st.heat_bar} options={[{ value: 'right', label: 'Справа' }, { value: 'bottom', label: 'Снизу' }, { value: 'hide', label: 'Скрыть' }]}
         onChange={v => set({ heat_bar: v })} auto="авто" />
+    </fieldset>
+  )
+}
+
+/** Полосы «скважины × сезоны»: плиток в строке, порядок, число сезонов, легенда, текст и цвет «нет». Те же поля на экране и в файле (strip_*). */
+export function StripFields({ value: st, set }: Setter<ChartStyle>) {
+  return (
+    <fieldset>
+      <legend>Полосы скважин</legend>
+      <Num label="Плиток в строке" value={st.strip_per_row} min={3} max={30} onChange={v => set({ strip_per_row: v })} />
+      <Choice label="Порядок плиток" value={st.strip_order} auto="как в данных"
+        options={[{ value: 'count', label: 'По числу сезонов (больше — раньше)' }, { value: 'number', label: 'По номеру скважины' }]} onChange={v => set({ strip_order: v })} />
+      <Flag label="Число сезонов справа от плитки" value={st.strip_counts !== false} onChange={v => set({ strip_counts: v ? undefined : false })} />
+      <Flag label="Легенда под плитками" value={st.strip_legend !== false} onChange={v => set({ strip_legend: v ? undefined : false })} />
+      <Text label="Текст «нет ревизии»" value={st.strip_missing} placeholder="как у графика" onChange={v => set({ strip_missing: v || undefined })} />
+      <Color label="Цвет квадрата «нет»" value={st.strip_empty_color} onChange={v => set({ strip_empty_color: v })} />
     </fieldset>
   )
 }
