@@ -69,7 +69,7 @@ def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.
             if top is not None and low is not None:
                 gis_rows.append({'element': f"Пласт, пачка «{r['pack']}»", 'top_m': top, 'bottom_m': low})
     perf_note = ''
-    if not len(rows) or not rows['element'].astype(str).str.contains('перфор|фильтр', case=False).any():
+    if not len(rows) or not rows['element'].map(passport_card.classify).isin(['filter', 'perf']).any():
         perf, perf_note = perforation(well, packs, geo, _altitude(well, geo, packs), perf_mode)
         gis_rows += [{'element': 'Перфорация', 'top_m': p['top'], 'bottom_m': p['bottom']} for p in perf]
     if gis_rows:
