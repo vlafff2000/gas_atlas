@@ -333,9 +333,9 @@ def test_gis_frames_and_scale_meta_for_screen_and_pdf():
     iv, fl = gis_frames()
     cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None)])
     sch = pc.schematic(cons, None, gis=gc.prepare('7', iv, fl))
-    assert [c['key'] for c in sch['gis']['columns']] == ['collector', 'kg'] and sch['gis']['columns'][1]['scale'] == [0, 1]
+    assert [c['key'] for c in sch['gis']['columns']] == ['tech', 'collector', 'kg'] and sch['gis']['columns'][2]['scale'] == [0, 1]
     frames = [s for s in sch['shapes'] if s['t'] == 'frame']
-    assert len(frames) == 2 and all(f['y0'] == sch['top'] and f['y1'] == sch['bottom'] for f in frames)
+    assert len(frames) == 3 and all(f['y0'] == sch['top'] and f['y1'] == sch['bottom'] for f in frames)
     texts = [s for s in sch['shapes'] if s['t'] == 'text']
     assert {t['text'] for t in texts} == {'0,40', '0,80'} and all(sch['top'] <= t['y0'] <= sch['bottom'] for t in texts)      # числа Кг: по одному на интервал с Кг, на обе даты (фильтр даты — на экране)
 
@@ -362,3 +362,29 @@ def test_blank_pipes_and_perforated_nipple_are_not_filter_or_perforation():
     assert pc.classify('Скважинное оборудование, не указанное в мере') == 'casing_mark'
     assert {'blank', 'perf_nipple', 'equipment', 'casing_mark'} <= {s['name'] for s in sch['shapes']}
     assert not [c for c in sch['checks'] if c['code'] == 'overlap']
+
+
+def test_tech_state_from_gis_report_annotations_on_scheme():
+    """Скв. 58: техсостояние из отчёта ГИС — колонка «Газ, ТС» (интервалы «есть») и пояснение под схемой (всё, в том числе вне окна и «не выявлено»)."""
+    from atlas import gis_columns
+    from atlas.modules._events import annotation_events
+    day = pd.Timestamp('2026-07-02')
+    ann = pd.DataFrame([('58', day, 'Скопление газа: за колонной', 5.1, 7.7, 'газ (воздух) в пустотах цементного камня за ЭК'),
+                        ('58', day, 'Скопление газа: глинистая покрышка', 760.0, 762.0, 'в проницаемом прослое глинистой покрышки'),
+                        ('58', day, 'Заколонный переток — не выявлено', None, None, 'Движение флюида по заколонному пространству не выявлено.'),
+                        ('58', day, 'Дефекты НКТ и ЭК — не выявлено', None, None, 'Нарушений … не установлено.'),
+                        ('58', day, 'Толщина стенки ЭК (МИД): 7–8,6 мм', 0.0, 768.4, 'Измеренная толщина …'),
+                        ('58', day, 'Насыщение пласта-коллектора', 765.5, 780.2, 'газонасыщена в интервале 765,5 – 780,2 м [газонасыщен (уплотненный осадок)]'),
+                        ('99', day, 'Скопление газа: за колонной', 10.0, 12.0, 'другая скважина')],
+                       columns=['well', 'date', 'kind', 'from_m', 'to_m', 'text'])
+    cols = gis_columns.prepare('58', None, None, ann)
+    tech = [s for s in cols['shapes'] if s.get('col') == 'tech']
+    assert sorted((s['y0'], s['y1']) for s in tech) == [(5.1, 7.7), (760.0, 762.0)]
+    assert any(s.get('col') == 'kg' and s['y0'] == 765.5 and 'газонасыщен' in s['name'] for s in cols['shapes'])     # Кг нет — полоса насыщения из текста
+    note = cols['notes'][0]
+    assert note.startswith('Техсостояние по ГИС 02.07.2026') and 'за колонной 5,1–7,7 м' in note and 'заколонный переток' in note and 'дефекты НКТ и ЭК' in note and 'Толщина стенки ЭК' in note
+    sch = pc.schematic(frame([('Эксплуатационная колонна', 0, 768.4, 168, 152), ('НКТ', 0, 752.7, 89, 73), ('Фильтр', 770.4, 780.2, None, None)]), 781.4, gis=cols)
+    assert note in sch['notes'] and any(s.get('col') == 'tech' and s['y0'] == 760.0 for s in sch['shapes'])
+    assert 'tech' in [c['key'] for c in sch['gis']['columns']]
+    kinds = [e.label for e in annotation_events(ann, ['58'])]
+    assert any('за колонной' in k for k in kinds) and not any('не выявлено' in k or 'Толщина' in k for k in kinds)
