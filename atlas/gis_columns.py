@@ -12,14 +12,16 @@ from typing import Any
 
 import pandas as pd
 
-X_COLLECTOR = (-6.0, -5.1)          # колонка «коллектор / неколлектор»
-X_SATURATION = (-5.0, -3.5)         # колонка «насыщение пласта» (по Кг на дату)
+X_COLLECTOR = (-6.2, -5.1)          # колонка «коллектор / неколлектор»
+X_KG = (-5.0, -3.5)                 # трек «Кг» на дату замера: столбец интервала длиной по Кг на шкале 0–1
 X_BORE = ((-.95, -.58), (.58, .95))  # насыщение ствола: полосы внутри колонны по сторонам от НКТ
-SHIFT = 2.9                          # на сколько условных единиц схема сдвигается вправо ради колонок (экран и PDF)
+COLUMNS = [{'key': 'collector', 'x0': X_COLLECTOR[0], 'x1': X_COLLECTOR[1], 'title': 'Коллектор'},
+           {'key': 'kg', 'x0': X_KG[0], 'x1': X_KG[1], 'title': 'Кг, д.ед.', 'scale': [0, 1]}]      # заголовки и шкала рисуют экран и PDF
+SHIFT = 3.1                          # на сколько условных единиц схема сдвигается вправо ради колонок (экран и PDF)
 
 CLAY, WATER = 'глин', 'водонасыщ'
 NOT_STUDIED = ('не исследован', 'не охвачен', 'не ясно', 'влияние конструкции')
-GAS_LOW, GAS_HIGH = (188, 215, 240), (232, 137, 12)      # Кг 0 → светло-голубой, Кг 1 → насыщенный оранжевый
+GAS_LOW, GAS_HIGH = (253, 233, 184), (224, 120, 0)       # Кг 0 → светло-жёлтый, Кг 1 → насыщенный оранжевый (один оттенок, без серых середин)
 COLORS = {'collector': '#f4c542', 'non_collector': '#9ca3af', 'water': '#2b6cb0'}
 FILL_COLORS = (('газ', '#f6c244', 'газ'), ('вод', '#60a5fa', 'вода'), ('раств', '#a78bfa', 'раствор'), ('нефт', '#92400e', 'нефть'))
 
@@ -94,11 +96,18 @@ def prepare(well: str, intervals: pd.DataFrame | None, filling: pd.DataFrame | N
                 if a is None or b is None or kind != 'collector':
                     continue
                 kg = _num(r.get('kg'))
-                water = WATER in _text(r, 'note', 'kg_text', 'status', 'status_text') and CLAY not in _text(r, 'note', 'kg_text', 'status', 'status_text')
-                color = COLORS['water'] if (kg is None or water) else kg_color(kg)
-                label = 'водонасыщен' if kg is None or water else f'Кг {kg:.2f}'
-                shapes.append({'t': 'rect', 'x0': X_SATURATION[0], 'x1': X_SATURATION[1], 'y0': min(a, b), 'y1': max(a, b), 'fill': color,
-                               'pattern': '', 'name': f'{min(a, b):g}–{max(a, b):g} м: {label}', 'col': 'saturation', 'date': _iso(r['date'])})
+                water = WATER in _text(r, 'note', 'kg_text', 'status', 'status_text')
+                lo, hi = min(a, b), max(a, b)
+                day = _iso(r['date'])
+                if kg is None or water:             # водонасыщенный интервал: полоса на всю ширину шкалы, без числа
+                    shapes.append({'t': 'rect', 'x0': X_KG[0], 'x1': X_KG[1], 'y0': lo, 'y1': hi, 'fill': '#cfe3f4', 'pattern': '',
+                                   'name': f'{lo:g}–{hi:g} м: водонасыщен', 'col': 'kg', 'date': day})
+                    continue
+                share = min(max(kg, 0.0), 1.0)
+                shapes.append({'t': 'rect', 'x0': X_KG[0], 'x1': X_KG[0] + share * (X_KG[1] - X_KG[0]), 'y0': lo, 'y1': hi, 'fill': kg_color(kg),
+                               'pattern': '', 'name': f'{lo:g}–{hi:g} м: Кг {kg:.2f}', 'col': 'kg', 'date': day})
+                shapes.append({'t': 'text', 'x0': X_KG[0] + .06, 'x1': X_KG[0] + .06, 'y0': (lo + hi) / 2, 'y1': (lo + hi) / 2, 'text': f'{kg:.2f}'.replace('.', ','),
+                               'span': hi - lo, 'name': f'Кг {kg:.2f}', 'col': 'kg', 'date': day})
     if filling is not None and len(filling) and {'well', 'date', 'fill'} <= set(filling.columns):
         part = filling[(filling['well'].astype(str) == str(well)) & filling['date'].notna()]
         for _, r in part.iterrows():
@@ -120,3 +129,14 @@ def prepare(well: str, intervals: pd.DataFrame | None, filling: pd.DataFrame | N
     if not shapes:
         return None
     return {'shapes': shapes, 'dates': sorted(dates)}
+
+
+def frame_shapes(top: float, bottom: float) -> list[dict[str, Any]]:
+    """Рамки колонок и сетка шкалы Кг на всё окно глубин (как трек на планшете ГИС); без даты — видны всегда."""
+    out: list[dict[str, Any]] = []
+    for c in COLUMNS:
+        out.append({'t': 'frame', 'x0': c['x0'], 'x1': c['x1'], 'y0': top, 'y1': bottom, 'stroke': '#9ca3af', 'width': 1, 'name': c['title']})
+        for v in ([.25, .5, .75] if c['key'] == 'kg' else []):
+            x = c['x0'] + v * (c['x1'] - c['x0'])
+            out.append({'t': 'line', 'x0': x, 'x1': x, 'y0': top, 'y1': bottom, 'stroke': '#e5e7eb', 'width': 1, 'name': 'grid'})
+    return out

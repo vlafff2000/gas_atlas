@@ -25,13 +25,22 @@ def draw_schematic(ax, sch: dict[str, Any]) -> None:
     ax.set_xlim(edge, 6.6)
     ax.set_ylim(sch['bottom'], sch['top'])
     ax.axis('off')
-    if gis:
-        ax.text(-5.55, sch['bottom'], 'Коллектор', fontsize=6.5, color=MUTED, ha='center', va='top')
-        ax.text(-4.25, sch['bottom'], f'Пласт, {day[8:10]}.{day[5:7]}.{day[:4]}' if day else 'Пласт', fontsize=6.5, color=MUTED, ha='center', va='top')
+    if gis:                                    # заголовки и шкала колонок — из данных ядра, как на экране
+        for c in gis.get('columns', []):
+            ax.text((c['x0'] + c['x1']) / 2, sch['bottom'], c['title'] + (f'\n{day[8:10]}.{day[5:7]}.{day[:4]}' if day and c['key'] == 'kg' else ''),
+                    fontsize=6, color=MUTED, ha='center', va='top', weight='bold')
+            if c.get('scale'):
+                ax.text(c['x0'], sch['top'], f"{c['scale'][0]}", fontsize=6, color=MUTED, ha='center', va='bottom')
+                ax.text(c['x1'], sch['top'], f"{c['scale'][1]}", fontsize=6, color=MUTED, ha='center', va='bottom')
     for s in sch['shapes']:
         if s.get('date') and s['date'] != day:
             continue
-        if s['t'] == 'rect':
+        if s['t'] == 'frame':
+            ax.add_patch(Rectangle((s['x0'], s['y0']), s['x1'] - s['x0'], s['y1'] - s['y0'], fill=False, edgecolor=s['stroke'], linewidth=s['width'] * .75))
+        elif s['t'] == 'text':
+            if s.get('span', 0) / max(sch['bottom'] - sch['top'], 1) >= .03:       # число Кг — только если интервал достаточно высокий
+                ax.text(s['x0'], s['y0'], s['text'], fontsize=6, color=INK, ha='left', va='center')
+        elif s['t'] == 'rect':
             hatch = {'slots': '////', 'sand': '....', 'cement': 'xxxx'}.get(s['pattern'])
             ax.add_patch(Rectangle((s['x0'], s['y0']), s['x1'] - s['x0'], s['y1'] - s['y0'], facecolor=s['fill'],
                                    edgecolor='#0f766e' if hatch == '////' else 'none', hatch=hatch, linewidth=0))

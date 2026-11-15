@@ -282,8 +282,10 @@ def test_gis_columns_collector_rule_and_dates():
     assert coll[(960, 970)] == gc.COLORS['non_collector']        # «заглинизирован» — неколлектор, глина проверяется первой
     assert coll[(970, 980)] == gc.COLORS['collector']            # «водонасыщен» без Кг — коллектор
     assert gc.prepare('7', iv.iloc[:0], None) is None and gc.prepare('99', iv, fl) is None
-    sat = [s for s in gis['shapes'] if s['col'] == 'saturation' and s['date'] == '2024-10-01']
-    assert {s_['fill'] for s_ in sat} == {gc.kg_color(.4), gc.COLORS['water']}      # Кг 0,4 — градация, «водонасыщен» — синий; глина без насыщения
+    sat = [s for s in gis['shapes'] if s['col'] == 'kg' and s['date'] == '2024-10-01' and s['t'] == 'rect']
+    assert {s_['fill'] for s_ in sat} == {gc.kg_color(.4), '#cfe3f4'}      # Кг 0,4 — градация, «водонасыщен» — полоса на всю шкалу; глина без столбца
+    bar = next(s_ for s_ in sat if s_['fill'] == gc.kg_color(.4))
+    assert round((bar['x1'] - bar['x0']) / (gc.X_KG[1] - gc.X_KG[0]), 2) == .4        # длина столбца — Кг на шкале 0–1
     bore = [s for s in gis['shapes'] if s['col'] == 'bore']
     assert {s['date'] for s in bore} == {'2024-10-01'} and len(bore) == 2     # на 01.04.2024 заполнения нет — колонка пустая
 
@@ -294,7 +296,7 @@ def test_schematic_carries_gis_columns_and_dates():
     cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None)])
     sch = pc.schematic(cons, None, gis=gc.prepare('7', iv, fl))
     assert sch['gis']['dates'] == ['2024-04-01', '2024-10-01'] and sch['gis']['shift'] == gc.SHIFT
-    assert {s.get('col') for s in sch['shapes']} >= {'collector', 'saturation', 'bore'}
+    assert {s.get('col') for s in sch['shapes']} >= {'collector', 'kg', 'bore'}
     assert all(sch['top'] <= s['y0'] <= s['y1'] <= sch['bottom'] for s in sch['shapes'] if s.get('col'))
     assert 'gis' not in pc.schematic(cons, None)
 
@@ -324,3 +326,15 @@ def test_bottom_label_shows_date_or_year():
     assert label(date=pd.Timestamp('2025-03-12')) == 'Забой 1005 м (отбит 12.03.2025)'
     assert label(date=None, year=2019) == 'Забой 1005 м (отбит 2019 г.)'
     assert label(date=None) == 'Забой 1005 м (отбит)'
+
+
+def test_gis_frames_and_scale_meta_for_screen_and_pdf():
+    from atlas import gis_columns as gc
+    iv, fl = gis_frames()
+    cons = frame([('Эксплуатационная колонна', 0, 1010, 168, 150), ('Интервал перфорации', 960, 1000, None, None)])
+    sch = pc.schematic(cons, None, gis=gc.prepare('7', iv, fl))
+    assert [c['key'] for c in sch['gis']['columns']] == ['collector', 'kg'] and sch['gis']['columns'][1]['scale'] == [0, 1]
+    frames = [s for s in sch['shapes'] if s['t'] == 'frame']
+    assert len(frames) == 2 and all(f['y0'] == sch['top'] and f['y1'] == sch['bottom'] for f in frames)
+    texts = [s for s in sch['shapes'] if s['t'] == 'text']
+    assert {t['text'] for t in texts} == {'0,40'} and all(sch['top'] <= t['y0'] <= sch['bottom'] for t in texts)      # число Кг у интервала с Кг
