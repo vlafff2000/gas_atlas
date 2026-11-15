@@ -23,7 +23,7 @@ from starlette.routing import Route
 from atlas.engine.core.config import ROOT
 from atlas.engine.core.export import safe_name
 from atlas.engine.core.storage import KEEP_SNAPSHOTS
-from atlas import navigation
+from atlas import datasets as datasets_, navigation
 
 from .projects import Conflict, Projects
 
@@ -263,6 +263,21 @@ def routes(projects: Projects) -> list[Route]:
         saved = projects.store.rollback(pid, str(body.get('snapshot') or ''), revision(body))
         return projects.summary(saved)
 
+    def datasets(request, body):
+        """Наборы данных проекта, которые можно удалить (строк по каждому)."""
+        pid = request.path_params['pid']
+        return {'items': datasets_.available(projects.manifest(pid))}
+
+    def datasets_delete(request, body):
+        """Удаление наборов: без ``confirm`` только показывает, что будет удалено; с ``confirm`` — резервная копия и удаление."""
+        pid = request.path_params['pid']
+        keys = body.get('keys')
+        if not isinstance(keys, list) or not keys:
+            raise Failure(400, 'Выберите наборы данных для удаления')
+        if body.get('confirm') is not True:
+            return {**datasets_.plan(projects.manifest(pid), [str(k) for k in keys]), 'deleted': False}
+        return datasets_.delete(projects, pid, [str(k) for k in keys], revision(body))
+
     def journal(request, body):
         content = log_bytes()
         if content is None:
@@ -282,6 +297,8 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/backup', E(backup)),
         Route('/api/projects/{pid}/versions', E(versions)),
         Route('/api/projects/{pid}/rollback', E(rollback), methods=['POST']),
+        Route('/api/projects/{pid}/datasets', E(datasets)),
+        Route('/api/projects/{pid}/datasets/delete', E(datasets_delete), methods=['POST']),
         Route('/api/projects/{pid}/exports', E(exports)),
         Route('/api/projects/{pid}/exports/{name}', E(export_file)),
     ]
