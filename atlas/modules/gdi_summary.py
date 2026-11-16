@@ -334,18 +334,40 @@ def grouped(cid: str, title: str, cats: list[str], by: dict[tuple[str, str], int
     return chart
 
 
-def change_histogram(table: pd.DataFrame, limit: float) -> Chart | None:
-    """Распределение изменения Q по скважинам сезона корзинами по 5 % (края — «меньше −30» и «больше +30»)."""
+DEFAULT_EDGES = '-30, -15, -5, 5, 15, 30'
+
+
+def parse_edges(text) -> list[float]:
+    """Границы корзин «-30, -15, -5, 5, 15, 30»; пусто — по умолчанию. Не числа и повторы отбрасываются, порядок по возрастанию."""
+    vals = []
+    for part in re.split(r'[;\s]+', str(text or DEFAULT_EDGES).replace(',', ' ')):
+        try:
+            vals.append(float(part.replace('\u2212', '-')))
+        except ValueError:
+            continue
+    edges = sorted(set(vals))
+    return edges if len(edges) >= 2 else parse_edges(DEFAULT_EDGES)
+
+
+def _num(v: float) -> str:
+    return f'{v:g}'
+
+
+def change_histogram(table: pd.DataFrame, limit: float, edges: list[float] | None = None, cid: str = 'gdi-summary-hist',
+                     suffix: str = '') -> Chart | None:
+    """Распределение изменения Q по скважинам: корзины между заданными границами (по умолчанию укрупнённые, «−5…5» одной корзиной), края — «меньше» и «больше».
+    ``suffix`` — группа плана ГДИ в заголовке; цвет корзины по порогу изменения."""
     c = table.change.dropna()
     if c.empty:
         return None
-    edges = list(range(-30, 31, 5))
-    labels = [f'< {edges[0]}'] + [f'{a}…{b}' for a, b in zip(edges, edges[1:])] + [f'> {edges[-1]}']
+    edges = edges or parse_edges('')
+    labels = [f'< {_num(edges[0])}'] + [f'{_num(a)}…{_num(b)}' for a, b in zip(edges, edges[1:])] + [f'> {_num(edges[-1])}']
     idx = np.searchsorted(edges, c.to_numpy(float), side='right')
     counts = np.bincount(idx, minlength=len(labels))[:len(labels)].astype(float)
-    mids = [(edges[0] + edges[1]) / 2 - 2.5] + [(a + b) / 2 for a, b in zip(edges, edges[1:])] + [edges[-1] + 2.5]
-    chart = Chart('gdi-summary-hist', 'Распределение изменения расхода при опорном ΔP² по скважинам сезона',
-                  Axis('Изменение Q, %', scale='category', categories=labels), Axis('Скважин', 'ед.', from_zero=True))
+    step = (edges[-1] - edges[0]) / max(len(edges) - 1, 1)
+    mids = [edges[0] - step / 2] + [(a + b) / 2 for a, b in zip(edges, edges[1:])] + [edges[-1] + step / 2]
+    title = 'Распределение изменения расхода при опорном ΔP² по скважинам сезона' + (f' · {suffix}' if suffix else '')
+    chart = Chart(cid, title, Axis('Изменение Q, %', scale='category', categories=labels), Axis('Скважин', 'ед.', from_zero=True))
     colors = [VERDICT_COLORS[VERDICT_DOWN] if m < -limit else VERDICT_COLORS[VERDICT_UP] if m > limit else VERDICT_COLORS[VERDICT_SAME] for m in mids]
     for label, n, col in zip(labels, counts, colors):
         chart.series.append(Series(label, [label], [n], 'bar', stack='hist', color=col, legend=False, segments=[str(int(n)) if n else '']))
@@ -380,6 +402,12 @@ class GdiSummaryModule(Module):
                   options=(Option('auto', 'Авто: по программе ГДИ, если загружена'), Option('program', 'По программе ГДИ'),
                            Option('krs', 'По данным КРС и срокам ГДИ')),
                   help='Программа ГДИ: замена фильтра, промывка и СКО, план КР на год, давно не проводились. Категория — подсказка, правится вручную.'),
+            Param('hist_edges', 'Границы корзин гистограммы, %', 'text', default=DEFAULT_EDGES, section='Графики',
+                  help='Границы через запятую, например «-30, -15, -5, 5, 15, 30»: корзины между ними, по краям «меньше» и «больше». '
+                       'Чем меньше границ, тем крупнее группы (по умолчанию «−5…5» одной корзиной).'),
+            Param('hist_by', 'Гистограмма по группам плана', 'choice', default='all', section='Графики',
+                  options=(Option('all', 'Одна на все скважины'), Option('groups', 'Отдельная на каждую группу'), Option('both', 'Общая и по группам')),
+                  help='Группы — категории справки (по программе ГДИ: замена фильтра, промывка и СКО, КР в сезоне закачки и др.).'),
             Param('slice', 'Срез по периоду', 'choice', default='all', section='Ремонты',
                   options=(Option('all', 'Все исследования'), Option(PERIOD_NEUTRAL, PERIOD_NEUTRAL), Option(SLICE_INJ_BEFORE, SLICE_INJ_BEFORE),
                            Option(SLICE_INJ_AFTER, SLICE_INJ_AFTER), Option(SLICE_INJ_NONE, SLICE_INJ_NONE), Option(PERIOD_WD, PERIOD_WD)),
@@ -439,9 +467,16 @@ class GdiSummaryModule(Module):
         sl = [c for c in SLICES if c in set(table.slice)] + sorted(set(table.slice) - set(SLICES))
         by_sl = {(c, v): int(((table.slice == c) & (table.verdict == v)).sum()) for c in sl for v in VERDICTS}
         result.charts.append(stacked('gdi-summary-slices', f'Итоги ГДИ по периодам · {label}', sl, by_sl, VERDICTS, VERDICT_COLORS, 'Период ГДИ'))
-        hist = change_histogram(table, limit)
-        if hist is not None:
-            result.charts.append(hist)
+        edges, hist_by = parse_edges(params.get('hist_edges')), params.get('hist_by') or 'all'
+        if hist_by in ('all', 'both'):
+            hist = change_histogram(table, limit, edges)
+            if hist is not None:
+                result.charts.append(hist)
+        if hist_by in ('groups', 'both'):
+            for n, cat in enumerate(sorted(table.category.unique(), key=lambda x: (x.startswith(CAT_NO_REPAIR), x))):
+                part = change_histogram(table[table.category.eq(cat)], limit, edges, f'gdi-summary-hist-{n}', f'{cat} ({int(table.category.eq(cat).sum())} скв.)')
+                if part is not None:
+                    result.charts.append(part)
         matrix = count_matrix(table, 'category', VERDICTS)
         mcols = [Column('category', 'Категория'), Column('total', 'Всего скважин', kind='number', decimals=0)]
         for v in VERDICTS:

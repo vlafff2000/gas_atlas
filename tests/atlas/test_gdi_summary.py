@@ -162,3 +162,18 @@ def test_periods_slices_and_manual_done():
     assert done.status.tolist() == [STATUS_MANUAL] and done.status_note.tolist() == ['не удалось провести']
     r = GdiSummaryModule().run(Data({G: g}), {**PARAMS, 'slice': PERIOD_NEUTRAL, 'period_manual': '2=Нейтральный период'})
     assert next(x for x in r.tables if x.id == 'gdi-summary-wells').frame.well.tolist() == ['2']
+
+
+def test_histogram_coarse_bins_and_per_group_charts():
+    from atlas.modules.gdi_summary import change_histogram, parse_edges
+    assert parse_edges('') == [-30, -15, -5, 5, 15, 30] and parse_edges('−10; 0 10 abc 10') == [-10, 0, 10] and parse_edges('5') == parse_edges('')
+    t = pd.DataFrame({'change': [-40., -10., -2., 0., 3., 12., 50., np.nan], 'category': ['a'] * 8})
+    h = change_histogram(t, 5.0)
+    assert [s.name for s in h.series] == ['< -30', '-30…-15', '-15…-5', '-5…5', '5…15', '15…30', '> 30']
+    assert [int(s.y[0]) for s in h.series] == [1, 0, 1, 3, 1, 0, 1]           # −2, 0 и 3 в одной корзине «−5…5»
+    g, works = frames()
+    prog = pd.DataFrame({'well': ['1', '2'], 'group': ['ГСП-1'] * 2, 'season': ['2025-2026'] * 2, 'stage': ['I этап'] * 2, 'reason': ['фильтр', 'давно'],
+                         'reason_kind': ['filter', 'gap'], 'krs_injection': [False, False]})
+    r = GdiSummaryModule().run(Data({G: g, DatasetKind.GDI_PROGRAM: prog}), {**PARAMS, 'hist_by': 'both', 'hist_edges': '-10, 10'})
+    ids = [c.id for c in r.charts if c.id.startswith('gdi-summary-hist')]
+    assert ids[0] == 'gdi-summary-hist' and len(ids) >= 2 and all('скв.' in c.title for c in r.charts if c.id.startswith('gdi-summary-hist-'))
