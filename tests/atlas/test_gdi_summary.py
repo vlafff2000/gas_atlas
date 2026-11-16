@@ -139,3 +139,26 @@ def test_groups_from_program_and_no_krs_reason():
     r = GdiSummaryModule().run(Data({G: frames()[0], DatasetKind.GDI_PROGRAM: prog}), PARAMS)
     cats = next(t for t in r.tables if t.id == 'gdi-summary-wells').frame.category.unique()
     assert set(cats) <= {'После КР: замена фильтра', 'ГДИ давно не проводились', CAT_OFF_PROGRAM}
+
+
+def test_periods_slices_and_manual_done():
+    from atlas.modules.gdi_summary import (PERIOD_INJ, PERIOD_NEUTRAL, PERIOD_WD, SLICE_INJ_AFTER, SLICE_INJ_BEFORE, SLICE_INJ_NONE,
+                                           STATUS_MANUAL, STATUS_NONE, period_of, program_table, slice_of)
+    ts = pd.Timestamp
+    assert period_of(ts('2025-12-10'), None) == PERIOD_WD and period_of(ts('2025-07-10'), None) == PERIOD_INJ
+    sched = '01.05.2025 inj\n01.11.2025 none\n01.12.2025 prod'
+    assert period_of(ts('2025-06-01'), sched) == PERIOD_INJ and period_of(ts('2025-11-15'), sched) == PERIOD_NEUTRAL
+    rep = pd.DataFrame({'well': ['1'], 'date': [ts('2025-07-01')]})
+    assert slice_of(PERIOD_INJ, ts('2025-06-01'), rep) == SLICE_INJ_BEFORE and slice_of(PERIOD_INJ, ts('2025-09-01'), rep) == SLICE_INJ_AFTER
+    assert slice_of(PERIOD_INJ, ts('2025-09-01'), rep.iloc[0:0]) == SLICE_INJ_NONE and slice_of(PERIOD_WD, ts('2025-12-01'), rep) == PERIOD_WD
+    g, works = frames()
+    rows = study_rows(g, 0.95)
+    t = season_table(rows, ['2025-2026'], 5.0, 5.0, repairs(works, None), {}, period_manual={'2': 'Нейтральный период'}).set_index('well')
+    assert t.loc['2', 'slice'] == PERIOD_NEUTRAL and t.loc['2', 'slice_edited'] == 'вручную' and t.loc['1', 'slice'] == PERIOD_WD
+    prog = pd.DataFrame({'well': ['9'], 'group': ['ГСП-1'], 'season': ['2025-2026'], 'stage': ['I этап'], 'reason': ['x'], 'reason_kind': ['filter'],
+                         'krs_injection': [False]})
+    assert program_table(rows, prog, ['2025-2026']).status.tolist() == [STATUS_NONE]
+    done = program_table(rows, prog, ['2025-2026'], {'9': 'не удалось провести'})
+    assert done.status.tolist() == [STATUS_MANUAL] and done.status_note.tolist() == ['не удалось провести']
+    r = GdiSummaryModule().run(Data({G: g}), {**PARAMS, 'slice': PERIOD_NEUTRAL, 'period_manual': '2=Нейтральный период'})
+    assert next(x for x in r.tables if x.id == 'gdi-summary-wells').frame.well.tolist() == ['2']

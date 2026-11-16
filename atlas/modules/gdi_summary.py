@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.engine.modules import gdi as legacy
+from atlas.engine.modules import seasons as season_rules
 
 from ..contract import Axis, Chart, ChartTable, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source, Stat, Table
 from ..domain import UNITS, DatasetKind
@@ -107,6 +108,39 @@ def verdict_of(before: float, after: float, limit: float) -> tuple[str, float]:
 
 
 CAT_OFF_PROGRAM = 'Вне программы ГДИ'
+PERIOD_NEUTRAL, PERIOD_INJ, PERIOD_WD = 'Нейтральный период', 'Закачка', 'Отбор'
+SLICE_INJ_BEFORE, SLICE_INJ_AFTER, SLICE_INJ_NONE = 'Закачка: до КРС', 'Закачка: после КРС', 'Закачка: без КРС'
+SLICES = (PERIOD_NEUTRAL, SLICE_INJ_BEFORE, SLICE_INJ_AFTER, SLICE_INJ_NONE, PERIOD_WD)
+_KIND_NAMES = {'injection': PERIOD_INJ, 'withdrawal': PERIOD_WD, 'none': PERIOD_NEUTRAL}
+
+
+def period_of(date, schedule: str | None, start: int = 11, end: int = 4) -> str:
+    """Период, в который проведено ГДИ: по расписанию периодов проекта (inj / prod / none); без расписания — по месяцам сезона отбора
+    (с ``start`` по ``end``), остальное закачка; нейтральных периодов без расписания нет. Подсказка, период скважины правится вручную."""
+    if pd.isna(date):
+        return ''
+    if schedule and str(schedule).strip():
+        try:
+            phases = sorted(season_rules.parse_schedule(schedule)[0])
+        except ValueError:
+            phases = []
+        mine = [k for d, k in phases if pd.Timestamp(d) <= date]
+        if mine:
+            return _KIND_NAMES.get(mine[-1], PERIOD_NEUTRAL)
+    m = date.month
+    return PERIOD_WD if (m >= start or m <= end if start > end else start <= m <= end) else PERIOD_INJ
+
+
+def slice_of(period: str, date, rep_well: pd.DataFrame, window_days: int = 365) -> str:
+    """Срез для анализа: нейтральный период, отбор, закачка до / после / без КРС (ближайший ремонт скважины не дальше года от ГДИ)."""
+    if period != PERIOD_INJ or pd.isna(date):
+        return period
+    near = rep_well[(rep_well.date - date).abs() <= pd.Timedelta(days=window_days)] if not rep_well.empty else rep_well
+    if near.empty:
+        return SLICE_INJ_NONE
+    nearest = near.iloc[(near.date - date).abs().argmin()]
+    return SLICE_INJ_BEFORE if date < nearest.date else SLICE_INJ_AFTER
+
 
 
 def program_groups(program: pd.DataFrame | None, seasons: list[str]) -> dict[str, tuple[str, str]]:
@@ -125,7 +159,8 @@ def program_groups(program: pd.DataFrame | None, seasons: list[str]) -> dict[str
 
 
 def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: float, rep: pd.DataFrame,
-                 manual: dict[str, str], groups: dict[str, tuple[str, str]] | None = None) -> pd.DataFrame:
+                 manual: dict[str, str], groups: dict[str, tuple[str, str]] | None = None,
+                 schedule: str | None = None, season_months: tuple[int, int] = (11, 4), period_manual: dict[str, str] | None = None) -> pd.DataFrame:
     """По скважине сезона: вердикт, изменение Q, даты сравнения, категория (авто и итоговая) и причина."""
     out = []
     if rows.empty:
@@ -166,7 +201,10 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
             plan_cat, plan_reason = groups.get(well, (CAT_OFF_PROGRAM, 'скважины нет в загруженной программе ГДИ'))
             others = f'; данные КРС: {auto.lower()} ({reason})' if len(mine_rep) else ''
             auto, reason = plan_cat, plan_reason + others
-        out.append({'well': well, 'verdict': verdict, 'change': change,
+        last_when = last.date if last is not None else last_date
+        period = period_of(last_when, schedule, *season_months)
+        slice_name = (period_manual or {}).get(well) or slice_of(period, last_when, rep[rep.well.eq(well)] if not rep.empty else rep)
+        out.append({'well': well, 'verdict': verdict, 'change': change, 'slice': slice_name, 'slice_edited': 'вручную' if well in (period_manual or {}) else '',
                     'prev_date': base.date if base is not None else pd.NaT, 'last_date': last.date if last is not None else last_date,
                     'q_prev': base.q_ref if base is not None else np.nan, 'q_last': last.q_ref if last is not None else np.nan,
                     'auto': auto, 'category': manual.get(well, auto), 'edited': 'вручную' if well in manual else '',
@@ -198,8 +236,9 @@ def repair_year_table(rows: pd.DataFrame, rep: pd.DataFrame, year: int, limit: f
 
 
 STATUS_DONE, STATUS_WEAK, STATUS_NONE = 'выполнено', 'выполнено, но ненадёжное', 'не выполнено'
-PROGRAM_STATUSES = (STATUS_DONE, STATUS_WEAK, STATUS_NONE)
-PROGRAM_COLORS = {STATUS_DONE: '#2e8b57', STATUS_WEAK: '#e0a030', STATUS_NONE: '#c0504d'}
+STATUS_MANUAL = 'выполнено (отмечено вручную)'
+PROGRAM_STATUSES = (STATUS_DONE, STATUS_WEAK, STATUS_MANUAL, STATUS_NONE)
+PROGRAM_COLORS = {STATUS_DONE: '#2e8b57', STATUS_WEAK: '#e0a030', STATUS_MANUAL: '#3f7fbf', STATUS_NONE: '#c0504d'}
 PROGRAM_REASONS = {'filter': 'После КР: замена фильтра', 'coil': 'После КР: промывка и СКО', 'krs_plan': 'КР в сезоне закачки',
                    'gap': 'ГДИ давно не проводились', 'other': 'Другое'}
 
@@ -208,10 +247,10 @@ def _season_key(value) -> str:
     return '-'.join(re.findall(r'\d{4}', str(value)))
 
 
-def program_table(rows: pd.DataFrame, program: pd.DataFrame | None, seasons: list[str]) -> pd.DataFrame:
+def program_table(rows: pd.DataFrame, program: pd.DataFrame | None, seasons: list[str], done_manual: dict[str, str] | None = None) -> pd.DataFrame:
     """Программа ГДИ против факта: по скважине программы — есть ли исследование в сезоне программы и надёжное ли оно.
     Сезон программы пуст или не совпал ни с одним выбранным — берутся строки программы всех сезонов выбранных (сверка по полю «Сезон ГДИ»)."""
-    cols = ['well', 'group', 'season', 'stage', 'reason_kind', 'reason', 'status', 'last_date', 'krs_injection']
+    cols = ['well', 'group', 'season', 'stage', 'reason_kind', 'reason', 'status', 'status_note', 'last_date', 'krs_injection']
     if program is None or program.empty:
         return pd.DataFrame(columns=cols)
     p = program.copy()
@@ -227,28 +266,34 @@ def program_table(rows: pd.DataFrame, program: pd.DataFrame | None, seasons: lis
         else:
             last = mine.date.max()
             status = STATUS_DONE if (mine.reliable & mine.q_ref.notna()).any() else STATUS_WEAK
+        note = ''
+        if r.well in (done_manual or {}) and status == STATUS_NONE:
+            status, note = STATUS_MANUAL, done_manual[r.well] or 'причина не указана'
+        elif r.well in (done_manual or {}):
+            note = 'отмечено вручную: ' + (done_manual[r.well] or 'причина не указана')
         out.append({'well': r.well, 'group': r.group, 'season': r.season, 'stage': r.stage, 'reason_kind': PROGRAM_REASONS.get(r.reason_kind, r.reason),
-                    'reason': r.reason, 'status': status, 'last_date': last, 'krs_injection': 'да' if r.krs_injection else ''})
+                    'reason': r.reason, 'status': status, 'status_note': note, 'last_date': last, 'krs_injection': 'да' if r.krs_injection else ''})
     return pd.DataFrame(out, columns=cols).sort_values(['stage', 'reason_kind', 'well'], key=lambda c: c.map(well_key) if c.name == 'well' else c).reset_index(drop=True)
 
 
-def program_block(result: Result, rows: pd.DataFrame, program: pd.DataFrame | None, seasons: list[str]) -> None:
+def program_block(result: Result, rows: pd.DataFrame, program: pd.DataFrame | None, seasons: list[str],
+                  done_manual: dict[str, str] | None = None) -> None:
     """Выполнение годовой программы ГДИ: сводка, гистограмма по причинам, таблица скважин (загрузка — вкладка «Импорт», «Программа ГДИ»)."""
     if program is None or program.empty:
         result.notes.append(Note(EMPTY_PROGRAM))
         return
-    table = program_table(rows, program, seasons)
+    table = program_table(rows, program, seasons, done_manual)
     if table.empty:
         return
     done = int(table.status.eq(STATUS_DONE).sum())
-    result.summary += [Stat('В программе ГДИ', str(len(table)), f'выполнено: {done}'),
+    result.summary += [Stat('В программе ГДИ', str(len(table)), f'выполнено: {done + int(table.status.eq(STATUS_MANUAL).sum())}'),
                        Stat('Не выполнено по программе', str(int(table.status.eq(STATUS_NONE).sum())), 'Кандидаты на исследование')]
     cats = list(dict.fromkeys(table.reason_kind))
     by = {(c, v): int(((table.reason_kind == c) & (table.status == v)).sum()) for c in cats for v in PROGRAM_STATUSES}
     result.charts.append(stacked('gdi-summary-program', 'Выполнение программы ГДИ по причинам', cats, by, PROGRAM_STATUSES, PROGRAM_COLORS, 'Причина'))
     result.tables.append(Table('gdi-summary-program-wells', 'Программа ГДИ: выполнение по скважинам', table, [
         Column('well', 'Скважина'), Column('group', 'ГСП'), Column('stage', 'Этап'), Column('reason_kind', 'Причина'),
-        Column('krs_injection', 'КР в сезоне закачки'), Column('status', 'Выполнение'), Column('last_date', 'Последнее ГДИ сезона', kind='date'),
+        Column('krs_injection', 'КР в сезоне закачки'), Column('status', 'Выполнение'), Column('status_note', 'Причина отметки'), Column('last_date', 'Последнее ГДИ сезона', kind='date'),
         Column('reason', 'Формулировка программы')],
         note='Программа загружается во вкладке «Импорт» (файл Word). Сверка — по сезону программы: есть ли исследование этой скважины в сезоне. '
              'Подсказка: решает инженер.'))
@@ -335,6 +380,16 @@ class GdiSummaryModule(Module):
                   options=(Option('auto', 'Авто: по программе ГДИ, если загружена'), Option('program', 'По программе ГДИ'),
                            Option('krs', 'По данным КРС и срокам ГДИ')),
                   help='Программа ГДИ: замена фильтра, промывка и СКО, план КР на год, давно не проводились. Категория — подсказка, правится вручную.'),
+            Param('slice', 'Срез по периоду', 'choice', default='all', section='Ремонты',
+                  options=(Option('all', 'Все исследования'), Option(PERIOD_NEUTRAL, PERIOD_NEUTRAL), Option(SLICE_INJ_BEFORE, SLICE_INJ_BEFORE),
+                           Option(SLICE_INJ_AFTER, SLICE_INJ_AFTER), Option(SLICE_INJ_NONE, SLICE_INJ_NONE), Option(PERIOD_WD, PERIOD_WD)),
+                  help='Период ГДИ берётся из «Расписания периодов» проекта (inj/prod/none); без расписания — по месяцам сезона отбора. '
+                       'Закачка до/после КРС — по ближайшему ремонту скважины в пределах года. Подсказка: период правится в «Периоды вручную».'),
+            Param('period_manual', 'Периоды вручную', 'text', default='', section='Ремонты',
+                  help='Строки «скважина=срез», например «56=Закачка: после КРС». Срез — один из пунктов «Среза по периоду». Главнее расчёта.'),
+            Param('done_manual', 'Выполнено вручную', 'text', default='', section='Ремонты',
+                  help='Скважины программы ГДИ, по которым исследование пытались провести, но данных нет. Строки «скважина=причина», например '
+                       '«56=не удалось провести, обводнение». Считаются выполненными, причина видна в таблице.'),
             Param('manual', 'Категории вручную', 'text', default='', section='Ремонты',
                   help='Строки «скважина=категория», например «56=После КРС: замена фильтра». Исправляет подсказку программы; '
                        'в таблице видно, где категория правлена вручную.'),
@@ -356,11 +411,21 @@ class GdiSummaryModule(Module):
         program = data.get(PROGRAM)
         mode = params.get('group_by') or 'auto'
         groups = program_groups(program, seasons) if mode == 'program' or (mode == 'auto' and program is not None and not program.empty) else None
-        table = season_table(rows, seasons, limit, years, rep, parse_manual(params['manual']), groups)
+        cfg = getattr(data, 'settings', {}) or {}
+        table = season_table(rows, seasons, limit, years, rep, parse_manual(params['manual']), groups, cfg.get('season_schedule'),
+                             (int(cfg.get('season_start', 11)), int(cfg.get('season_end', 4))), parse_manual(params.get('period_manual', '')))
+        chosen = params.get('slice') or 'all'
         label = ', '.join(seasons)
         if table.empty:
             result.notes.append(Note(f'В сезоне {label} исследований нет. Выберите другой сезон.', 'warning'))
             return result
+        slice_counts = table.slice.value_counts()
+        if chosen != 'all':
+            table = table[table.slice.eq(chosen)].reset_index(drop=True)
+            if table.empty:
+                result.notes.append(Note(f'В сезоне {label} исследований со срезом «{chosen}» нет. Выберите «Все исследования» или другой срез.'))
+                return result
+            label = f'{label} · {chosen}'
         result.notes.append(Note(NOTE))
         counts = table.verdict.value_counts()
         result.summary = [Stat('Скважин в сезоне', str(len(table)), label)] + [
@@ -371,6 +436,9 @@ class GdiSummaryModule(Module):
             stacked('gdi-summary-by-cat', f'Итоги ГДИ по категориям скважин · {label}', cats, by, VERDICTS, VERDICT_COLORS, 'Категория'),
             grouped('gdi-summary-grouped', f'Что улучшилось, ухудшилось и не изменилось по категориям · {label}', cats, by),
             stacked('gdi-summary-share', f'Доли итогов ГДИ по категориям, % · {label}', cats, by, VERDICTS, VERDICT_COLORS, 'Категория', True)]
+        sl = [c for c in SLICES if c in set(table.slice)] + sorted(set(table.slice) - set(SLICES))
+        by_sl = {(c, v): int(((table.slice == c) & (table.verdict == v)).sum()) for c in sl for v in VERDICTS}
+        result.charts.append(stacked('gdi-summary-slices', f'Итоги ГДИ по периодам · {label}', sl, by_sl, VERDICTS, VERDICT_COLORS, 'Период ГДИ'))
         hist = change_histogram(table, limit)
         if hist is not None:
             result.charts.append(hist)
@@ -387,13 +455,14 @@ class GdiSummaryModule(Module):
             result.charts.append(stacked('gdi-summary-krs-years', f'Итоги ГДИ после КРС по годам ремонта · {label}', ycats, yby,
                                          VERDICTS, VERDICT_COLORS, 'Год КРС'))
         result.tables.append(Table('gdi-summary-wells', 'Скважины сезона: итог ГДИ и категория', table[
-            ['well', 'verdict', 'change', 'prev_date', 'last_date', 'q_prev', 'q_last', 'category', 'edited', 'reason']], [
+            ['well', 'verdict', 'change', 'prev_date', 'last_date', 'q_prev', 'q_last', 'slice', 'slice_edited', 'category', 'edited', 'reason']], [
             Column('well', 'Скважина'), Column('verdict', 'Итог'), Column('change', 'Изменение Q', '%', 1, 'number'),
             Column('prev_date', 'ГДИ до (сравнение)', kind='date'), Column('last_date', 'ГДИ сезона', kind='date'),
             Column('q_prev', 'Q было', UNITS['q_gdi'], 1, 'number'), Column('q_last', 'Q стало', UNITS['q_gdi'], 1, 'number'),
+            Column('slice', 'Период ГДИ'), Column('slice_edited', 'Период: правка'),
             Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
         self.repair_block(result, rows, rep, params, seasons, limit)
-        program_block(result, rows, program, seasons)
+        program_block(result, rows, program, seasons, parse_manual(params.get('done_manual', '')))
         return result
 
     @staticmethod
