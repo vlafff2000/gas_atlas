@@ -337,9 +337,9 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                         w=widths/max(1,len(bars))
                     else:pos=np.array([categories.index(str(v)) for v in x],dtype=float)
                     if isinstance(t.meta,dict) and t.meta.get('cat_stack') and not date_axis and not numeric_bars:
-                        base=cat_stack.setdefault(t.meta['cat_stack'],{});below=np.array([base.get(p,0.0) for p in pos]);top=np.nan_to_num(np.asarray(y,dtype=float))
+                        under=cat_stack.setdefault(t.meta["cat_stack"],{});below=np.array([under.get(p,0.0) for p in pos]);top=np.nan_to_num(np.asarray(y,dtype=float))
                         drawn=target.bar(pos,top,width=.8,bottom=below,label=label,color=decode_arrays(t.marker.color))
-                        for p,v in zip(pos,top):base[p]=base.get(p,0.0)+v
+                        for p,v in zip(pos,top):under[p]=under.get(p,0.0)+v
                     else:drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
                     for bar in drawn:bar._own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set();mark(bar,'series:'+sid,**part)     # ручной цвет столбцов: вид Excel его не перекрашивает
                     if isinstance(t.meta,dict) and t.meta.get('hatch'):

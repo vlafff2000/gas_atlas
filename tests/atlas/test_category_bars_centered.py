@@ -29,3 +29,13 @@ def test_stacked_bars_are_centered_on_the_tick_in_the_file():
         mf.Figure.savefig = orig
     centers = sorted(round(p.get_x() + p.get_width() / 2, 3) for p in drawn if p.get_height() > 0 and p.get_width() < 1)
     assert centers == [0.0, 1.0, 2.0]
+
+
+def test_value_labels_on_line_over_stacked_bars_do_not_break_the_file():
+    """Подписи значений у Кг при столбцах-стопке ГНТ раньше падали: имя ``base`` (размер шрифта) затиралось словарём стопки."""
+    from atlas.render import chart_file
+    c = _chart('fund-stack')
+    c.y2 = Axis('Кг', '%')
+    c.series.append(Series('Кг', c.x.categories, [60.0, 65.0, 55.0], 'line', axis='y2', markers=True, look={'valueLabels': True}))
+    data, name, _ = chart_file(c, 'png', 150)
+    assert data[:4] == b'\x89PNG'
