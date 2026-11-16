@@ -18,7 +18,7 @@ import pandas as pd
 
 from .contract import ParamError
 from .engine.core import elpro_import as elpro
-from .engine.core import gas_db_import, gis_import, krs_import, survey_import, tabular, water_monthly_import, well_geo_import
+from .engine.core import gas_db_import, gdi_program_import, gis_import, krs_import, survey_import, tabular, water_monthly_import, well_geo_import
 from .engine.core import ggh_import as ggh
 
 log = logging.getLogger(__name__)
@@ -86,6 +86,13 @@ def _krs(name: str, content: bytes) -> dict[str, Any]:
     return _ok('КРС: ' + krs_import.summary(parts), warnings, sum(len(p) for p in parts.values()))
 
 
+def _gdi_program(name: str, content: bytes, season: str = '') -> dict[str, Any]:
+    new, warnings = gdi_program_import.read(name, content, season)
+    if new.empty:
+        raise ParamError('В программе нет скважин.')
+    return _ok('Программа ГДИ: ' + gdi_program_import.summary(new), warnings, len(new))
+
+
 def _survey(name: str, content: bytes) -> dict[str, Any]:
     new, warnings = survey_import.read(name, content)
     if new.empty:
@@ -114,7 +121,7 @@ def _ggh(name: str, content: bytes) -> dict[str, Any]:
     return _ok(f'ГГХ, лист «{sheet}»: ' + _stats(len(data), data.well.nunique(), _period(data)), [f'строка {n[0]}: {n[2]}' for n in notes], len(data))
 
 
-SPECIAL = {'krs': _krs, 'survey': _survey, 'elpro': _elpro, 'gas': _gas, 'gis': _gis, 'geo': _geo, 'ggh': _ggh}
+SPECIAL = {'krs': _krs, 'gdi_program': _gdi_program, 'survey': _survey, 'elpro': _elpro, 'gas': _gas, 'gis': _gis, 'geo': _geo, 'ggh': _ggh}
 KINDS = {**SPECIAL, 'water': _water}       # все виды файлов со своим разбором (общее окно импорта)
 
 
