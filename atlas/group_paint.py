@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 
 from .contract import Chart, Result
+from .chart_groups import split_group_bars
 from .group_colors import _known, colors_for, group_key
 
 
@@ -17,6 +18,7 @@ def paint(result: Result) -> Result:
         return result
     charts = []
     for chart in result.charts:
+        chart = split_group_bars(chart, known)      # столбцы по категориям-группам: цвет своей группы у каждого столбца
         names = {s.group or s.name for s in chart.series if not s.color}
         groups = [n for n in names if group_key(n) in known]
         if not groups:

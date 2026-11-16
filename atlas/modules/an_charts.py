@@ -272,8 +272,8 @@ def group_means_chart(kind: str, period: str, means: pd.DataFrame) -> Chart | No
     cats = [str(g) for g in part.scope]
     chart = Chart(f'an-group-means-{kind}-{period}', f'Средний суточный расход по группам · {period}',
                   Axis('Группа', scale='category', categories=cats), Axis('Средний суточный расход', Q_UNIT, from_zero=True))
-    chart.series.append(Series('Средний суточный расход', cats, part['mean'].to_numpy(float), 'bar',
-                               labels=[f'суток с расходом: {int(d)}' for d in part.days]))
+    chart.series += split_bars(Series('Средний суточный расход', cats, part['mean'].to_numpy(float), 'bar',
+                                      labels=[f'суток с расходом: {int(d)}' for d in part.days]))      # столбец на группу цветом группы
     return chart
 
 
