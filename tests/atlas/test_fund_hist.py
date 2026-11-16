@@ -21,7 +21,7 @@ def test_counts_by_fund_and_group():
     funds = dict(zip(res.charts[0].series[0].x, res.charts[0].series[0].y))
     assert funds['Эксплуатационная'] == 3 and funds['Наблюдательная'] == 1
     assert funds['Геофизическая'] == 1 and funds['Контрольная'] == 1 and funds[UNKNOWN] == 0
-    groups = dict(zip(res.charts[1].series[0].x, res.charts[1].series[0].y))
+    groups = {s.name: next(v for v in s.y if v is not None) for s in res.charts[1].series}      # столбец на группу (стопка «по группам»)
     assert groups == {'ГСП 1': 2, 'ГСП 2': 1}
     sub = FundHistModule().run(make(), {'split': 'subgroup', 'funds': ['Контрольная']})
     assert list(sub.charts[0].series[0].x) == ['Контрольная']

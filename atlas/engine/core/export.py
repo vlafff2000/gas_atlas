@@ -216,7 +216,9 @@ def value_labels(ax,bars,values,family,size,opts=None,keys=None,series=''):
     for i,(rect,v) in enumerate(zip(bars,values)):
         if v is None or not np.isfinite(v):continue
         if pick is not None and keys is not None and pick_key(keys[i]) not in pick:continue
-        text=group_thousands(f'{v:.{decimals}f}' if decimals else f'{v:.0f}').replace('.',',');wide=len(text)*size*.5>rect.get_width()*pts
+        own=opts.get('captions');text=str(own[i]) if own is not None and i<len(own) else group_thousands(f'{v:.{decimals}f}' if decimals else f'{v:.0f}').replace('.',',')
+        if own is not None and not text:continue      # свой текст: пустой — подписи нет
+        wide=max((len(line) for line in text.split('\n')),default=0)*size*.5>rect.get_width()*pts
         angle=opts.get('label_angle');turn=float(angle) if angle is not None else (90 if wide else 0)
         up=v>=0;edge=rect.get_y()+rect.get_height() if up else rect.get_y()
         point=pick_key(keys[i]) if keys is not None and i<len(keys) else str(i)

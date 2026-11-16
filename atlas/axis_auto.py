@@ -21,6 +21,7 @@ import numpy as np
 from .axis_fit import MODES, Need, fit_axes
 from .contract import Axis, Chart
 
+CAPTION_ROOM = 0.14      # запас сверху под подписи над столбцами, доля размаха
 FIELDS = (('minimum', 'min'), ('maximum', 'max'), ('step', 'step'))
 
 
@@ -147,6 +148,8 @@ def need_of(chart: Chart, name: str) -> Need | None:
         return None
     lo, hi, anchor = found
     empty = math.isnan(lo)
+    if name != 'x' and not empty and any(s.kind == 'bar' and s.captions and any(s.captions) and (s.axis or 'y') == name for s in chart.series):
+        hi = hi + (hi - min(lo, 0.0)) * CAPTION_ROOM      # свой текст над столбцом (число и доля) не упирается в верх поля
     return Need(None if empty else lo, None if empty else hi, anchor, mode_of(axis), inverse=bool(axis.inverse),
                 **({'margin': 0.0} if name == 'x' else {}), **_manual(axis))
 
