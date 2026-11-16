@@ -440,3 +440,12 @@ def test_w32_perforated_pipe_and_reaming_perforation_rule():
                               ('Расширка открытого ствола', 758.7, 768.8, None, None)]), 771.0)
     hint = [c for c in bad['checks'] if c['code'] == 'reaming_and_perf']
     assert hint and hint[0]['level'] == 'warning' and 'вместе они не бывают' in hint[0]['text'] and any(i['kind'] == 'perf' for i in bad['items'])     # не удаляется
+
+
+def test_program_notes_show_gdi_program_and_krs_in_injection():
+    import pandas as pd
+    from atlas.passport_card import program_notes
+    prog = pd.DataFrame({'well': ['31', '32'], 'season': ['2025-2026'] * 2, 'stage': ['I этап', 'II этап'],
+                         'reason': ['план капремонта', 'давно не проводились'], 'krs_injection': [True, False]})
+    assert program_notes(prog, '31') == ['Программа ГДИ 2025-2026: I этап, план капремонта (КР в сезоне закачки: ГДИ после ремонта).']
+    assert program_notes(prog, '99') == [] and program_notes(None, '31') == []

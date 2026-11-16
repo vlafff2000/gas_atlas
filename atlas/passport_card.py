@@ -545,8 +545,18 @@ def _well_rows(frames, name: str, well: str) -> pd.DataFrame:
     return d[d['date'].notna()].copy()
 
 
+def program_notes(program: pd.DataFrame | None, well: str) -> list[str]:
+    """Строки программы ГДИ по скважине (импорт «Программа ГДИ»): этап, причина, сезон; КР в сезоне закачки — отдельным признаком. Подсказка."""
+    if program is None or program.empty:
+        return []
+    mine = program[program.well.astype(str).eq(str(well))]
+    return [f"Программа ГДИ {r.season}: {r.stage}, {r.reason}" + (' (КР в сезоне закачки: ГДИ после ремонта)' if r.krs_injection else '') + '.'
+            for r in mine.itertuples()]
+
+
 def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None),
-          only: list[str] | None = None, gis: tuple[pd.DataFrame | None, ...] = (None, None)) -> dict[str, Any]:
+          only: list[str] | None = None, gis: tuple[pd.DataFrame | None, ...] = (None, None),
+          program: pd.DataFrame | None = None) -> dict[str, Any]:
     """Всё для карточки одной скважины. Пустые разделы — заметка, не ошибка.
 
     ``only`` — подписи сезонов («Отбор 2025-2026»), которые показывать: показатели, таблица сезонов, графики и PDF считаются
@@ -604,7 +614,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     if res['flag']:
         kpi.append({'label': 'Пометка «Ресурс»', 'value': None, 'text': 'есть', 'hint': ', '.join(res['kits']),
                     'extra': 'нормальное ГДИ невозможно'})
-    notes = list(notes_check)         # пояснения по конструкции и КРС показываются в своих блоках, здесь не повторяются
+    notes = list(notes_check) + program_notes(program, well)         # пояснения по конструкции и КРС показываются в своих блоках, здесь не повторяются
     if not seasons:
         notes.append('Нет данных по сезонам эксплуатации: загрузите динамику или суточную эксплуатацию.')
     return {'well': well, 'group': mapping.get(well, {}).get('group', ''),

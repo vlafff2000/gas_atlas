@@ -18,7 +18,7 @@ from ..contract import Axis, Chart, ChartTable, Column, Data, Module, ModuleSpec
 from ..domain import UNITS, DatasetKind
 from .gdi import VERDICT_DOWN, VERDICT_FEW, VERDICT_SAME, VERDICT_UP, _productivity_rows, well_key
 
-GDI, WORKS, PLAN = DatasetKind.GDI, DatasetKind.KRS_WORKS, DatasetKind.KRS_PLAN
+GDI, WORKS, PLAN, PROGRAM = DatasetKind.GDI, DatasetKind.KRS_WORKS, DatasetKind.KRS_PLAN, DatasetKind.GDI_PROGRAM
 VERDICTS = (VERDICT_UP, VERDICT_SAME, VERDICT_DOWN, VERDICT_FEW)
 VERDICT_COLORS = {VERDICT_UP: '#2e9d57', VERDICT_SAME: '#8c96a3', VERDICT_DOWN: '#d64545', VERDICT_FEW: '#d9c26a'}
 NO_AFTER, NO_BEFORE = 'ГДИ после ремонта не проводили', 'Нет ГДИ до ремонта'
@@ -30,6 +30,7 @@ NOTE = ('Справка по надёжным исследованиям (R² н
         'сравнивается при одном опорном ΔP² скважины: последнее надёжное исследование сезона против последнего надёжного до сезона. '
         'Категории — подсказка по данным КРС и срокам ГДИ с видимой причиной; решает инженер: исправьте категорию в параметре '
         '«Категории вручную», и она встанет в таблицы и гистограммы.')
+EMPTY_PROGRAM = 'Программа ГДИ не загружена: загрузите файл программы (Word) во вкладке «Импорт», тогда здесь появится выполнение по скважинам.'
 EMPTY_KRS = 'Данных КРС в проекте нет, категории по ремонтам не определены: импортируйте КРС_для_Атласа.xlsx во вкладке «Импорт».'
 
 
@@ -171,6 +172,63 @@ def repair_year_table(rows: pd.DataFrame, rep: pd.DataFrame, year: int, limit: f
     return pd.DataFrame(out)
 
 
+STATUS_DONE, STATUS_WEAK, STATUS_NONE = 'выполнено', 'выполнено, но ненадёжное', 'не выполнено'
+PROGRAM_STATUSES = (STATUS_DONE, STATUS_WEAK, STATUS_NONE)
+PROGRAM_COLORS = {STATUS_DONE: '#2e8b57', STATUS_WEAK: '#e0a030', STATUS_NONE: '#c0504d'}
+PROGRAM_REASONS = {'filter': 'После КР: замена фильтра', 'coil': 'После КР: промывка и СКО', 'krs_plan': 'КР в сезоне закачки',
+                   'gap': 'ГДИ давно не проводились', 'other': 'Другое'}
+
+
+def _season_key(value) -> str:
+    return '-'.join(re.findall(r'\d{4}', str(value)))
+
+
+def program_table(rows: pd.DataFrame, program: pd.DataFrame | None, seasons: list[str]) -> pd.DataFrame:
+    """Программа ГДИ против факта: по скважине программы — есть ли исследование в сезоне программы и надёжное ли оно.
+    Сезон программы пуст или не совпал ни с одним выбранным — берутся строки программы всех сезонов выбранных (сверка по полю «Сезон ГДИ»)."""
+    cols = ['well', 'group', 'season', 'stage', 'reason_kind', 'reason', 'status', 'last_date', 'krs_injection']
+    if program is None or program.empty:
+        return pd.DataFrame(columns=cols)
+    p = program.copy()
+    p['well'] = p.well.astype(str)
+    wanted = {_season_key(x) for x in seasons}
+    keep = p[p.season.map(_season_key).isin(wanted)]
+    p = keep if len(keep) else p
+    out = []
+    for r in p.itertuples():
+        mine = rows[rows.well.eq(r.well) & rows.season.map(_season_key).eq(_season_key(r.season))] if not rows.empty else rows
+        if mine.empty:
+            status, last = STATUS_NONE, pd.NaT
+        else:
+            last = mine.date.max()
+            status = STATUS_DONE if (mine.reliable & mine.q_ref.notna()).any() else STATUS_WEAK
+        out.append({'well': r.well, 'group': r.group, 'season': r.season, 'stage': r.stage, 'reason_kind': PROGRAM_REASONS.get(r.reason_kind, r.reason),
+                    'reason': r.reason, 'status': status, 'last_date': last, 'krs_injection': 'да' if r.krs_injection else ''})
+    return pd.DataFrame(out, columns=cols).sort_values(['stage', 'reason_kind', 'well'], key=lambda c: c.map(well_key) if c.name == 'well' else c).reset_index(drop=True)
+
+
+def program_block(result: Result, rows: pd.DataFrame, program: pd.DataFrame | None, seasons: list[str]) -> None:
+    """Выполнение годовой программы ГДИ: сводка, гистограмма по причинам, таблица скважин (загрузка — вкладка «Импорт», «Программа ГДИ»)."""
+    if program is None or program.empty:
+        result.notes.append(Note(EMPTY_PROGRAM))
+        return
+    table = program_table(rows, program, seasons)
+    if table.empty:
+        return
+    done = int(table.status.eq(STATUS_DONE).sum())
+    result.summary += [Stat('В программе ГДИ', str(len(table)), f'выполнено: {done}'),
+                       Stat('Не выполнено по программе', str(int(table.status.eq(STATUS_NONE).sum())), 'Кандидаты на исследование')]
+    cats = list(dict.fromkeys(table.reason_kind))
+    by = {(c, v): int(((table.reason_kind == c) & (table.status == v)).sum()) for c in cats for v in PROGRAM_STATUSES}
+    result.charts.append(stacked('gdi-summary-program', 'Выполнение программы ГДИ по причинам', cats, by, PROGRAM_STATUSES, PROGRAM_COLORS, 'Причина'))
+    result.tables.append(Table('gdi-summary-program-wells', 'Программа ГДИ: выполнение по скважинам', table, [
+        Column('well', 'Скважина'), Column('group', 'ГСП'), Column('stage', 'Этап'), Column('reason_kind', 'Причина'),
+        Column('krs_injection', 'КР в сезоне закачки'), Column('status', 'Выполнение'), Column('last_date', 'Последнее ГДИ сезона', kind='date'),
+        Column('reason', 'Формулировка программы')],
+        note='Программа загружается во вкладке «Импорт» (файл Word). Сверка — по сезону программы: есть ли исследование этой скважины в сезоне. '
+             'Подсказка: решает инженер.'))
+
+
 def count_matrix(frame: pd.DataFrame, rows_key: str, cols: tuple[str, ...], col_key: str = 'verdict') -> pd.DataFrame:
     """Таблица «категория × вывод»: число скважин и их список."""
     items = []
@@ -232,6 +290,7 @@ class GdiSummaryModule(Module):
         description='Сколько скважин улучшили, ухудшили или сохранили отдачу по ГДИ в выбранном сезоне и как это связано с КРС '
                     '(замена фильтра, промывка, год ремонта, давно не исследовались); отдельный разбор скважин, ремонтированных в выбранном году.',
         needs=(GDI,),
+        optional=(WORKS, PLAN, PROGRAM),
         order=36,
         params=(
             Param('seasons', 'Сезон ГДИ', 'multi', default=[], source=Source(GDI, 'season'), section=SECTION,
@@ -302,6 +361,7 @@ class GdiSummaryModule(Module):
             Column('q_prev', 'Q было', UNITS['q_gdi'], 1, 'number'), Column('q_last', 'Q стало', UNITS['q_gdi'], 1, 'number'),
             Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
         self.repair_block(result, rows, rep, params, seasons, limit)
+        program_block(result, rows, data.get(PROGRAM), seasons)
         return result
 
     @staticmethod

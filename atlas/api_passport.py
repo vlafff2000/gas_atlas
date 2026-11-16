@@ -123,7 +123,8 @@ class Passport:
         names = self.manifest.get('tables', {})
         krs = tuple(self.raw[n] if n in names else None for n in ('krs_works', 'krs_priority'))
         gis = tuple(self.raw[n] if n in names else None for n in ('gis_intervals', 'gis_filling', 'gis_annotations'))
-        return passport_card.build(self.frames, self.settings, self.mapping(), well, krs, seasons, gis=gis)
+        program = self.raw['gdi_program'] if 'gdi_program' in names else None
+        return passport_card.build(self.frames, self.settings, self.mapping(), well, krs, seasons, gis=gis, program=program)
 
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting

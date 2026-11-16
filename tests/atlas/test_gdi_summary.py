@@ -105,3 +105,19 @@ def test_result_serializes_to_json():
     g, works = frames()
     res = GdiSummaryModule().run(Data({G: g, W: works}), PARAMS)
     json.dumps(res.to_json(), allow_nan=False, default=str)
+
+
+def test_program_vs_fact():
+    from atlas.modules.gdi_summary import STATUS_DONE, STATUS_NONE, STATUS_WEAK, program_table
+    g, _ = frames()
+    rows = study_rows(g, 0.95)
+    rows.loc[rows.well.eq('3') & rows.season.eq('2025-2026'), 'reliable'] = False       # скв. 3: исследование есть, но ненадёжное
+    prog = pd.DataFrame({'well': ['1', '3', '9'], 'group': ['ГСП-1'] * 3, 'season': ['2025-2026'] * 3, 'stage': ['I этап', 'I этап', 'II этап'],
+                         'reason': ['план КР'] * 3, 'reason_kind': ['krs_plan', 'krs_plan', 'gap'], 'krs_injection': [True, True, False]})
+    t = program_table(rows, prog, ['2025-2026']).set_index('well')
+    assert t.status.to_dict() == {'1': STATUS_DONE, '3': STATUS_WEAK, '9': STATUS_NONE}
+    assert t.loc['1', 'krs_injection'] == 'да' and t.loc['9', 'krs_injection'] == ''
+    r = GdiSummaryModule().run(Data({G: g, DatasetKind.GDI_PROGRAM: prog}), PARAMS)
+    assert any(x.id == 'gdi-summary-program-wells' for x in r.tables) and any('Не выполнено по программе' in s.label for s in r.summary)
+    empty = GdiSummaryModule().run(Data({G: g}), PARAMS)
+    assert any('Программа ГДИ не загружена' in n.text for n in empty.notes)
