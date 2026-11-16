@@ -10,6 +10,8 @@ from typing import Any
 import pandas as pd
 
 from atlas import well_funds
+from atlas.chart_groups import split_bars
+from atlas.group_colors import sort_groups
 
 from ..contract import Axis, Chart, Column, Data, DatasetKind, Module, ModuleSpec, Note, Option, Param, Result, Series, Table
 from ._production import PRODUCTION
@@ -36,6 +38,14 @@ def count_chart(cid: str, title: str, axis_label: str, counts: pd.Series, color:
     cats = [str(c) for c in counts.index]
     chart = Chart(cid, title, Axis(axis_label, scale='category', categories=cats), Axis('Скважин', 'шт', from_zero=True, step=1))
     chart.series.append(Series('Скважин', cats, counts.to_numpy(), 'bar', color=color, labels=[f'{int(v)} скв.' for v in counts]))
+    return chart
+
+
+def group_count_chart(cid: str, title: str, counts: pd.Series) -> Chart:
+    cats = [str(c) for c in counts.index]
+    total = float(counts.sum()) or 1.0
+    chart = Chart(cid, title, Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'шт', from_zero=True))
+    chart.series += split_bars(Series('Скважин', cats, counts.to_numpy(), 'bar', captions=[f'{int(v)}\n({v / total * 100:.0f} %)' for v in counts]))
     return chart
 
 
@@ -77,10 +87,13 @@ class FundHistModule(Module):
             result.notes.append(Note('Эксплуатационных скважин нет: распределение по группам не построено.'))
         else:
             col = prod[key].where(prod[key].astype(str).str.strip() != '', NO_GROUP if key == 'group' else 'Без подгруппы')
-            by_key = col.value_counts().sort_index()
+            by_key = col.value_counts()
+            by_key = by_key.reindex(sort_groups(by_key.index)) if key == 'group' else by_key.sort_index()      # ГСП 2 раньше ГСП 10
             what = 'подгруппам' if key == 'subgroup' else 'группам'
-            result.charts.append(count_chart('fund-production-split', f'Эксплуатационные скважины по {what}',
-                                             'Подгруппа' if key == 'subgroup' else 'Группа', by_key))
+            if key == 'group':      # рис. 1.3-А: столбец на группу цветом группы, над ним число и доля
+                result.charts.append(group_count_chart('fund-production-split', f'Эксплуатационные скважины по группам (всего {int(by_key.sum())})', by_key))
+            else:
+                result.charts.append(count_chart('fund-production-split', f'Эксплуатационные скважины по {what}', 'Подгруппа', by_key))
         unknown = int(by_fund[UNKNOWN])
         if unknown:
             result.notes.append(Note(f'У {unknown} скв. фонд не определён: выберите его вручную в таблице фондов проекта.', 'warning'))

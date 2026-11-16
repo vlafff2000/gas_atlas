@@ -513,7 +513,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : chart.x.scale === 'category' ? { barMaxWidth: 80, barCategoryGap: '25%' } : { barMaxWidth: 24 }), barGap: '12%',
           itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.hatch ? { decal: decalOf(L.hatch, L.hatch_color) } : {}), ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
           // подписи значений: целые, над столбиком; при тесноте ECharts прячет лишние, чтобы соседние не налезали
-          ...(L.valueLabels ? { label: dataLabel('top', 0), labelLayout: { hideOverlap: true } } : {}),
+          ...(s.captions?.some(Boolean)
+            ? { label: { show: true, position: 'top', distance: 3, fontSize: SIZE.small, color: tk.ink, lineHeight: 14, formatter: (p: { dataIndex: number }) => s.captions?.[p.dataIndex] ?? '' } }   // свой текст над столбцом: число и доля группы
+            : L.valueLabels ? { label: dataLabel('top', 0), labelLayout: { hideOverlap: true } } : {}),
           emphasis: { focus: 'none', itemStyle: { color: c } } }
       }
       const width = L.width ?? (s.width || 2)

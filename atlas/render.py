@@ -230,6 +230,8 @@ def to_plotly(chart: Chart):
                 first = False
         elif s.kind == 'bar':
             bar_meta = {**({'own': ['color']} if 'color' in look else {}), **labels_meta(look), **{k: look[k] for k in ('hatch', 'hatch_color') if k in look}}     # own — ручной цвет: вид Excel его не меняет
+            if s.captions and any(s.captions):      # свой текст над столбцом (число и доля группы): рисует atlas/engine/core/export.py
+                bar_meta = {**bar_meta, 'value_labels': True, 'captions': [str(c) for c in s.captions]}
             extra = {'meta': bar_meta} if bar_meta else {}     # подписи значений: рисует atlas/engine/core/export.py
             if s.stack and not s.segments and chart.x.scale == 'category':      # столбцы стопкой по категориям: в файле друг на друге в одном столбце по центру засечки, а не рядом
                 extra.setdefault('meta', {})['cat_stack'] = s.stack

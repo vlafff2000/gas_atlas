@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.engine.core.config import ordered
+from atlas.chart_groups import split_bars
 from atlas.engine.modules.charts import group_palette, well_colors
 
 from ..contract import Axis, Chart, ChartTable, HeatMap, Series, WellStrips
@@ -293,16 +294,20 @@ def monthly_groups_chart(kind: str, period: str, means: pd.DataFrame) -> Chart |
 
 
 def fund_chart(kind: str, period: str, fund: pd.DataFrame) -> Chart | None:
-    """Фонд и работавшие за сезон скважины по группам (без строки «Всего»)."""
+    """Эксплуатационный фонд по группам (рис. 1.3-А): по столбцу на группу цветом группы, над ним число скважин и доля фонда;
+    сколько из них работало за сезон — в подсказке (без строки «Всего»)."""
     part = fund[~fund.group.eq('Всего')]
     if part.empty:
         return None
     cats = [str(g) for g in part.group]
-    chart = Chart(f'an-fund-{kind}-{period}', f'Фонд и работавшие скважины по группам · {period}',
+    values = part.fund.to_numpy(float)
+    total = float(values.sum())
+    share = values / total * 100 if total else values * 0
+    chart = Chart(f'an-fund-{kind}-{period}', f'Эксплуатационный фонд по группам (всего {int(total)}) · {period}',
                   Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'скв.', from_zero=True))
-    chart.series.append(Series('Фонд', cats, part.fund.to_numpy(float), 'bar'))
-    chart.series.append(Series('Работало за сезон', cats, part.working.to_numpy(float), 'bar',
-                               labels=[f'доля работавших {v:.1f} %' for v in part.percent]))
+    chart.series += split_bars(Series('Фонд', cats, values, 'bar',
+                                      captions=[f'{int(v)}\n({p:.0f} %)' for v, p in zip(values, share)],
+                                      labels=[f'работало за сезон: {int(w)} ({pc:.1f} %)' for w, pc in zip(part.working, part.percent)]))
     return chart
 
 
