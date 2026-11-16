@@ -365,7 +365,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         : { color: ink, fontSize: as.title_size ?? SIZE.title, fontFamily: family, ...titleFont, rich: nameRich.rich },
       axisLine: { show: as.line ?? (!y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color || !!as.line_color), lineStyle: { color: lineColor, width: as.line_width ?? 1 } },
       ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
-      axisTick: tickOpt(as.ticks, lineColor, false, 5),
+      axisTick: { ...tickOpt(as.ticks, lineColor, false, 5), },   // засечка категории — посередине столбца, как в файле
       ...(as.minor_ticks || minorGrid ? { minorTick: { ...tickOpt(as.minor_ticks ?? 'none', lineColor, false, 3), ...(minorBy ? { splitNumber: minorBy } : {}) } } : {}),
       ...(minorGrid ? { minorSplitLine: { show: true, lineStyle: { color: cs.minor_grid_color || tk.grid, width: cs.minor_grid_width ?? 0.5, type: DASH[cs.minor_grid_dash ?? 'dot'], opacity: 0.6 } } } : {}),
       axisLabel: {
@@ -510,7 +510,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
           })
           return { ...common, data: items, type: 'bar', barMaxWidth: 64, barGap: '12%', barCategoryGap: '55%', itemStyle: { color: c, borderColor: tk.ink, borderWidth: 0.4 }, emphasis: { focus: 'none', itemStyle: { color: c } } }
         }
-        return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : { barMaxWidth: 24 }), barGap: '12%',
+        return { ...common, type: 'bar', ...(own ? { z: 1.5, barMaxWidth: 48, barMinWidth: 1 } : wide ? { z: 1.5, barMaxWidth: 64, barMinWidth: 14 } : chart.x.scale === 'category' ? { barMaxWidth: 80, barCategoryGap: '25%' } : { barMaxWidth: 24 }), barGap: '12%',
           itemStyle: { color: c, borderRadius: own && s.stack ? 0 : [4, 4, 0, 0], ...(L.hatch ? { decal: decalOf(L.hatch, L.hatch_color) } : {}), ...(L.opacity !== undefined ? { opacity: L.opacity } : wide ? { opacity: 0.6 } : {}) },
           // подписи значений: целые, над столбиком; при тесноте ECharts прячет лишние, чтобы соседние не налезали
           ...(L.valueLabels ? { label: dataLabel('top', 0), labelLayout: { hideOverlap: true } } : {}),
