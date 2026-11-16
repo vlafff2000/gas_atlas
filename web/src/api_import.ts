@@ -28,7 +28,7 @@ export interface SheetChoice { use?: boolean; module?: string; spec?: Spec | nul
 export interface SimpleRow {
   token: string; file: string; sheet: string; use: boolean; module: string; found: string | null
   fields: string; status: string; book: boolean; custom: boolean; binary: boolean
-  base?: 'elpro' | 'gas' | 'geo' | 'water' | 'gis' | 'krs' | 'survey'
+  base?: 'elpro' | 'gas' | 'geo' | 'water' | 'gis' | 'krs' | 'survey' | 'gdi_program'
 }
 export interface SimpleInspect {
   rows: SimpleRow[]; problems: string[]; errors: string[]; blocked: boolean

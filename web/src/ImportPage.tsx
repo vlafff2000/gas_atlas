@@ -16,7 +16,7 @@ import './import.css'
 import { BaseModel } from './BaseModel'
 import { FolderSources } from './FolderSources'
 
-const ACCEPT = 'xlsx xls xlsm ods csv tsv txt dat'
+const ACCEPT = 'xlsx xls xlsm ods csv tsv txt dat docx'
 const ENCODINGS = [['auto', 'Автоопределение'], ['utf-8-sig', 'utf-8-sig'], ['cp1251', 'cp1251'], ['utf-16', 'utf-16'],
   ['utf-16-le', 'utf-16-le'], ['utf-16-be', 'utf-16-be']]
 const DELIMITERS = [['auto', 'Автоопределение'], ['\t', 'Табуляция'], [',', 'Запятая'], [';', 'Точка с запятой'],
@@ -399,6 +399,9 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
                             <option value="gis_filling">заполнение ствола</option>
                             <option value="gis_annotations">пометки отчётов</option>
                           </select></>}
+                          {r.base === 'gdi_program' && <> <input disabled={busy} value={gisTable[r.token] ?? ''} size={10} placeholder="сезон, напр. 2025-2026"
+                            title="Сезон программы ГДИ. Пусто — из имени файла; введённое вручную главнее"
+                            onChange={e => setGisTable({ ...gisTable, [r.token]: e.target.value })} /></>}
 </td>
                       </tr>
                     ))}

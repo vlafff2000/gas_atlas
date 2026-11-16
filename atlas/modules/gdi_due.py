@@ -22,6 +22,7 @@ from atlas import well_funds
 from .gdi_trend import VERDICTS, histories, rating
 
 GDI, PRODUCTION, PRIORITY_K, ELPRO = DatasetKind.GDI, DatasetKind.PRODUCTION, DatasetKind.KRS_PRIORITY, DatasetKind.ELPRO
+PROGRAM = DatasetKind.GDI_PROGRAM
 SECTION = 'Критерии'
 STATE_AUTO, STATE_ADDED, STATE_REMOVED = 'по расчёту', 'добавлена вручную', 'убрана вручную'
 NOTE = ('Список — подсказка: причины видны в таблице, пороги задаёт инженер, любую скважину можно добавить вручную или убрать из списка '
@@ -131,6 +132,7 @@ def build(data: Data, params: dict[str, Any]) -> pd.DataFrame:
     prio = data[PRIORITY_K] if PRIORITY_K in data else pd.DataFrame()
     pmap = prio.assign(well=prio.well.astype(str)).set_index('well').priority if not prio.empty else pd.Series(dtype=float)
     table['kr_priority'] = table.well.map(pmap)
+    table['program'] = table.well.map(program_labels(data[PROGRAM] if PROGRAM in data else None))
     table['f_age'] = table.last_gdi.isna() | table.years.ge(params['years'])
     table['f_flow'] = table.gap.le(-params['gap'])
     table['f_trend'] = table.verdict.eq(VERDICTS['down'])
@@ -142,6 +144,15 @@ def build(data: Data, params: dict[str, Any]) -> pd.DataFrame:
     table['score'] = table[['f_age', 'f_flow', 'f_trend', 'f_kru', 'f_cum', 'f_sync', 'f_open', 'f_int']].sum(axis=1).astype(int)
     table['reason'] = table.apply(lambda r: reasons(r, params), axis=1)
     return table
+
+
+def program_labels(program: pd.DataFrame | None) -> pd.Series:
+    """Скважина → «этап: причина (сезон)» по программе ГДИ; несколько причин через «; ». Только подсказка — на оценку признаков не влияет."""
+    if program is None or program.empty:
+        return pd.Series(dtype=object)
+    p = program.assign(well=program.well.astype(str))
+    p['label'] = p.stage.fillna('') + ': ' + p.reason.fillna('') + ' (' + p.season.fillna('') + ')' + p.krs_injection.map(lambda v: ' — КР в сезоне закачки' if v else '')
+    return p.groupby('well').label.agg('; '.join)
 
 
 def reasons(r: pd.Series, params: dict[str, Any]) -> str:
@@ -283,7 +294,7 @@ class GdiDueModule(Module):
         group='Исследования скважин',
         description='Комплексный анализ снижения продуктивности (ГДИ, ревизии КРУ, КРС, суточные расходы): список скважин для планирования исследований: давность надёжного ГДИ, расход против группы, динамика ГДИ, приоритет КР; с причинами и ручной правкой.',
         needs=(),
-        optional=(GDI, PRODUCTION, PRIORITY_K, ELPRO),
+        optional=(GDI, PRODUCTION, PRIORITY_K, ELPRO, PROGRAM),
         order=36,
         params=(
             Param('years', 'Давность ГДИ', 'number', default=5.0, minimum=1, maximum=20, step=0.5, unit='лет', section=SECTION,
@@ -365,6 +376,8 @@ class GdiDueModule(Module):
             Stat('Без надёжного ГДИ', str(int(table.last_gdi.isna().sum()))),
             Stat(f'Старше {params["years"]:g} лет', str(int(table.years.ge(params['years']).sum()))),
             Stat('Изменено вручную', str(int(table.state.ne(STATE_AUTO).sum())))]
+        if PROGRAM in data and not data[PROGRAM].empty:
+            result.summary.append(Stat('Из списка уже в программе ГДИ', str(int((listed.program.fillna('') != '').sum())), 'Программа загружена во вкладке «Импорт»'))
         result.notes.append(Note(NOTE))
         skipped = out_of_fund(data, set(data.wells or []) | {str(w) for k in (GDI, PRODUCTION) if k in data and 'well' in data[k] for w in data[k].well}, params)
         if skipped:
@@ -379,7 +392,7 @@ class GdiDueModule(Module):
             result.notes.append(Note('Сравнить расход с группой не удалось: нужны данные двух сезонов отбора.'))
         result.tables.append(Table('gdi-due', 'Скважины: комплексный анализ продуктивности', table, [
             Column('well', 'Скважина'), Column('group', 'Группа'), Column('state', 'Решение'),
-            Column('score', 'Признаков', kind='number', decimals=0), Column('reason', 'Причины'),
+            Column('score', 'Признаков', kind='number', decimals=0), Column('reason', 'Причины'), Column('program', 'Программа ГДИ'),
             Column('last_gdi', 'Последнее надёжное ГДИ', kind='date'), Column('years', 'Лет назад', 'лет', 1, 'number'),
             Column('last', 'Расход, посл. сезон', 'тыс. м³/сут', 1, 'number'), Column('prev', 'Расход, пред. сезон', 'тыс. м³/сут', 1, 'number'),
             Column('change', 'Изменение', '%', 0, 'number'), Column('group_change', 'Медиана группы', '%', 0, 'number'),

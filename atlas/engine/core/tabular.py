@@ -21,7 +21,8 @@ def format_of(path):
             if sum(i.file_size for i in z.infolist())>3*1024**3:raise ValueError('Распакованная книга превышает 3 ГБ.')
             if 'content.xml' in z.namelist() and 'mimetype' in z.namelist() and b'opendocument.spreadsheet' in z.read('mimetype'):return 'ods'
             if 'xl/workbook.xml' in z.namelist():return 'xlsx'
-        raise ValueError('ZIP не является таблицей XLSX или ODS.')
+            if 'word/document.xml' in z.namelist():return 'docx'
+        raise ValueError('ZIP не является таблицей XLSX, ODS или документом Word.')
     if magic.startswith(b'\xd0\xcf\x11\xe0'):return 'xls'
     return 'text'
 
@@ -101,6 +102,22 @@ def ods_rows(path,target):
                 if active:return
                 elem.clear()
 
+W='{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+
+def docx_tables(path):
+    """Таблицы документа Word (.docx): лист «Таблица N», строка = ячейки; абзацы одной ячейки разделены переводом строки."""
+    with zipfile.ZipFile(path) as z:
+        root=ET.fromstring(z.read('word/document.xml'))
+    for n,table in enumerate(root.iter(W+'tbl'),1):
+        rows=[]
+        for tr in table.findall(W+'tr'):
+            cells=[]
+            for tc in tr.findall(W+'tc'):
+                paras=[''.join(t.text or '' for t in p.iter(W+'t')).strip() for p in tc.findall(W+'p')]
+                cells.append('\n'.join(x for x in paras if x))
+            rows.append(cells)
+        yield f'Таблица {n}',iter(rows)
+
 def trim_rows(rows):
     for row in rows:
         row=list(row)
@@ -148,6 +165,7 @@ def _iter_tables(path,encoding='auto',delimiter='auto'):
                     for i in range(ws.nrows):yield [xlrd.xldate_as_datetime(c.value,book.datemode) if c.ctype==xlrd.XL_CELL_DATE else c.value for c in ws.row(i)]
                 yield sheet.name,rows()
         finally:book.release_resources()
+    elif fmt=='docx':yield from docx_tables(path)
     else:yield Path(path).stem,text_rows(decode_text(Path(path).read_bytes(),encoding),delimiter)
 
 def read_content(content,name,limit=None,encoding='auto',delimiter='auto'):

@@ -269,3 +269,13 @@ def test_analysis_season_is_selectable():
     assert m.options('season', d, {}) == ['2024-2025', '2025-2026']
     stats = {s.label: s.value for s in m.run(d, {**PARAMS, 'season': '2024-2025'}).summary}
     assert stats['Сезон анализа'] == '2024-2025'
+
+
+def test_program_label_is_shown_and_does_not_change_score():
+    import pandas as pd
+    from atlas.modules.gdi_due import program_labels
+    prog = pd.DataFrame({'well': ['31', '31', '40'], 'stage': ['I этап', 'II этап', 'I этап'], 'reason': ['план КР', 'давно', 'фильтр'],
+                         'season': ['2025-2026'] * 3, 'krs_injection': [True, False, False]})
+    labels = program_labels(prog)
+    assert labels['31'] == 'I этап: план КР (2025-2026) — КР в сезоне закачки; II этап: давно (2025-2026)' and labels['40'].startswith('I этап: фильтр')
+    assert program_labels(None).empty
