@@ -10,6 +10,8 @@ from typing import Iterable
 
 import pandas as pd
 
+from atlas.engine.core import krs_plan_file_import
+
 from ..contract import Event
 
 EVENT_LIMIT = 400        # больше отметок на графике не читается: оставляем равномерную выборку
@@ -133,6 +135,7 @@ def krs_plan_events(plan: pd.DataFrame | None, wells: Iterable[str], start=None,
     Нет даты окончания — отметка начала; нет даты начала — события нет. Попадает в окно, если интервал пересекает его."""
     if plan is None or plan.empty or 'well' not in plan or 'start' not in plan:
         return []
+    plan = krs_plan_file_import.actual(plan)          # плановые даты на графики не выводятся
     if 'in_table' in plan:
         plan = plan[plan['in_table'].eq('Да')]
     if 'kind' in plan:

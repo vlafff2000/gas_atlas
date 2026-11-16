@@ -12,6 +12,8 @@ from typing import Any
 import pandas as pd
 
 from ..contract import Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Stat, Table
+from atlas.engine.core import krs_plan_file_import
+
 from ..domain import DatasetKind
 from .gdi import well_key
 
@@ -28,7 +30,7 @@ COLUMNS = [Column('well', '№ скважины'), Column('well_type', 'Тип �
 
 
 def select(plan: pd.DataFrame, scope: str, year: int | None) -> pd.DataFrame:
-    df = plan.copy()
+    df = (krs_plan_file_import.actual(plan)).copy()          # план (ориентировочные даты) в таблицу 7.1 не попадает
     if year:
         df = df[df.year.eq(year)]
     if scope != 'all':
