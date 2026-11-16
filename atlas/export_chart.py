@@ -116,6 +116,23 @@ def _levels(fig, name: str) -> list[float]:
     return out
 
 
+def _keep_hand_ranges(fig):
+    """График, шкалы которого не подбираются (стопка, ящики, планки погрешностей), всё равно получает границы Y, заданные
+    инженером: «от 0 до 20» остаётся 0–20, а не диапазоном данных."""
+    chart = to_chart(fig, drawn_only=True)
+    for name in chart.axis_names():
+        manual = _manual(fig, name)
+        low, high = manual.get('minimum'), manual.get('maximum')
+        if low is None and high is None:
+            continue
+        layout_axis = getattr(fig.layout, 'yaxis' + name[1:])
+        current = list(layout_axis.range) if layout_axis.range is not None else [None, None]
+        low, high = (low if low is not None else current[0]), (high if high is not None else current[1])
+        if low is not None and high is not None and low < high:
+            layout_axis.range = [low, high]
+    return fig
+
+
 def fit_figure(fig):
     """Шкалы Y и числовую ось X графика выгрузки подбирает та же функция, что на экране разделов и в их файлах (``atlas/axis_auto.py``):
     пакетные вкладки «Экспорта» получают те же границы, шаг и общее число делений, что интерактивный предпросмотр.
@@ -126,14 +143,16 @@ def fit_figure(fig):
     from .axis_auto import auto_chart, axis_of
     from .render import align_y_axes
     drawn = [t for t in fig.data if t.visible not in (False, 'legendonly')]
-    if not drawn or fig.layout.barmode in ('stack', 'relative'):
+    if not drawn:
         return fig
+    if fig.layout.barmode in ('stack', 'relative'):
+        return _keep_hand_ranges(fig)
     for t in drawn:
         meta = t.meta if isinstance(t.meta, dict) else {}
         plain = type(t).__name__ in ('Scatter', 'Bar') and not getattr(t, 'stackgroup', None) and getattr(t, 'base', None) is None
         bars = getattr(t, 'error_y', None)
         if not plain or meta.get('cat_stack') or meta.get('fill') or (bars is not None and (bars.array is not None or bars.value is not None)):
-            return fig
+            return _keep_hand_ranges(fig)
     chart = to_chart(fig, drawn_only=True)
     names = [*chart.axis_names(), 'x']
     manual = {name: _manual(fig, name) for name in names}
