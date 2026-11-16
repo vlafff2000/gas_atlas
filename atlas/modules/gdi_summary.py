@@ -14,7 +14,7 @@ import pandas as pd
 
 from atlas.engine.modules import gdi as legacy
 
-from ..contract import Axis, Chart, ChartTable, Column, Data, Module, ModuleSpec, Note, Param, Result, Series, Source, Stat, Table
+from ..contract import Axis, Chart, ChartTable, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source, Stat, Table
 from ..domain import UNITS, DatasetKind
 from .gdi import VERDICT_DOWN, VERDICT_FEW, VERDICT_SAME, VERDICT_UP, _productivity_rows, well_key
 
@@ -106,8 +106,26 @@ def verdict_of(before: float, after: float, limit: float) -> tuple[str, float]:
     return (VERDICT_UP if change > limit else VERDICT_DOWN if change < -limit else VERDICT_SAME), change
 
 
+CAT_OFF_PROGRAM = 'Вне программы ГДИ'
+
+
+def program_groups(program: pd.DataFrame | None, seasons: list[str]) -> dict[str, tuple[str, str]]:
+    """Скважина → (группа плана ГДИ, формулировка программы). Сезоны программы сверяются с выбранными; нет совпадений — вся программа.
+    Несколько причин у скважины — берётся первая по порядку программы (ремонт раньше, чем «давно не проводились»)."""
+    if program is None or program.empty:
+        return {}
+    p = program.assign(well=program.well.astype(str))
+    wanted = {_season_key(x) for x in seasons}
+    keep = p[p.season.map(_season_key).isin(wanted)]
+    p = keep if len(keep) else p
+    out: dict[str, tuple[str, str]] = {}
+    for r in p.itertuples():
+        out.setdefault(r.well, (PROGRAM_REASONS.get(r.reason_kind, r.reason or 'Другое'), f'программа ГДИ {r.season}: {r.stage}, {r.reason}'))
+    return out
+
+
 def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: float, rep: pd.DataFrame,
-                 manual: dict[str, str]) -> pd.DataFrame:
+                 manual: dict[str, str], groups: dict[str, tuple[str, str]] | None = None) -> pd.DataFrame:
     """По скважине сезона: вердикт, изменение Q, даты сравнения, категория (авто и итоговая) и причина."""
     out = []
     if rows.empty:
@@ -140,7 +158,14 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
         elif pd.isna(gap):
             auto, reason, krs_year = CAT_FIRST, 'исследований до сезона нет', 0
         else:
-            auto, reason, krs_year = CAT_NO_REPAIR, 'ремонтов между сравниваемыми ГДИ нет', 0
+            before = rep[rep.well.eq(well)] if not rep.empty else rep
+            note = (f'; в данных КРС по скважине {len(before)} ремонтов, последний {int(before.year.max())} г., вне окна сравниваемых ГДИ'
+                    if len(before) else '; в данных КРС по скважине ремонтов нет')
+            auto, reason, krs_year = CAT_NO_REPAIR, 'ремонтов между сравниваемыми ГДИ нет' + note, 0
+        if groups is not None:
+            plan_cat, plan_reason = groups.get(well, (CAT_OFF_PROGRAM, 'скважины нет в загруженной программе ГДИ'))
+            others = f'; данные КРС: {auto.lower()} ({reason})' if len(mine_rep) else ''
+            auto, reason = plan_cat, plan_reason + others
         out.append({'well': well, 'verdict': verdict, 'change': change,
                     'prev_date': base.date if base is not None else pd.NaT, 'last_date': last.date if last is not None else last_date,
                     'q_prev': base.q_ref if base is not None else np.nan, 'q_last': last.q_ref if last is not None else np.nan,
@@ -306,6 +331,10 @@ class GdiSummaryModule(Module):
             Param('repair_year', 'Год ремонта (КРС)', 'number', default=0, minimum=0, maximum=2100, step=1, section='Ремонты',
                   help='Для разбора скважин с КРС. 0 — первый год выбранного сезона (лето перед сезоном). Данные КРС берутся из справки КРС '
                        '(импорт КРС_для_Атласа.xlsx); даты — из листа «План КР», иначе только год (условно 1 июля).'),
+            Param('group_by', 'Группы справки', 'choice', default='auto', section='Ремонты',
+                  options=(Option('auto', 'Авто: по программе ГДИ, если загружена'), Option('program', 'По программе ГДИ'),
+                           Option('krs', 'По данным КРС и срокам ГДИ')),
+                  help='Программа ГДИ: замена фильтра, промывка и СКО, план КР на год, давно не проводились. Категория — подсказка, правится вручную.'),
             Param('manual', 'Категории вручную', 'text', default='', section='Ремонты',
                   help='Строки «скважина=категория», например «56=После КРС: замена фильтра». Исправляет подсказку программы; '
                        'в таблице видно, где категория правлена вручную.'),
@@ -324,7 +353,10 @@ class GdiSummaryModule(Module):
         rep = repairs(works, data.get(PLAN))
         if works is None or works.empty:
             result.notes.append(Note(EMPTY_KRS))
-        table = season_table(rows, seasons, limit, years, rep, parse_manual(params['manual']))
+        program = data.get(PROGRAM)
+        mode = params.get('group_by') or 'auto'
+        groups = program_groups(program, seasons) if mode == 'program' or (mode == 'auto' and program is not None and not program.empty) else None
+        table = season_table(rows, seasons, limit, years, rep, parse_manual(params['manual']), groups)
         label = ', '.join(seasons)
         if table.empty:
             result.notes.append(Note(f'В сезоне {label} исследований нет. Выберите другой сезон.', 'warning'))
@@ -361,7 +393,7 @@ class GdiSummaryModule(Module):
             Column('q_prev', 'Q было', UNITS['q_gdi'], 1, 'number'), Column('q_last', 'Q стало', UNITS['q_gdi'], 1, 'number'),
             Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
         self.repair_block(result, rows, rep, params, seasons, limit)
-        program_block(result, rows, data.get(PROGRAM), seasons)
+        program_block(result, rows, program, seasons)
         return result
 
     @staticmethod

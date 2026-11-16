@@ -121,3 +121,21 @@ def test_program_vs_fact():
     assert any(x.id == 'gdi-summary-program-wells' for x in r.tables) and any('Не выполнено по программе' in s.label for s in r.summary)
     empty = GdiSummaryModule().run(Data({G: g}), PARAMS)
     assert any('Программа ГДИ не загружена' in n.text for n in empty.notes)
+
+
+def test_groups_from_program_and_no_krs_reason():
+    from atlas.modules.gdi_summary import CAT_OFF_PROGRAM, CAT_NO_REPAIR, program_groups
+    g, works = frames()
+    rows = study_rows(g, 0.95)
+    prog = pd.DataFrame({'well': ['1', '2'], 'group': ['ГСП-1'] * 2, 'season': ['2025-2026'] * 2, 'stage': ['I этап', 'II этап'],
+                         'reason': ['замена фильтра', 'давно'], 'reason_kind': ['filter', 'gap'], 'krs_injection': [False, False]})
+    groups = program_groups(prog, ['2025-2026'])
+    t = season_table(rows, ['2025-2026'], 5.0, 5.0, repairs(works, None), {}, groups).set_index('well')
+    assert t.loc['1', 'category'] == 'После КР: замена фильтра' and 'программа ГДИ 2025-2026: I этап' in t.loc['1', 'reason']
+    assert t.loc['3', 'category'] == CAT_OFF_PROGRAM                        # скважины нет в программе
+    plain = season_table(rows, ['2025-2026'], 5.0, 5.0, repairs(works, None), {}).set_index('well')
+    assert plain.loc['2', 'category'] == CAT_NO_REPAIR and 'в данных КРС по скважине ремонтов нет' in plain.loc['2', 'reason']
+    assert plain.loc['1', 'category'].startswith('После КРС')
+    r = GdiSummaryModule().run(Data({G: frames()[0], DatasetKind.GDI_PROGRAM: prog}), PARAMS)
+    cats = next(t for t in r.tables if t.id == 'gdi-summary-wells').frame.category.unique()
+    assert set(cats) <= {'После КР: замена фильтра', 'ГДИ давно не проводились', CAT_OFF_PROGRAM}
