@@ -2,7 +2,7 @@
 
 - ``krs_works`` — проведённые капитальные ремонты, одна строка на ремонт: ``well``, ``year``, ``work_type``, ``detail``
   (лист «Ремонты»; прочие столбцы листа склеиваются в ``detail``);
-- ``krs_plan`` — необязательный лист «План КР» (справка о выполнении плана КР): скважина × ремонт, шифры работ, даты, состояние,
+- ``krs_plan`` — необязательный лист «План КР» (справка о выполнении плана КР; текущий ремонт ТР — отдельный лист «ТР», строки добавляются с видом «ТР»): скважина × ремонт, шифры работ, даты, состояние,
   статус, «Ремонт будет», «В таблицу 7.1»;
 - ``krs_priority`` — приоритет КР по скважине, одна строка на скважину: ``well``, ``group``, ``priority`` (итог), ``priority_calc``,
   ``priority_manual``, ``sand`` (сезоны с песком), ``last_year``, ``last_type``, ``planned``, ``reason`` (лист «Приоритет»).
@@ -18,6 +18,7 @@ import pandas as pd
 WORKS, PRIORITY, PLAN = 'krs_works', 'krs_priority', 'krs_plan'
 LABELS = {WORKS: 'проведённые КР', PRIORITY: 'приоритет КР', PLAN: 'план и выполнение КР'}
 SHEETS = {WORKS: 'Ремонты', PRIORITY: 'Приоритет', PLAN: 'План КР'}
+TR_SHEET = 'ТР'      # текущий ремонт: отдельный лист, строки попадают в krs_plan с видом «ТР» (в таблицу 7.1 и события капремонта не входят)
 PLAN_COLUMNS = ['well', 'year', 'well_type', 'kind', 'works', 'codes', 'quarter', 'color', 'state', 'start', 'end', 'status', 'will',
                 'in_table', 'check']
 PLAN_SOURCE = {'Скважина': 'well', 'Год': 'year', 'Тип скважины': 'well_type', 'Вид': 'kind', 'Шифры работ': 'works', 'Коды работ': 'codes',
@@ -93,8 +94,9 @@ def read(name: str, content: bytes) -> tuple[dict[str, pd.DataFrame], list[str]]
     for col in ('group', 'sand', 'last_type', 'reason'):
         prio[col] = prio[col].map(_text)
     parts = {WORKS: works, PRIORITY: prio[PRIORITY_COLUMNS].drop_duplicates('well', keep='last').reset_index(drop=True)}
-    if SHEETS[PLAN] in sheets and 'Скважина' in sheets[SHEETS[PLAN]].columns:      # лист необязательный: появляется, если книгу собрали со справкой КР
-        parts[PLAN] = read_plan(sheets[SHEETS[PLAN]])
+    frames = [read_plan(sheets[name]) for name in (SHEETS[PLAN], TR_SHEET) if name in sheets and 'Скважина' in sheets[name].columns]
+    if frames:                                                                      # листы необязательны: появляются, если книгу собрали со справкой КР
+        parts[PLAN] = pd.concat(frames, ignore_index=True)
     return parts, warnings
 
 
