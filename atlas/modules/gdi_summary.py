@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.engine.modules import gdi as legacy
+from atlas.engine.core import krs_plan_file_import
 from atlas.engine.modules import seasons as season_rules
 
 from ..contract import Axis, Chart, ChartTable, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source, Stat, Table
@@ -69,6 +70,7 @@ def repairs(works: pd.DataFrame | None, plan: pd.DataFrame | None) -> pd.DataFra
     w['kind'] = w.work_type.map(repair_class)
     w['date'] = pd.to_datetime(w.year.astype(str) + '-07-01')
     w['dated'] = False
+    plan = krs_plan_file_import.actual(plan)          # даты ремонта — только фактические (справка), не плановые
     if plan is not None and not plan.empty and {'well', 'year', 'start'} <= set(plan.columns):
         p = plan.copy()
         if 'kind' in p:

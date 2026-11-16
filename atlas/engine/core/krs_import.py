@@ -20,7 +20,7 @@ LABELS = {WORKS: 'проведённые КР', PRIORITY: 'приоритет К
 SHEETS = {WORKS: 'Ремонты', PRIORITY: 'Приоритет', PLAN: 'План КР'}
 TR_SHEET = 'ТР'      # текущий ремонт: отдельный лист, строки попадают в krs_plan с видом «ТР» (в таблицу 7.1 и события капремонта не входят)
 PLAN_COLUMNS = ['well', 'year', 'well_type', 'kind', 'works', 'codes', 'quarter', 'color', 'state', 'start', 'end', 'status', 'will',
-                'in_table', 'check']
+                'in_table', 'check', 'source']
 PLAN_SOURCE = {'Скважина': 'well', 'Год': 'year', 'Тип скважины': 'well_type', 'Вид': 'kind', 'Шифры работ': 'works', 'Коды работ': 'codes',
                'Квартал': 'quarter', 'Цвет в справке': 'color', 'Состояние': 'state', 'Дата начала': 'start', 'Дата окончания': 'end',
                'Статус справки': 'status', 'Ремонт будет': 'will', 'В таблицу 7.1': 'in_table', 'Проверить': 'check'}
