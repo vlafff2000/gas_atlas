@@ -41,6 +41,18 @@ def test_plan_sheet_is_read_and_optional():
     assert krs_import.PLAN not in krs_import.read('k.xlsx', buf.getvalue())[0]
 
 
+def test_tr_sheet_is_read_into_plan_with_kind_tr():
+    buf = io.BytesIO()
+    kr, tr = [r for r in ROWS if r[3] != 'ТР'], [r for r in ROWS if r[3] == 'ТР']
+    with pd.ExcelWriter(buf, engine='openpyxl') as xw:
+        pd.DataFrame({'Скважина': [11], 'Год': [2026]}).to_excel(xw, sheet_name='Ремонты', index=False)
+        pd.DataFrame({'Скважина': [11]}).to_excel(xw, sheet_name='Приоритет', index=False)
+        pd.DataFrame(kr, columns=HEAD).to_excel(xw, sheet_name='План КР', index=False)
+        pd.DataFrame(tr, columns=HEAD).to_excel(xw, sheet_name='ТР', index=False)
+    plan = krs_import.read('k.xlsx', buf.getvalue())[0][krs_import.PLAN]
+    assert plan.well.tolist() == ['11', '12', '13', '14', '7'] and plan[plan.kind.eq('ТР')].well.tolist() == ['7']
+
+
 def test_table_71_follows_will_rule():
     plan = krs_import.read('k.xlsx', book())[0][krs_import.PLAN]
     res = KrsReportModule().run(Data({DatasetKind.KRS_PLAN: plan}), {'year': 0, 'scope': 'table'})
