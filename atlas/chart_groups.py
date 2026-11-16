@@ -36,3 +36,16 @@ def split_bars(series: Series, colors: dict[str, str] | None = None) -> list[Ser
             labels=_at(series.labels, i, ''), captions=_at(series.captions, i, ''), segments=_at(series.segments, i, ''),
             ids=None if series.ids is None else list(series.ids), values=_at(series.values, i, None)))
     return out
+
+
+def split_group_bars(chart, known: set[str]):
+    """Единственный ряд столбцов без цвета, у которого все категории — группы объекта: раскладывается по группам (``split_bars``).
+    Остальные графики (несколько рядов, стопка, цвет задан модулем, категории не группы) остаются как есть."""
+    series = [s for s in chart.series if s.kind == 'bar']
+    if chart.x.scale != 'category' or len(chart.series) != 1 or len(series) != 1:
+        return chart
+    s = series[0]
+    cats = [str(c) for c in s.x]
+    if s.color or s.stack or s.segments or len(cats) < 1 or any(group_key(c) not in known for c in cats):
+        return chart
+    return dataclasses.replace(chart, series=split_bars(s))
