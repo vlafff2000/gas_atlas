@@ -500,7 +500,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
               </div>
             </section>
           )}
-          {!special && chart.items.length > 1 && (
+          {chart.items.length > 1 && (
             <details className="table-block">
               <summary className="block-head"><h3>Какие ряды выгружать ({chart.items.length})</h3></summary>
               <p className="muted pad">Снятая галочка убирает ряд из файла. Цвет, линия и маркеры рядов — в панели «Формат» живого графика.</p>

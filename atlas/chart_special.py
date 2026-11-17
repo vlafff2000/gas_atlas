@@ -223,7 +223,7 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
         color = (s.look or {}).get('color') or (series_color(s.color) if s.color else palette[s.group or s.name])
         colors.append(color)
         values = np.array([0.0 if v is None else float(v) for v in s.y])
-        ax.bar(range(len(cats)), values, bottom=below, width=0.62, color=color, label=s.name, edgecolor='#222', linewidth=0.4)
+        ax.bar(range(len(cats)), values, bottom=below, width=0.62, color=color, label=s.name if s.legend else '_nolegend_', edgecolor='#222', linewidth=0.4)
         for j, (v, text) in enumerate(zip(values, s.segments or [])):
             middle = below[j] + v / 2
             text = _g(text or '')
@@ -237,7 +237,7 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     for s in chart.series:
         if s.kind == 'line':        # кривая поверх столбиков (максимум одновременно работавших скважин за сутки)
             ax.plot(range(len(cats)), [np.nan if v is None else float(v) for v in s.y], color=s.color or '#111827', lw=2.2, marker='D', ms=6,
-                    mfc='white', mec=s.color or '#111827', mew=1.8, label=s.name, zorder=5)
+                    mfc='white', mec=s.color or '#111827', mew=1.8, label=s.name if s.legend else '_nolegend_', zorder=5)
     for j, middle, text, color in marks:
         side = 1 if used[j] % 2 == 0 else -1
         used[j] += 1

@@ -36,6 +36,15 @@ def _limited(axis: Axis, bounds: tuple[float, float]) -> Axis:
     return dataclasses.replace(axis, minimum=lo, maximum=hi, style=style)
 
 
+def _table_kept(chart: Chart, keep: list[int]) -> Any:
+    """Таблица под графиком без строк убранных рядов (строка таблицы — ряд графика, если у неё цветной маркер)."""
+    t = chart.table
+    if t is None or not t.swatches or len(t.rows) != len(chart.series) or len(keep) == len(chart.series):
+        return t
+    pick = lambda items: [items[i] for i in keep] if items and len(items) == len(chart.series) else items
+    return dataclasses.replace(t, rows=pick(t.rows), cells=pick(t.cells), colors=pick(t.colors), wells=pick(t.wells))
+
+
 def apply_view(chart: Chart, view: Any) -> Chart:
     """График с видом, как на экране: ``view`` = {looks, ranges, x, hidden, facets}; пустой или неверный вид ничего не меняет."""
     if not isinstance(view, Mapping) or not view:
@@ -51,10 +60,11 @@ def apply_view(chart: Chart, view: Any) -> Chart:
     for s in chart.series:
         by_item.setdefault(s.group or s.name, []).append(s)
     gone = {key for key, items in by_item.items() if off and all(s.facets for s in items) and all(faceted_off(s) for s in items)}
-    series = []
-    for s in chart.series:
+    series, keep = [], []
+    for i, s in enumerate(chart.series):
         if (s.group or s.name) in hidden | gone:
             continue
+        keep.append(i)
         own = looks.get(series_key(s))
         if isinstance(own, Mapping) and own:
             try:
@@ -63,7 +73,7 @@ def apply_view(chart: Chart, view: Any) -> Chart:
                 look = s.look
             s = dataclasses.replace(s, look=look, **({'opacity': look['opacity']} if look and 'opacity' in look else {}))
         series.append(s)
-    out = dataclasses.replace(chart, series=series)
+    out = dataclasses.replace(chart, series=series, table=_table_kept(chart, keep))
     ranges = view.get('ranges') if isinstance(view.get('ranges'), Mapping) else {}
     for name in AXES:
         bounds = _range(ranges.get(name))
