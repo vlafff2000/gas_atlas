@@ -279,10 +279,19 @@ def _stack_figure(plt: Any, chart: Chart, palette: dict[str, str], series_color:
     if table and table.aligned:
         _aligned_table(plt, fig, ax, table, len(cats), tfs, row_k)
     elif table:
+        low, high = ax.get_xlim()      # столбец категории — единица по оси X: ячейка таблицы стоит ровно под своим столбцом
         tb = ax.table(cellText=table.cells, rowLabels=table.rows, colLabels=table.columns, loc='bottom', cellLoc='center',
-                      bbox=[0, -0.06 * row_k * (len(table.rows) + 1) - 0.04, 1, 0.06 * row_k * (len(table.rows) + 1)])
+                      bbox=[(-0.5 - low) / (high - low), -0.06 * row_k * (len(table.rows) + 1) - 0.04, len(cats) / (high - low),
+                            0.06 * row_k * (len(table.rows) + 1)])
         tb.auto_set_font_size(False)
         tb.set_fontsize(tfs)
+        want = tb._bbox[0]
+        for _ in range(3):      # matplotlib сдвигает рамку таблицы: сверяем фактический левый край с нужным и возвращаем на место
+            fig.canvas.draw()
+            error = want - tb[0, 0].get_x()
+            if abs(error) < 1e-5:
+                break
+            tb._bbox[0] += error
         if table.swatches:
             for i, color in enumerate(table.colors or colors):
                 tb[i + 1, -1].set_facecolor(color)
