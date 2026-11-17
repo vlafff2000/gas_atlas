@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import threading
 from typing import Any, Mapping
 
 from . import chart_qc, chart_special, chart_view, render
@@ -149,6 +150,32 @@ def unplaced_notes(scene: list | None) -> list[str]:
         return []
     shown = ', '.join(f'«{name}»' for name in lost[:5]) + (f' и ещё {len(lost) - 5}' if len(lost) > 5 else '')
     return [f'Ручное положение не применено: на графике нет элемента {shown}. Остальное нарисовано как задано.']
+
+
+class Newest:
+    """Предпросмотры идут по одному, и рисуется только самый новый запрос страницы: пока инженер меняет настройки, старые запросы
+    стоят в очереди; без этого каждый шаг (цвет, ползунок) рисовался бы целиком, и последний ждал бы все предыдущие.
+    Страница подписывает запросы своим ``token`` и растущим ``seq``; запрос без токена рисуется всегда."""
+    STALE = object()
+    KEEP = 200      # сколько страниц помнить
+
+    def __init__(self) -> None:
+        self.queue, self.guard, self.latest = threading.Lock(), threading.Lock(), {}
+
+    def run(self, token: Any, seq: int, work):
+        if not token:
+            return work()
+        with self.guard:
+            self.latest[token] = max(self.latest.pop(token, 0), seq)      # pop + запись: свежие страницы в конце словаря
+            while len(self.latest) > self.KEEP:
+                self.latest.pop(next(iter(self.latest)))
+        with self.queue:
+            if seq < self.latest.get(token, 0):
+                return self.STALE
+            return work()
+
+
+NEWEST = Newest()
 
 
 def preview(chart: Chart, raw_settings: Any) -> dict[str, Any]:
@@ -326,13 +353,21 @@ def routes(projects, E, compute) -> list:
     def stage(request, body):
         """Предпросмотр «как в файле»: рисунок и его сцена (``preview``)."""
         wanted = str(body.get('chart') or '')
-        found, _ = charts_of(str(body.get('module') or ''), request.path_params['pid'], body.get('params'),
-                             only=wanted.split(SEP, 1)[0] if SEP in wanted else None)
-        chart = next((c for c, _ in found if c.id == wanted), None)
-        if chart is None:
-            return Response(json.dumps({'error': 'График не найден. Обновите список.'}, ensure_ascii=False), status_code=404,
-                            media_type='application/json')
-        return preview(chart, body.get('settings'))
+
+        def draw():
+            found, _ = charts_of(str(body.get('module') or ''), request.path_params['pid'], body.get('params'),
+                                 only=wanted.split(SEP, 1)[0] if SEP in wanted else None)
+            chart = next((c for c, _ in found if c.id == wanted), None)
+            if chart is None:
+                return Response(json.dumps({'error': 'График не найден. Обновите список.'}, ensure_ascii=False), status_code=404,
+                                media_type='application/json')
+            return preview(chart, body.get('settings'))
+        try:
+            seq = int(body.get('seq') or 0)
+        except (TypeError, ValueError):
+            seq = 0
+        done = NEWEST.run(str(body.get('token') or '')[:64], seq, draw)
+        return {'stale': True} if done is Newest.STALE else done
 
     def live(request, body):
         """График для живого вида: оформление проекта и настройки формы уже на нём, оформление самого графика (``doc``) накладывает экран."""

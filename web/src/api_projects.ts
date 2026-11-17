@@ -150,8 +150,8 @@ export const anyApi = {
   chart: (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) =>
     request<Chart>(`${P(pid)}/export/any/chart`, json('POST', { module, params, chart, settings })),
   /** Предпросмотр «как в файле»: рисунок PNG 150 DPI (data URL), его сцена, заметки и находки проверки качества (atlas/export_any.preview). */
-  preview: (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) =>
-    request<{ image: string; scene: SceneElement[]; missing: string[]; notes: string[]; checks: Finding[] }>(`${P(pid)}/export/any/preview`, json('POST', { module, params, chart, settings })),
+  preview: (pid: string, module: string, params: unknown, chart: string, settings: AnySettings, order?: { token: string; seq: number }) =>
+    request<{ image: string; scene: SceneElement[]; missing: string[]; notes: string[]; checks: Finding[]; stale?: boolean }>(`${P(pid)}/export/any/preview`, json('POST', { module, params, chart, settings, ...order })),
   file: async (pid: string, module: string, params: unknown, chart: string, settings: AnySettings) => {
     const response = await send(`${P(pid)}/export/any/file`, json('POST', { module, params, chart, settings }))
     const name = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get('Content-Disposition') ?? '')

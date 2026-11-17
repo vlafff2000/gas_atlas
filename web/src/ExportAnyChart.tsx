@@ -113,6 +113,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
   const [extraFormats, setExtraFormats] = useState<string[]>([])
   const seq = useRef(0)                   // запросы перечня графиков: ответ на устаревший отбрасывается
   const previewSeq = useRef(0)            // запросы предпросмотра — свой счётчик, чтобы не гасить перечень
+  const previewToken = useRef(Math.random().toString(36).slice(2))      // подпись страницы: сервер рисует только её самый новый запрос (atlas/export_any.py: Newest)
   // Ревизия данных: своё же сохранение настроек тоже меняет ревизию проекта, но перечень и предпросмотр от него не пересчитываются.
   const ownRevision = useRef<number | null>(null)
   const [dataRevision, setDataRevision] = useState(project.revision)
@@ -255,8 +256,8 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
     const mine = ++previewSeq.current
     const timer = setTimeout(() => {
       setBusy('preview')
-      anyApi.preview(project.id, moduleId, params, shownId, settings).then(r => {
-        if (mine !== previewSeq.current) return
+      anyApi.preview(project.id, moduleId, params, shownId, settings, { token: previewToken.current, seq: mine }).then(r => {
+        if (mine !== previewSeq.current || r.stale) return      // старый запрос сервер не рисовал: ждём ответ на новый
         setImage(r.image); setScene(r.scene); setMissing(r.missing); setChecks(r.checks ?? [])
         setNotes(r.notes.filter(n => !n.startsWith('Ручное положение не применено'))); setError(null)      // об этом говорит сам предпросмотр
       }).catch(e => { if (mine === previewSeq.current) { setError((e as Error).message); setImage(null); setScene([]); setMissing([]); setChecks([]) } })
