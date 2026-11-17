@@ -400,7 +400,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     ...(colored.length ? { visualMap: { type: 'continuous', min: shadeLo, max: shadeHi === shadeLo ? shadeLo + 1 : shadeHi, dimension: 4, seriesIndex: colored.map(c => c.i),
       right: 4, top: 'middle', itemHeight: 150, itemWidth: 12, calculable: false, text: [`${shadeTitle}\n${shadeFmt(shadeHi)}`, shadeFmt(shadeLo)],
       inRange: { color: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] }, textStyle: { color: tk.ink, fontSize: SIZE.small } } } : {}),
-    grid: { left: chart.table?.aligned ? ALIGN_LABEL + ALIGN_FUND : 78, right: (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : calloutsOf(chart) === 'box' && chart.series.some(x => x.segments) ? 44 : 20) + (colored.length ? 110 : 0), top: Math.max(40, 24 + 20 * nameLines), bottom: navigator ? 90 : 54,
+    grid: { left: gridLeft(chart), right: gridRight(chart), top: Math.max(40, 24 + 20 * nameLines), bottom: navigator ? 90 : 54,
       // область построения: фон и рамка (модель оформления: plot_background, plot_border_*)
       ...(chart.style?.plot_background || chart.style?.plot_border_color || chart.style?.plot_border_width ? { show: true,
         backgroundColor: chart.style.plot_background || 'transparent', borderColor: chart.style.plot_border_color || tk.axis,
@@ -1732,6 +1732,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       {legendEl && chart.style?.legend === 'top' && legendEl}
       <div className={(chart.style?.legend === 'right' || chart.style?.legend === 'left') && legendEl ? 'chart-body legend-right' : 'chart-body'}>
       {legendEl && chart.style?.legend === 'left' && legendEl}
+      <div className="chart-col">
       <div className="chart-stage" ref={stage} style={chart.style?.background ? { background: chart.style.background } : undefined}>
         <div ref={box} className="chart-canvas" role="img" aria-label={chart.title} />
         <canvas ref={overlay} className="chart-overlay" aria-hidden="true" />
@@ -1763,23 +1764,33 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
           </span>
         </form>}
       </div>
+      {chart.table && <ChartTableView table={chart.table} colors={chart.series.map(colorOf(chart))} mode={chart.style?.table_cells} left={gridLeft(chart)} right={gridRight(chart)} />}
+      </div>
       {legendEl && chart.style?.legend === 'right' && legendEl}
       </div>
-      {chart.table && <ChartTableView table={chart.table} colors={chart.series.map(colorOf(chart))} mode={chart.style?.table_cells} />}
       {legendEl && (!chart.style?.legend || chart.style.legend === 'bottom') && legendEl}
     </figure>
   )
 }
 
+/** Поля поля графика слева и справа: таблица под графиком берёт те же числа, и ячейка каждой категории стоит ровно под её столбцом. */
+const TABLE_LABEL = 150      // ширина подписей строк таблицы под графиком (названия наборов данных переносятся)
+const gridLeft = (chart: Chart) => chart.table ? (chart.table.aligned ? ALIGN_LABEL + ALIGN_FUND : TABLE_LABEL) : 78
+const gridRight = (chart: Chart) =>
+  (yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : calloutsOf(chart) === 'box' && chart.series.some(x => x.segments) ? 44 : 20)
+  + (chart.series.some(x => x.kind === 'points' && x.values?.some(v => v != null)) ? 110 : 0)
+
 const ALIGN_LABEL = 96, ALIGN_FUND = 56   // выровненная таблица: ширина подписей строк и столбца «Фонд» слева от поля графика
 
 /** Таблица под графиком: строка на ряд (цветной маркер), столбец на категорию оси X. */
-function ChartTableView({ table, colors, mode }: { table: NonNullable<Chart['table']>; colors: string[]; mode?: string }) {
+function ChartTableView({ table, colors, mode, left, right }: { table: NonNullable<Chart['table']>; colors: string[]; mode?: string; left: number; right: number }) {
   const cells = tableCells(table, mode)
   return (
-    <div className={'chart-table-wrap' + (table.aligned ? ' aligned' : '')} style={table.aligned ? { paddingRight: 20 } : undefined}>
-      <table className={'chart-table' + (table.aligned ? ' aligned' : '')}>
-        {table.aligned && <colgroup><col style={{ width: ALIGN_LABEL }} /><col style={{ width: ALIGN_FUND }} /><col span={table.columns.length - 1} /></colgroup>}
+    <div className={'chart-table-wrap aligned'} style={{ paddingRight: right }}>
+      <table className={'chart-table aligned' + (table.aligned ? ' with-fund' : '')}>
+        <colgroup>{table.aligned
+          ? <><col style={{ width: ALIGN_LABEL }} /><col style={{ width: ALIGN_FUND }} /><col span={table.columns.length - 1} /></>
+          : <><col style={{ width: left }} /><col span={table.columns.length} /></>}</colgroup>
         <thead><tr><th />{table.columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
         <tbody>
           {table.rows.map((r, i) => (
