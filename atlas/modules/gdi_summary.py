@@ -16,7 +16,7 @@ from atlas.engine.modules import gdi as legacy
 from atlas.engine.core import krs_plan_file_import
 from atlas.engine.modules import seasons as season_rules
 
-from ..contract import Axis, Chart, ChartTable, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source, Stat, Table
+from ..contract import Axis, Chart, ChartTable, Column, Data, Module, ModuleSpec, Note, Event, Option, Param, Result, Series, Source, Stat, Table
 from ..domain import UNITS, DatasetKind
 from .gdi import VERDICT_DOWN, VERDICT_FEW, VERDICT_SAME, VERDICT_UP, _productivity_rows, well_key
 
@@ -570,6 +570,40 @@ def age_block(result: Result, rows: pd.DataFrame, rep: pd.DataFrame, program: pd
              'Даты ремонта — фактические (справка КРС); кандидат — подсказка, решает инженер.'))
 
 
+def well_card_table(gdi: pd.DataFrame, rows: pd.DataFrame, well: str, threshold: float) -> pd.DataFrame:
+    """Все исследования скважины по сезонам: дата, сезон, Q при опорном ΔP², a, b (МПа²/(тыс. м³/сут) и т. д. — как в расчёте), надёжность."""
+    cols = ['date', 'season', 'q_ref', 'a', 'b', 'reliable']
+    mine = rows[rows.well.eq(well)] if not rows.empty else rows
+    if mine.empty:
+        return pd.DataFrame(columns=cols)
+    d = legacy.prepare(gdi)
+    studies = legacy.analyze(d[d.well.astype(str).eq(well)], threshold)
+    studies['well'] = studies.well.astype(str)
+    coef = studies.groupby('date')[['a', 'b']].last().reset_index() if len(studies) else pd.DataFrame(columns=['date', 'a', 'b'])
+    t = mine.sort_values('date', kind='stable').drop_duplicates('date', keep='last').merge(coef, on='date', how='left')
+    t['reliable'] = t.reliable.map({True: 'да', False: 'нет'})
+    return t[cols].reset_index(drop=True)
+
+
+def well_card_chart(card: pd.DataFrame, rep: pd.DataFrame, well: str) -> Chart | None:
+    """Карточка скважины: Q при опорном ΔP², a и b по всем ГДИ по датам; ремонты — вертикальными линиями (фактические даты справки КРС)."""
+    ok = card[card.reliable.eq('да')]
+    if ok.empty:
+        return None
+    chart = Chart('gdi-summary-well-card', f'Скважина № {well}: все ГДИ по сезонам, Q при опорном ΔP², коэффициенты a и b',
+                  Axis('Дата ГДИ', scale='time'), Axis('Q при опорном ΔP²', UNITS['q_gdi']), y2=Axis('a', color='#2563eb'), y3=Axis('b', color='#d97706'))
+    x = list(ok.date)
+    chart.series += [Series('Q при опорном ΔP²', x, list(ok.q_ref), 'line', markers=True, color='#111827'),
+                     Series('a', x, list(ok.a), 'line', markers=True, color='#2563eb', axis='y2'),
+                     Series('b', x, list(ok.b), 'line', markers=True, color='#d97706', axis='y3')]
+    weak = card[card.reliable.eq('нет') & card.q_ref.notna()]
+    if len(weak):
+        chart.series.append(Series('Q ненадёжных ГДИ', list(weak.date), list(weak.q_ref), 'points', color='#9ca3af', hollow=True))
+    for r in (rep[rep.well.eq(well)] if not rep.empty else rep).itertuples():
+        chart.events.append(Event(r.date, f'КРС {int(r.year)}: {r.work_type or r.kind}' + ('' if r.dated else ' (только год)'), 'repair', well))
+    return chart
+
+
 class GdiSummaryModule(Module):
     spec = ModuleSpec(
         id='gdi_summary',
@@ -614,6 +648,8 @@ class GdiSummaryModule(Module):
             Param('done_manual', 'Выполнено вручную', 'text', default='', section='Ремонты',
                   help='Скважины программы ГДИ, по которым исследование пытались провести, но данных нет. Строки «скважина=причина», например '
                        '«56=не удалось провести, обводнение». Считаются выполненными, причина видна в таблице.'),
+            Param('card_well', 'Карточка скважины', 'text', default='', section='Ремонты',
+                  help='Номер скважины: все её ГДИ по датам (Q при опорном ΔP², a, b), ремонты КРС вертикальными линиями, таблица исследований с надёжностью. Пусто — без карточки.'),
             Param('manual', 'Категории вручную', 'text', default='', section='Ремонты',
                   help='Строки «скважина=категория», например «56=После КРС: замена фильтра». Исправляет подсказку программы; '
                        'в таблице видно, где категория правлена вручную.'),
@@ -700,6 +736,19 @@ class GdiSummaryModule(Module):
             Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
         self.repair_block(result, data, rows, rep, params, seasons, limit)
         program_block(result, rows, program, seasons, parse_manual(params.get('done_manual', '')))
+        card_well = str(params.get('card_well') or '').strip().lstrip('№ ').strip()
+        if card_well:
+            card = well_card_table(data[GDI], rows, card_well, float(params['threshold']))
+            if card.empty:
+                result.notes.append(Note(f'Для карточки: по скважине {card_well} исследований ГДИ нет.'))
+            else:
+                chart = well_card_chart(card, rep, card_well)
+                if chart is not None:
+                    result.charts.append(chart)
+                result.tables.append(Table('gdi-summary-well-card-table', f'Скважина № {card_well}: все исследования', card, [
+                    Column('date', 'Дата ГДИ', kind='date'), Column('season', 'Сезон'), Column('q_ref', 'Q при опорном ΔP²', UNITS['q_gdi'], 1, 'number'),
+                    Column('a', 'a', kind='number', decimals=4), Column('b', 'b', kind='number', decimals=6), Column('reliable', 'Надёжное')],
+                    note='Ненадёжные исследования на линиях не показаны (серые точки Q), но видны здесь: решает инженер.'))
         age_block(result, rows, rep, program, seasons)
         matrix_block(result, rows, program, rep, parse_manual(params.get('done_manual', '')))
         return result
