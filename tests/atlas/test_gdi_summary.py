@@ -89,7 +89,8 @@ def test_run_builds_charts_and_tables():
     assert {'gdi-summary-by-cat', 'gdi-summary-grouped', 'gdi-summary-share', 'gdi-summary-hist', 'gdi-summary-repair'} <= ids
     assert {t.id for t in res.tables} >= {'gdi-summary-matrix', 'gdi-summary-wells', 'gdi-summary-repairs'}
     stack = next(c for c in res.charts if c.id == 'gdi-summary-by-cat')
-    assert sum(float(s.y.sum()) for s in stack.series) == 6          # скважин в сезоне 2025-2026 — все шесть
+    assert sum(float(s.y.sum()) for s in stack.series) == 7          # шесть скважин; у скв. 6 ГДИ и в отбор, и в закачку — две строки (срезы)
+    assert next(x for x in res.summary if x.label == 'Скважин в сезоне').value == '6'
 
 
 def test_run_without_krs_and_empty_season():
@@ -142,15 +143,11 @@ def test_groups_from_program_and_no_krs_reason():
 
 
 def test_periods_slices_and_manual_done():
-    from atlas.modules.gdi_summary import (PERIOD_INJ, PERIOD_NEUTRAL, PERIOD_WD, SLICE_INJ_AFTER, SLICE_INJ_BEFORE, SLICE_INJ_NONE,
-                                           STATUS_MANUAL, STATUS_NONE, period_of, program_table, slice_of)
+    from atlas.modules.gdi_summary import PERIOD_INJ, PERIOD_NEUTRAL, PERIOD_WD, STATUS_MANUAL, STATUS_NONE, period_of, program_table
     ts = pd.Timestamp
     assert period_of(ts('2025-12-10'), None) == PERIOD_WD and period_of(ts('2025-07-10'), None) == PERIOD_INJ
     sched = '01.05.2025 inj\n01.11.2025 none\n01.12.2025 prod'
     assert period_of(ts('2025-06-01'), sched) == PERIOD_INJ and period_of(ts('2025-11-15'), sched) == PERIOD_NEUTRAL
-    rep = pd.DataFrame({'well': ['1'], 'date': [ts('2025-07-01')]})
-    assert slice_of(PERIOD_INJ, ts('2025-06-01'), rep) == SLICE_INJ_BEFORE and slice_of(PERIOD_INJ, ts('2025-09-01'), rep) == SLICE_INJ_AFTER
-    assert slice_of(PERIOD_INJ, ts('2025-09-01'), rep.iloc[0:0]) == SLICE_INJ_NONE and slice_of(PERIOD_WD, ts('2025-12-01'), rep) == PERIOD_WD
     g, works = frames()
     rows = study_rows(g, 0.95)
     t = season_table(rows, ['2025-2026'], 5.0, 5.0, repairs(works, None), {}, period_manual={'2': 'Нейтральный период'}).set_index('well')
@@ -160,8 +157,21 @@ def test_periods_slices_and_manual_done():
     assert program_table(rows, prog, ['2025-2026']).status.tolist() == [STATUS_NONE]
     done = program_table(rows, prog, ['2025-2026'], {'9': 'не удалось провести'})
     assert done.status.tolist() == [STATUS_MANUAL] and done.status_note.tolist() == ['не удалось провести']
-    r = GdiSummaryModule().run(Data({G: g}), {**PARAMS, 'slice': PERIOD_NEUTRAL, 'period_manual': '2=Нейтральный период'})
+    r = GdiSummaryModule().run(Data({G: g}), {**PARAMS, 'slice': [PERIOD_NEUTRAL], 'period_manual': '2=Нейтральный период'})
     assert next(x for x in r.tables if x.id == 'gdi-summary-wells').frame.well.tolist() == ['2']
+
+
+def test_slices_withdrawal_injection_neutral_per_period_rows():
+    """Три среза: сезон отбора, сезон закачки, нейтральные периоды; скважина с ГДИ в разных периодах получает строку в каждом."""
+    from atlas.modules.gdi_summary import PERIOD_INJ, PERIOD_NEUTRAL, PERIOD_WD, SLICES, normalize_slice
+    assert SLICES == (PERIOD_WD, PERIOD_INJ, PERIOD_NEUTRAL) and normalize_slice('отбор') == PERIOD_WD and normalize_slice('Закачка') == PERIOD_INJ
+    g = pd.DataFrame(gdi('1', '2025-03-10', season='2025-2026') + gdi('1', '2025-09-10', 0.7, season='2025-2026') + gdi('1', '2025-12-10', 0.8, season='2025-2026'))
+    rows = study_rows(g, 0.95)
+    t = season_table(rows, ['2025-2026'], 5.0, 5.0, repairs(None, None), {}).set_index('slice')
+    assert set(t.index) == {PERIOD_WD, PERIOD_INJ} and t.loc[PERIOD_INJ, 'last_date'] == pd.Timestamp('2025-09-10')
+    assert t.loc[PERIOD_INJ, 'prev_date'] == pd.Timestamp('2025-03-10')            # закачка сравнивается с предыдущим надёжным ГДИ
+    only = GdiSummaryModule().run(Data({G: g}), {**PARAMS, 'seasons': ['2025-2026'], 'slice': [PERIOD_INJ]})
+    assert next(x for x in only.tables if x.id == 'gdi-summary-wells').frame.slice.unique().tolist() == [PERIOD_INJ]
 
 
 def test_histogram_coarse_bins_and_per_group_charts():

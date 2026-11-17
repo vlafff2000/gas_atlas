@@ -48,6 +48,12 @@ def repair_class(work_type) -> str:
     return 'прочее'
 
 
+def normalize_slice(value: str) -> str:
+    """Срез из ручной правки: «отбор», «Сезон отбора», «закачка», «нейтральный» → один из ``SLICES``; незнакомое остаётся как есть."""
+    v = str(value).strip()
+    return next((name for name in SLICES if name.lower() == v.lower()), SLICE_ALIASES.get(v.lower().split()[0] if v.split() else '', v))
+
+
 def parse_manual(text: str) -> dict[str, str]:
     """Строки «скважина=категория» (перенос строки или «;»); пустая категория — правка снята."""
     out = {}
@@ -111,9 +117,9 @@ def verdict_of(before: float, after: float, limit: float) -> tuple[str, float]:
 
 NO_COMPARE = 'Нет сравнения'
 CAT_OFF_PROGRAM = 'Вне программы ГДИ'
-PERIOD_NEUTRAL, PERIOD_INJ, PERIOD_WD = 'Нейтральный период', 'Закачка', 'Отбор'
-SLICE_INJ_BEFORE, SLICE_INJ_AFTER, SLICE_INJ_NONE = 'Закачка: до КРС', 'Закачка: после КРС', 'Закачка: без КРС'
-SLICES = (PERIOD_NEUTRAL, SLICE_INJ_BEFORE, SLICE_INJ_AFTER, SLICE_INJ_NONE, PERIOD_WD)
+PERIOD_NEUTRAL, PERIOD_INJ, PERIOD_WD = 'Нейтральный период', 'Сезон закачки', 'Сезон отбора'
+SLICES = (PERIOD_WD, PERIOD_INJ, PERIOD_NEUTRAL)          # отбор — основной срез; закачка и нейтральные периоды вместе — ГДИ после КРС
+SLICE_ALIASES = {'отбор': PERIOD_WD, 'закачка': PERIOD_INJ, 'нейтральный': PERIOD_NEUTRAL}
 _KIND_NAMES = {'injection': PERIOD_INJ, 'withdrawal': PERIOD_WD, 'none': PERIOD_NEUTRAL}
 
 
@@ -132,17 +138,6 @@ def period_of(date, schedule: str | None, start: int = 11, end: int = 4) -> str:
             return _KIND_NAMES.get(mine[-1], PERIOD_NEUTRAL)
     m = date.month
     return PERIOD_WD if (m >= start or m <= end if start > end else start <= m <= end) else PERIOD_INJ
-
-
-def slice_of(period: str, date, rep_well: pd.DataFrame, window_days: int = 365) -> str:
-    """Срез для анализа: нейтральный период, отбор, закачка до / после / без КРС (ближайший ремонт скважины не дальше года от ГДИ)."""
-    if period != PERIOD_INJ or pd.isna(date):
-        return period
-    near = rep_well[(rep_well.date - date).abs() <= pd.Timedelta(days=window_days)] if not rep_well.empty else rep_well
-    if near.empty:
-        return SLICE_INJ_NONE
-    nearest = near.iloc[(near.date - date).abs().argmin()]
-    return SLICE_INJ_BEFORE if date < nearest.date else SLICE_INJ_AFTER
 
 
 
@@ -168,13 +163,17 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
     out = []
     if rows.empty:
         return pd.DataFrame()
-    inside = rows[rows.season.isin(seasons)]
-    for well in sorted(inside.well.unique(), key=well_key):
+    inside = rows[rows.season.isin(seasons)].copy()
+    forced = {w: normalize_slice(v) for w, v in (period_manual or {}).items()}
+    inside['slice'] = [forced.get(w) or period_of(d, schedule, *season_months) for w, d in zip(inside.well, inside.date)]
+    pairs = sorted(inside[['well', 'slice']].drop_duplicates().itertuples(index=False), key=lambda r: (well_key(r.well), SLICES.index(r.slice) if r.slice in SLICES else 9))
+    for well, slice_name in pairs:
         g = rows[rows.well.eq(well)].sort_values('date', kind='stable')
-        mine = g[g.season.isin(seasons)]
+        part = inside[inside.well.eq(well) & inside['slice'].eq(slice_name)]
+        mine = g[g.date.isin(part.date) & g.season.isin(seasons)]          # ГДИ скважины в этом периоде выбранных сезонов
         first_in = mine.date.min()
         ok = g[g.reliable & g.q_ref.notna()].drop_duplicates('date', keep='last')
-        ok_in = ok[ok.season.isin(seasons)]
+        ok_in = ok[ok.date.isin(mine.date)]
         last = ok_in.iloc[-1] if len(ok_in) else None
         base = ok[ok.date < first_in]
         base = base.iloc[-1] if len(base) else (ok_in.iloc[0] if len(ok_in) > 1 else None)
@@ -204,9 +203,6 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
             plan_cat, plan_reason = groups.get(well, (CAT_OFF_PROGRAM, 'скважины нет в загруженной программе ГДИ'))
             others = f'; данные КРС: {auto.lower()} ({reason})' if len(mine_rep) else ''
             auto, reason = plan_cat, plan_reason + others
-        last_when = last.date if last is not None else last_date
-        period = period_of(last_when, schedule, *season_months)
-        slice_name = (period_manual or {}).get(well) or slice_of(period, last_when, rep[rep.well.eq(well)] if not rep.empty else rep)
         out.append({'well': well, 'verdict': verdict, 'change': change, 'slice': slice_name, 'slice_edited': 'вручную' if well in (period_manual or {}) else '',
                     'prev_date': base.date if base is not None else pd.NaT, 'last_date': last.date if last is not None else last_date,
                     'q_prev': base.q_ref if base is not None else np.nan, 'q_last': last.q_ref if last is not None else np.nan,
@@ -730,13 +726,13 @@ class GdiSummaryModule(Module):
             Param('hist_by', 'Гистограмма по группам плана', 'choice', default='all', section='Графики',
                   options=(Option('all', 'Одна на все скважины'), Option('groups', 'Отдельная на каждую группу'), Option('both', 'Общая и по группам')),
                   help='Группы — категории справки (по программе ГДИ: замена фильтра, промывка и СКО, КР в сезоне закачки и др.).'),
-            Param('slice', 'Срез по периоду', 'choice', default='all', section='Ремонты',
-                  options=(Option('all', 'Все исследования'), Option(PERIOD_NEUTRAL, PERIOD_NEUTRAL), Option(SLICE_INJ_BEFORE, SLICE_INJ_BEFORE),
-                           Option(SLICE_INJ_AFTER, SLICE_INJ_AFTER), Option(SLICE_INJ_NONE, SLICE_INJ_NONE), Option(PERIOD_WD, PERIOD_WD)),
-                  help='Период ГДИ берётся из «Расписания периодов» проекта (inj/prod/none); без расписания — по месяцам сезона отбора. '
-                       'Закачка до/после КРС — по ближайшему ремонту скважины в пределах года. Подсказка: период правится в «Периоды вручную».'),
+            Param('slice', 'Периоды ГДИ', 'multi', default=[], section='Ремонты', empty='все',
+                  options=tuple(Option(x, x) for x in SLICES),
+                  help='Сезон отбора — основной срез; «Сезон закачки» и «Нейтральный период» вместе — ГДИ после КРС. Выберите сезон отбора и, если нужно, '
+                       'сезон закачки в «Сезон ГДИ»: покажутся ГДИ нейтральных периодов и закачки. Период берётся из «Расписания периодов» проекта '
+                       '(inj/prod/none), без него — по месяцам сезона отбора. Подсказка: правится в «Периоды вручную».'),
             Param('period_manual', 'Периоды вручную', 'text', default='', section='Ремонты',
-                  help='Строки «скважина=срез», например «56=Закачка: после КРС». Срез — один из пунктов «Среза по периоду». Главнее расчёта.'),
+                  help='Строки «скважина=срез», например «56=Сезон закачки». Срез — один из пунктов «Периоды ГДИ». Главнее расчёта.'),
             Param('done_manual', 'Выполнено вручную', 'text', default='', section='Ремонты',
                   help='Скважины программы ГДИ, по которым исследование пытались провести, но данных нет. Строки «скважина=причина», например '
                        '«56=не удалось провести, обводнение». Считаются выполненными, причина видна в таблице.'),
@@ -768,25 +764,24 @@ class GdiSummaryModule(Module):
         cfg = getattr(data, 'settings', {}) or {}
         table = season_table(rows, seasons, limit, years, rep, parse_manual(params['manual']), groups, cfg.get('season_schedule'),
                              (int(cfg.get('season_start', 11)), int(cfg.get('season_end', 4))), parse_manual(params.get('period_manual', '')))
-        chosen = params.get('slice') or 'all'
+        chosen = [normalize_slice(x) for x in (params.get('slice') or []) if x != 'all']
         label = ', '.join(seasons)
         if table.empty:
             result.notes.append(Note(f'В сезоне {label} исследований нет. Выберите другой сезон.', 'warning'))
             return result
-        slice_counts = table.slice.value_counts()
-        if chosen != 'all':
-            table = table[table.slice.eq(chosen)].reset_index(drop=True)
+        if chosen:
+            table = table[table.slice.isin(chosen)].reset_index(drop=True)
             if table.empty:
-                result.notes.append(Note(f'В сезоне {label} исследований со срезом «{chosen}» нет. Выберите «Все исследования» или другой срез.'))
+                result.notes.append(Note(f'В сезоне {label} исследований в периодах «{", ".join(chosen)}» нет. Снимите выбор периодов или выберите другой сезон.'))
                 return result
-            label = f'{label} · {chosen}'
+            label = f'{label} · {", ".join(chosen)}'
         result.notes.append(Note(NOTE))
         few = int(table.change.isna().sum())
         if few:
             result.notes.append(Note(f'{few} из {len(table)} скв. без сравнения (нужны два надёжных ГДИ с разными датами): на графиках они в столбце «{VERDICT_FEW}» '
                                      f'и «{NO_COMPARE}», причина — в таблице скважин (даты и Q). Ненадёжные исследования в расчёт изменения не входят.'))
         counts = table.verdict.value_counts()
-        result.summary = [Stat('Скважин в сезоне', str(len(table)), label)] + [
+        result.summary = [Stat('Скважин в сезоне', str(table.well.nunique()), label + (f' · срезов «скважина × период»: {len(table)}' if table.well.nunique() != len(table) else ''))] + [
             Stat(v, str(int(counts.get(v, 0)))) for v in VERDICTS]
         cats = sorted(table.category.unique(), key=lambda c: (c.startswith(CAT_NO_REPAIR) or c == CAT_FIRST, c))
         by = {(c, v): int(((table.category == c) & (table.verdict == v)).sum()) for c in cats for v in VERDICTS}
