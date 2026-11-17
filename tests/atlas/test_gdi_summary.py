@@ -245,3 +245,13 @@ def test_repair_path_before_after_next_withdrawal():
     ch = repair_path_chart(t, 2025)
     assert ch.series[0].y.tolist() == [100., 120., 110.] and ch.x.categories == ['До КРС', 'После КРС', 'Следующий отбор']
     assert repair_path_chart(t.iloc[0:0], 2025) is None
+
+
+def test_repair_effect_box_by_kind_with_well_numbers():
+    from atlas.chart_special import figure_file  # noqa: F401
+    from atlas.modules.gdi_summary import repair_effect_chart
+    t = pd.DataFrame({'well': ['3', '1', '2', '4'], 'kind': ['A', 'A', 'A', 'B'], 'change': [-10., 10., 30., np.nan]})
+    ch = repair_effect_chart(t, 2025)
+    assert ch.x.categories == ['A'] and ch.series[0].kind == 'box' and ch.series[0].y == [[-10., 0., 10., 20., 30.]]
+    assert ch.table.cells == [['3'], ['+10.0']] and ch.table.wells[0] == [['1', '2', '3']]
+    assert repair_effect_chart(t[t.kind.eq('B')], 2025) is None
