@@ -11,12 +11,17 @@ import numpy as np
 from .contract import Chart, Result, Series
 
 
-def _values(s: Series) -> np.ndarray:
-    return np.array([np.nan if v is None else float(v) for v in s.y], dtype=float)
+def _values(s: Series) -> np.ndarray | None:
+    try:
+        return np.array([np.nan if v is None else float(v) for v in s.y], dtype=float)
+    except (TypeError, ValueError):
+        return None      # ящик с усами и другие ряды не из чисел: не трогаем
 
 
 def is_empty(s: Series) -> bool:
     values = _values(s)
+    if values is None:
+        return False
     if not np.isfinite(values).any():
         return True
     return s.kind == 'bar' and not np.nan_to_num(values).any()

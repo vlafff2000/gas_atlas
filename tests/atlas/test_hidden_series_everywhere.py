@@ -39,3 +39,10 @@ def test_all_zero_line_is_data_and_stays_in_legend():
     chart.series.append(Series('пусто', ['а'], np.array([np.nan]), 'line'))
     flags = {s.name: s.legend for s in legend_empty.apply(Result(charts=[chart])).charts[0].series}
     assert flags == {'нулевой расход': True, 'пусто': False}
+
+
+def test_series_of_lists_like_box_plots_are_left_alone():
+    chart = Chart('b', 'T', Axis('X', scale='category', categories=['а']), Axis('Y'))
+    chart.series.append(Series('ящик', ['а'], [[1.0, 2.0, 3.0]], 'box'))
+    chart.series.append(Series('второй', ['а'], [[2.0, 3.0]], 'box'))
+    assert all(s.legend for s in legend_empty.apply(Result(charts=[chart])).charts[0].series)
