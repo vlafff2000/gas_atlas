@@ -638,6 +638,64 @@ def well_card_chart(card: pd.DataFrame, rep: pd.DataFrame, well: str) -> Chart |
     return chart
 
 
+MODEL = DatasetKind.MODEL
+EMPTY_MODEL = ('Сравнение с моделью: модели не выбраны или в них нет давлений скважин (векторы WBP и WBHP). Источники моделей задаются в настройках проекта '
+               'так же, как для конструктора графиков; ничего не выдумываем.')
+MODEL_WINDOW_DAYS = 3
+
+
+def model_compare(gdi: pd.DataFrame, rows: pd.DataFrame, model: pd.DataFrame | None, seasons: list[str], top: int = 15) -> pd.DataFrame:
+    """Расхождение модели и ГДИ по депрессии и ΔP² на дату надёжного исследования сезона (точка с максимальным Q), в процентах к ГДИ.
+    Модель — векторы скважин (WBP − WBHP) на ближайшую дату не дальше ``MODEL_WINDOW_DAYS`` суток. Сортировка по |ΔP²|; решает инженер."""
+    cols = ['well', 'date', 'model', 'q_gdi', 'dp_gdi', 'dp_model', 'dp_diff', 'dp2_gdi', 'dp2_model', 'dp2_diff', 'q_model']
+    if model is None or model.empty or not {'wbp', 'wbhp'} <= set(model.columns) or gdi is None or gdi.empty:
+        return pd.DataFrame(columns=cols)
+    ok = rows[rows.reliable & rows.season.isin(seasons)][['well', 'date']].drop_duplicates()
+    g = gdi.assign(well=gdi.well.astype(str))
+    m = model.assign(well=model.well.astype(str)).dropna(subset=['wbp', 'wbhp'])
+    out = []
+    for r in ok.itertuples():
+        pts = g[g.well.eq(r.well) & g.date.eq(r.date) & g.q.gt(0) & g.p_res.notna() & g.p_bh.notna()]
+        if pts.empty:
+            continue
+        pt = pts.sort_values('q').iloc[-1]
+        dp, dp2 = float(pt.p_res - pt.p_bh), float(pt.p_res ** 2 - pt.p_bh ** 2)
+        mine = m[m.well.eq(r.well)]
+        for name, mm in mine.groupby('model'):
+            near = (mm.date - r.date).abs()
+            if near.min() > pd.Timedelta(days=MODEL_WINDOW_DAYS):
+                continue
+            row = mm.loc[near.idxmin()]
+            dpm, dp2m = float(row.wbp - row.wbhp), float(row.wbp ** 2 - row.wbhp ** 2)
+            out.append({'well': r.well, 'date': r.date, 'model': str(name), 'q_gdi': float(pt.q), 'dp_gdi': dp, 'dp_model': dpm,
+                        'dp_diff': (dpm / dp - 1) * 100 if dp else np.nan, 'dp2_gdi': dp2, 'dp2_model': dp2m,
+                        'dp2_diff': (dp2m / dp2 - 1) * 100 if dp2 else np.nan,
+                        'q_model': float(row['wgpr']) if 'wgpr' in row and pd.notna(row['wgpr']) else np.nan})
+    t = pd.DataFrame(out, columns=cols)
+    if t.empty:
+        return t
+    return t.reindex(t.dp2_diff.abs().sort_values(ascending=False, kind='stable').index).head(int(top)).reset_index(drop=True)
+
+
+def model_block(result: Result, gdi: pd.DataFrame, rows: pd.DataFrame, model: pd.DataFrame | None, seasons: list[str], top: int) -> None:
+    t = model_compare(gdi, rows, model, seasons, top)
+    if t.empty:
+        result.notes.append(Note(EMPTY_MODEL))
+        return
+    labels = [f'№ {r.well} · {r.date:%d.%m.%Y}' + (f' · {r.model}' if t.model.nunique() > 1 else '') for r in t.itertuples()]
+    chart = Chart('gdi-summary-model', f'Расхождение модели и ГДИ: топ-{len(t)} по ΔP² (модель к ГДИ, %)',
+                  Axis('Скважина и дата ГДИ', scale='category', categories=labels), Axis('Расхождение', '%'))
+    chart.series += [Series('Депрессия ΔP', labels, t.dp_diff.to_numpy(float), 'bar', color='#2563eb'),
+                     Series('ΔP²', labels, t.dp2_diff.to_numpy(float), 'bar', color='#d97706')]
+    result.charts.append(chart)
+    result.tables.append(Table('gdi-summary-model-table', 'Сравнение модели и ГДИ: наибольшие расхождения', t, [
+        Column('well', 'Скважина'), Column('date', 'Дата ГДИ', kind='date'), Column('model', 'Модель'),
+        Column('q_gdi', 'Q ГДИ', UNITS['q_gdi'], 1, 'number'), Column('q_model', 'Q модели', UNITS['q_gdi'], 1, 'number'),
+        Column('dp_gdi', 'ΔP ГДИ', 'кгс/см²', 1, 'number'), Column('dp_model', 'ΔP модели', 'кгс/см²', 1, 'number'), Column('dp_diff', 'Расхождение ΔP', '%', 1, 'number'),
+        Column('dp2_gdi', 'ΔP² ГДИ', kind='number', decimals=0), Column('dp2_model', 'ΔP² модели', kind='number', decimals=0), Column('dp2_diff', 'Расхождение ΔP²', '%', 1, 'number')],
+        note='ГДИ — точка с максимальным Q надёжного исследования; модель — ближайшая дата не дальше 3 суток. Расхождение — подсказка, решает инженер.'))
+
+
 class GdiSummaryModule(Module):
     spec = ModuleSpec(
         id='gdi_summary',
@@ -646,7 +704,7 @@ class GdiSummaryModule(Module):
         description='Сколько скважин улучшили, ухудшили или сохранили отдачу по ГДИ в выбранном сезоне и как это связано с КРС '
                     '(замена фильтра, промывка, год ремонта, давно не исследовались); отдельный разбор скважин, ремонтированных в выбранном году.',
         needs=(GDI,),
-        optional=(WORKS, PLAN, PROGRAM),
+        optional=(WORKS, PLAN, PROGRAM, MODEL),
         order=36,
         params=(
             Param('seasons', 'Сезон ГДИ', 'multi', default=[], source=Source(GDI, 'season'), section=SECTION,
@@ -684,6 +742,8 @@ class GdiSummaryModule(Module):
                        '«56=не удалось провести, обводнение». Считаются выполненными, причина видна в таблице.'),
             Param('card_well', 'Карточка скважины', 'text', default='', section='Ремонты',
                   help='Номер скважины: все её ГДИ по датам (Q при опорном ΔP², a, b), ремонты КРС вертикальными линиями, таблица исследований с надёжностью. Пусто — без карточки.'),
+            Param('model_top', 'Сравнение с моделью: сколько скважин', 'number', default=15, minimum=0, maximum=100, step=1, section='Графики',
+                  help='Топ расхождений депрессии и ΔP² между ГДИ и моделью (выбранные модели проекта). 0 — не сравнивать.'),
             Param('manual', 'Категории вручную', 'text', default='', section='Ремонты',
                   help='Строки «скважина=категория», например «56=После КРС: замена фильтра». Исправляет подсказку программы; '
                        'в таблице видно, где категория правлена вручную.'),
@@ -783,6 +843,8 @@ class GdiSummaryModule(Module):
                     Column('date', 'Дата ГДИ', kind='date'), Column('season', 'Сезон'), Column('q_ref', 'Q при опорном ΔP²', UNITS['q_gdi'], 1, 'number'),
                     Column('a', 'a', kind='number', decimals=4), Column('b', 'b', kind='number', decimals=6), Column('reliable', 'Надёжное')],
                     note='Ненадёжные исследования на линиях не показаны (серые точки Q), но видны здесь: решает инженер.'))
+        if int(params.get('model_top', 15) or 0) > 0:
+            model_block(result, data[GDI], rows, data.get(MODEL), seasons, int(params.get('model_top', 15)))
         age_block(result, rows, rep, program, seasons)
         matrix_block(result, rows, program, rep, parse_manual(params.get('done_manual', '')))
         return result

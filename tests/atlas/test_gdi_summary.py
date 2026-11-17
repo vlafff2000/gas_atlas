@@ -300,3 +300,20 @@ def test_program_coverage_by_group_and_month():
     r = GdiSummaryModule().run(Data({G: g, DatasetKind.GDI_PROGRAM: prog}), PARAMS)
     ids = [c.id for c in r.charts]
     assert 'gdi-summary-program-groups' in ids and 'gdi-summary-program-months' in ids
+
+
+def test_model_compare_top_and_empty_state():
+    from atlas.modules.gdi_summary import EMPTY_MODEL, model_compare, study_rows
+    g, _ = frames()
+    rows = study_rows(g, 0.95)
+    day = pd.Timestamp('2025-12-10')
+    model = pd.DataFrame({'well': ['1', '2'], 'date': [day + pd.Timedelta(days=1), day], 'model': ['m', 'm'], 'wbp': [75., 75.], 'wbhp': [60., 40.], 'wgpr': [100., 90.]})
+    t = model_compare(g, rows, model, ['2025-2026'])
+    assert t.well.tolist() == ['1', '2'] and t.dp2_diff.abs().is_monotonic_decreasing      # по убыванию |ΔP²|
+    one = g[(g.well == '1') & (g.date == day) & (g.q == 190.)].iloc[0]
+    assert abs(t.set_index('well').loc['1', 'dp_gdi'] - (one.p_res - one.p_bh)) < 1e-9 and t.dp2_diff.notna().all()
+    assert model_compare(g, rows, None, ['2025-2026']).empty
+    r = GdiSummaryModule().run(Data({G: g}), PARAMS)
+    assert any(n.text == EMPTY_MODEL for n in r.notes)
+    r = GdiSummaryModule().run(Data({G: g, DatasetKind.MODEL: model}), PARAMS)
+    assert any(c.id == 'gdi-summary-model' for c in r.charts) and any(t.id == 'gdi-summary-model-table' for t in r.tables)
