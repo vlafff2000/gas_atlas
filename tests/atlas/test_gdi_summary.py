@@ -229,3 +229,19 @@ def test_season_matrix_wells_by_seasons_with_krs_and_plan():
     ch = next(c for c in r.charts if c.id == 'gdi-summary-season-matrix')
     assert ch.heat is not None and any(t.id == 'gdi-summary-season-matrix-table' for t in r.tables)
     assert figure_file(ch, 'png', 60)[:4] == b'\x89PNG'
+
+
+def test_repair_path_before_after_next_withdrawal():
+    """Путь после КРС: до ремонта → первое надёжное после вне отбора → первое надёжное следующего отбора; ненадёжные не входят."""
+    from atlas.chart_special import figure_file  # noqa: F401
+    from atlas.modules.gdi_summary import repair_path_chart, repair_path_table
+    ts = pd.Timestamp
+    rows = pd.DataFrame({'well': ['1'] * 5, 'season': ['x'] * 5, 'q_ref': [100., 120., 999., 110., 80.],
+                         'date': [ts('2025-03-01'), ts('2025-09-01'), ts('2025-10-01'), ts('2025-12-10'), ts('2026-02-01')],
+                         'reliable': [True, True, False, True, True]})
+    rep = pd.DataFrame({'well': ['1'], 'year': [2025], 'kind': ['КРС'], 'date': [ts('2025-07-01')], 'dated': [False]})
+    t = repair_path_table(rows, rep, 2025)
+    assert t.q_before.tolist() == [100.] and t.q_after.tolist() == [120.] and t.q_next.tolist() == [110.]
+    ch = repair_path_chart(t, 2025)
+    assert ch.series[0].y.tolist() == [100., 120., 110.] and ch.x.categories == ['До КРС', 'После КРС', 'Следующий отбор']
+    assert repair_path_chart(t.iloc[0:0], 2025) is None
