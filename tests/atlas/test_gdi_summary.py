@@ -284,3 +284,19 @@ def test_well_card_all_studies_with_repairs():
     assert any(c.id == 'gdi-summary-well-card' for c in r.charts) and any(t.id == 'gdi-summary-well-card-table' for t in r.tables)
     r2 = GdiSummaryModule().run(Data({G: g}), {**PARAMS, 'card_well': '99'})
     assert any('99' in n.text for n in r2.notes)
+
+
+def test_program_coverage_by_group_and_month():
+    from atlas.modules.gdi_summary import STATUS_DONE, STATUS_NONE, coverage_by_month
+    ts = pd.Timestamp
+    t = pd.DataFrame({'well': ['1', '2', '3', '4'], 'group': ['ГСП-1', 'ГСП-1', 'ГСП-2', 'ГСП-2'],
+                      'status': [STATUS_DONE, STATUS_DONE, STATUS_DONE, STATUS_NONE],
+                      'last_date': [ts('2025-10-05'), ts('2025-10-20'), ts('2025-12-01'), pd.NaT]})
+    labels, n, share = coverage_by_month(t)
+    assert labels == ['окт 2025', 'ноя 2025', 'дек 2025'] and n == [2, 0, 1] and share == [50.0, 50.0, 75.0]
+    g, _ = frames()
+    prog = pd.DataFrame({'well': ['1', '2', '9'], 'group': ['ГСП-1', 'ГСП-1', 'ГСП-2'], 'season': ['2025-2026'] * 3, 'stage': ['I этап'] * 3,
+                         'reason': ['x'] * 3, 'reason_kind': ['filter'] * 3, 'krs_injection': [False] * 3})
+    r = GdiSummaryModule().run(Data({G: g, DatasetKind.GDI_PROGRAM: prog}), PARAMS)
+    ids = [c.id for c in r.charts]
+    assert 'gdi-summary-program-groups' in ids and 'gdi-summary-program-months' in ids
