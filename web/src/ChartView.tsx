@@ -17,6 +17,7 @@ import { attachWheelHint } from './wheelHint'
 import { positiveNumber, STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, wheelZooms, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, crosshairSync, tooltipsOn, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
+import { categoryLabel } from './categoryLabel'
 import { applyFormat, chartKey, mergeFormats, type ChartFormat } from './chartFormat'
 import { FormatPane, type FormatElement } from './FormatPane'
 import { compact as clean } from './FormatFields'
@@ -374,7 +375,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
         ...(as.label_rotate ? { rotate: as.label_rotate } : {}),
         ...(a.scale === 'time'
           ? dateFormat ? { formatter: dateFormat } : { formatter: { year: '{yyyy}', month: '{MM}.{yyyy}', day: '{dd}.{MM}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', none: '{dd}.{MM}.{yyyy}' } }
-          : a.scale === 'category' ? {} : { formatter: (v: number) => formatNumber(positiveNumber(v, as.positive) / factor, as.decimals ?? null) }),
+          : a.scale === 'category' ? (as.category_names || as.category_wrap ? { formatter: (v: string) => categoryLabel(String(v), as), interval: 0 } : {}) : { formatter: (v: number) => formatNumber(positiveNumber(v, as.positive) / factor, as.decimals ?? null) }),
       },
       splitLine: { show: showGrid && (position === 'y' || position === 'x') && (y || a.scale !== 'category'),
         lineStyle: { color: cs.grid_color || tk.grid, width: cs.grid_width ?? 1, ...(cs.grid_dash ? { type: DASH[cs.grid_dash] } : {}) } },

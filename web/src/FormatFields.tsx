@@ -14,6 +14,8 @@ import { effectiveInverse } from './chartAxes'
 // Всё необязательно: пустое поле — авто, в документе оформления его нет.
 
 /** Убирает пустые значения: пусто — авто, в макете не хранится (ложь остаётся: «без линии», «обычный» — тоже выбор). */
+const MAX_RENAMED = 60      // полей переименования категорий в окне (остальные не переименовываются)
+
 export function compact<T extends object>(value: T): T {
   const out = {} as Record<string, unknown>
   for (const [k, v] of Object.entries(value)) if (v !== undefined && v !== '' && !(typeof v === 'number' && Number.isNaN(v))) out[k] = v
@@ -304,9 +306,20 @@ export function AxisScaleFields({ id, value: f, set, time, inverseBase, axis }: 
 }
 
 /** Оформление оси: линия, деления, подписи, единицы, название. Границы и шаг — у вызывающего (в конструкторе — свои поля). */
-export function AxisStyleFields({ value: f, set, time }: Setter<Omit<AxisStyle, 'minor_step' | 'cross'> & { color?: string }> & { time?: boolean }) {
+export function AxisStyleFields({ value: f, set, time, categories }: Setter<Omit<AxisStyle, 'minor_step' | 'cross'> & { color?: string }> & { time?: boolean; categories?: string[] }) {
+  const rename = (name: string, text: string) => {
+    const next = { ...(f.category_names ?? {}) }
+    if (text) next[name] = text; else delete next[name]
+    set({ category_names: Object.keys(next).length ? next : undefined })
+  }
   return (
     <>
+      {categories && categories.length > 0 && <fieldset>
+        <legend>Подписи категорий</legend>
+        <Num label="Перенос строки, знаков в строке" value={f.category_wrap} min={0} max={80} onChange={v => set({ category_wrap: v || undefined })} />
+        {categories.slice(0, MAX_RENAMED).map(name => (
+          <Commit key={name} label={name} value={f.category_names?.[name]} placeholder={name} onChange={v => rename(name, v)} />))}
+      </fieldset>}
       <fieldset>
         <legend>Линия и деления</legend>
         <Color label="Цвет оси и подписей" value={f.color} onChange={v => set({ color: v })} />

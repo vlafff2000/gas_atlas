@@ -19,6 +19,7 @@ export interface AxisFmt {
   title_bold?: boolean; title_italic?: boolean; tick_bold?: boolean; tick_italic?: boolean
   ticks?: AxisStyle['ticks']; minor_ticks?: AxisStyle['ticks']; line?: boolean; line_color?: string; line_width?: number; label_rotate?: number
   units?: AxisStyle['units']; title_place?: 'end' | 'middle'; minor_step?: string; cross?: string
+  category_names?: Record<string, string>; category_wrap?: number
 }
 
 /** Окно настройки: перетаскивается за заголовок, не закрывает график, Esc закрывает. */
