@@ -34,6 +34,7 @@ HEAT_BARS = ('right', 'bottom', 'hide')
 HEAT_SORTS = ('sum', 'name')              # строки тепловой карты: по сумме значений, по названию (atlas/heat_layout.py)
 HEAT_TOTALS = ('rows', 'cols', 'both')   # итоги: по строкам справа, по столбцам снизу, оба
 HEAT_KINDS = ('sum', 'mean')
+TABLE_CELLS = ('count', 'wells')      # таблица под графиком: число скважин или их номера
 SEGMENT_CALLOUTS = ('box', 'dot')       # узкий сегмент: выноска в рамке или точки по числу
 STRIP_ORDERS = ('rows', 'count', 'number')      # как в данных, по числу сезонов (больше — выше), по номеру скважины
 ALIGNS = ('left', 'center', 'right')
@@ -133,7 +134,7 @@ LABELS = {
     'heat_scale': 'схема шкалы', 'heat_reverse': 'развернуть шкалу', 'heat_min': 'минимум шкалы', 'heat_max': 'максимум шкалы',
     'heat_values': 'числа в ячейках', 'heat_cell_size': 'размер чисел в ячейках', 'heat_missing': 'текст «нет данных»', 'heat_bar': 'шкала цвета',
     'heat_sort': 'порядок строк карты', 'heat_totals': 'итоги карты', 'heat_total': 'вид итога',
-    'segment_narrow': 'порог узкого сегмента, %', 'segment_callouts': 'вид выноски', 'segment_text_size': 'размер чисел в сегментах',
+    'table_cells': 'в таблице под графиком', 'segment_narrow': 'порог узкого сегмента, %', 'segment_callouts': 'вид выноски', 'segment_text_size': 'размер чисел в сегментах',
     'strip_per_row': 'плиток в строке', 'strip_order': 'порядок плиток', 'strip_counts': 'число сезонов', 'strip_legend': 'легенда полос',
     'strip_missing': 'текст «нет ревизии»', 'strip_empty_color': 'цвет «нет»',
     'subtitle_size': 'размер подзаголовка', 'legend_columns': 'колонок легенды', 'legend_border': 'рамка легенды',
@@ -180,7 +181,7 @@ CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'b
              # тепловая карта (atlas/heat_scale.py): схема и направление шкалы, пределы вручную, подписи ячеек, текст «нет данных», шкала цвета
              'heat_scale': HEAT_SCALES, 'heat_reverse': 'bool', 'heat_min': ('num', -1e9, 1e9), 'heat_max': ('num', -1e9, 1e9),
              # столбцы со стопкой и числами в сегментах: порог «узкий сегмент», вид выноски, размер текста
-             'segment_narrow': ('num', 1, 30), 'segment_callouts': SEGMENT_CALLOUTS, 'segment_text_size': ('num', 5, 30),
+             'table_cells': TABLE_CELLS, 'segment_narrow': ('num', 1, 30), 'segment_callouts': SEGMENT_CALLOUTS, 'segment_text_size': ('num', 5, 30),
              # полосы «скважины × сезоны»: плиток в строке, порядок, число сезонов, легенда, текст и цвет «нет»
              'strip_per_row': ('int', 3, 30), 'strip_order': STRIP_ORDERS, 'strip_counts': 'bool', 'strip_legend': 'bool', 'strip_missing': 'text',
              'strip_empty_color': 'color',

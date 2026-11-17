@@ -189,9 +189,14 @@ export function FreshColorsFields({ value, set }: { value: string[] | undefined;
   )
 }
 
-export function ChartStyleFields({ value: st, set, title, fresh, heat, strips, segments }: Setter<ChartStyle> & { title?: ReactNode; fresh?: boolean; heat?: boolean; strips?: boolean; segments?: boolean }) {
+export function ChartStyleFields({ value: st, set, title, fresh, heat, strips, segments, tableWells }: Setter<ChartStyle> & { title?: ReactNode; fresh?: boolean; heat?: boolean; strips?: boolean; segments?: boolean; tableWells?: boolean }) {
   return (
     <>
+      {tableWells && <fieldset>
+        <legend>Таблица под графиком</legend>
+        <Choice label="В ячейках" value={st.table_cells} auto="число скважин"
+          options={[{ value: 'count', label: 'Число скважин' }, { value: 'wells', label: 'Номера скважин' }]} onChange={v => set({ table_cells: v })} />
+      </fieldset>}
       {heat && <HeatFields value={st} set={set} />}
       {strips && <StripFields value={st} set={set} />}
       {segments && <SegmentFields value={st} set={set} />}

@@ -17,7 +17,7 @@ import { attachWheelHint } from './wheelHint'
 import { positiveNumber, STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepText, type AxisStep, type StepUnit, Y_BAND, Y_NAMES, axisAt, formatBound, parseBound, fitAxisName, rightAxes, rightOffset, shiftRange, wheelFactor, wheelZooms, yAxesOf, yIndex, zoomRange, type AxisName, type Range, type YName } from './chartAxes'
 import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, crosshairSync, tooltipsOn, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
-import { categoryLabel } from './categoryLabel'
+import { categoryLabel, tableCells } from './categoryLabel'
 import { applyFormat, chartKey, mergeFormats, type ChartFormat } from './chartFormat'
 import { FormatPane, type FormatElement } from './FormatPane'
 import { compact as clean } from './FormatFields'
@@ -1765,7 +1765,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
       </div>
       {legendEl && chart.style?.legend === 'right' && legendEl}
       </div>
-      {chart.table && <ChartTableView table={chart.table} colors={chart.series.map(colorOf(chart))} />}
+      {chart.table && <ChartTableView table={chart.table} colors={chart.series.map(colorOf(chart))} mode={chart.style?.table_cells} />}
       {legendEl && (!chart.style?.legend || chart.style.legend === 'bottom') && legendEl}
     </figure>
   )
@@ -1774,7 +1774,8 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
 const ALIGN_LABEL = 96, ALIGN_FUND = 56   // выровненная таблица: ширина подписей строк и столбца «Фонд» слева от поля графика
 
 /** Таблица под графиком: строка на ряд (цветной маркер), столбец на категорию оси X. */
-function ChartTableView({ table, colors }: { table: NonNullable<Chart['table']>; colors: string[] }) {
+function ChartTableView({ table, colors, mode }: { table: NonNullable<Chart['table']>; colors: string[]; mode?: string }) {
+  const cells = tableCells(table, mode)
   return (
     <div className={'chart-table-wrap' + (table.aligned ? ' aligned' : '')} style={table.aligned ? { paddingRight: 20 } : undefined}>
       <table className={'chart-table' + (table.aligned ? ' aligned' : '')}>
@@ -1783,7 +1784,7 @@ function ChartTableView({ table, colors }: { table: NonNullable<Chart['table']>;
         <tbody>
           {table.rows.map((r, i) => (
             <tr key={r}><th scope="row">{table.swatches && <i style={{ background: table.colors[i] || colors[i] }} />}{r}</th>
-              {table.cells[i].map((v, j) => <td key={j}>{v}</td>)}</tr>))}
+              {cells[i].map((v, j) => <td key={j}>{v}</td>)}</tr>))}
         </tbody>
       </table>
     </div>
