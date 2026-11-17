@@ -215,6 +215,28 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
     return pd.DataFrame(out)
 
 
+def repair_effect_chart(table: pd.DataFrame, year: int) -> Chart | None:
+    """Эффект ремонта по видам КРС: ящик с усами по изменению Q при опорном ΔP² (до → после). Под графиком число скважин, медиана и номера скважин.
+    Только скважины с надёжными ГДИ до и после; остальные видны в таблице ремонтов."""
+    t = table[table.change.notna()] if not table.empty else table
+    if t.empty:
+        return None
+    kinds = sorted(t.kind.unique())
+    stats, cells, wells = [], [[], []], []
+    for k in kinds:
+        v = t[t.kind.eq(k)].change.to_numpy(float)
+        q1, med, q3 = np.percentile(v, [25, 50, 75])
+        stats.append([float(v.min()), float(q1), float(med), float(q3), float(v.max())])
+        cells[0].append(str(len(v)))
+        cells[1].append(f'{med:+.1f}')
+        wells.append(sorted(t[t.kind.eq(k)].well.astype(str), key=well_key))
+    chart = Chart('gdi-summary-repair-effect', f'Эффект ремонта по видам КРС · {year} г.: изменение Q при опорном ΔP², %',
+                  Axis('Вид ремонта', scale='category', categories=kinds), Axis('Изменение Q', '%'))
+    chart.series.append(Series('Изменение Q после ремонта', kinds, stats, 'box', color=VERDICT_COLORS[VERDICT_SAME]))
+    chart.table = ChartTable(['Скважин', 'Медиана, %'], kinds, cells, swatches=False, wells=[wells, [[] for _ in kinds]])
+    return chart
+
+
 PATH_STEPS = ('До КРС', 'После КРС', 'Следующий отбор')
 
 
@@ -642,6 +664,9 @@ class GdiSummaryModule(Module):
         by = {(k, v): int(((table.kind == k) & (table.verdict == v)).sum()) for k in kinds for v in REPAIR_VERDICTS}
         result.charts.append(stacked('gdi-summary-repair', f'ГДИ после ремонта по видам КРС · {year} г.', kinds, by, REPAIR_VERDICTS,
                                      REPAIR_COLORS, 'Вид ремонта', wells=members(table, 'kind', kinds, REPAIR_VERDICTS)))
+        effect = repair_effect_chart(table, year)
+        if effect is not None:
+            result.charts.append(effect)
         cfg = getattr(data, 'settings', None) or {}
         path = repair_path_table(rows, rep, year, cfg.get('season_schedule'), int(cfg.get('season_start', 11)), int(cfg.get('season_end', 4)))
         pc = repair_path_chart(path, year)
