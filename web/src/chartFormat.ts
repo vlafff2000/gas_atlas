@@ -47,7 +47,7 @@ export const formatOf = (store: FormatStore | null | undefined, module?: string,
 export const chartKey = (module: string, chartId: string) => `${module}::${chartId}`
 
 const STYLE_KEYS: (keyof AxisStyle)[] = ['decimals', 'date_format', 'font', 'tick_size', 'title_size', 'title_bold', 'title_italic',
-  'tick_bold', 'tick_italic', 'ticks', 'minor_ticks', 'line', 'line_color', 'line_width', 'label_rotate', 'units', 'title_place', 'positive', 'fit']
+  'tick_bold', 'tick_italic', 'ticks', 'minor_ticks', 'line', 'line_color', 'line_width', 'label_rotate', 'units', 'title_place', 'positive', 'fit', 'category_names', 'category_wrap']
 
 /** Граница оси из текста (как chart_style.bound): число с запятой или дата дд.мм.гггг / гггг-мм-дд (мс). Неверное — null. */
 export function parseBound(text: string | number | undefined, time: boolean): number | null {

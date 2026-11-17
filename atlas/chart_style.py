@@ -98,6 +98,10 @@ def _fill(raw: Any, what: str, spec: Mapping[str, Any]) -> dict[str, Any]:
             if not isinstance(value, (list, tuple)):
                 raise ParamError(f'{label}: список цветов вида #rrggbb')
             out[key] = [_color(v, label) for v in value][:MAX_FRESH]
+        elif kind == 'names':
+            if not isinstance(value, Mapping):
+                raise ParamError(f'{label}: пары «было → стало»')
+            out[key] = {str(k)[:80]: str(v).strip()[:120] for k, v in list(value.items())[:MAX_NAMES] if str(v).strip()}
         elif kind == 'texts':
             out[key] = [str(v)[:40] for v in value][:MAX_PICK] if isinstance(value, (list, tuple)) else []
         elif isinstance(kind, tuple) and kind and kind[0] == 'num':
@@ -109,6 +113,7 @@ def _fill(raw: Any, what: str, spec: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+MAX_NAMES = 300     # переименованных категорий оси X
 MAX_FRESH = 12     # цветов в палитре «по свежести»
 LABELS = {
     'fresh_colors': 'цвета по свежести',
@@ -123,7 +128,7 @@ LABELS = {
     'marker_border': 'граница маркера', 'marker_border_width': 'толщина границы маркера', 'hollow': 'полый маркер',
     'label_position': 'положение подписей данных', 'label_decimals': 'знаков в подписях данных', 'label_size': 'размер подписей данных', 'label_angle': 'угол подписей данных', 'label_pick': 'точки с подписями',
     'legend_name': 'имя в легенде', 'ticks': 'основные деления', 'minor_ticks': 'доп. деления', 'line': 'линия оси',
-    'line_color': 'цвет линии оси', 'line_width': 'толщина линии оси', 'label_rotate': 'поворот подписей', 'units': 'единицы отображения',
+    'line_color': 'цвет линии оси', 'line_width': 'толщина линии оси', 'label_rotate': 'поворот подписей', 'category_names': 'названия категорий', 'category_wrap': 'перенос строки, знаков', 'units': 'единицы отображения',
     'title_place': 'положение названия', 'minor_step': 'доп. шаг', 'cross': 'пересечение', 'subtitle': 'подзаголовок',
     'heat_scale': 'схема шкалы', 'heat_reverse': 'развернуть шкалу', 'heat_min': 'минимум шкалы', 'heat_max': 'максимум шкалы',
     'heat_values': 'числа в ячейках', 'heat_cell_size': 'размер чисел в ячейках', 'heat_missing': 'текст «нет данных»', 'heat_bar': 'шкала цвета',
@@ -157,7 +162,9 @@ AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FOR
             # числа без минуса (уровень жидкости с отметкой ниже моря): меняется только вид подписей и подсказок, данные те же
             'positive': 'bool',
             # режим автоподбора пределов (atlas/axis_auto.py); заданные вручную границы и шаг сильнее любого режима
-            'fit': FITS}
+            'fit': FITS,
+            # подписи категорий оси X: переименование («было» -> «стало») и перенос по ширине в знаках (atlas/category_labels.py)
+            'category_names': 'names', 'category_wrap': ('int', 0, 80)}
 AXIS_STYLE_KEYS = tuple(k for k in AXIS_FMT if k != 'color')     # что из настроек оси ложится в ``Axis.style`` (цвет — в ``Axis.color``)
 AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'cross', 'break_from', 'break_to')  # границы и деления: текст, проверяется по виду оси (``bound``)
 CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,

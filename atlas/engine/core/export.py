@@ -5,6 +5,7 @@ import json
 import re
 import zipfile
 from ...rich_text import mpl_text
+from ...category_labels import labels as category_labels
 import threading
 import textwrap
 import datetime
@@ -375,7 +376,7 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                     if isinstance(t.meta,dict) and t.meta.get('value_labels'):point_labels(target,x,np.asarray(y,dtype=float),family_for('times'),max(5,base*.85),t.meta,sid)
                     if target is not base_axes:ghost(base_axes,x,y)
             for target,drawn,y,opts,keys,sid in bar_values:value_labels(target,drawn,y,family_for('times'),max(5,base*.85),opts,keys,sid)
-            if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),categories,rotation=20 if len(categories)>8 else 0)
+            if (bars or boxes) and not date_axis and not numeric_bars:ax.set_xticks(range(len(categories)),category_labels(categories,((fig.layout.meta or {}).get('style') or {}).get('axes',{}).get('x') if isinstance(fig.layout.meta,dict) else None),rotation=20 if len(categories)>8 else 0)
             title=mpl_text(fig.layout.title.text or '')
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}
             if fo.get('title')=='hide':title=''
