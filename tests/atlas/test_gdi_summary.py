@@ -207,3 +207,25 @@ def test_histogram_total_matches_wells_and_every_chart_exports():
     for ch in r.charts:
         if is_special(ch):
             assert figure_file(ch, 'png', 60)[:4] == b'\x89PNG', ch.id
+
+
+def test_season_matrix_wells_by_seasons_with_krs_and_plan():
+    """Скважина × сезон: надёжное, ненадёжное, плановое не выполнено, ремонт в год начала сезона; график общим ядром (HeatMap)."""
+    from atlas.chart_special import figure_file
+    from atlas.modules.gdi_summary import MATRIX_NONE, MATRIX_OK, MATRIX_PLAN, MATRIX_WEAK, season_matrix
+    ts = pd.Timestamp
+    rows = pd.DataFrame({'well': ['1', '1', '2'], 'date': [ts('2024-12-01'), ts('2025-12-01'), ts('2025-12-05')], 'season': ['2024-2025', '2025-2026', '2025-2026'],
+                         'reliable': [True, True, False], 'q_ref': [100., 90., 50.]})
+    prog = pd.DataFrame({'well': ['3', '2'], 'season': ['2025-2026'] * 2})
+    rep = pd.DataFrame({'well': ['1'], 'year': [2025], 'date': [ts('2025-07-01')]})
+    wells, seasons, values, texts = season_matrix(rows, prog, rep, {'3': 'не удалось'})
+    cell = lambda w, s: (values[wells.index(w)][seasons.index(s)], texts[wells.index(w)][seasons.index(s)])
+    assert wells == ['1', '2', '3'] and seasons == ['2024-2025', '2025-2026']
+    assert cell('1', '2024-2025') == (MATRIX_OK, '✓') and cell('1', '2025-2026') == (MATRIX_OK, '✓ +КРС')
+    assert cell('2', '2025-2026') == (MATRIX_WEAK, '!') and cell('2', '2024-2025') == (None, '')
+    assert cell('3', '2025-2026')[0] == MATRIX_OK and season_matrix(rows, prog, rep)[2][2][1] == float(MATRIX_PLAN)
+    g, _ = frames()
+    r = GdiSummaryModule().run(Data({G: g}), PARAMS)
+    ch = next(c for c in r.charts if c.id == 'gdi-summary-season-matrix')
+    assert ch.heat is not None and any(t.id == 'gdi-summary-season-matrix-table' for t in r.tables)
+    assert figure_file(ch, 'png', 60)[:4] == b'\x89PNG'
