@@ -109,6 +109,7 @@ def verdict_of(before: float, after: float, limit: float) -> tuple[str, float]:
     return (VERDICT_UP if change > limit else VERDICT_DOWN if change < -limit else VERDICT_SAME), change
 
 
+NO_COMPARE = 'Нет сравнения'
 CAT_OFF_PROGRAM = 'Вне программы ГДИ'
 PERIOD_NEUTRAL, PERIOD_INJ, PERIOD_WD = 'Нейтральный период', 'Закачка', 'Отбор'
 SLICE_INJ_BEFORE, SLICE_INJ_AFTER, SLICE_INJ_NONE = 'Закачка: до КРС', 'Закачка: после КРС', 'Закачка: без КРС'
@@ -361,7 +362,8 @@ def change_histogram(table: pd.DataFrame, limit: float, edges: list[float] | Non
     """Распределение изменения Q по скважинам: корзины между заданными границами (по умолчанию укрупнённые, «−5…5» одной корзиной), края — «меньше» и «больше».
     ``suffix`` — группа плана ГДИ в заголовке; цвет корзины по порогу изменения."""
     c = table.change.dropna()
-    if c.empty:
+    nocmp = int(table.change.isna().sum())          # скважины без сравнения (одно надёжное ГДИ): видны отдельным столбцом, итог сходится с другими графиками
+    if c.empty and not nocmp:
         return None
     edges = edges or parse_edges('')
     labels = [f'< {_num(edges[0])}'] + [f'{_num(a)}…{_num(b)}' for a, b in zip(edges, edges[1:])] + [f'> {_num(edges[-1])}']
@@ -369,11 +371,16 @@ def change_histogram(table: pd.DataFrame, limit: float, edges: list[float] | Non
     counts = np.bincount(idx, minlength=len(labels))[:len(labels)].astype(float)
     step = (edges[-1] - edges[0]) / max(len(edges) - 1, 1)
     mids = [edges[0] - step / 2] + [(a + b) / 2 for a, b in zip(edges, edges[1:])] + [edges[-1] + step / 2]
-    title = 'Распределение изменения расхода при опорном ΔP² по скважинам сезона' + (f' · {suffix}' if suffix else '')
+    kinds = [VERDICT_DOWN if m < -limit else VERDICT_UP if m > limit else VERDICT_SAME for m in mids]
+    if nocmp:
+        labels, counts, kinds = labels + [NO_COMPARE], np.append(counts, float(nocmp)), kinds + [VERDICT_FEW]
+    title = (f'Распределение изменения расхода при опорном ΔP² по скважинам сезона · {len(table)} скв.'
+             + (f' · {suffix}' if suffix else ''))
     chart = Chart(cid, title, Axis('Изменение Q, %', scale='category', categories=labels), Axis('Скважин', 'ед.', from_zero=True))
-    colors = [VERDICT_COLORS[VERDICT_DOWN] if m < -limit else VERDICT_COLORS[VERDICT_UP] if m > limit else VERDICT_COLORS[VERDICT_SAME] for m in mids]
-    for label, n, col in zip(labels, counts, colors):
-        chart.series.append(Series(label, [label], [n], 'bar', stack='hist', color=col, legend=False, segments=[str(int(n)) if n else '']))
+    for kind in dict.fromkeys(kinds):        # по серии на цвет: в каждой — все корзины (так график и выгружается)
+        own = np.array([n if k == kind else 0.0 for n, k in zip(counts, kinds)])
+        chart.series.append(Series(kind, labels, own, 'bar', stack='hist', color=VERDICT_COLORS[kind],
+                                   segments=[str(int(n)) if n else '' for n in own]))
     chart.table = ChartTable(['Скважин'], labels, [[str(int(n)) for n in counts]], swatches=False)
     chart.callouts = 'dot'          # узкий столбец — точки по числу без выноски, числа в таблице под графиком
     return chart
@@ -460,6 +467,10 @@ class GdiSummaryModule(Module):
                 return result
             label = f'{label} · {chosen}'
         result.notes.append(Note(NOTE))
+        few = int(table.change.isna().sum())
+        if few:
+            result.notes.append(Note(f'{few} из {len(table)} скв. без сравнения (нужны два надёжных ГДИ с разными датами): на графиках они в столбце «{VERDICT_FEW}» '
+                                     f'и «{NO_COMPARE}», причина — в таблице скважин (даты и Q). Ненадёжные исследования в расчёт изменения не входят.'))
         counts = table.verdict.value_counts()
         result.summary = [Stat('Скважин в сезоне', str(len(table)), label)] + [
             Stat(v, str(int(counts.get(v, 0)))) for v in VERDICTS]
@@ -492,7 +503,7 @@ class GdiSummaryModule(Module):
         if not years_tab.empty:
             ycats = sorted(years_tab.krs_label.unique())
             yby = {(c, v): int(((years_tab.krs_label == c) & (years_tab.verdict == v)).sum()) for c in ycats for v in VERDICTS}
-            result.charts.append(stacked('gdi-summary-krs-years', f'Итоги ГДИ после КРС по годам ремонта · {label}', ycats, yby,
+            result.charts.append(stacked('gdi-summary-krs-years', f'Итоги ГДИ после КРС по годам ремонта · {label} · {len(years_tab)} из {len(table)} скв.', ycats, yby,
                                          VERDICTS, VERDICT_COLORS, 'Год КРС'))
         result.tables.append(Table('gdi-summary-wells', 'Скважины сезона: итог ГДИ и категория', table[
             ['well', 'verdict', 'change', 'prev_date', 'last_date', 'q_prev', 'q_last', 'slice', 'slice_edited', 'category', 'edited', 'reason']], [

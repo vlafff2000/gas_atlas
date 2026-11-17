@@ -169,8 +169,8 @@ def test_histogram_coarse_bins_and_per_group_charts():
     assert parse_edges('') == [-30, -15, -5, 5, 15, 30] and parse_edges('−10; 0 10 abc 10') == [-10, 0, 10] and parse_edges('5') == parse_edges('')
     t = pd.DataFrame({'change': [-40., -10., -2., 0., 3., 12., 50., np.nan], 'category': ['a'] * 8})
     h = change_histogram(t, 5.0)
-    assert [s.name for s in h.series] == ['< -30', '-30…-15', '-15…-5', '-5…5', '5…15', '15…30', '> 30']
-    assert [int(s.y[0]) for s in h.series] == [1, 0, 1, 3, 1, 0, 1]           # −2, 0 и 3 в одной корзине «−5…5»
+    assert h.x.categories == ['< -30', '-30…-15', '-15…-5', '-5…5', '5…15', '15…30', '> 30', 'Нет сравнения']
+    assert [int(sum(s.y[i] for s in h.series)) for i in range(8)] == [1, 0, 1, 3, 1, 0, 1, 1]   # −2, 0 и 3 в одной корзине «−5…5»; без сравнения — отдельно
     g, works = frames()
     prog = pd.DataFrame({'well': ['1', '2'], 'group': ['ГСП-1'] * 2, 'season': ['2025-2026'] * 2, 'stage': ['I этап'] * 2, 'reason': ['фильтр', 'давно'],
                          'reason_kind': ['filter', 'gap'], 'krs_injection': [False, False]})
@@ -191,3 +191,19 @@ def test_histograms_use_dot_callouts_with_numbers_in_table():
     r = GdiSummaryModule().run(Data({G: g}), PARAMS)
     with_segments = [ch for ch in r.charts if any(se.segments for se in ch.series)]
     assert with_segments and all(ch.callouts == 'dot' for ch in with_segments)
+
+
+def test_histogram_total_matches_wells_and_every_chart_exports():
+    """Сумма гистограммы = число скважин сезона (скважины без сравнения — отдельный столбец); все графики модуля выгружаются."""
+    from atlas.chart_special import figure_file, is_special
+    from atlas.modules.gdi_summary import NO_COMPARE
+    g, _ = frames()
+    r = GdiSummaryModule().run(Data({G: g}), {**PARAMS, 'hist_by': 'both'})
+    table = next(x for x in r.tables if x.id == 'gdi-summary-wells').frame
+    h = next(c for c in r.charts if c.id == 'gdi-summary-hist')
+    assert int(sum(sum(s.y) for s in h.series)) == len(table) and f'{len(table)} скв.' in h.title
+    assert int(sum(float(v) for v in h.table.cells[0])) == len(table)
+    assert (NO_COMPARE in h.x.categories) == bool(table.change.isna().any())
+    for ch in r.charts:
+        if is_special(ch):
+            assert figure_file(ch, 'png', 60)[:4] == b'\x89PNG', ch.id
