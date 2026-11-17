@@ -39,3 +39,4 @@ def test_value_labels_on_line_over_stacked_bars_do_not_break_the_file():
     c.series.append(Series('Кг', c.x.categories, [60.0, 65.0, 55.0], 'line', axis='y2', markers=True, look={'valueLabels': True}))
     data, name, _ = chart_file(c, 'png', 150)
     assert data[:4] == b'\x89PNG'
+

@@ -51,3 +51,9 @@ test('цвета по свежести: по номеру свежести, по
   assert.deepEqual(got, { 'a|points': { color: '#ff0000' }, 'b|points': { color: '#00ff00', width: 3 }, 'c|points': { color: '#ff0000' } })
   assert.equal(withFreshColors(c, undefined, undefined), undefined)
 })
+
+test('имя в легенде действует на весь пункт: линия и точки одной группы', () => {
+  const c = { ...(chart as object), series: [series('Факт', 'line', 'Набор'), series('Факт', 'points', 'Набор'), series('Другой')] } as never
+  const out = applyLooks(c, { 'Набор|points': { legend_name: 'Новое имя' } }) as unknown as { series: { look?: { legend_name?: string } }[] }
+  assert.deepEqual(out.series.map(s => s.look?.legend_name), ['Новое имя', 'Новое имя', undefined])
+})
