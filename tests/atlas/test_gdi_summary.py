@@ -268,3 +268,19 @@ def test_age_table_candidates_after_repair():
     assert t.loc['2', 'candidate'] == CAND_NONE and t.loc['3', 'age_bin'] == AGE_NONE
     r = GdiSummaryModule().run(Data({G: frames()[0]}), PARAMS)
     assert any(c.id == 'gdi-summary-age' for c in r.charts) and any(x.id == 'gdi-summary-age-table' for x in r.tables)
+
+
+def test_well_card_all_studies_with_repairs():
+    from atlas.chart_special import figure_file  # noqa: F401
+    from atlas.modules.gdi_summary import repairs, study_rows, well_card_chart, well_card_table
+    g, works = frames()
+    rows = study_rows(g, 0.95)
+    card = well_card_table(g, rows, '1', 0.95)
+    assert len(card) == 2 and card.date.is_monotonic_increasing and card.a.notna().all() and card.b.notna().all()
+    ch = well_card_chart(card, repairs(works, None), '1')
+    assert [s.name for s in ch.series[:3]] == ['Q при опорном ΔP²', 'a', 'b'] and ch.y2 is not None and ch.y3 is not None
+    assert len(ch.events) == 1 and ch.events[0].kind == 'repair' and ch.events[0].well == '1'
+    r = GdiSummaryModule().run(Data({G: g, DatasetKind.KRS_WORKS: works}), {**PARAMS, 'card_well': '№ 1'})
+    assert any(c.id == 'gdi-summary-well-card' for c in r.charts) and any(t.id == 'gdi-summary-well-card-table' for t in r.tables)
+    r2 = GdiSummaryModule().run(Data({G: g}), {**PARAMS, 'card_well': '99'})
+    assert any('99' in n.text for n in r2.notes)
