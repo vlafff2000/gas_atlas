@@ -513,6 +513,63 @@ def change_histogram(table: pd.DataFrame, limit: float, edges: list[float] | Non
     return chart
 
 
+AGE_BINS = ((1, 'до 1 года'), (2, '1–2 года'), (3, '2–3 года'), (5, '3–5 лет'), (np.inf, 'больше 5 лет'))
+AGE_NONE = 'надёжного ГДИ нет'
+CAND_REPAIR, CAND_NONE = 'ремонт после последнего ГДИ', 'ремонта после ГДИ нет'
+
+
+def age_table(rows: pd.DataFrame, rep: pd.DataFrame, program: pd.DataFrame | None = None, seasons: list[str] | None = None,
+              today=None) -> pd.DataFrame:
+    """Давность последнего надёжного ГДИ скважины (от даты ``today``, по умолчанию — последнее ГДИ в данных) и ремонт после него.
+    Кандидат на исследование — ремонт по справке КРС (фактическая дата) позже последнего надёжного ГДИ; подсказка, решает инженер."""
+    if rows.empty:
+        return pd.DataFrame()
+    now = pd.Timestamp(today) if today is not None else rows.date.max()
+    inprog = set()
+    if program is not None and not program.empty:
+        wanted = {_season_key(x) for x in (seasons or [])}
+        p = program[program.season.map(_season_key).isin(wanted)] if wanted else program
+        inprog = set(p.well.astype(str))
+    out = []
+    for w in sorted(rows.well.unique(), key=well_key):
+        ok = rows[rows.well.eq(w) & rows.reliable & rows.q_ref.notna()]
+        last = ok.date.max() if len(ok) else pd.NaT
+        mine = rep[rep.well.eq(w)] if not rep.empty else rep
+        after = mine[mine.date.gt(last)] if pd.notna(last) and len(mine) else mine.iloc[0:0]
+        if pd.isna(last):
+            age, label = np.nan, AGE_NONE
+        else:
+            age = (now - last).days / 365.25
+            label = next(name for lim, name in AGE_BINS if age < lim)
+        rep_row = after.sort_values('date').iloc[-1] if len(after) else None
+        out.append({'well': w, 'last_date': last, 'age': age, 'age_bin': label,
+                    'candidate': CAND_REPAIR if rep_row is not None else CAND_NONE,
+                    'repair_kind': rep_row.kind if rep_row is not None else '', 'repair_year': int(rep_row.year) if rep_row is not None else np.nan,
+                    'in_program': 'да' if w in inprog else ''})
+    return pd.DataFrame(out)
+
+
+def age_block(result: Result, rows: pd.DataFrame, rep: pd.DataFrame, program: pd.DataFrame | None, seasons: list[str]) -> None:
+    table = age_table(rows, rep, program, seasons)
+    if table.empty:
+        return
+    cats = [name for _, name in AGE_BINS] + [AGE_NONE]
+    cats = [c for c in cats if c in set(table.age_bin)]
+    names = (CAND_REPAIR, CAND_NONE)
+    by = {(c, v): int((table.age_bin.eq(c) & table.candidate.eq(v)).sum()) for c in cats for v in names}
+    colors = {CAND_REPAIR: '#d64545', CAND_NONE: '#8c96a3'}
+    result.charts.append(stacked('gdi-summary-age', 'Давность последнего надёжного ГДИ и ремонт после него', cats, by, names, colors, 'Давность ГДИ',
+                                 wells=members(table, 'age_bin', cats, names, by='candidate')))
+    cand = table[table.candidate.eq(CAND_REPAIR)]
+    result.summary.append(Stat('Ремонт после последнего ГДИ', str(len(cand)), 'Кандидаты на исследование'))
+    result.tables.append(Table('gdi-summary-age-table', 'Давность ГДИ и кандидаты на исследование после ремонта', table, [
+        Column('well', 'Скважина'), Column('last_date', 'Последнее надёжное ГДИ', kind='date'), Column('age', 'Давность', 'лет', 1, 'number'),
+        Column('age_bin', 'Интервал'), Column('candidate', 'Кандидат'), Column('repair_kind', 'Вид ремонта'),
+        Column('repair_year', 'Год ремонта', kind='number', decimals=0), Column('in_program', 'В программе ГДИ')],
+        note='Давность — от последнего ГДИ в данных. Ненадёжные исследования не считаются «последним», но скважина остаётся в таблице. '
+             'Даты ремонта — фактические (справка КРС); кандидат — подсказка, решает инженер.'))
+
+
 class GdiSummaryModule(Module):
     spec = ModuleSpec(
         id='gdi_summary',
@@ -643,6 +700,7 @@ class GdiSummaryModule(Module):
             Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
         self.repair_block(result, data, rows, rep, params, seasons, limit)
         program_block(result, rows, program, seasons, parse_manual(params.get('done_manual', '')))
+        age_block(result, rows, rep, program, seasons)
         matrix_block(result, rows, program, rep, parse_manual(params.get('done_manual', '')))
         return result
 

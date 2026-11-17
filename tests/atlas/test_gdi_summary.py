@@ -255,3 +255,16 @@ def test_repair_effect_box_by_kind_with_well_numbers():
     assert ch.x.categories == ['A'] and ch.series[0].kind == 'box' and ch.series[0].y == [[-10., 0., 10., 20., 30.]]
     assert ch.table.cells == [['3'], ['+10.0']] and ch.table.wells[0] == [['1', '2', '3']]
     assert repair_effect_chart(t[t.kind.eq('B')], 2025) is None
+
+
+def test_age_table_candidates_after_repair():
+    from atlas.modules.gdi_summary import AGE_NONE, CAND_NONE, CAND_REPAIR, age_table
+    ts = pd.Timestamp
+    rows = pd.DataFrame({'well': ['1', '1', '2', '3'], 'date': [ts('2020-01-01'), ts('2024-01-01'), ts('2025-12-01'), ts('2025-12-01')],
+                         'season': ['x'] * 4, 'reliable': [True, True, True, False], 'q_ref': [1., 1., 1., 1.]})
+    rep = pd.DataFrame({'well': ['1', '2'], 'year': [2025, 2024], 'kind': ['КРС', 'КРС'], 'date': [ts('2025-07-01'), ts('2024-07-01')]})
+    t = age_table(rows, rep).set_index('well')
+    assert t.loc['1', 'candidate'] == CAND_REPAIR and t.loc['1', 'age_bin'] == '1–2 года' and t.loc['1', 'repair_year'] == 2025
+    assert t.loc['2', 'candidate'] == CAND_NONE and t.loc['3', 'age_bin'] == AGE_NONE
+    r = GdiSummaryModule().run(Data({G: frames()[0]}), PARAMS)
+    assert any(c.id == 'gdi-summary-age' for c in r.charts) and any(x.id == 'gdi-summary-age-table' for x in r.tables)
