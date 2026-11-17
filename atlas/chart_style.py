@@ -445,8 +445,23 @@ def apply_format(chart: Chart, doc: Mapping[str, Any] | None, notes: list[Note] 
                 look = {**(s.look or {}), **own}
                 s = dataclasses.replace(s, look=look, **({'opacity': look['opacity']} if 'opacity' in look else {}))
             series.append(s)
+        series = _legend_names(series)
         out = dataclasses.replace(out, series=series + _trends(series, notes) + _errors(series))
     return out
+
+
+def _legend_names(series: list[Series]) -> list[Series]:
+    """Имя в легенде действует на весь пункт легенды: ряды одной группы (линия и точки одного набора) стоят в ней одним пунктом,
+    поэтому имя, заданное любому из них, получают и остальные (если у них своего нет). Зеркало ``applyLooks`` в ``web/src/chartStyle.ts``."""
+    named = {}
+    for s in series:
+        name = (s.look or {}).get('legend_name')
+        if name:
+            named.setdefault(s.group or s.name, name)
+    if not named:
+        return series
+    return [dataclasses.replace(s, look={**(s.look or {}), 'legend_name': named[s.group or s.name]})
+            if (s.group or s.name) in named and not (s.look or {}).get('legend_name') else s for s in series]
 
 
 def _errors(series: list[Series]) -> list[Series]:

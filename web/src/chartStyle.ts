@@ -101,7 +101,10 @@ export function applyLooks(chart: Chart, looks: Record<string, Look> | undefined
     return { ...s, look, ...(look.opacity !== undefined ? { opacity: look.opacity } : {}) }
   })
   // цвет правой шкалы следует за цветом её рядов: когда у всех рядов шкалы задан один цвет, шкала берёт его
-  const out: Chart = { ...chart, series }
+  // имя в легенде — у всего пункта: линия и точки одной группы получают имя, заданное любому из них (зеркало _legend_names в atlas/chart_style.py)
+  const named = new Map<string, string>()
+  for (const s of series) if (s.look?.legend_name && !named.has(s.group || s.name)) named.set(s.group || s.name, s.look.legend_name)
+  const out: Chart = { ...chart, series: named.size ? series.map(s => named.has(s.group || s.name) && !s.look?.legend_name ? { ...s, look: { ...s.look, legend_name: named.get(s.group || s.name) } } : s) : series }
   for (const name of ['y2', 'y3', 'y4', 'y5'] as const) {
     const axis = chart[name]
     if (!axis?.color) continue

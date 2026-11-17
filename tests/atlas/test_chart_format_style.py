@@ -86,3 +86,13 @@ def test_series_rule_carries_full_look():
     assert t.meta['value_labels'] is True and t.meta['label_decimals'] == 1
     with pytest.raises(ParamError):
         chart_format.configs({'fmt_gdi_series': json.dumps([{'match': 'a', 'look': {'opacity': 5}}])})
+
+def test_legend_name_set_on_one_series_names_the_whole_legend_entry():
+    """Линия и точки одной группы — один пункт легенды: имя, заданное точкам, получает и линия (раньше показывалось прежнее)."""
+    from atlas.chart_style import apply_format
+    from atlas.contract import Axis, Chart, Series
+    c = Chart('x', 'Т', Axis('X'), Axis('Y'), series=[Series('Факт', [1, 2], [1.0, 2.0], 'line', group='Набор'),
+                                                      Series('Факт', [1, 2], [2.0, 1.0], 'points', group='Набор'), Series('Другой', [1, 2], [1.0, 1.0], 'line')])
+    out = apply_format(c, {'series': {'Набор|points': {'legend_name': 'Новое имя'}}})
+    assert [(s.look or {}).get('legend_name') for s in out.series] == ['Новое имя', 'Новое имя', None]
+
