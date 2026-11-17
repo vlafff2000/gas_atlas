@@ -348,6 +348,7 @@ def program_block(result: Result, rows: pd.DataFrame, program: pd.DataFrame | No
                        Stat('Не выполнено по программе', str(int(table.status.eq(STATUS_NONE).sum())), 'Кандидаты на исследование')]
     cats = list(dict.fromkeys(table.reason_kind))
     by = {(c, v): int(((table.reason_kind == c) & (table.status == v)).sum()) for c in cats for v in PROGRAM_STATUSES}
+    coverage_block(result, table)
     result.charts.append(stacked('gdi-summary-program', 'Выполнение программы ГДИ по причинам', cats, by, PROGRAM_STATUSES, PROGRAM_COLORS, 'Причина',
                                    wells=members(table, 'reason_kind', cats, PROGRAM_STATUSES, 'status')))
     result.tables.append(Table('gdi-summary-program-wells', 'Программа ГДИ: выполнение по скважинам', table, [
@@ -417,6 +418,39 @@ def matrix_block(result: Result, rows: pd.DataFrame, program: pd.DataFrame | Non
     result.tables.append(Table('gdi-summary-season-matrix-table', 'Скважина × сезон: состояние ГДИ', frame,
                                [Column('well', 'Скважина')] + [Column(sk, sk) for sk in seasons],
                                note='«+КРС» — ремонт по справке КРС в год начала сезона. Ненадёжные исследования в расчёты не входят, но показаны: решает инженер.'))
+
+
+MONTHS_RU = ('янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек')
+
+
+def coverage_by_month(table: pd.DataFrame) -> tuple[list[str], list[int], list[float]]:
+    """Охват программы по месяцам: сколько скважин программы исследовано в месяц (по последнему ГДИ сезона) и накопленная доля от программы, %."""
+    done = table[table.last_date.notna() & table.status.isin([STATUS_DONE, STATUS_WEAK])]
+    if done.empty or table.empty:
+        return [], [], []
+    months = pd.period_range(done.last_date.min(), done.last_date.max(), freq='M')
+    counts = done.last_date.dt.to_period('M').value_counts()
+    labels = [f'{MONTHS_RU[m.month - 1]} {m.year}' for m in months]
+    n = [int(counts.get(m, 0)) for m in months]
+    share = list(np.cumsum(n) / len(table) * 100)
+    return labels, n, share
+
+
+def coverage_block(result: Result, table: pd.DataFrame) -> None:
+    """Охват программы ГДИ по ГСП (стопка по статусу, номера скважин под графиком) и по месяцам (столбцы + накопленная доля)."""
+    tab = table.assign(group=table.group.fillna('').astype(str).replace('', 'без ГСП'))
+    groups = sorted(tab.group.unique(), key=lambda g: (g == 'без ГСП', g))
+    by = {(g, v): int((tab.group.eq(g) & tab.status.eq(v)).sum()) for g in groups for v in PROGRAM_STATUSES}
+    result.charts.append(stacked('gdi-summary-program-groups', 'Охват программы ГДИ по ГСП', groups, by, PROGRAM_STATUSES, PROGRAM_COLORS, 'ГСП',
+                                 wells=members(tab, 'group', groups, PROGRAM_STATUSES, by='status')))
+    labels, n, share = coverage_by_month(table)
+    if labels:
+        chart = Chart('gdi-summary-program-months', 'Охват программы ГДИ по месяцам: исследовано в месяц и накопленная доля программы',
+                      Axis('Месяц', scale='category', categories=labels), Axis('Скважин', 'ед.', from_zero=True),
+                      y2=Axis('Накопленная доля программы', '%', from_zero=True, maximum=100))
+        chart.series += [Series('Исследовано в месяц', labels, np.array(n, float), 'bar', color='#2e9d57'),
+                         Series('Накопленная доля программы', labels, np.array(share, float), 'line', markers=True, color='#111827', axis='y2')]
+        result.charts.append(chart)
 
 
 def count_matrix(frame: pd.DataFrame, rows_key: str, cols: tuple[str, ...], col_key: str = 'verdict') -> pd.DataFrame:
