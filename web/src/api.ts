@@ -115,7 +115,7 @@ export interface ChartStyle {
   heat_values?: boolean; heat_cell_size?: number; heat_missing?: string; heat_bar?: 'right' | 'bottom' | 'hide'
   heat_sort?: 'sum' | 'name'; heat_totals?: 'rows' | 'cols' | 'both'; heat_total?: 'sum' | 'mean'
   // столбцы со стопкой и числами в сегментах
-  segment_narrow?: number; segment_callouts?: 'box' | 'dot'; segment_text_size?: number
+  table_cells?: 'count' | 'wells'; segment_narrow?: number; segment_callouts?: 'box' | 'dot'; segment_text_size?: number
   // полосы «скважины × сезоны»
   strip_per_row?: number; strip_order?: 'rows' | 'count' | 'number'; strip_counts?: boolean; strip_legend?: boolean; strip_missing?: string; strip_empty_color?: string
   annotations?: Annotation[]
@@ -154,7 +154,7 @@ export type WindowSeries = Pick<Series, 'x' | 'y' | 'ids' | 'labels' | 'values' 
 export interface WindowReply { chart: string; revision: number; series: Record<string, WindowSeries> }
 export interface ChartBand { first: number; last: number; label: string; shaded: boolean }
 export interface ChartEvent { x: string | number; label: string; kind: 'gdi' | 'regime' | 'repair' | 'peak' | 'gis' | 'template' | 'other'; well: string; x_end?: string | number | null }
-export interface ChartTable { rows: string[]; columns: string[]; cells: string[][]; colors: string[]; swatches: boolean; aligned?: boolean }
+export interface ChartTable { rows: string[]; columns: string[]; cells: string[][]; colors: string[]; swatches: boolean; aligned?: boolean; wells?: string[][][] }
 export interface HeatMap {
   rows: string[]; columns: string[]; values: (number | null)[][]; texts: string[][]
   unit: string; maximum: number | null; missing_text: string

@@ -397,6 +397,9 @@ class Stat:
     hint: str = ''                   # пояснение во всплывающей подсказке
 
 
+WELLS_WRAP = 22      # знаков в строке списка скважин в ячейке таблицы под графиком
+
+
 @dataclass
 class ChartTable:
     """Таблица под графиком: строка на ряд (цвет — цвет ряда), столбец на категорию оси X."""
@@ -405,7 +408,16 @@ class ChartTable:
     cells: list[list[str]]           # cells[строка][столбец]
     colors: list[str] = field(default_factory=list)   # цвет подписи строки; пусто — цвет ряда с тем же номером
     aligned: bool = False            # столбцы (кроме двух первых: подпись строки и «Фонд») стоят точно под столбиками графика; график уступает слева место под подписи
+    wells: list[list[list[str]]] = field(default_factory=list)   # wells[строка][столбец] — номера скважин ячейки; пусто — модуль их не даёт
     swatches: bool = True            # цветной маркер у строк: строки таблицы — ряды графика; False — строки сами по себе (группы)
+
+    def shown(self, mode: str | None) -> list[list[str]]:
+        """Ячейки по выбору инженера (``table_cells`` в оформлении графика): число скважин или их номера. Номера идут
+        через запятую с переносом строки; у ячейки без скважин остаётся прежний текст. Зеркало ``tableCells`` в ``web/src/categoryLabel.ts``."""
+        if mode != 'wells' or not self.wells:
+            return self.cells
+        from .category_labels import wrap
+        return [[wrap(', '.join(w), WELLS_WRAP) if w else c for c, w in zip(row, names)] for row, names in zip(self.cells, self.wells)]
 
 
 @dataclass

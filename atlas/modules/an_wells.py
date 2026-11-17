@@ -188,7 +188,8 @@ def class_counts(wells: pd.DataFrame, scopes: Mapping[str, str], edges: Sequence
     for name, part in [(TOTAL, w)] + [(g, w[w.group.eq(g)]) for g in ordered(w.group.unique())]:
         counts = np.bincount(part.cls.to_numpy(int), minlength=len(keys))
         rows.append({'group': name, **dict(zip(keys, (int(v) for v in counts))),
-                     'zero_numbers': _numbers(ordered(part[part.cls.eq(0)].well))})
+                     'zero_numbers': _numbers(ordered(part[part.cls.eq(0)].well)),
+                     **{f'w{i}': ', '.join(ordered(part[part.cls.eq(i)].well)) for i in range(len(keys))}})      # номера скважин класса — для таблицы под графиком
     return pd.DataFrame(rows)
 
 

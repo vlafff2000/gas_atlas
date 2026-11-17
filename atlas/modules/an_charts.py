@@ -311,6 +311,14 @@ def fund_chart(kind: str, period: str, fund: pd.DataFrame) -> Chart | None:
     return chart
 
 
+def _class_wells(frame: pd.DataFrame, keys: Sequence[str]) -> list[list[list[str]]]:
+    """Номера скважин по классам и группам (для ячеек таблицы под графиком); пусто, если в таблице классов их нет."""
+    cols = [f'w{k[1:]}' for k in keys]
+    if not all(c in frame for c in cols):
+        return []
+    return [[[w for w in str(v).split(', ') if w] for v in frame[c]] for c in cols]
+
+
 def class_share_chart(kind: str, period: str, counts: pd.DataFrame,
                       edges: Sequence[int] = an_wells.DEFAULT_EDGES) -> Chart | None:
     """Классы производительности по группам (табл. 1.5): высота сегмента — число скважин класса в группе (абсолютное), число — внутри сегмента; группы идут по возрастанию номера.
@@ -325,7 +333,7 @@ def class_share_chart(kind: str, period: str, counts: pd.DataFrame,
                   Axis('Группа', scale='category', categories=cats), Axis('Скважин', 'ед.', from_zero=True))
     chart.callouts = 'dot'
     _class_bars(chart, part, cats, keys, labels)
-    chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in keys])
+    chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in part[k].to_numpy(int)] for k in keys], wells=_class_wells(part, keys))
     return chart
 
 
@@ -358,7 +366,7 @@ def class_seasons_chart(kind: str, counts: pd.DataFrame, seasons: Sequence[str],
                   Axis('Группа · сезон', scale='category', categories=cats), Axis('Скважин', 'ед.', from_zero=True))
     chart.callouts = 'dot'
     _class_bars(chart, rows, cats, keys, labels)
-    chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in rows[k].to_numpy(int)] for k in keys])
+    chart.table = ChartTable([s.name for s in chart.series], cats, [[str(v) for v in rows[k].to_numpy(int)] for k in keys], wells=_class_wells(rows, keys))
     return chart
 
 

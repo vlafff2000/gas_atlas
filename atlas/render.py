@@ -170,11 +170,12 @@ def segment_marks(fig, chart: Chart, palette: dict) -> None:
                                font={'size': (chart.style or {}).get('segment_text_size') or 12, 'color': '#111'})
     if chart.table is not None:
         t = chart.table
+        shown = t.shown((chart.style or {}).get('table_cells'))
         colors = [(s.look or {}).get('color') or (series_color(s.color) if s.color else palette[s.group or s.name]) for s in bars] if t.swatches else []
         colors = colors + ['white'] * (len(t.rows) - len(colors))
         fig.add_trace(go.Table(domain={'x': [0.0, 1.0], 'y': [0.0, 0.36]}, columnwidth=[2.4] + [1] * len(t.columns),
                                header={'values': [''] + list(t.columns), 'fill_color': 'white', 'align': 'center', 'font': {'size': 12}},
-                               cells={'values': [list(t.rows)] + [[row[j] for row in t.cells] for j in range(len(t.columns))],
+                               cells={'values': [list(t.rows)] + [[row[j] for row in shown] for j in range(len(t.columns))],
                                       'fill_color': [colors] + [['white'] * len(t.rows)] * len(t.columns), 'align': ['left'] + ['center'] * len(t.columns),
                                       'font': {'size': 12}, 'height': 22}))
         fig.update_layout(yaxis={'domain': [0.42, 1.0]}, height=720)

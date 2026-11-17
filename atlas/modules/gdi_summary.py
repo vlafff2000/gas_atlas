@@ -293,7 +293,8 @@ def program_block(result: Result, rows: pd.DataFrame, program: pd.DataFrame | No
                        Stat('Не выполнено по программе', str(int(table.status.eq(STATUS_NONE).sum())), 'Кандидаты на исследование')]
     cats = list(dict.fromkeys(table.reason_kind))
     by = {(c, v): int(((table.reason_kind == c) & (table.status == v)).sum()) for c in cats for v in PROGRAM_STATUSES}
-    result.charts.append(stacked('gdi-summary-program', 'Выполнение программы ГДИ по причинам', cats, by, PROGRAM_STATUSES, PROGRAM_COLORS, 'Причина'))
+    result.charts.append(stacked('gdi-summary-program', 'Выполнение программы ГДИ по причинам', cats, by, PROGRAM_STATUSES, PROGRAM_COLORS, 'Причина',
+                                   wells=members(table, 'reason_kind', cats, PROGRAM_STATUSES, 'status')))
     result.tables.append(Table('gdi-summary-program-wells', 'Программа ГДИ: выполнение по скважинам', table, [
         Column('well', 'Скважина'), Column('group', 'ГСП'), Column('stage', 'Этап'), Column('reason_kind', 'Причина'),
         Column('krs_injection', 'КР в сезоне закачки'), Column('status', 'Выполнение'), Column('status_note', 'Причина отметки'), Column('last_date', 'Последнее ГДИ сезона', kind='date'),
@@ -314,8 +315,13 @@ def count_matrix(frame: pd.DataFrame, rows_key: str, cols: tuple[str, ...], col_
     return pd.DataFrame(items)
 
 
+def members(table: pd.DataFrame, column: str, cats: list[str], names: tuple[str, ...], by: str = 'verdict') -> dict[tuple[str, str], list[str]]:
+    """Номера скважин на пересечении «категория × вывод» (для ячеек таблицы под графиком: числа или номера по выбору инженера)."""
+    return {(c, v): sorted(table[table[column].eq(c) & table[by].eq(v)].well.astype(str), key=well_key) for c in cats for v in names}
+
+
 def stacked(cid: str, title: str, cats: list[str], by: dict[tuple[str, str], int], stack_names: tuple[str, ...], colors: dict[str, str],
-            x_label: str, share: bool = False) -> Chart:
+            x_label: str, share: bool = False, wells: dict[tuple[str, str], list[str]] | None = None) -> Chart:
     """Гистограмма-стопка: столбец на категорию, сегмент на вывод; в сегменте число скважин (``share`` — доли от столбца)."""
     chart = Chart(cid, title, Axis(x_label, scale='category', categories=cats),
                   Axis('Доля скважин' if share else 'Скважин', '%' if share else 'ед.', from_zero=True))
@@ -325,7 +331,8 @@ def stacked(cid: str, title: str, cats: list[str], by: dict[tuple[str, str], int
         y = np.array([x / t * 100 if share and t else x for x, t in zip(n, totals)], float)
         chart.series.append(Series(v, cats, y, 'bar', stack='verdict', color=colors[v], segments=[str(int(x)) if x else '' for x in n],
                                    labels=[f'{int(x)} из {t} скв.' for x, t in zip(n, totals)]))
-    chart.table = ChartTable([s.name for s in chart.series], cats, [[str(int(by.get((c, v), 0))) for c in cats] for v in stack_names])
+    chart.table = ChartTable([s.name for s in chart.series], cats, [[str(int(by.get((c, v), 0))) for c in cats] for v in stack_names],
+                             wells=[[(wells or {}).get((c, v), []) for c in cats] for v in stack_names] if wells else [])
     chart.callouts = 'dot'          # как в «Авторском надзоре»: узкий сегмент — точки по числу без выноски, числа в таблице под графиком
     return chart
 
@@ -368,12 +375,16 @@ def change_histogram(table: pd.DataFrame, limit: float, edges: list[float] | Non
     edges = edges or parse_edges('')
     labels = [f'< {_num(edges[0])}'] + [f'{_num(a)}…{_num(b)}' for a, b in zip(edges, edges[1:])] + [f'> {_num(edges[-1])}']
     idx = np.searchsorted(edges, c.to_numpy(float), side='right')
+    named = 'well' in table
+    in_bin = [sorted(table.loc[c.index[idx == k], 'well'].astype(str), key=well_key) for k in range(len(labels))] if named else []
     counts = np.bincount(idx, minlength=len(labels))[:len(labels)].astype(float)
     step = (edges[-1] - edges[0]) / max(len(edges) - 1, 1)
     mids = [edges[0] - step / 2] + [(a + b) / 2 for a, b in zip(edges, edges[1:])] + [edges[-1] + step / 2]
     kinds = [VERDICT_DOWN if m < -limit else VERDICT_UP if m > limit else VERDICT_SAME for m in mids]
     if nocmp:
         labels, counts, kinds = labels + [NO_COMPARE], np.append(counts, float(nocmp)), kinds + [VERDICT_FEW]
+        if named:
+            in_bin.append(sorted(table.loc[table.change.isna(), 'well'].astype(str), key=well_key))
     title = (f'Распределение изменения расхода при опорном ΔP² по скважинам сезона · {len(table)} скв.'
              + (f' · {suffix}' if suffix else ''))
     chart = Chart(cid, title, Axis('Изменение Q, %', scale='category', categories=labels), Axis('Скважин', 'ед.', from_zero=True))
@@ -381,7 +392,7 @@ def change_histogram(table: pd.DataFrame, limit: float, edges: list[float] | Non
         own = np.array([n if k == kind else 0.0 for n, k in zip(counts, kinds)])
         chart.series.append(Series(kind, labels, own, 'bar', stack='hist', color=VERDICT_COLORS[kind],
                                    segments=[str(int(n)) if n else '' for n in own]))
-    chart.table = ChartTable(['Скважин'], labels, [[str(int(n)) for n in counts]], swatches=False)
+    chart.table = ChartTable(['Скважин'], labels, [[str(int(n)) for n in counts]], wells=[in_bin] if named else [], swatches=False)
     chart.callouts = 'dot'          # узкий столбец — точки по числу без выноски, числа в таблице под графиком
     return chart
 
@@ -477,12 +488,14 @@ class GdiSummaryModule(Module):
         cats = sorted(table.category.unique(), key=lambda c: (c.startswith(CAT_NO_REPAIR) or c == CAT_FIRST, c))
         by = {(c, v): int(((table.category == c) & (table.verdict == v)).sum()) for c in cats for v in VERDICTS}
         result.charts += [
-            stacked('gdi-summary-by-cat', f'Итоги ГДИ по категориям скважин · {label}', cats, by, VERDICTS, VERDICT_COLORS, 'Категория'),
+            stacked('gdi-summary-by-cat', f'Итоги ГДИ по категориям скважин · {label}', cats, by, VERDICTS, VERDICT_COLORS, 'Категория',
+                    wells=members(table, 'category', cats, VERDICTS)),
             grouped('gdi-summary-grouped', f'Что улучшилось, ухудшилось и не изменилось по категориям · {label}', cats, by),
             stacked('gdi-summary-share', f'Доли итогов ГДИ по категориям, % · {label}', cats, by, VERDICTS, VERDICT_COLORS, 'Категория', True)]
         sl = [c for c in SLICES if c in set(table.slice)] + sorted(set(table.slice) - set(SLICES))
         by_sl = {(c, v): int(((table.slice == c) & (table.verdict == v)).sum()) for c in sl for v in VERDICTS}
-        result.charts.append(stacked('gdi-summary-slices', f'Итоги ГДИ по периодам · {label}', sl, by_sl, VERDICTS, VERDICT_COLORS, 'Период ГДИ'))
+        result.charts.append(stacked('gdi-summary-slices', f'Итоги ГДИ по периодам · {label}', sl, by_sl, VERDICTS, VERDICT_COLORS, 'Период ГДИ',
+                                         wells=members(table, 'slice', sl, VERDICTS)))
         edges, hist_by = parse_edges(params.get('hist_edges')), params.get('hist_by') or 'all'
         if hist_by in ('all', 'both'):
             hist = change_histogram(table, limit, edges)
@@ -504,7 +517,7 @@ class GdiSummaryModule(Module):
             ycats = sorted(years_tab.krs_label.unique())
             yby = {(c, v): int(((years_tab.krs_label == c) & (years_tab.verdict == v)).sum()) for c in ycats for v in VERDICTS}
             result.charts.append(stacked('gdi-summary-krs-years', f'Итоги ГДИ после КРС по годам ремонта · {label} · {len(years_tab)} из {len(table)} скв.', ycats, yby,
-                                         VERDICTS, VERDICT_COLORS, 'Год КРС'))
+                                         VERDICTS, VERDICT_COLORS, 'Год КРС', wells=members(years_tab, 'krs_label', ycats, VERDICTS)))
         result.tables.append(Table('gdi-summary-wells', 'Скважины сезона: итог ГДИ и категория', table[
             ['well', 'verdict', 'change', 'prev_date', 'last_date', 'q_prev', 'q_last', 'slice', 'slice_edited', 'category', 'edited', 'reason']], [
             Column('well', 'Скважина'), Column('verdict', 'Итог'), Column('change', 'Изменение Q', '%', 1, 'number'),
@@ -533,7 +546,7 @@ class GdiSummaryModule(Module):
         kinds = sorted(table.kind.unique())
         by = {(k, v): int(((table.kind == k) & (table.verdict == v)).sum()) for k in kinds for v in REPAIR_VERDICTS}
         result.charts.append(stacked('gdi-summary-repair', f'ГДИ после ремонта по видам КРС · {year} г.', kinds, by, REPAIR_VERDICTS,
-                                     REPAIR_COLORS, 'Вид ремонта'))
+                                     REPAIR_COLORS, 'Вид ремонта', wells=members(table, 'kind', kinds, REPAIR_VERDICTS)))
         done = int((~table.verdict.isin([NO_AFTER])).sum())
         result.summary += [Stat(f'Ремонтов КРС за {year} г.', str(len(table)), f'с надёжным ГДИ после: {done}'),
                            Stat('Без ГДИ после ремонта', str(int(table.verdict.eq(NO_AFTER).sum())), 'Кандидаты на исследование')]
