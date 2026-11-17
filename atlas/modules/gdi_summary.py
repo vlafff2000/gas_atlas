@@ -302,6 +302,67 @@ def program_block(result: Result, rows: pd.DataFrame, program: pd.DataFrame | No
              'Подсказка: решает инженер.'))
 
 
+MATRIX_NONE, MATRIX_PLAN, MATRIX_WEAK, MATRIX_OK = 0, 1, 2, 3
+
+
+def season_start_year(season) -> int | None:
+    m = re.search(r'(\d{4})', str(season))
+    return int(m.group(1)) if m else None
+
+
+def season_matrix(rows: pd.DataFrame, program: pd.DataFrame | None, rep: pd.DataFrame, done_manual: dict[str, str] | None = None
+                  ) -> tuple[list[str], list[str], list[list[float | None]], list[list[str]]]:
+    """Скважина × сезон: надёжное ГДИ, только ненадёжное, плановое не выполнено, нет данных; «+КРС» — ремонт в год начала сезона (лето перед сезоном).
+    Сезоны и скважины — все, что есть в данных ГДИ и в программе; ненадёжные видны (последнее слово за инженером), плановые даты КР не используются."""
+    keyed = rows.assign(sk=rows.season.map(_season_key)) if not rows.empty else rows
+    planned = {}
+    if program is not None and not program.empty:
+        p = program.assign(well=program.well.astype(str), sk=program.season.map(_season_key))
+        planned = {(r.well, r.sk): r for r in p.itertuples()}
+    seasons = sorted({k for k in (list(keyed.sk) if not rows.empty else []) + [k for _, k in planned] if k})
+    wells = sorted({w for w in (list(rows.well) if not rows.empty else []) + [w for w, _ in planned]}, key=well_key)
+    manual = done_manual or {}
+    values: list[list[float | None]] = []
+    texts: list[list[str]] = []
+    for w in wells:
+        vrow, trow = [], []
+        for sk in seasons:
+            mine = keyed[keyed.well.eq(w) & keyed.sk.eq(sk)] if not rows.empty else rows
+            year = season_start_year(sk)
+            fixed = bool(len(rep) and year is not None and (rep.well.eq(w) & rep.year.eq(year)).any())
+            if len(mine):
+                ok = (mine.reliable & mine.q_ref.notna()).any()
+                v, t = (MATRIX_OK, '✓') if ok else (MATRIX_WEAK, '!')
+            elif (w, sk) in planned:
+                v, t = (MATRIX_OK, '✓ вручную') if w in manual else (MATRIX_PLAN, 'план')
+            else:
+                v, t = None, ''
+            if fixed:
+                v, t = (v if v is not None else MATRIX_NONE), (t + ' +КРС').strip()
+            vrow.append(None if v is None else float(v))
+            trow.append(t)
+        values.append(vrow)
+        texts.append(trow)
+    return wells, seasons, values, texts
+
+
+def matrix_block(result: Result, rows: pd.DataFrame, program: pd.DataFrame | None, rep: pd.DataFrame, done_manual: dict[str, str] | None = None) -> None:
+    """Тепловая карта «скважина × сезон» общим ядром графиков (HeatMap) и таблица с теми же числами."""
+    from .an_charts import heat_chart
+    wells, seasons, values, texts = season_matrix(rows, program, rep, done_manual)
+    if not wells or not seasons:
+        return
+    chart = heat_chart('gdi-summary-season-matrix', 'Скважина × сезон: ГДИ выполнено, ненадёжное, не выполнено по плану, был КРС',
+                       [f'№ {w}' for w in wells], seasons, values, texts, '0 КРС без ГДИ · 1 план не выполнен · 2 ненадёжное · 3 надёжное', float(MATRIX_OK), '')
+    result.charts.append(chart)
+    names = {MATRIX_NONE: 'КРС, ГДИ нет', MATRIX_PLAN: 'план не выполнен', MATRIX_WEAK: 'ненадёжное', MATRIX_OK: 'надёжное'}
+    frame = pd.DataFrame([{'well': w, **{sk: (names.get(int(v), '') if v is not None else '') + (' +КРС' if t.endswith('КРС') and v is not None and v > MATRIX_NONE else '')
+                                          for sk, v, t in zip(seasons, vr, tr)}} for w, vr, tr in zip(wells, values, texts)])
+    result.tables.append(Table('gdi-summary-season-matrix-table', 'Скважина × сезон: состояние ГДИ', frame,
+                               [Column('well', 'Скважина')] + [Column(sk, sk) for sk in seasons],
+                               note='«+КРС» — ремонт по справке КРС в год начала сезона. Ненадёжные исследования в расчёты не входят, но показаны: решает инженер.'))
+
+
 def count_matrix(frame: pd.DataFrame, rows_key: str, cols: tuple[str, ...], col_key: str = 'verdict') -> pd.DataFrame:
     """Таблица «категория × вывод»: число скважин и их список."""
     items = []
@@ -514,6 +575,7 @@ class GdiSummaryModule(Module):
             Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
         self.repair_block(result, rows, rep, params, seasons, limit)
         program_block(result, rows, program, seasons, parse_manual(params.get('done_manual', '')))
+        matrix_block(result, rows, program, rep, parse_manual(params.get('done_manual', '')))
         return result
 
     @staticmethod
