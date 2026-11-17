@@ -177,3 +177,17 @@ def test_histogram_coarse_bins_and_per_group_charts():
     r = GdiSummaryModule().run(Data({G: g, DatasetKind.GDI_PROGRAM: prog}), {**PARAMS, 'hist_by': 'both', 'hist_edges': '-10, 10'})
     ids = [c.id for c in r.charts if c.id.startswith('gdi-summary-hist')]
     assert ids[0] == 'gdi-summary-hist' and len(ids) >= 2 and all('скв.' in c.title for c in r.charts if c.id.startswith('gdi-summary-hist-'))
+
+
+def test_histograms_use_dot_callouts_with_numbers_in_table():
+    """Как в «Авторском надзоре»: узкий сегмент — точки без выноски (режим ядра ``Chart.callouts``), числа — в таблице под графиком."""
+    from atlas.modules.gdi_summary import change_histogram, stacked, VERDICTS, VERDICT_COLORS
+    t = pd.DataFrame({'change': [-2., 0., 3., 50.]})
+    h = change_histogram(t, 5.0)
+    assert h.callouts == 'dot' and h.table.cells == [['0', '0', '0', '3', '0', '0', '1']] and h.table.columns[3] == '-5…5'
+    c = stacked('x', 'x', ['a'], {('a', VERDICTS[0]): 1}, VERDICTS, VERDICT_COLORS, 'k')
+    assert c.callouts == 'dot' and c.table is not None
+    g, works = frames()
+    r = GdiSummaryModule().run(Data({G: g}), PARAMS)
+    with_segments = [ch for ch in r.charts if any(se.segments for se in ch.series)]
+    assert with_segments and all(ch.callouts == 'dot' for ch in with_segments)

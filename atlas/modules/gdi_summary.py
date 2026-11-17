@@ -325,6 +325,7 @@ def stacked(cid: str, title: str, cats: list[str], by: dict[tuple[str, str], int
         chart.series.append(Series(v, cats, y, 'bar', stack='verdict', color=colors[v], segments=[str(int(x)) if x else '' for x in n],
                                    labels=[f'{int(x)} из {t} скв.' for x, t in zip(n, totals)]))
     chart.table = ChartTable([s.name for s in chart.series], cats, [[str(int(by.get((c, v), 0))) for c in cats] for v in stack_names])
+    chart.callouts = 'dot'          # как в «Авторском надзоре»: узкий сегмент — точки по числу без выноски, числа в таблице под графиком
     return chart
 
 
@@ -373,6 +374,8 @@ def change_histogram(table: pd.DataFrame, limit: float, edges: list[float] | Non
     colors = [VERDICT_COLORS[VERDICT_DOWN] if m < -limit else VERDICT_COLORS[VERDICT_UP] if m > limit else VERDICT_COLORS[VERDICT_SAME] for m in mids]
     for label, n, col in zip(labels, counts, colors):
         chart.series.append(Series(label, [label], [n], 'bar', stack='hist', color=col, legend=False, segments=[str(int(n)) if n else '']))
+    chart.table = ChartTable(['Скважин'], labels, [[str(int(n)) for n in counts]], swatches=False)
+    chart.callouts = 'dot'          # узкий столбец — точки по числу без выноски, числа в таблице под графиком
     return chart
 
 
