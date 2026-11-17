@@ -215,6 +215,39 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
     return pd.DataFrame(out)
 
 
+PATH_STEPS = ('До КРС', 'После КРС', 'Следующий отбор')
+
+
+def repair_path_table(rows: pd.DataFrame, rep: pd.DataFrame, year: int, schedule: str | None = None, start: int = 11, end: int = 4) -> pd.DataFrame:
+    """Путь скважины после ремонта года: Q при опорном ΔP² до КРС → первое надёжное ГДИ после КРС вне отбора (закачка/нейтральный период) →
+    первое надёжное ГДИ следующего периода отбора. Даты ремонта — только фактические (справка КРС) или 1 июля года."""
+    out = []
+    for r in rep[rep.year.eq(year)].sort_values(['well', 'date'], key=lambda c: c.map(well_key) if c.name == 'well' else c).itertuples():
+        ok = rows[rows.well.eq(r.well) & rows.reliable & rows.q_ref.notna()].drop_duplicates('date', keep='last').sort_values('date')
+        before, later = ok[ok.date <= r.date], ok[ok.date > r.date]
+        kinds = later.date.map(lambda d: period_of(d, schedule, start, end)) if len(later) else pd.Series(dtype=str)
+        after, nxt = later[kinds.ne(PERIOD_WD).to_numpy()] if len(later) else later, later[kinds.eq(PERIOD_WD).to_numpy()] if len(later) else later
+        b, a, n = (x.iloc[0 if x is not before else -1] if len(x) else None for x in (before, after, nxt))
+        out.append({'well': r.well, 'kind': r.kind, 'repair_date': r.date, 'date_note': '' if r.dated else 'только год (1 июля)',
+                    'date_before': b.date if b is not None else pd.NaT, 'q_before': b.q_ref if b is not None else np.nan,
+                    'date_after': a.date if a is not None else pd.NaT, 'q_after': a.q_ref if a is not None else np.nan,
+                    'date_next': n.date if n is not None else pd.NaT, 'q_next': n.q_ref if n is not None else np.nan})
+    return pd.DataFrame(out)
+
+
+def repair_path_chart(table: pd.DataFrame, year: int) -> Chart | None:
+    """Линия на скважину: до КРС → после КРС → следующий отбор (категории общей оси ядра, пропуск — разрыв линии)."""
+    if table.empty or not table[['q_before', 'q_after', 'q_next']].notna().any(axis=None):
+        return None
+    chart = Chart('gdi-summary-repair-path', f'Q при опорном ΔP² после КРС {year} г.: до ремонта, после, в следующий отбор',
+                  Axis('Исследование', scale='category', categories=list(PATH_STEPS)), Axis('Q при опорном ΔP²', UNITS['q_gdi']))
+    for r in table.itertuples():
+        y = np.array([r.q_before, r.q_after, r.q_next], float)
+        if np.isfinite(y).sum():
+            chart.series.append(Series(f'№ {r.well} · {r.kind}', list(PATH_STEPS), y, 'line', markers=True))
+    return chart
+
+
 def repair_year_table(rows: pd.DataFrame, rep: pd.DataFrame, year: int, limit: float) -> pd.DataFrame:
     """Для каждого ремонта года: ГДИ до (последнее надёжное) и после (первое надёжное) и вывод."""
     out = []
@@ -586,7 +619,7 @@ class GdiSummaryModule(Module):
             Column('q_prev', 'Q было', UNITS['q_gdi'], 1, 'number'), Column('q_last', 'Q стало', UNITS['q_gdi'], 1, 'number'),
             Column('slice', 'Период ГДИ'), Column('slice_edited', 'Период: правка'),
             Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
-        self.repair_block(result, rows, rep, params, seasons, limit)
+        self.repair_block(result, data, rows, rep, params, seasons, limit)
         program_block(result, rows, program, seasons, parse_manual(params.get('done_manual', '')))
         matrix_block(result, rows, program, rep, parse_manual(params.get('done_manual', '')))
         return result
@@ -597,7 +630,7 @@ class GdiSummaryModule(Module):
         return str(last)
 
     @staticmethod
-    def repair_block(result: Result, rows: pd.DataFrame, rep: pd.DataFrame, params: dict[str, Any], seasons: list[str], limit: float) -> None:
+    def repair_block(result: Result, data: Data, rows: pd.DataFrame, rep: pd.DataFrame, params: dict[str, Any], seasons: list[str], limit: float) -> None:
         year = int(params['repair_year']) or min([int(y) for s in seasons for y in re.findall(r'\d{4}', s)] or [0])
         if rep.empty or not year:
             return
@@ -609,6 +642,17 @@ class GdiSummaryModule(Module):
         by = {(k, v): int(((table.kind == k) & (table.verdict == v)).sum()) for k in kinds for v in REPAIR_VERDICTS}
         result.charts.append(stacked('gdi-summary-repair', f'ГДИ после ремонта по видам КРС · {year} г.', kinds, by, REPAIR_VERDICTS,
                                      REPAIR_COLORS, 'Вид ремонта', wells=members(table, 'kind', kinds, REPAIR_VERDICTS)))
+        cfg = getattr(data, 'settings', None) or {}
+        path = repair_path_table(rows, rep, year, cfg.get('season_schedule'), int(cfg.get('season_start', 11)), int(cfg.get('season_end', 4)))
+        pc = repair_path_chart(path, year)
+        if pc is not None:
+            result.charts.append(pc)
+            result.tables.append(Table('gdi-summary-repair-path', f'Путь после КРС {year} г.: до ремонта → после → следующий отбор', path, [
+                Column('well', 'Скважина'), Column('kind', 'Вид ремонта'), Column('repair_date', 'Дата ремонта', kind='date'), Column('date_note', 'Дата'),
+                Column('date_before', 'ГДИ до', kind='date'), Column('q_before', 'Q до', UNITS['q_gdi'], 1, 'number'),
+                Column('date_after', 'ГДИ после КРС', kind='date'), Column('q_after', 'Q после', UNITS['q_gdi'], 1, 'number'),
+                Column('date_next', 'ГДИ следующего отбора', kind='date'), Column('q_next', 'Q в отбор', UNITS['q_gdi'], 1, 'number')],
+                note='Ненадёжные исследования не входят. Пусто — надёжного ГДИ в этом периоде нет (кандидат на исследование).'))
         done = int((~table.verdict.isin([NO_AFTER])).sum())
         result.summary += [Stat(f'Ремонтов КРС за {year} г.', str(len(table)), f'с надёжным ГДИ после: {done}'),
                            Stat('Без ГДИ после ремонта', str(int(table.verdict.eq(NO_AFTER).sum())), 'Кандидаты на исследование')]
