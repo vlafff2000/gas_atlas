@@ -83,6 +83,11 @@ def _figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None =
     from .render import group_colors, series_color
     plt = _setup()
     o = opts or {}
+    # pyplot хранит рисунки в общем списке: запросы предпросмотра идут параллельно, поэтому строим под общим замком файлов
+    # (``atlas/engine/core/export.py``) и закрываем только свой рисунок, а не все (раньше чужой терял холст: «get_renderer»)
+    from atlas.engine.core.export import LOCK
+    LOCK.acquire()
+    before = set(plt.get_fignums())
     try:
         if (o.get('font') or 'times') != 'default':
             from atlas.engine.core.fonts import family_for
@@ -97,7 +102,9 @@ def _figure_file(chart: Chart, fmt: str, dpi: int, opts: dict[str, Any] | None =
             fig.set_size_inches(o['width_mm'] / 25.4, h * o['width_mm'] / 25.4 / w)
         return _bytes(fig, fmt, dpi, scene, (o.get('style') or chart.style or {}).get('elements'))
     finally:
-        plt.close('all')
+        for number in set(plt.get_fignums()) - before:      # только рисунки этого запроса, в том числе недостроенный при сбое
+            plt.close(number)
+        LOCK.release()
 
 
 def _dress(fig: Any, chart: Chart, o: dict[str, Any]) -> None:
