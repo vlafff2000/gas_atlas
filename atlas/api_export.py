@@ -276,6 +276,8 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             g = source['gdi']
             seasons = ordered(g.season[g.season.ne('')]) if 'season' in g else []
             cfg['seasons'] = pick('gdi_seasons', seasons, []) if seasons else []
+            if form.get('gdi_krs_pairs'):      # ИД двух исследований: «до КРС» красным и «после КРС» зелёным (подсказка по справке КРС + ручной выбор)
+                cfg['krs_pairs'] = krs_pairs_cfg(data, ws, str(form.get('gdi_krs_pairs_manual') or ''))
         elif module == 'response':
             r = source['response']
             hs = ordered(r.horizon)
@@ -312,6 +314,19 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
     options['modules'] = mods
     options['wells'] = ordered(selected)
     return options, source, raw
+
+
+def krs_pairs_cfg(data: Data, wells: list[str], manual: str) -> dict[str, list[str]]:
+    """Пары дат ИД для выгрузки: {скважина: [до КРС, после КРС]}. Подсказка — последнее надёжное ГДИ до ремонта и первое надёжное после
+    (справка КРС, ``gdi_summary.krs_pairs``); ручные пары главнее. Ремонтов или пар нет — пусто."""
+    from atlas.domain import DatasetKind
+    from atlas.modules import gdi_summary
+    if DatasetKind.GDI not in data:
+        return {}
+    rows = gdi_summary.study_rows(data[DatasetKind.GDI], float(data.settings.get('r2_threshold', .95)))
+    rep = gdi_summary.repairs(data.get(DatasetKind.KRS_WORKS), data.get(DatasetKind.KRS_PLAN))
+    pairs = gdi_summary.krs_pairs(rows, rep, 0, gdi_summary.parse_pairs(manual), wells or None)
+    return {w: [_date(a), _date(b)] for w, (a, b) in pairs.items()}
 
 
 def water_cfg(form: Mapping[str, Any], data: Data) -> dict[str, Any]:

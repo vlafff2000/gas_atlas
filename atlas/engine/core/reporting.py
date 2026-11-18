@@ -133,7 +133,13 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
                     tables[kind+'_данные']=exclusions.public_table(d[d.kind.eq(kind)&d.period.isin(ps)&d.well.isin(chosen)]);tables[kind+'_кривые']=exclusions.public_table(production.curve_data(d,kind,ps,chosen))
         elif module=='gdi':
             selected=gdi.select_studies(frames[module],ws,cfg.get('n',3),cfg.get('seasons'));original=gdi.select_studies(raw_frames[module],ws,cfg.get('n',3),cfg.get('seasons'))
-            for well in ordered(selected.well):add('ГДИ · '+well,charts.gdi_chart,selected,well,settings['r2_threshold'],cfg.get('orientation','standard'),cfg.get('curves',True),cfg.get('db_curves',True),cfg.get('crosshair',True),raw_df=original,show_excluded=cfg.get('show_excluded',True))
+            pairs=cfg.get('krs_pairs') or {}
+            if pairs:      # ИД двух исследований на скважину: «до КРС» красным, «после КРС» зелёным; скважины без пары не выгружаются
+                every=gdi.select_studies(frames[module],[w for w in ws if w in pairs],0,None);every_raw=gdi.select_studies(raw_frames[module],[w for w in ws if w in pairs],0,None)
+                for well in ordered(every.well):add('ГДИ · '+well+' · до и после КРС',charts.gdi_chart,every,well,settings['r2_threshold'],cfg.get('orientation','standard'),cfg.get('curves',True),cfg.get('db_curves',True),cfg.get('crosshair',True),raw_df=every_raw,show_excluded=False,pair=tuple(pd.Timestamp(x) for x in pairs[well]))
+                selected=every[every.date.isin([pd.Timestamp(x) for v in pairs.values() for x in v])]
+            else:
+                for well in ordered(selected.well):add('ГДИ · '+well,charts.gdi_chart,selected,well,settings['r2_threshold'],cfg.get('orientation','standard'),cfg.get('curves',True),cfg.get('db_curves',True),cfg.get('crosshair',True),raw_df=original,show_excluded=cfg.get('show_excluded',True))
             tables['ГДИ']=gdi.analyze(selected,settings['r2_threshold']);tables['Сравнение_ГДИ']=gdi.comparisons(selected)
             if options.get('raw'):tables['ГДИ_данные']=exclusions.public_table(selected)
         elif module=='response':

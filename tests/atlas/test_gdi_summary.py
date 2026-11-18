@@ -327,3 +327,52 @@ def test_model_compare_top_and_empty_state():
     assert any(n.text == EMPTY_MODEL for n in r.notes)
     r = GdiSummaryModule().run(Data({G: g, DatasetKind.MODEL: model}), PARAMS)
     assert any(c.id == 'gdi-summary-model' for c in r.charts) and any(t.id == 'gdi-summary-model-table' for t in r.tables)
+
+
+def test_id_pairs_before_after_colors_and_manual_override():
+    from atlas.modules.gdi_summary import krs_pairs, parse_pairs, repairs, study_rows
+    ts = pd.Timestamp
+    g, works = frames()
+    rows = study_rows(g, 0.95)
+    rep = repairs(works, None)
+    auto = krs_pairs(rows, rep, 2025)
+    assert auto['1'] == (ts('2024-12-10'), ts('2025-12-10')) and auto['6'] == (ts('2025-03-01'), ts('2025-10-01')) and '5' not in auto
+    manual = parse_pairs('1=10.12.2024; 10.12.2025\n7=bad')
+    assert manual == {'1': (ts('2024-12-10'), ts('2025-12-10'))} and krs_pairs(rows, rep, 2025, {'1': (ts('2024-12-10'), ts('2024-12-10'))})['1'][1] == ts('2024-12-10')
+    r = GdiSummaryModule().run(Data({G: g, W: works, DatasetKind.KRS_WORKS: works}), {**PARAMS, 'id_charts': 'yes', 'id_pairs': ''})
+    ch = next(c for c in r.charts if c.id == 'gdi-summary-id-1')
+    points = [s for s in ch.series if s.kind == 'points']
+    assert [s.name for s in points] == ['до КРС · 10.12.2024', 'после КРС · 10.12.2025'] and [s.color for s in points] == ['#d62728', '#2ca02c']
+    assert not any(c.id.startswith('gdi-summary-id') for c in GdiSummaryModule().run(Data({G: g, W: works}), PARAMS).charts)
+
+
+def test_engine_gdi_chart_pair_two_studies_red_green():
+    """Выгрузка раздела «ГДИ»: две даты пары — красный «до КРС», зелёный «после КРС»; остальные исследования не рисуются."""
+    from atlas.engine.modules import charts
+    g, _ = frames()
+    g = pd.concat([g, pd.DataFrame(gdi('1', '2023-12-10'))], ignore_index=True)
+    ts = pd.Timestamp
+    fig = charts.gdi_chart(g[g.well == '1'], '1', 0.95, pair=(ts('2024-12-10'), ts('2025-12-10')))
+    dots = [t for t in fig.data if t.mode == 'markers']
+    assert [t.name.split(' · Уст')[0] for t in dots] == ['до КРС · 10.12.2024', 'после КРС · 10.12.2025'] and [t.marker.color for t in dots] == ['#d62728', '#2ca02c']
+    assert not any('2023' in (t.name or '') for t in fig.data)
+
+
+def test_export_gdi_section_krs_pairs_plan():
+    """Выгрузка раздела «ГДИ» с ИД до и после КРС: один график на скважину пары, красный и зелёный; без пар — прежний набор."""
+    from atlas.engine.core import reporting
+    g, works = frames()
+    settings = {'r2_threshold': 0.95, 'season_start': 11, 'season_end': 4}
+    cfg = {'wells': ['1', '2'], 'n': 3, 'orientation': 'standard'}
+    base = reporting.plan({'gdi': g}, {}, settings, {'modules': ['gdi'], 'wells': ['1', '2'], 'raw': False, 'gdi': cfg}, {'gdi': g})
+    paired = reporting.plan({'gdi': g}, {}, settings, {'modules': ['gdi'], 'wells': ['1', '2'], 'raw': False,
+                                                       'gdi': {**cfg, 'krs_pairs': {'1': ['2024-12-10', '2025-12-10']}}}, {'gdi': g})
+    assert [j.name for j in base.jobs] == ['ГДИ · 1', 'ГДИ · 2']
+    assert [j.name for j in paired.jobs] == ['ГДИ · 1 · до и после КРС']
+    fig = paired.jobs[0].factory()
+    assert sorted(t.marker.color for t in fig.data if t.mode == 'markers') == ['#2ca02c', '#d62728']
+    from atlas.api_export import krs_pairs_cfg
+    data = Data({G: g, DatasetKind.KRS_WORKS: works})
+    data.settings = settings
+    assert krs_pairs_cfg(data, ['1', '6'], '') == {'1': ['2024-12-10', '2025-12-10'], '6': ['2025-03-01', '2025-10-01']}
+    assert krs_pairs_cfg(data, ['1'], '1=01.01.2024; 02.02.2025')['1'] == ['2024-01-01', '2025-02-02']
