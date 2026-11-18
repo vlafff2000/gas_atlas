@@ -87,3 +87,12 @@ def test_changes_table_only_when_two_seasons_present():
     assert 'gis-hikg-changes' in [t.id for t in res.tables]
     one = GisModule().run({INTERVALS: _intervals()}, _params(wells=['115'], seasons=['весна 2025']))
     assert 'gis-hikg-changes' not in [t.id for t in one.tables]
+
+
+def test_interval_with_zero_effective_thickness_is_not_summed():
+    """Тест: интервал hэф = 0 (Кг «<20» → 0,20, заглинизирован) в Σ hi × Кг не входит (скв. 1, весна 2026: 5,524 → 5,324); пустой hэф интервал не исключает."""
+    raw = pd.DataFrame({'well': ['1'] * 4, 'date': pd.to_datetime(['2026-05-08'] * 4), 'season': ['весна'] * 4, 'investigation': [44] * 4,
+                        'pack': ['верхняя'] * 4, 'hi_m': [1.4, 1.0, 1.0, 2.0], 'kg': [0.35, 0.65, 0.20, 0.5], 'h_eff_m': [1.4, 1.0, 0.0, None]})
+    row = gis_hikg.sums(gis_hikg.prepare(raw)).iloc[0]
+    assert row['hikg'] == pytest.approx(1.4 * 0.35 + 1.0 * 0.65 + 2.0 * 0.5)
+    assert row['intervals'] == 3

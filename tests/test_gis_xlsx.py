@@ -57,3 +57,10 @@ def test_recalculated_values_match_engine(tmp_path):
         expected = engine[(engine['well'] == well) & (engine['investigation'].astype(str) == inv)]['hikg'].sum()
         assert rows[(well, inv)][-1] == pytest.approx(expected)
     assert rows[('115', '1')][4] == pytest.approx(2.0 * 0.30 + 1.5 * 0.25)   # верхняя пачка исследования 1
+
+
+def test_excel_formula_skips_zero_effective_thickness():
+    raw = pd.DataFrame({'well': ['1', '1'], 'date': pd.to_datetime(['2026-05-08'] * 2), 'season': ['весна'] * 2, 'investigation': [44, 44], 'pack': ['верхняя'] * 2,
+                        'from_m': [1, 2], 'to_m': [2, 3], 'hi_m': [1.0, 1.0], 'kg': [0.5, 0.2], 'h_eff_m': [1.0, 0.0]})
+    sheet = openpyxl.load_workbook(io.BytesIO(gis_xlsx.build(gis_hikg.prepare(raw))))['Интервалы']
+    assert sheet['K2'].value == 1.0 and sheet['K3'].value == 0.0 and 'K3' in str(sheet['J3'].value)

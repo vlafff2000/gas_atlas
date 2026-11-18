@@ -464,7 +464,7 @@ class GisModule(Module):
         if missed:
             result.notes.append(Note(f'Не вошли в расчёт интервалы без hi или Кг: {missed}. Их можно посмотреть в «Импорт данных».',
                                      level='warning'))
-        result.notes.append(Note('Σ hi × Кг: по каждому интервалу с Кг выше нуля (в том числе 0,25 и ниже), сумма по пачке и '
+        result.notes.append(Note('Σ hi × Кг: по каждому интервалу с Кг выше нуля и hэф не ноль (заглинизированные с hэф = 0 не входят), сумма по пачке и '
                                  'исследованию. Точку можно исключить щелчком, как в других разделах.'))
         result.summary = [Stat('Скважин', str(len(wells))), Stat('Исследований', str(table[['well', 'date']].drop_duplicates().shape[0]))]
         return result
