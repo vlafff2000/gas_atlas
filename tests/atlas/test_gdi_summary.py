@@ -395,3 +395,24 @@ def test_export_krs_pairs_only_selected_seasons_and_every_repair():
     both = krs_pairs_cfg(data, [], '', ['2024-2025', '2025-2026'])
     assert [(x['well'], x['year']) for x in both if x['well'] == '1'] == [('1', 2024), ('1', 2025)]
     assert [(x['well'], x['year']) for x in krs_pairs_cfg(data, [], '', ['2024-2025'])] == [('1', 2024), ('7', 2024)]
+
+
+def test_repair_follow_up_analysis_effect_and_next_withdrawal():
+    """Анализ ГДИ до/после КРС: эффект после КРС и в следующем отборе, есть ли ГДИ в отборе, вывод-подсказка; несколько лет ремонтов."""
+    from atlas.modules.gdi_summary import FOLLOW_AFTER, FOLLOW_BOTH, FOLLOW_NEXT, follow_up, repair_path_table
+    nan = float('nan')
+    assert follow_up(20, 10, 5) == 'эффект ремонта подтверждён в следующем отборе' and follow_up(20, -10, 5) == 'эффект после КРС не сохранился в следующем отборе'
+    assert follow_up(nan, 10, 5).startswith('после КРС не исследована') and follow_up(20, nan, 5).startswith('в следующем отборе не исследована')
+    assert follow_up(nan, nan, 5).startswith('нет ГДИ после ремонта')
+    ts = pd.Timestamp
+    rows = pd.DataFrame({'well': ['1'] * 4 + ['2'] * 2, 'season': ['x'] * 6, 'q_ref': [100., 120., 110., 90., 100., 105.],
+                         'date': [ts('2025-03-01'), ts('2025-09-01'), ts('2025-12-10'), ts('2027-12-10'), ts('2025-03-01'), ts('2025-09-01')],
+                         'reliable': [True] * 6})
+    rep = pd.DataFrame({'well': ['1', '2', '1'], 'year': [2025, 2025, 2027], 'kind': ['КРС'] * 3, 'date': [ts('2025-07-01'), ts('2025-07-01'), ts('2027-07-01')], 'dated': [False] * 3})
+    t = repair_path_table(rows, rep, {2025, 2027}).set_index(['well', 'year'])
+    assert t.loc[('1', 2025), 'follow'] == FOLLOW_BOTH and round(t.loc[('1', 2025), 'change_after']) == 20 and round(t.loc[('1', 2025), 'change_next']) == 10
+    assert t.loc[('1', 2025), 'conclusion'] == 'эффект ремонта подтверждён в следующем отборе'
+    assert t.loc[('2', 2025), 'follow'] == FOLLOW_AFTER and t.loc[('1', 2027), 'follow'] == FOLLOW_NEXT      # скв. 1 после ремонта 2027 г.: только следующий отбор
+    g, works = frames()
+    r = GdiSummaryModule().run(Data({G: g, W: works}), {**PARAMS, 'seasons': ['2025-2026'], 'repair_year': 0})
+    assert any(c.id == 'gdi-summary-follow' for c in r.charts) and any(x.label == 'ГДИ в следующем отборе' for x in r.summary)
