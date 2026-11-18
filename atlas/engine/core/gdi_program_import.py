@@ -42,9 +42,9 @@ def reason_kind(text: str) -> str:
     t = text.lower()
     if 'план' in t and 'кап' in t:
         return 'krs_plan'
-    if 'противопес' in t or 'замен' in t and 'фильтр' in t:
-        return 'filter'
-    if 'колтюб' in t or 'кислотн' in t or 'промывк' in t:
+    if 'противопес' in t or 'фильтр' in t or re.search(r'(?<![а-яa-z])ппф(?![а-яa-z])|(?<![а-яa-z])п\.?\s?п\.?\s?ф\.?(?![а-яa-z])', t):
+        return 'filter'          # «замена противопесочного фильтра», «замена фильтра», «замена ППФ»
+    if re.search(r'колтюб|кислотн|промыв|(?<![а-яa-z])ско(?![а-яa-z])|обработк', t):
         return 'coil'
     if 'не проводил' in t or re.search(r'более\s*\d+\s*лет', t):
         return 'gap'

@@ -76,3 +76,11 @@ def test_load_replaces_same_season(env):
     again = Imports(projects).gdi_program_load(pid, NAME, docx(ROWS[:2] + [ROWS[3]]), 'new')
     frame = Imports(projects)._raw_frames(pid, projects.manifest(pid))['gdi_program']
     assert len(frame) == 4 and 'gdi_program' in projects.manifest(pid)['tables'] and again['undo']
+
+
+def test_reason_kind_filter_wordings():
+    for t in ['После КР - замена ППФ', 'После капремонта: замена фильтра', 'замена противопесочного фильтра', 'После КР, замена П.П.Ф.',
+              'После КР - ППФ']:
+        assert gp.reason_kind(t) == 'filter', t
+    for t in ['После КР - промывка и СКО', 'После КР: СКО', 'После КР - промывка колтюбингом']:
+        assert gp.reason_kind(t) == 'coil', t
