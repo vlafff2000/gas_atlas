@@ -963,6 +963,8 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
         <Check {...F} field="gdi_db_curves" label="ГДИ: кривые по коэффициентам БД" def />
         <Check {...F} field="gdi_crosshair" label="ГДИ: перекрестная линейка" def />
         <Check {...F} field="gdi_show_excluded" label="ГДИ: показывать исключенные точки" def />
+        <Check {...F} field="gdi_krs_pairs" label="ГДИ: ИД до и после КРС (два исследования, красный и зелёный)" def={false} />
+        <Text {...F} field="gdi_krs_pairs_manual" label="ГДИ: пары вручную (скважина=ДД.ММ.ГГГГ; ДД.ММ.ГГГГ)" def="" wide />
         {(choices.gdi_seasons?.length ?? 0) > 0 &&
           <Multi {...F} field="gdi_seasons" label="ГДИ: сезоны" options={choices.gdi_seasons!} def={[]} empty="все" />}
       </Section>

@@ -692,6 +692,54 @@ def model_block(result: Result, gdi: pd.DataFrame, rows: pd.DataFrame, model: pd
         note='ГДИ — точка с максимальным Q надёжного исследования; модель — ближайшая дата не дальше 3 суток. Расхождение — подсказка, решает инженер.'))
 
 
+def parse_pairs(text) -> dict[str, tuple[pd.Timestamp, pd.Timestamp]]:
+    """Ручной выбор пар: строки «скважина=ДД.ММ.ГГГГ; ДД.ММ.ГГГГ» (до КРС; после КРС). Главнее подсказки; ошибочные строки пропускаются."""
+    out = {}
+    pairs = (line.split('=', 1) for line in str(text or '').splitlines() if '=' in line)
+    for well, value in ((a.strip(), b) for a, b in pairs):
+        dates = [pd.to_datetime(x, dayfirst=True, errors='coerce') for x in re.split(r'[;,\s]+', value.strip()) if x]
+        if len(dates) == 2 and all(pd.notna(d) for d in dates):
+            out[well] = (dates[0].normalize(), dates[1].normalize())
+    return out
+
+
+def krs_pairs(rows: pd.DataFrame, rep: pd.DataFrame, year: int = 0, manual: dict | None = None,
+              wells: list[str] | None = None) -> dict[str, tuple[pd.Timestamp, pd.Timestamp]]:
+    """Пара исследований для ИД: подсказка — последнее надёжное ГДИ до ремонта и первое надёжное после него (последний ремонт скважины с обеими датами;
+    ``year`` — только ремонты этого года). Ручной выбор главнее. Ненадёжные в подсказку не попадают; решает инженер."""
+    out: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
+    if not rep.empty and not rows.empty:
+        r = rep[rep.year.eq(year)] if year else rep
+        for repair in r.sort_values('date').itertuples():
+            ok = rows[rows.well.eq(repair.well) & rows.reliable & rows.q_ref.notna()].drop_duplicates('date').sort_values('date')
+            before, after = ok[ok.date <= repair.date], ok[ok.date > repair.date]
+            if len(before) and len(after):
+                out[repair.well] = (before.date.iloc[-1], after.date.iloc[0])
+    out.update(manual or {})
+    if wells is not None:
+        out = {w: v for w, v in out.items() if w in set(wells)}
+    return dict(sorted(out.items(), key=lambda kv: well_key(kv[0])))
+
+
+def id_pair_charts(gdi: pd.DataFrame, data_raw: pd.DataFrame, pairs: dict, params: dict[str, Any]) -> list[Chart]:
+    """ИД двух исследований на скважину: общий построитель ИД раздела «ГДИ» (красный — до КРС, зелёный — после КРС)."""
+    from .gdi import GdiModule
+    charts = []
+    g = legacy.prepare(gdi)
+    raw = legacy.prepare(data_raw) if data_raw is not None else g
+    for well, pair in pairs.items():
+        pts = g[g.well.astype(str).eq(well) & (g.date.isin(pair))]
+        if pts.empty:
+            continue
+        studies = legacy.analyze(pts, float(params['threshold']))
+        chart = GdiModule.chart(pts, studies, raw[raw.well.astype(str).eq(well)], well,
+                                {'orientation': params.get('id_orientation', 'standard'), 'curves': True, 'db_curves': True, 'crosshair': True,
+                                 'show_excluded': False, 'pair': pair})
+        chart.id, chart.title = f'gdi-summary-id-{well}', f'Скважина № {well}: ИД до КРС ({pair[0]:%d.%m.%Y}) и после КРС ({pair[1]:%d.%m.%Y})'
+        charts.append(chart)
+    return charts
+
+
 class GdiSummaryModule(Module):
     spec = ModuleSpec(
         id='gdi_summary',
@@ -740,6 +788,12 @@ class GdiSummaryModule(Module):
                   help='Номер скважины: все её ГДИ по датам (Q при опорном ΔP², a, b), ремонты КРС вертикальными линиями, таблица исследований с надёжностью. Пусто — без карточки.'),
             Param('model_top', 'Сравнение с моделью: сколько скважин', 'number', default=15, minimum=0, maximum=100, step=1, section='Графики',
                   help='Топ расхождений депрессии и ΔP² между ГДИ и моделью (выбранные модели проекта). 0 — не сравнивать.'),
+            Param('id_charts', 'ИД до и после КРС', 'choice', default='no', section='Ремонты',
+                  options=(Option('no', 'Не строить'), Option('yes', 'Построить: по скважине два исследования')),
+                  help='Индикаторные диаграммы двух исследований: «до КРС» красным и «после КРС» зелёным. Подсказка пары — последнее надёжное ГДИ до ремонта '
+                       'и первое надёжное после (ремонты «Года ремонта»); правится в «Парах ИД вручную».'),
+            Param('id_pairs', 'Пары ИД вручную', 'text', default='', section='Ремонты',
+                  help='Строки «скважина=ДД.ММ.ГГГГ; ДД.ММ.ГГГГ» — дата ГДИ до КРС и после. Главнее подсказки; ненадёжное исследование тоже можно выбрать.'),
             Param('manual', 'Категории вручную', 'text', default='', section='Ремонты',
                   help='Строки «скважина=категория», например «56=После КРС: замена фильтра». Исправляет подсказку программы; '
                        'в таблице видно, где категория правлена вручную.'),
@@ -840,6 +894,13 @@ class GdiSummaryModule(Module):
                     note='Ненадёжные исследования на линиях не показаны (серые точки Q), но видны здесь: решает инженер.'))
         if int(params.get('model_top', 15) or 0) > 0:
             model_block(result, data[GDI], rows, data.get(MODEL), seasons, int(params.get('model_top', 15)))
+        if (params.get('id_charts') or 'no') == 'yes':
+            year = int(params.get('repair_year') or 0) or min([int(y) for sn in seasons for y in re.findall(r'\d{4}', sn)] or [0])
+            pairs = krs_pairs(rows, rep, year, parse_pairs(params.get('id_pairs')))
+            charts = id_pair_charts(data[GDI], data.raw.get(GDI), pairs, params) if pairs else []
+            result.charts += charts
+            if not charts:
+                result.notes.append(Note(f'ИД до и после КРС: для ремонтов {year} г. нет скважин с надёжным ГДИ до и после. Укажите пары вручную.'))
         age_block(result, rows, rep, program, seasons)
         matrix_block(result, rows, program, rep, parse_manual(params.get('done_manual', '')))
         return result

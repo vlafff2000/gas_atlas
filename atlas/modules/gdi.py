@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.engine.core.config import COLORS, natural_key
+from atlas.engine.modules.charts import KRS_PAIR, pair_role
 from atlas.engine.modules import gdi as legacy
 from atlas.engine.modules import well_analysis
 
@@ -470,6 +471,10 @@ class GdiModule(Module):
             else Axis('ΔP²', UNITS['dp2'], from_zero=True)
         chart = Chart(f'gdi-{well}', f'Скважина {well}', *(dp_axis, q_axis) if swapped else (q_axis, dp_axis),
                       crosshair=params['crosshair'])
+        pair = params.get('pair')           # две даты: ИД до и после КРС (красный и зелёный), как в выгрузке раздела «ГДИ»
+        if pair:
+            points = points[points.date.map(lambda x: pair_role(x, pair) is not None)]
+            original = original[original.date.map(lambda x: pair_role(x, pair) is not None)] if len(original) else original
         dates = sorted(points.date.unique(), reverse=True)
         palette = {d: COLORS[i % len(COLORS)] for i, d in enumerate(dates)}
         coefficients = {(r.date, r.method, r.study): r for r in studies.itertuples(index=False)}
@@ -489,8 +494,9 @@ class GdiModule(Module):
                                      .groupby(legacy.KEYS, sort=False, dropna=False)):
             _, date, method, study = key
             row = coefficients[(date, method, study)]
-            label = study_label(date)
-            color = palette[date]
+            role = pair_role(date, pair)
+            label = (KRS_PAIR[role][0] + ' · ' if role else '') + study_label(date)
+            color = KRS_PAIR[role][1] if role else palette[date]
             age = dates.index(date)      # 0 — самая свежая дата: по нему палитра «по свежести» (Формат → График)
             if row.by_coef:
                 # Без замеров давлений: только кривая по a и b интерпретатора, линия «точка-тире» (стиль меняется в окне «Формат»)

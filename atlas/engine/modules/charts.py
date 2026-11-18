@@ -92,18 +92,27 @@ def histogram(df,kind,ps,wells,axis='well',title=None):
     fig.update_layout(barmode='group');fig.update_xaxes(type='category',categoryorder='array',categoryarray=wells if axis=='well' else ps)
     return fig
 
+KRS_PAIR={'before':('до КРС','#d62728'),'after':('после КРС','#2ca02c')}   # ИД двух исследований: красный — до ремонта, зелёный — после
+
+def pair_role(date,pair):
+    """Роль даты исследования в паре «до КРС / после КРС» (``pair`` — две даты); не из пары — None."""
+    if not pair:return None
+    t=pd.Timestamp(date)
+    return 'before' if t==pd.Timestamp(pair[0]) else 'after' if t==pd.Timestamp(pair[1]) else None
+
 @cached_chart
-def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves=True,crosshair=True,raw_df=None,show_excluded=True):
+def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves=True,crosshair=True,raw_df=None,show_excluded=True,pair=None):
     swapped=orientation=='swapped';linear=orientation=='linear'
     fig=base(well_title([well]),
         'ΔP²' if swapped else 'Q, тыс. м³/сут','Q, тыс. м³/сут' if swapped else 'ΔP²/Q' if linear else 'ΔP²')
     d=prepare(df);d=d[d.well.eq(well)]
+    if pair:d=d[d.date.map(lambda x:pair_role(x,pair) is not None)]      # только два исследования пары
     if linear:d=d[d.q>0]
     q_well=float(d.q[d.dp2.notna()].max()) if d.dp2.notna().any() and d.q[d.dp2.notna()].notna().any() else 0.
     ds=sorted(d.date.unique(),reverse=True);palette={date:COLORS[i%len(COLORS)] for i,date in enumerate(ds)}
     for i,(key,g) in enumerate(d.sort_values(['date','method','study'],kind='stable').groupby(KEYS,sort=False,dropna=False)):
-        _,date,method,study=key;color=palette[date];r=analyze_study(g,threshold)
-        label=date.strftime('%d.%m.%Y')+(' · '+method if method else '')+(' · '+study if study else '')
+        _,date,method,study=key;role=pair_role(date,pair);color=KRS_PAIR[role][1] if role else palette[date];r=analyze_study(g,threshold)
+        label=(KRS_PAIR[role][0]+' · ' if role else '')+date.strftime('%d.%m.%Y')+(' · '+method if method else '')+(' · '+study if study else '')
         ids=g['_point_id'] if '_point_id' in g else pd.Series('',index=g.index)
         if r['by_coef']:
             # Без замеров давлений: рисуется только кривая по a и b БД (как в разделе ГДИ), точек нет — пустой записи в легенде не будет.
