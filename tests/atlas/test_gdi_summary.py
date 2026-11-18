@@ -376,3 +376,13 @@ def test_export_gdi_section_krs_pairs_plan():
     data.settings = settings
     assert krs_pairs_cfg(data, ['1', '6'], '') == {'1': ['2024-12-10', '2025-12-10'], '6': ['2025-03-01', '2025-10-01']}
     assert krs_pairs_cfg(data, ['1'], '1=01.01.2024; 02.02.2025')['1'] == ['2024-01-01', '2025-02-02']
+
+
+def test_id_pairs_curves_switch_db_off():
+    g, works = frames()
+    base = {**PARAMS, 'id_charts': 'yes'}
+    def lines(extra):
+        r = GdiSummaryModule().run(Data({G: g, DatasetKind.KRS_WORKS: works}), {**base, **extra})
+        return [s for s in next(c for c in r.charts if c.id == 'gdi-summary-id-1').series if s.kind == 'line']
+    assert len(lines({})) == 4 and len(lines({'id_curves': ['calc']})) == 2 and len(lines({'id_curves': ['db']})) == 2 and lines({'id_curves': []}) == []
+    assert all(s.dashed for s in lines({'id_curves': ['db']}))

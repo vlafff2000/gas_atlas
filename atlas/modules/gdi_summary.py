@@ -725,6 +725,7 @@ def id_pair_charts(gdi: pd.DataFrame, data_raw: pd.DataFrame, pairs: dict, param
     """ИД двух исследований на скважину: общий построитель ИД раздела «ГДИ» (красный — до КРС, зелёный — после КРС)."""
     from .gdi import GdiModule
     charts = []
+    curves = params.get('id_curves', ['calc', 'db'])
     g = legacy.prepare(gdi)
     raw = legacy.prepare(data_raw) if data_raw is not None else g
     for well, pair in pairs.items():
@@ -733,7 +734,7 @@ def id_pair_charts(gdi: pd.DataFrame, data_raw: pd.DataFrame, pairs: dict, param
             continue
         studies = legacy.analyze(pts, float(params['threshold']))
         chart = GdiModule.chart(pts, studies, raw[raw.well.astype(str).eq(well)], well,
-                                {'orientation': params.get('id_orientation', 'standard'), 'curves': True, 'db_curves': True, 'crosshair': True,
+                                {'orientation': params.get('id_orientation', 'standard'), 'curves': 'calc' in curves, 'db_curves': 'db' in curves, 'crosshair': True,
                                  'show_excluded': False, 'pair': pair})
         chart.id, chart.title = f'gdi-summary-id-{well}', f'Скважина № {well}: ИД до КРС ({pair[0]:%d.%m.%Y}) и после КРС ({pair[1]:%d.%m.%Y})'
         charts.append(chart)
@@ -792,6 +793,9 @@ class GdiSummaryModule(Module):
                   options=(Option('no', 'Не строить'), Option('yes', 'Построить: по скважине два исследования')),
                   help='Индикаторные диаграммы двух исследований: «до КРС» красным и «после КРС» зелёным. Подсказка пары — последнее надёжное ГДИ до ремонта '
                        'и первое надёжное после (ремонты «Года ремонта»); правится в «Парах ИД вручную».'),
+            Param('id_curves', 'Кривые на ИД', 'multi', default=['calc', 'db'], section='Ремонты', empty='без кривых',
+                  options=(Option('calc', 'Расчётные (по замерам)'), Option('db', 'По коэффициентам БД')),
+                  help='Какие кривые рисовать на ИД до и после КРС. Чтобы убрать кривые по БД, снимите «По коэффициентам БД»: останутся только точки и расчётные кривые.'),
             Param('id_pairs', 'Пары ИД вручную', 'text', default='', section='Ремонты',
                   help='Строки «скважина=ДД.ММ.ГГГГ; ДД.ММ.ГГГГ» — дата ГДИ до КРС и после. Главнее подсказки; ненадёжное исследование тоже можно выбрать.'),
             Param('manual', 'Категории вручную', 'text', default='', section='Ремонты',
