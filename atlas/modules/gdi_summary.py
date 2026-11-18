@@ -211,7 +211,15 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
     return pd.DataFrame(out)
 
 
-def repair_effect_chart(table: pd.DataFrame, year: int) -> Chart | None:
+def _years_of(x) -> set[int]:
+    return {int(x)} if isinstance(x, (int, np.integer)) else {int(v) for v in x}
+
+
+def _years_label(x) -> str:
+    return ', '.join(str(v) for v in sorted(_years_of(x))) + ' г.'
+
+
+def repair_effect_chart(table: pd.DataFrame, year) -> Chart | None:
     """Эффект ремонта по видам КРС: ящик с усами по изменению Q при опорном ΔP² (до → после). Под графиком число скважин, медиана и номера скважин.
     Только скважины с надёжными ГДИ до и после; остальные видны в таблице ремонтов."""
     t = table[table.change.notna()] if not table.empty else table
@@ -226,7 +234,7 @@ def repair_effect_chart(table: pd.DataFrame, year: int) -> Chart | None:
         cells[0].append(str(len(v)))
         cells[1].append(f'{med:+.1f}')
         wells.append(sorted(t[t.kind.eq(k)].well.astype(str), key=well_key))
-    chart = Chart('gdi-summary-repair-effect', f'Эффект ремонта по видам КРС · {year} г.: изменение Q при опорном ΔP², %',
+    chart = Chart('gdi-summary-repair-effect', f'Эффект ремонта по видам КРС · {_years_label(year)}: изменение Q при опорном ΔP², %',
                   Axis('Вид ремонта', scale='category', categories=kinds), Axis('Изменение Q', '%'))
     chart.series.append(Series('Изменение Q после ремонта', kinds, stats, 'box', color=VERDICT_COLORS[VERDICT_SAME]))
     chart.table = ChartTable(['Скважин', 'Медиана, %'], kinds, cells, swatches=False, wells=[wells, [[] for _ in kinds]])
@@ -236,28 +244,59 @@ def repair_effect_chart(table: pd.DataFrame, year: int) -> Chart | None:
 PATH_STEPS = ('До КРС', 'После КРС', 'Следующий отбор')
 
 
-def repair_path_table(rows: pd.DataFrame, rep: pd.DataFrame, year: int, schedule: str | None = None, start: int = 11, end: int = 4) -> pd.DataFrame:
-    """Путь скважины после ремонта года: Q при опорном ΔP² до КРС → первое надёжное ГДИ после КРС вне отбора (закачка/нейтральный период) →
-    первое надёжное ГДИ следующего периода отбора. Даты ремонта — только фактические (справка КРС) или 1 июля года."""
+NEXT_WINDOW_DAYS = 548        # «следующий отбор» — первое надёжное ГДИ периода отбора не позже 18 месяцев после ремонта
+
+FOLLOW_BOTH, FOLLOW_AFTER, FOLLOW_NEXT, FOLLOW_NONE = ('ГДИ после КРС и в следующем отборе', 'только после КРС', 'только в следующем отборе', 'нет ГДИ после ремонта')
+FOLLOW_COLORS = {FOLLOW_BOTH: '#2e9d57', FOLLOW_AFTER: '#6aa7e0', FOLLOW_NEXT: '#e0a030', FOLLOW_NONE: '#c0504d'}
+
+
+def follow_up(change_after: float, change_next: float, limit: float) -> str:
+    """Подсказка-вывод по эффекту ремонта: после КРС и в следующем отборе (изменение Q к ГДИ до ремонта, порог ``limit``, %)."""
+    a, n = (None if not np.isfinite(v) else (1 if v > limit else -1 if v < -limit else 0) for v in (change_after, change_next))
+    if a is None and n is None:
+        return 'нет ГДИ после ремонта: кандидат на исследование'
+    if n is None:
+        return 'в следующем отборе не исследована: кандидат на исследование' + ('' if a is None else f'; после КРС {"улучшение" if a > 0 else "ухудшение" if a < 0 else "без изменений"}')
+    if a is None:
+        return f'после КРС не исследована; в следующем отборе {"улучшение" if n > 0 else "ухудшение" if n < 0 else "без изменений"} к ГДИ до ремонта'
+    if a > 0 and n > 0:
+        return 'эффект ремонта подтверждён в следующем отборе'
+    if a > 0 and n <= 0:
+        return 'эффект после КРС не сохранился в следующем отборе'
+    if a <= 0 and n > 0:
+        return 'эффект проявился только в следующем отборе'
+    return 'эффекта нет' if n == 0 and a == 0 else ('ухудшение после КРС и в следующем отборе' if n < 0 and a < 0 else 'без устойчивого эффекта')
+
+
+def repair_path_table(rows: pd.DataFrame, rep: pd.DataFrame, year, schedule: str | None = None, start: int = 11, end: int = 4,
+                      limit: float = 5.0) -> pd.DataFrame:
+    """Путь скважины после каждого ремонта выбранных лет: Q при опорном ΔP² до КРС → первое надёжное ГДИ после КРС вне отбора (закачка/нейтральный период) →
+    первое надёжное ГДИ следующего периода отбора. Даты ремонта — только фактические (справка КРС) или 1 июля года. Изменения — к ГДИ до ремонта, %."""
     out = []
-    for r in rep[rep.year.eq(year)].sort_values(['well', 'date'], key=lambda c: c.map(well_key) if c.name == 'well' else c).itertuples():
+    for r in rep[rep.year.isin(_years_of(year))].sort_values(['well', 'date'], key=lambda c: c.map(well_key) if c.name == 'well' else c).itertuples():
         ok = rows[rows.well.eq(r.well) & rows.reliable & rows.q_ref.notna()].drop_duplicates('date', keep='last').sort_values('date')
         before, later = ok[ok.date <= r.date], ok[ok.date > r.date]
         kinds = later.date.map(lambda d: period_of(d, schedule, start, end)) if len(later) else pd.Series(dtype=str)
         after, nxt = later[kinds.ne(PERIOD_WD).to_numpy()] if len(later) else later, later[kinds.eq(PERIOD_WD).to_numpy()] if len(later) else later
+        nxt = nxt[nxt.date <= r.date + pd.Timedelta(days=NEXT_WINDOW_DAYS)]
         b, a, n = (x.iloc[0 if x is not before else -1] if len(x) else None for x in (before, after, nxt))
-        out.append({'well': r.well, 'kind': r.kind, 'repair_date': r.date, 'date_note': '' if r.dated else 'только год (1 июля)',
-                    'date_before': b.date if b is not None else pd.NaT, 'q_before': b.q_ref if b is not None else np.nan,
-                    'date_after': a.date if a is not None else pd.NaT, 'q_after': a.q_ref if a is not None else np.nan,
-                    'date_next': n.date if n is not None else pd.NaT, 'q_next': n.q_ref if n is not None else np.nan})
+        qb = b.q_ref if b is not None else np.nan
+        ca = (a.q_ref / qb - 1) * 100 if a is not None and qb else np.nan
+        cn = (n.q_ref / qb - 1) * 100 if n is not None and qb else np.nan
+        stage = (FOLLOW_BOTH if a is not None and n is not None else FOLLOW_AFTER if a is not None else FOLLOW_NEXT if n is not None else FOLLOW_NONE)
+        out.append({'well': r.well, 'kind': r.kind, 'year': int(r.year), 'repair_date': r.date, 'date_note': '' if r.dated else 'только год (1 июля)',
+                    'date_before': b.date if b is not None else pd.NaT, 'q_before': qb,
+                    'date_after': a.date if a is not None else pd.NaT, 'q_after': a.q_ref if a is not None else np.nan, 'change_after': ca,
+                    'date_next': n.date if n is not None else pd.NaT, 'q_next': n.q_ref if n is not None else np.nan, 'change_next': cn,
+                    'follow': stage, 'conclusion': follow_up(ca, cn, limit) if b is not None else 'нет надёжного ГДИ до ремонта: сравнить нельзя'})
     return pd.DataFrame(out)
 
 
-def repair_path_chart(table: pd.DataFrame, year: int) -> Chart | None:
+def repair_path_chart(table: pd.DataFrame, year) -> Chart | None:
     """Линия на скважину: до КРС → после КРС → следующий отбор (категории общей оси ядра, пропуск — разрыв линии)."""
     if table.empty or not table[['q_before', 'q_after', 'q_next']].notna().any(axis=None):
         return None
-    chart = Chart('gdi-summary-repair-path', f'Q при опорном ΔP² после КРС {year} г.: до ремонта, после, в следующий отбор',
+    chart = Chart('gdi-summary-repair-path', f'Q при опорном ΔP² после КРС {_years_label(year)}: до ремонта, после, в следующий отбор',
                   Axis('Исследование', scale='category', categories=list(PATH_STEPS)), Axis('Q при опорном ΔP²', UNITS['q_gdi']))
     for r in table.itertuples():
         y = np.array([r.q_before, r.q_after, r.q_next], float)
@@ -266,10 +305,10 @@ def repair_path_chart(table: pd.DataFrame, year: int) -> Chart | None:
     return chart
 
 
-def repair_year_table(rows: pd.DataFrame, rep: pd.DataFrame, year: int, limit: float) -> pd.DataFrame:
+def repair_year_table(rows: pd.DataFrame, rep: pd.DataFrame, year, limit: float) -> pd.DataFrame:
     """Для каждого ремонта года: ГДИ до (последнее надёжное) и после (первое надёжное) и вывод."""
     out = []
-    for r in rep[rep.year.eq(year)].sort_values(['well', 'date'], key=lambda c: c.map(well_key) if c.name == 'well' else c).itertuples():
+    for r in rep[rep.year.isin(_years_of(year))].sort_values(['well', 'date'], key=lambda c: c.map(well_key) if c.name == 'well' else c).itertuples():
         ok = rows[rows.well.eq(r.well) & rows.reliable & rows.q_ref.notna()].drop_duplicates('date', keep='last').sort_values('date')
         before, after = ok[ok.date <= r.date], ok[ok.date > r.date]
         b, a = (before.iloc[-1] if len(before) else None), (after.iloc[0] if len(after) else None)
@@ -933,35 +972,50 @@ class GdiSummaryModule(Module):
 
     @staticmethod
     def repair_block(result: Result, data: Data, rows: pd.DataFrame, rep: pd.DataFrame, params: dict[str, Any], seasons: list[str], limit: float) -> None:
-        year = int(params['repair_year']) or min([int(y) for s in seasons for y in re.findall(r'\d{4}', s)] or [0])
-        if rep.empty or not year:
+        year = int(params['repair_year'])
+        years = {year} if year else (season_years(seasons) or set())      # ремонты выбранных сезонов (лето перед сезоном)
+        if rep.empty or not years:
             return
-        table = repair_year_table(rows, rep, year, limit)
+        label = _years_label(years)
+        table = repair_year_table(rows, rep, years, limit)
         if table.empty:
-            result.notes.append(Note(f'Ремонтов КРС за {year} г. в данных нет. Укажите другой «Год ремонта».'))
+            result.notes.append(Note(f'Ремонтов КРС за {label} в данных нет. Выберите другие сезоны или «Год ремонта».'))
             return
         kinds = sorted(table.kind.unique())
         by = {(k, v): int(((table.kind == k) & (table.verdict == v)).sum()) for k in kinds for v in REPAIR_VERDICTS}
-        result.charts.append(stacked('gdi-summary-repair', f'ГДИ после ремонта по видам КРС · {year} г.', kinds, by, REPAIR_VERDICTS,
+        result.charts.append(stacked('gdi-summary-repair', f'ГДИ после ремонта по видам КРС · {label}', kinds, by, REPAIR_VERDICTS,
                                      REPAIR_COLORS, 'Вид ремонта', wells=members(table, 'kind', kinds, REPAIR_VERDICTS)))
-        effect = repair_effect_chart(table, year)
+        effect = repair_effect_chart(table, years)
         if effect is not None:
             result.charts.append(effect)
         cfg = getattr(data, 'settings', None) or {}
-        path = repair_path_table(rows, rep, year, cfg.get('season_schedule'), int(cfg.get('season_start', 11)), int(cfg.get('season_end', 4)))
-        pc = repair_path_chart(path, year)
+        path = repair_path_table(rows, rep, years, cfg.get('season_schedule'), int(cfg.get('season_start', 11)), int(cfg.get('season_end', 4)), limit)
+        pc = repair_path_chart(path, years)
         if pc is not None:
             result.charts.append(pc)
-            result.tables.append(Table('gdi-summary-repair-path', f'Путь после КРС {year} г.: до ремонта → после → следующий отбор', path, [
-                Column('well', 'Скважина'), Column('kind', 'Вид ремонта'), Column('repair_date', 'Дата ремонта', kind='date'), Column('date_note', 'Дата'),
+        if not path.empty:
+            followed = [FOLLOW_BOTH, FOLLOW_AFTER, FOLLOW_NEXT, FOLLOW_NONE]
+            fk = sorted(path.kind.unique())
+            fby = {(k, v): int(((path.kind == k) & (path.follow == v)).sum()) for k in fk for v in followed}
+            result.charts.append(stacked('gdi-summary-follow', f'Есть ли ГДИ после КРС и в следующем отборе · {label}', fk, fby, tuple(followed), FOLLOW_COLORS, 'Вид ремонта',
+                                         wells=members(path, 'kind', fk, tuple(followed), by='follow')))
+            nx = int(path.date_next.notna().sum())
+            result.summary += [Stat('ГДИ в следующем отборе', f'{nx} из {len(path)}', 'Ремонты выбранных сезонов, надёжное ГДИ периода отбора'),
+                               Stat('Эффект подтверждён в отборе', str(int(path.conclusion.str.startswith('эффект ремонта подтверждён').sum())), 'Улучшение после КРС и в следующем отборе'),
+                               Stat('Эффект не сохранился', str(int(path.conclusion.str.startswith('эффект после КРС не сохранился').sum())), 'Улучшение после КРС, в отборе нет')]
+            result.tables.append(Table('gdi-summary-repair-path', f'Анализ ГДИ до и после КРС {label}: эффект и следующий отбор', path, [
+                Column('well', 'Скважина'), Column('kind', 'Вид ремонта'), Column('year', 'Год ремонта', kind='number', decimals=0),
+                Column('repair_date', 'Дата ремонта', kind='date'), Column('date_note', 'Дата'),
                 Column('date_before', 'ГДИ до', kind='date'), Column('q_before', 'Q до', UNITS['q_gdi'], 1, 'number'),
-                Column('date_after', 'ГДИ после КРС', kind='date'), Column('q_after', 'Q после', UNITS['q_gdi'], 1, 'number'),
-                Column('date_next', 'ГДИ следующего отбора', kind='date'), Column('q_next', 'Q в отбор', UNITS['q_gdi'], 1, 'number')],
-                note='Ненадёжные исследования не входят. Пусто — надёжного ГДИ в этом периоде нет (кандидат на исследование).'))
+                Column('date_after', 'ГДИ после КРС', kind='date'), Column('q_after', 'Q после', UNITS['q_gdi'], 1, 'number'), Column('change_after', 'Изм. после КРС', '%', 1, 'number'),
+                Column('date_next', 'ГДИ следующего отбора', kind='date'), Column('q_next', 'Q в отбор', UNITS['q_gdi'], 1, 'number'), Column('change_next', 'Изм. в отбор', '%', 1, 'number'),
+                Column('follow', 'Исследования после ремонта'), Column('conclusion', 'Вывод (подсказка)')],
+                note='Изменения — к последнему надёжному ГДИ до ремонта при опорном ΔP². «Следующий отбор» — первое надёжное ГДИ периода отбора не позже '
+                     '18 месяцев после ремонта. Ненадёжные не входят; даты ремонта — фактические (справка КРС), без даты — 1 июля года. Вывод — подсказка, решает инженер.'))
         done = int((~table.verdict.isin([NO_AFTER])).sum())
-        result.summary += [Stat(f'Ремонтов КРС за {year} г.', str(len(table)), f'с надёжным ГДИ после: {done}'),
+        result.summary += [Stat(f'Ремонтов КРС за {label}', str(len(table)), f'с надёжным ГДИ после: {done}'),
                            Stat('Без ГДИ после ремонта', str(int(table.verdict.eq(NO_AFTER).sum())), 'Кандидаты на исследование')]
-        result.tables.append(Table('gdi-summary-repairs', f'Скважины с КРС за {year} г.: ГДИ до и после ремонта', table, [
+        result.tables.append(Table('gdi-summary-repairs', f'Скважины с КРС за {label}: ГДИ до и после ремонта', table, [
             Column('well', 'Скважина'), Column('kind', 'Вид ремонта'), Column('work_type', 'Работы по справке'),
             Column('repair_date', 'Дата ремонта', kind='date'), Column('date_note', 'Дата'),
             Column('before', 'ГДИ до', kind='date'), Column('after', 'ГДИ после', kind='date'),
