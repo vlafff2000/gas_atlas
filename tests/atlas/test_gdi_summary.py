@@ -335,12 +335,14 @@ def test_id_pairs_before_after_colors_and_manual_override():
     g, works = frames()
     rows = study_rows(g, 0.95)
     rep = repairs(works, None)
-    auto = krs_pairs(rows, rep, 2025)
+    auto = {x['well']: (x['before'], x['after']) for x in krs_pairs(rows, rep, {2025})}
     assert auto['1'] == (ts('2024-12-10'), ts('2025-12-10')) and auto['6'] == (ts('2025-03-01'), ts('2025-10-01')) and '5' not in auto
     manual = parse_pairs('1=10.12.2024; 10.12.2025\n7=bad')
-    assert manual == {'1': (ts('2024-12-10'), ts('2025-12-10'))} and krs_pairs(rows, rep, 2025, {'1': (ts('2024-12-10'), ts('2024-12-10'))})['1'][1] == ts('2024-12-10')
+    assert manual == {'1': (ts('2024-12-10'), ts('2025-12-10'))}
+    hand = krs_pairs(rows, rep, {2025}, {'1': (ts('2024-12-10'), ts('2024-12-10'))})
+    assert [(x['before'], x['after'], x['year']) for x in hand if x['well'] == '1'] == [(ts('2024-12-10'), ts('2024-12-10'), 0)]
     r = GdiSummaryModule().run(Data({G: g, W: works, DatasetKind.KRS_WORKS: works}), {**PARAMS, 'id_charts': 'yes', 'id_pairs': ''})
-    ch = next(c for c in r.charts if c.id == 'gdi-summary-id-1')
+    ch = next(c for c in r.charts if c.id == 'gdi-summary-id-1-2025')
     points = [s for s in ch.series if s.kind == 'points']
     assert [s.name for s in points] == ['до КРС · 10.12.2024', 'после КРС · 10.12.2025'] and [s.color for s in points] == ['#d62728', '#2ca02c']
     assert not any(c.id.startswith('gdi-summary-id') for c in GdiSummaryModule().run(Data({G: g, W: works}), PARAMS).charts)
@@ -366,23 +368,30 @@ def test_export_gdi_section_krs_pairs_plan():
     cfg = {'wells': ['1', '2'], 'n': 3, 'orientation': 'standard'}
     base = reporting.plan({'gdi': g}, {}, settings, {'modules': ['gdi'], 'wells': ['1', '2'], 'raw': False, 'gdi': cfg}, {'gdi': g})
     paired = reporting.plan({'gdi': g}, {}, settings, {'modules': ['gdi'], 'wells': ['1', '2'], 'raw': False,
-                                                       'gdi': {**cfg, 'krs_pairs': {'1': ['2024-12-10', '2025-12-10']}}}, {'gdi': g})
+                                                       'gdi': {**cfg, 'krs_pairs': [{'well': '1', 'before': '2024-12-10', 'after': '2025-12-10', 'year': 2025}]}}, {'gdi': g})
     assert [j.name for j in base.jobs] == ['ГДИ · 1', 'ГДИ · 2']
-    assert [j.name for j in paired.jobs] == ['ГДИ · 1 · до и после КРС']
+    assert [j.name for j in paired.jobs] == ['ГДИ · 1 · КРС 2025 · до и после КРС']
     fig = paired.jobs[0].factory()
     assert sorted(t.marker.color for t in fig.data if t.mode == 'markers') == ['#2ca02c', '#d62728']
     from atlas.api_export import krs_pairs_cfg
     data = Data({G: g, DatasetKind.KRS_WORKS: works})
     data.settings = settings
-    assert krs_pairs_cfg(data, ['1', '6'], '') == {'1': ['2024-12-10', '2025-12-10'], '6': ['2025-03-01', '2025-10-01']}
-    assert krs_pairs_cfg(data, ['1'], '1=01.01.2024; 02.02.2025')['1'] == ['2024-01-01', '2025-02-02']
+    got = krs_pairs_cfg(data, ['1', '6'], '', ['2025-2026'])
+    assert [(x['well'], x['before'], x['after'], x['year']) for x in got] == [('1', '2024-12-10', '2025-12-10', 2025), ('6', '2025-03-01', '2025-10-01', 2025)]
+    assert [x['before'] for x in krs_pairs_cfg(data, ['1'], '1=01.01.2024; 02.02.2025', [])] == ['2024-01-01']
 
 
-def test_id_pairs_curves_switch_db_off():
+def test_export_krs_pairs_only_selected_seasons_and_every_repair():
+    """Выгрузка ИД до/после КРС: только ремонты выбранных сезонов, по графику на каждый ремонт (не только первый), только их скважины."""
+    from atlas.api_export import krs_pairs_cfg
     g, works = frames()
-    base = {**PARAMS, 'id_charts': 'yes'}
-    def lines(extra):
-        r = GdiSummaryModule().run(Data({G: g, DatasetKind.KRS_WORKS: works}), {**base, **extra})
-        return [s for s in next(c for c in r.charts if c.id == 'gdi-summary-id-1').series if s.kind == 'line']
-    assert len(lines({})) == 4 and len(lines({'id_curves': ['calc']})) == 2 and len(lines({'id_curves': ['db']})) == 2 and lines({'id_curves': []}) == []
-    assert all(s.dashed for s in lines({'id_curves': ['db']}))
+    g = pd.concat([g, pd.DataFrame(gdi('1', '2023-12-10', 1.2) + gdi('7', '2023-12-10') + gdi('7', '2024-12-10', 0.9))], ignore_index=True)
+    works = pd.concat([works, pd.DataFrame([dict(well='1', year=2024, work_type='Промывка', detail=''), dict(well='7', year=2024, work_type='Замена фильтра', detail='')])],
+                      ignore_index=True)
+    data = Data({G: g, DatasetKind.KRS_WORKS: works})
+    data.settings = {'r2_threshold': 0.95, 'season_start': 11, 'season_end': 4}
+    only_2025 = krs_pairs_cfg(data, [], '', ['2025-2026'])
+    assert {x['well'] for x in only_2025} == {'1', '6'} and {x['year'] for x in only_2025} == {2025}
+    both = krs_pairs_cfg(data, [], '', ['2024-2025', '2025-2026'])
+    assert [(x['well'], x['year']) for x in both if x['well'] == '1'] == [('1', 2024), ('1', 2025)]
+    assert [(x['well'], x['year']) for x in krs_pairs_cfg(data, [], '', ['2024-2025'])] == [('1', 2024), ('7', 2024)]
