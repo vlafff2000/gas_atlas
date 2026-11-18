@@ -46,16 +46,16 @@ def build(prepared: pd.DataFrame) -> bytes:
     rows = _rows(prepared)
     wb = Workbook()
 
-    # «Интервалы»: hi × Кг — формула по каждой строке; Кг 0 и пустой — пустая ячейка
+    # «Интервалы»: hi × Кг — формула по каждой строке; Кг 0, пустой и hэф = 0 — пустая ячейка
     ws = wb.active
     ws.title = 'Интервалы'
-    _head(ws, ['Скважина', 'Сезон', 'Дата', 'Исследование', 'Пачка', 'От, м', 'До, м', 'hi, м', 'Кг', 'hi × Кг'],
-          [11, 14, 12, 14, 16, 9, 9, 9, 9, 11])
+    _head(ws, ['Скважина', 'Сезон', 'Дата', 'Исследование', 'Пачка', 'От, м', 'До, м', 'hi, м', 'Кг', 'hi × Кг', 'hэф, м'],
+          [11, 14, 12, 14, 16, 9, 9, 9, 9, 11, 9])
     for i, r in enumerate(rows.itertuples(index=False), 2):
         ws.append([str(r.well), r.season, r.date.to_pydatetime(), r.investigation, r.pack,
-                   _num(r.from_m), _num(r.to_m), _num(r.hi_m), _num(r.kg)])
+                   _num(r.from_m), _num(r.to_m), _num(r.hi_m), _num(r.kg), None, _num(getattr(r, 'h_eff_m', None))])
         ws.cell(i, 3).number_format = 'DD.MM.YYYY'
-        ws.cell(i, 10).value = f'=IF(AND(ISNUMBER(H{i}),ISNUMBER(I{i})),IF(I{i}>0,H{i}*I{i},""),"")'
+        ws.cell(i, 10).value = f'=IF(AND(ISNUMBER(H{i}),ISNUMBER(I{i})),IF(AND(I{i}>0,NOT(AND(ISNUMBER(K{i}),K{i}=0))),H{i}*I{i},""),"")'
         ws.cell(i, 10).number_format = '0.00'
     last = len(rows) + 1
 
