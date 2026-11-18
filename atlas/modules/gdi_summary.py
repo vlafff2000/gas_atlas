@@ -703,32 +703,46 @@ def parse_pairs(text) -> dict[str, tuple[pd.Timestamp, pd.Timestamp]]:
     return out
 
 
-def krs_pairs(rows: pd.DataFrame, rep: pd.DataFrame, year: int = 0, manual: dict | None = None,
-              wells: list[str] | None = None) -> dict[str, tuple[pd.Timestamp, pd.Timestamp]]:
-    """Пара исследований для ИД: подсказка — последнее надёжное ГДИ до ремонта и первое надёжное после него (последний ремонт скважины с обеими датами;
-    ``year`` — только ремонты этого года). Ручной выбор главнее. Ненадёжные в подсказку не попадают; решает инженер."""
-    out: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
+def season_years(seasons) -> set[int]:
+    """Годы ремонтов выбранных сезонов: год начала сезона («2025-2026» и сезон закачки «2025» → 2025, лето перед сезоном)."""
+    return {int(m.group(1)) for sn in seasons or [] if (m := re.search(r'(\d{4})', str(sn)))}
+
+
+def krs_pairs(rows: pd.DataFrame, rep: pd.DataFrame, years: set[int] | None = None, manual: dict | None = None,
+              wells: list[str] | None = None) -> list[dict[str, Any]]:
+    """Пары исследований для ИД, по одной на каждый ремонт: последнее надёжное ГДИ до ремонта и первое надёжное после него.
+    ``years`` — только ремонты этих лет (пусто или None — все); ``wells`` — только эти скважины. Ручная пара скважины заменяет её подсказки.
+    Ненадёжные в подсказку не попадают; решает инженер. Запись: {'well', 'before', 'after', 'year'} (год ремонта; у ручной пары — 0)."""
+    out: list[dict[str, Any]] = []
     if not rep.empty and not rows.empty:
-        r = rep[rep.year.eq(year)] if year else rep
-        for repair in r.sort_values('date').itertuples():
+        r = rep[rep.year.isin(years)] if years else rep
+        for repair in r.sort_values(['date', 'well']).itertuples():
             ok = rows[rows.well.eq(repair.well) & rows.reliable & rows.q_ref.notna()].drop_duplicates('date').sort_values('date')
             before, after = ok[ok.date <= repair.date], ok[ok.date > repair.date]
             if len(before) and len(after):
-                out[repair.well] = (before.date.iloc[-1], after.date.iloc[0])
-    out.update(manual or {})
-    if wells is not None:
-        out = {w: v for w, v in out.items() if w in set(wells)}
-    return dict(sorted(out.items(), key=lambda kv: well_key(kv[0])))
+                item = {'well': repair.well, 'before': before.date.iloc[-1], 'after': after.date.iloc[0], 'year': int(repair.year)}
+                if item not in out:
+                    out.append(item)
+    hand = manual or {}
+    out = [x for x in out if x['well'] not in hand] + [{'well': w, 'before': v[0], 'after': v[1], 'year': 0} for w, v in hand.items()]
+    if wells:
+        out = [x for x in out if x['well'] in set(wells)]
+    return sorted(out, key=lambda x: (well_key(x['well']), x['year']))
 
 
-def id_pair_charts(gdi: pd.DataFrame, data_raw: pd.DataFrame, pairs: dict, params: dict[str, Any]) -> list[Chart]:
-    """ИД двух исследований на скважину: общий построитель ИД раздела «ГДИ» (красный — до КРС, зелёный — после КРС)."""
+def pair_name(item: dict[str, Any]) -> str:
+    return f"{item['well']} · КРС {item['year']}" if item.get('year') else f"{item['well']} · пара вручную"
+
+
+def id_pair_charts(gdi: pd.DataFrame, data_raw: pd.DataFrame, pairs: list[dict[str, Any]], params: dict[str, Any]) -> list[Chart]:
+    """ИД двух исследований на каждую пару: общий построитель ИД раздела «ГДИ» (красный — до КРС, зелёный — после КРС)."""
     from .gdi import GdiModule
     charts = []
     curves = params.get('id_curves', ['calc', 'db'])
     g = legacy.prepare(gdi)
     raw = legacy.prepare(data_raw) if data_raw is not None else g
-    for well, pair in pairs.items():
+    for item in pairs:
+        well, pair = item['well'], (item['before'], item['after'])
         pts = g[g.well.astype(str).eq(well) & (g.date.isin(pair))]
         if pts.empty:
             continue
@@ -736,7 +750,9 @@ def id_pair_charts(gdi: pd.DataFrame, data_raw: pd.DataFrame, pairs: dict, param
         chart = GdiModule.chart(pts, studies, raw[raw.well.astype(str).eq(well)], well,
                                 {'orientation': params.get('id_orientation', 'standard'), 'curves': 'calc' in curves, 'db_curves': 'db' in curves, 'crosshair': True,
                                  'show_excluded': False, 'pair': pair})
-        chart.id, chart.title = f'gdi-summary-id-{well}', f'Скважина № {well}: ИД до КРС ({pair[0]:%d.%m.%Y}) и после КРС ({pair[1]:%d.%m.%Y})'
+        tag = f"-{item['year']}" if item['year'] else ''
+        chart.id = f'gdi-summary-id-{well}{tag}'
+        chart.title = f'Скважина № {well}: ИД до КРС ({pair[0]:%d.%m.%Y}) и после КРС ({pair[1]:%d.%m.%Y})' + (f" · ремонт {item['year']} г." if item['year'] else '')
         charts.append(chart)
     return charts
 
@@ -899,12 +915,13 @@ class GdiSummaryModule(Module):
         if int(params.get('model_top', 15) or 0) > 0:
             model_block(result, data[GDI], rows, data.get(MODEL), seasons, int(params.get('model_top', 15)))
         if (params.get('id_charts') or 'no') == 'yes':
-            year = int(params.get('repair_year') or 0) or min([int(y) for sn in seasons for y in re.findall(r'\d{4}', sn)] or [0])
-            pairs = krs_pairs(rows, rep, year, parse_pairs(params.get('id_pairs')))
+            year = int(params.get('repair_year') or 0)
+            years = {year} if year else season_years(seasons)           # ремонты выбранных сезонов (лето перед сезоном), а не все ремонты скважин
+            pairs = krs_pairs(rows, rep, years, parse_pairs(params.get('id_pairs')))
             charts = id_pair_charts(data[GDI], data.raw.get(GDI), pairs, params) if pairs else []
             result.charts += charts
             if not charts:
-                result.notes.append(Note(f'ИД до и после КРС: для ремонтов {year} г. нет скважин с надёжным ГДИ до и после. Укажите пары вручную.'))
+                result.notes.append(Note(f'ИД до и после КРС: для ремонтов {', '.join(map(str, sorted(years)))} г. нет скважин с надёжным ГДИ до и после. Укажите пары вручную.'))
         age_block(result, rows, rep, program, seasons)
         matrix_block(result, rows, program, rep, parse_manual(params.get('done_manual', '')))
         return result
