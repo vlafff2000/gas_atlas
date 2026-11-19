@@ -129,3 +129,9 @@ def test_gdi_coefficients_only_study_is_kept(tmp_path):
 def test_gdi_coefficients_with_negative_b_rejected(tmp_path):
     p=put(tmp_path,'Скважина;Дата;Q;ΔP2;a;b\n31;10.12.2021;;;0,7;-0,012\n')
     assert load_file(p).rejected==1
+
+def test_gdi_file_with_only_a_and_b_columns(tmp_path):
+    """Файл ГДИ только с коэффициентами: нет ни Q, ни давлений, ни ΔP² — исследование принимается как «по коэффициентам»."""
+    p=put(tmp_path,'Скважина;Дата;a;b\n31;10.12.2021;0,7;0,012\n31;10.12.2022;0,8;0,012\n')
+    r=load_file(p); d=r.frames['gdi']
+    assert r.rejected==0 and len(d)==2 and d.q.isna().all() and d.dp2.isna().all() and list(d.a_db)==[0.7,0.8]

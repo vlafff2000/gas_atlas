@@ -86,3 +86,21 @@ def test_quality_filter_splits_by_r2_threshold():
     only_low = module.run(Data({DatasetKind.GDI: degraded()}), {**PARAMS, 'quality': 'low', 'threshold': 1.01})
     assert table(only_low, 'studies').shape[0] == len(history) and not only_low.charts
     assert table(only_low, 'rating').verdict.eq(VERDICTS['few']).all()
+
+
+def coef_only():
+    rows = [dict(well='9', date=pd.Timestamp(d), method='М', study='', q=np.nan, dp2=np.nan, a_db=a, b_db=.012, p_res=np.nan, p_bh=np.nan)
+            for d, a in (('2024-12-01', .7), ('2025-12-01', 1.5))]
+    return pd.DataFrame(rows)
+
+
+def test_only_a_and_b_studies_show_coef_change_and_need_reference_dp2():
+    """ГДИ только с a и b (нет Q, давлений): без опорного ΔP² — изменение a и b, с ним — изменение расхода."""
+    data = Data({DatasetKind.GDI: coef_only()}, {})
+    res = GdiTrendModule().run(data, PARAMS)
+    t = table(res, 'rating').iloc[0]
+    assert t.verdict == VERDICTS['coef'] and abs(t.a_change - 114.286) < .01 and pd.isna(t.change)
+    assert any('Опорный ΔП²'.replace('П', 'P') in n.text or 'Опорный ΔP²' in n.text for n in res.notes)
+    res2 = GdiTrendModule().run(data, {**PARAMS, 'dp2_ref': 500.0})
+    t2 = table(res2, 'rating').iloc[0]
+    assert t2.change < 0 and t2.verdict == VERDICTS['down'] and t2.dp2 == 500.0

@@ -31,7 +31,7 @@ def auto_spec(raw,module):
     """Same structure the detailed editor produces, built from the detected layout."""
     head=raw.values.tolist();layout=detect_layout(head,module)
     if layout['module'] is None:raise ValueError('Колонки не подходят для типа «'+type_label(module)+'»')
-    required={**REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'water_factor':{'date','gas_in_place'},'groups':{'well'}}.get(layout['module'],set())
+    required={**REQUIRED,'production':{'well','date','q'},'gdi':{'well','date'} if {'a_db','b_db'}<=layout['mapping'].keys() else {'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'water_factor':{'date','gas_in_place'},'groups':{'well'}}.get(layout['module'],set())
     missing=required-layout['mapping'].keys()
     if not layout['wide'] and missing:raise ValueError('Не найдены колонки: '+', '.join(FIELDS.get(f,f) for f in sorted(missing)))
     if layout['module']=='gdi' and not ('dp2' in layout['mapping'] or {'p_res','p_bh'}<=layout['mapping'].keys() or {'a_db','b_db'}<=layout['mapping'].keys()):raise ValueError('Для ГДИ нужны Рпл и Рзаб, ΔP² либо коэффициенты a и b')
