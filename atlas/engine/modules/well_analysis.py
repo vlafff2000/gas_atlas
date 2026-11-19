@@ -140,7 +140,7 @@ def seasons(d,all_data):
             'object_share':volume/obj*100 if obj>0 else np.nan,'_end':g.date.max()})
     return pd.DataFrame(rows).sort_values('_end').drop(columns='_end') if rows else pd.DataFrame(columns=SEASON_LABELS)
 
-def gdi_history(df,threshold=.95,delta=None):
+def gdi_history(df,threshold=.95,delta=None,extrapolate=False):
     if df.empty:return pd.DataFrame()
     history=gdi.analyze(df,threshold)
     valid_points=df[df.q.gt(0)&df.dp2.gt(0)&np.isfinite(df.q)&np.isfinite(df.dp2)]
@@ -162,7 +162,7 @@ def gdi_history(df,threshold=.95,delta=None):
         history.loc[part.index,'reference_dp2']=ref
         for i,r in pd.concat([valid,coef]).iterrows():
             if not np.isfinite(ref):continue
-            if not r['by_coef'] and not r['min']<=ref<=r['max']:continue
+            if not extrapolate and not r['by_coef'] and not r['min']<=ref<=r['max']:continue
             history.loc[i,'q_reference']=2*ref/(r.a+np.sqrt(r.a*r.a+4*r.b*ref)) if r.b>0 else ref/r.a
     return history.sort_values(['date','method','study']).reset_index(drop=True)
 

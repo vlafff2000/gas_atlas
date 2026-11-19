@@ -104,3 +104,17 @@ def test_only_a_and_b_studies_show_coef_change_and_need_reference_dp2():
     res2 = GdiTrendModule().run(data, {**PARAMS, 'dp2_ref': 500.0})
     t2 = table(res2, 'rating').iloc[0]
     assert t2.change < 0 and t2.verdict == VERDICTS['down'] and t2.dp2 == 500.0
+
+
+def test_boundary_rate_picks_reference_dp2_automatically_beyond_data():
+    """Граничный расход: опорный ΔP² = ΔP² первого надёжного исследования при Q; кривая продолжается за режимы, данными не ограничена."""
+    rows = []
+    for d, k in (('2024-12-01', 1.0), ('2025-12-01', 1.3)):
+        for q in (20., 50., 80., 120.):
+            rows.append(dict(well='1', date=pd.Timestamp(d), method='М', study='', q=q, dp2=(.7 * q + .012 * q * q) * k, a_db=np.nan, b_db=np.nan))
+    data = Data({DatasetKind.GDI: pd.DataFrame(rows)}, {})
+    t = table(GdiTrendModule().run(data, {**PARAMS, 'q_max': 300.0}), 'rating').iloc[0]
+    assert abs(t.q_first - 300) < 1e-6 and t.q_last < 300 and t.change < -10 and t.verdict == VERDICTS['down']
+    assert abs(t.dp2 - (.7 * 300 + .012 * 300 ** 2)) < 1e-6
+    t0 = table(GdiTrendModule().run(Data({DatasetKind.GDI: coef_only()}, {}), {**PARAMS, 'q_max': 300.0}), 'rating').iloc[0]
+    assert abs(t0.q_first - 300) < 1e-6 and t0.change < 0
