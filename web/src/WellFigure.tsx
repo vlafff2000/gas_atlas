@@ -56,7 +56,10 @@ function useDepthView(full: [number, number], g: { vbH: number; y0: number; h: n
 }
 
 /** Забойная часть: рисуется по фигурам ядра (те же, что на странице PDF), глубина вниз. */
-export function WellSchematic({ s: base }: { s: Schematic }) {
+export function WellSchematic({ s: root }: { s: Schematic }) {
+  const [setKey, setSetKey] = useState<string | null>(null)       // набор конструкции: «по промысловым данным» / «по данным ГИС» / «комбинированный» (все приходят с сервера)
+  const activeSet = setKey && root.sets?.some(x => x.key === setKey) ? setKey : root.set ?? null
+  const base = root.sets?.find(x => x.key === activeSet)?.scheme ?? root
   const [detail, setDetail] = useState<'full' | 'simple' | null>(null)      // переключатель «Подробная / Упрощённая» (обе схемы приходят с сервера)
   const mode = detail ?? base.detail ?? 'full'
   const s = base.alt && mode !== (base.detail ?? 'full') ? base.alt : base
@@ -90,6 +93,12 @@ export function WellSchematic({ s: base }: { s: Schematic }) {
   return (
     <div className={full ? 'schematic-full' : 'schematic-wrap'}>
     <div className="schematic-bar">
+      {root.sets && root.sets.length > 1 && <div className="kind-group" role="radiogroup" aria-label="Набор данных конструкции">
+        <span className="kind-label">Данные</span>
+        {root.sets.map(x => (
+          <button key={x.key} type="button" role="radio" aria-checked={activeSet === x.key} className={'kind' + (activeSet === x.key ? ' on' : '')} onClick={() => setSetKey(x.key)}
+                  title="Каждый набор целиком из своего источника, без смешивания">{x.label}</button>))}
+      </div>}
       {base.alt && <div className="kind-group" role="radiogroup" aria-label="Состав схемы">
         <span className="kind-label">Состав схемы</span>
         {([['full', 'Подробная'], ['simple', 'Упрощённая']] as const).map(([k, t]) => (

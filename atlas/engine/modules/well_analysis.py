@@ -169,6 +169,7 @@ def gdi_history(df,threshold=.95,delta=None,extrapolate=False):
 def latest_snapshot(df,well,asof):
     if df.empty:return df
     d=select_wells(df,[well]);d=d[d.date.le(pd.Timestamp(asof))]
+    if 'data_set' in d and d.data_set.notna().any():d=d[d.data_set.fillna('').astype(str).str.strip().isin(['','комбинированный (подсказки)'])]      # сигналы и графики — по набору по умолчанию (наборы по промысловым / ГИС не складываются)
     return d[d.date.eq(d.date.max())].copy() if not d.empty else d
 
 def resource_info(frames,well,asof=None):

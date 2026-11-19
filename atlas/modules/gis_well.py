@@ -74,7 +74,8 @@ def construction_chart(well: str, construction: pd.DataFrame | None, bottom: pd.
         gis_rows += [{'element': 'Перфорация', 'top_m': p['top'], 'bottom_m': p['bottom']} for p in perf]
     if gis_rows:
         rows = pd.concat([rows, pd.DataFrame(gis_rows)], ignore_index=True)
-    scheme = passport_card.schematic(rows, bottom_m, break_m, gis_columns.prepare(well, intervals, filling, annotations), bottom_date=stamp, detail=detail)
+    columns = gis_columns.prepare(well, intervals, filling, annotations)
+    scheme = passport_card.with_sets(rows, lambda r: passport_card.schematic(r, bottom_m, break_m, columns, bottom_date=stamp, detail=detail))
     stamp = f' на {date:%d.%m.%Y}' if len(cons) else ''
     chart = Chart(f'gis-construction-{well}-{date:%Y%m%d}' if len(cons) else f'gis-construction-{well}',
                   f'Скважина №{well}: конструкция у забоя{stamp}' + (' · «Ресурс»' if resource else ''), Axis('', ''), Axis('Глубина', 'м', inverse=True))

@@ -27,6 +27,8 @@ export interface Schematic {
   checks?: { code: string; level: 'warning' | 'info'; text: string; top: number | null; bottom: number | null }[]   // подсказки-проверки, без автоисправления
   detail?: 'full' | 'simple'     // какой состав показан сначала
   alt?: Schematic                // та же схема в другом составе («Подробная» / «Упрощённая»)
+  set?: string                   // набор конструкции, показанный сначала
+  sets?: { key: string; label: string; scheme: Schematic | null }[]     // наборы: по промысловым данным / по данным ГИС / комбинированный; scheme null — этот же (показанный)
 }
 export interface Kpi { label: string; value: number | null; text?: string; unit?: string; digits?: number; hint?: string; extra?: string }
 export interface SeasonRow { kind: 'withdrawal' | 'injection'; period: string; volume: number | null; days: number; max_rate: number | null

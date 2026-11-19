@@ -155,6 +155,28 @@ SIMPLE = ('casing', 'tubing', 'filter', 'perf', 'artificial', 'pay')     # уп�
 DETAILS = (('full', 'Подробная'), ('simple', 'Упрощённая'))
 
 
+DEFAULT_SET = 'комбинированный (подсказки)'      # набор конструкции по умолчанию (прежний вид); остальные — по промысловым данным и по данным ГИС, без скрещиваний
+
+
+def with_sets(rows: pd.DataFrame | None, make) -> dict[str, Any]:
+    """Схема по наборам конструкции (столбец ``data_set``: «по промысловым данным», «по данным ГИС», «комбинированный (подсказки)»). ``make(rows)`` строит схему
+    одного набора; строки без набора (пачки ГИС, перфорация из ГИС) общие для всех. Первым показывается комбинированный (или первый по порядку); остальные — в ``sets``,
+    экран переключает без нового запроса. Нет столбца или набор один — обычная схема."""
+    if rows is None or 'data_set' not in rows.columns:
+        return make(rows)
+    key = rows['data_set'].fillna('').astype(str).str.strip()
+    names = list(dict.fromkeys(k for k in key if k))
+    if len(names) < 2:
+        return make(rows.drop(columns=['data_set']))
+    shared = rows[key == ''].drop(columns=['data_set'])
+    build = lambda k: make(pd.concat([rows[key == k].drop(columns=['data_set']), shared], ignore_index=True))
+    first = DEFAULT_SET if DEFAULT_SET in names else names[0]
+    out = build(first)
+    out['set'] = first
+    out['sets'] = [{'key': k, 'label': k, 'scheme': (None if k == first else build(k))} for k in names]
+    return out
+
+
 def schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: float = BREAK_M, gis: dict[str, Any] | None = None,
               bottom_date: str = '', detail: str = 'full') -> dict[str, Any]:
     """Схема в выбранном составе + вторая (``alt``) в другом: экран переключает «Подробная / Упрощённая» без нового запроса.
@@ -597,7 +619,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     construction = construction[construction['date'] == construction['date'].max()] if not construction.empty else first['construction']
     from atlas import gis_columns
     columns = gis_columns.prepare(well, gis[0], gis[1], gis[2] if len(gis) > 2 else None)   # колонки ГИС и техсостояние: те же, что в разделе «ГИС»
-    cons = schematic(construction, bottom_m, gis=columns, bottom_date=stamp) if not construction.empty else schematic(pd.DataFrame(
+    cons = with_sets(construction, lambda r: schematic(r, bottom_m, gis=columns, bottom_date=stamp)) if not construction.empty else schematic(pd.DataFrame(
         columns=['element', 'top_m', 'bottom_m']), bottom_m)
     krs = krs_rows(krs[0], krs[1], well)
     out_rows = [r for r in seasons if r['kind'] == 'withdrawal']

@@ -486,3 +486,42 @@ def test_import_autodetects_script_built_databases(tmp_path):
         rows, problems, _options, errors = imports.simple([{'token': token}], 'auto')
         assert not errors and {r['sheet']: r['module'] for r in rows} == want, (path.name, [(r['sheet'], r['module']) for r in rows])
         assert {r['sheet'] for r in rows if r.get('use')} == {k for k, v in want.items() if v != 'unknown'}
+
+
+
+
+
+
+def test_scheme_carries_three_construction_sets_without_crossing():
+    """Наборы конструкции (столбец «Набор»): по промысловым данным / по данным ГИС / комбинированный. Схема отдаёт все три в одном ответе; общие строки (пачки ГИС) — во всех."""
+    rows = pd.DataFrame([
+        ('комбинированный (подсказки)', 'Эксплуатационная колонна', 0, 793.9), ('комбинированный (подсказки)', 'Фильтр', 758.2, 772.45),
+        ('по промысловым данным', 'Эксплуатационная колонна', 0, 793.9), ('по промысловым данным', 'Фильтр', 759.45, 772.45), ('по промысловым данным', 'Искусственный забой', 782.0, 782.0),
+        ('по данным ГИС', 'Фильтр', 758.2, 763.2), (None, 'Пласт, пачка «Верхняя»', 761.0, 785.0)], columns=['data_set', 'element', 'top_m', 'bottom_m'])
+    sch = pc.with_sets(rows, lambda r: pc.schematic(r, 763.4))
+    assert sch['set'] == 'комбинированный (подсказки)' and [x['key'] for x in sch['sets']] == ['комбинированный (подсказки)', 'по промысловым данным', 'по данным ГИС']
+    by = {x['key']: x['scheme'] for x in sch['sets']}
+    flt = lambda s: [(i['top'], i['bottom']) for i in s['items'] if i['kind'] == 'filter']
+    assert flt(sch) == [(758.2, 772.45)] and flt(by['по промысловым данным']) == [(759.45, 772.45)] and flt(by['по данным ГИС']) == [(758.2, 763.2)]
+    assert all(any(i['kind'] == 'pay' for i in s['items']) for s in (sch, by['по промысловым данным'], by['по данным ГИС']))          # общая строка — во всех наборах
+    assert not [i for i in by['по данным ГИС']['items'] if i['kind'] in ('casing', 'artificial')]                                    # ГИС их не определил — в наборе ГИС их нет
+    assert 'sets' not in pc.with_sets(rows[rows.data_set == 'по данным ГИС'], lambda r: pc.schematic(r, 763.4))
+
+
+def test_import_keeps_same_element_in_different_construction_sets(tmp_path):
+    """Столбец «Набор» входит в ключ дублей: одинаковый элемент в наборах «по промысловым данным» и «по данным ГИС» — две строки, не дубль."""
+    from atlas.imports import Imports
+    path = tmp_path / 'Конструкция_наборы.xlsx'
+    pd.DataFrame([['410', '2026-08-20', 'Эксплуатационная колонна', 0, 793.9, 168, 150, 'по промысловым данным'],
+                  ['410', '2026-08-20', 'Эксплуатационная колонна', 0, 793.9, 168, 150, 'комбинированный (подсказки)'],
+                  ['410', '2026-08-20', 'Фильтр', 758.2, 763.2, None, None, 'по данным ГИС']],
+                 columns=['Скважина', 'Дата конструкции', 'Элемент', 'Верх интервала, м', 'Низ интервала, м', 'Наружный диаметр, мм', 'Внутренний диаметр, мм', 'Набор']
+                 ).to_excel(path, sheet_name='Конструкция', index=False)
+    imports = Imports(Projects(tmp_path / 'storage'))
+    token = imports.upload(path.name, path.read_bytes())['token']
+    pid = imports.projects.create_demo()
+    pending = imports.check(pid, {'files': [{'token': token}], 'mode': 'auto', 'view': 'simple'})
+    imports.apply(pid, {'pending': pending['id'], 'accept': True})
+    c = imports.projects.data(pid)['construction']
+    c = c[c.well.astype(str) == '410']
+    assert sorted(c.data_set) == ['комбинированный (подсказки)', 'по данным ГИС', 'по промысловым данным']
