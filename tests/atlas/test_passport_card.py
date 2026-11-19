@@ -463,3 +463,26 @@ def test_perforated_liner_is_its_own_kind_not_perforation():
     assert 'perf_liner' in names and 'perf' in names
     assert any(l['text'].startswith('Хвостовик перфорированный 773') for l in sch['labels']) and any(l['text'].startswith('Перфорация 761') for l in sch['labels'])
     assert not [c for c in sch['checks'] if c['code'] == 'reaming_and_perf']
+
+
+
+
+def test_import_autodetects_script_built_databases(tmp_path):
+    """БД из скриптов подхватываются импортом сами: «Конструкция_для_Атласа» (с столбцом «Набор») — как конструкция, лист «Замеры забоя» книги шаблонирования — как забой;
+    справочные листы книги (БД шаблонирования с английскими/техническими полями) — «не распознана», без ошибок и без ложного забоя."""
+    from atlas.imports import Imports
+    cons = tmp_path / 'Конструкция_v14_для_Атласа.xlsx'
+    pd.DataFrame([['410', '2026-08-20', 'Фильтр', 758.2, 772.45, None, None, 'комбинированный (подсказки)', 'источник: ГИС']],
+                 columns=['Скважина', 'Дата конструкции', 'Элемент', 'Верх интервала, м', 'Низ интервала, м', 'Наружный диаметр, мм', 'Внутренний диаметр, мм', 'Набор', 'Комментарий']
+                 ).to_excel(cons, sheet_name='Конструкция', index=False)
+    tem = tmp_path / 'БД_шаблонирования_v5.xlsx'
+    with pd.ExcelWriter(tem) as xw:
+        pd.DataFrame([['410', '2026-08-20', 'доход шаблона', 763.4, 'БД ГИС из отчётов', 'Да']], columns=['Скважина', 'Дата', 'Вид', 'Глубина, м', 'Источник данных', 'Принято']).to_excel(xw, sheet_name='БД шаблонирования', index=False)
+        pd.DataFrame([['410', '2026-08-20', 763.4, None, 'остановка прибора', 'доход шаблона; БД ГИС из отчётов']],
+                     columns=['Скважина', 'Дата', 'Текущий забой, м', 'Диаметр шаблона, мм', 'Метод замера', 'Комментарий']).to_excel(xw, sheet_name='Замеры забоя', index=False)
+    imports = Imports(Projects(tmp_path / 'storage'))
+    for path, want in ((cons, {'Конструкция': 'construction'}), (tem, {'БД шаблонирования': 'unknown', 'Замеры забоя': 'bottom'})):
+        token = imports.upload(path.name, path.read_bytes())['token']
+        rows, problems, _options, errors = imports.simple([{'token': token}], 'auto')
+        assert not errors and {r['sheet']: r['module'] for r in rows} == want, (path.name, [(r['sheet'], r['module']) for r in rows])
+        assert {r['sheet'] for r in rows if r.get('use')} == {k for k, v in want.items() if v != 'unknown'}
