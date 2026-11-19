@@ -244,6 +244,15 @@ def sort_legend(handles,labels):
     order=sorted(range(len(labels)),key=lambda i:_legend_key(labels[i]))
     return [handles[i] for i in order],[labels[i] for i in order]
 
+def bar_look(t):
+    """Ширина (доля), граница и непрозрачность столбцов из общего стиля графиков (atlas/chart_format.py); без него — как раньше."""
+    meta=t.meta if isinstance(t.meta,dict) else {};own=set(meta.get('own',()));kw={}
+    scale=meta.get('bar_width') if isinstance(meta.get('bar_width'),(int,float)) else 1.0
+    if 'border' in own:kw.update(edgecolor=t.marker.line.color or '#333333',linewidth=(t.marker.line.width or 0)*.75)
+    if 'alpha' in own and isinstance(t.opacity,(int,float)):kw['alpha']=t.opacity
+    return scale,kw
+
+
 def figure_bytes(fig,fmt='png',*args,**kwargs):
     """Файл графика (описание ниже у ``_figure_bytes``); числа делятся по разрядам, пока в оформлении не выключено ``group_digits``."""
     meta=fig.layout.meta if isinstance(fig.layout.meta,dict) else {}
@@ -331,6 +340,7 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                     for bar in combo_bars.draw(target,t,x,y,label,decode_arrays(t.marker.color),date_axis):mark(bar,'series:'+sid,**part)
                 elif t.type=='bar':
                     bi=next(i for i,b in enumerate(bars) if b is t);w=.8/max(1,len(bars))
+                    bar_scale,bar_kw=bar_look(t)      # общий стиль столбцов (atlas/chart_format.py, fmt_all)
                     if date_axis:
                         from matplotlib.dates import date2num
                         pos=date2num(pd.to_datetime(x).to_pydatetime())
@@ -341,9 +351,9 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                     else:pos=np.array([categories.index(str(v)) for v in x],dtype=float)
                     if isinstance(t.meta,dict) and t.meta.get('cat_stack') and not date_axis and not numeric_bars:
                         under=cat_stack.setdefault(t.meta["cat_stack"],{});below=np.array([under.get(p,0.0) for p in pos]);top=np.nan_to_num(np.asarray(y,dtype=float))
-                        drawn=target.bar(pos,top,width=.8,bottom=below,label=label,color=decode_arrays(t.marker.color))
+                        drawn=target.bar(pos,top,width=.8*bar_scale,bottom=below,label=label,color=decode_arrays(t.marker.color),**bar_kw)
                         for p,v in zip(pos,top):under[p]=under.get(p,0.0)+v
-                    else:drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w,label=label,color=decode_arrays(t.marker.color))
+                    else:drawn=target.bar(pos-(widths/2 if numeric_bars else .4)+w/2+bi*w,y,width=w*bar_scale,label=label,color=decode_arrays(t.marker.color),**bar_kw)
                     for bar in drawn:bar._own=set(t.meta.get('own',())) if isinstance(t.meta,dict) else set();mark(bar,'series:'+sid,**part)     # ручной цвет столбцов: вид Excel его не перекрашивает
                     if isinstance(t.meta,dict) and t.meta.get('hatch'):
                         from .export_style import HATCH_MPL

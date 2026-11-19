@@ -17,6 +17,11 @@
 ``fmt_minor_grid_width``; жирный и курсив — ``fmt_axis_title_bold``, ``fmt_axis_title_italic``, ``fmt_tick_bold``, ``fmt_tick_italic``):
 те же правила и проверки, что у «Любой график» (``atlas/chart_style.py``); попадают в ``layout.meta['style']`` и рисуются
 ``atlas.engine.core.export_style``.
+Общий стиль всех графиков (поле ``fmt_all``, JSON): ``{"width": 2, "dash": "dash", "marker": 4, "shape": "square", "hollow": true,
+"markerColor": "#rrggbb", "marker_border": "#rrggbb", "marker_border_width": 1, "opacity": 0.8, "bar_opacity": 0.7, "bar_width": 0.6,
+"bar_border": "#rrggbb", "bar_border_width": 1}``: линии (толщина, штрих), маркеры (размер, форма, заливка, граница), столбцы гистограмм
+(непрозрачность, ширина, граница). Это самый нижний уровень: правила наборов данных, «Отдельные графики» и ручные настройки ряда сильнее.
+Пустое поле — не менять ничего (сброс).
 Оформление накладывается на уже построенный график (как подписи, ``chart_labels``), пересчёта не требует.
 """
 
@@ -28,7 +33,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Mapping
 
-from .chart_style import clean_axis, clean_chart, clean_look
+from .chart_style import DASHES, LABELS, SHAPES, _fill, clean_axis, clean_chart, clean_look
 
 ANGLES = ('auto', '0', '30', '45', '60', '90')
 LEGENDS = ('bottom', 'top', 'right', 'hide')
@@ -171,6 +176,25 @@ def parse_overrides(text: Any) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+ALL_STYLE = {'width': ('num', 0, 10), 'dash': DASHES, 'marker': ('num', 0, 20), 'shape': SHAPES, 'hollow': 'bool', 'markerColor': 'color',
+             'marker_border': 'color', 'marker_border_width': ('num', 0, 6), 'opacity': ('num', 0.05, 1),
+             'bar_opacity': ('num', 0.05, 1), 'bar_width': ('num', 0.1, 1), 'bar_border': 'color', 'bar_border_width': ('num', 0, 6)}
+LABELS.update({'bar_opacity': 'непрозрачность столбцов', 'bar_width': 'ширина столбцов', 'bar_border': 'граница столбцов',
+               'bar_border_width': 'толщина границы столбцов', 'marker': 'размер маркеров'})
+ALL_LOOK = ('dash', 'shape', 'hollow', 'markerColor', 'marker_border', 'marker_border_width', 'opacity')
+
+
+def parse_all(text: Any) -> Dict[str, Any]:
+    """Поле ``fmt_all``: общий стиль линий, маркеров и столбцов всех графиков (JSON-текст или словарь); пусто — ничего."""
+    if not str(text or '').strip():
+        return {}
+    try:
+        doc = json.loads(text) if isinstance(text, str) else dict(text)
+    except ValueError:
+        raise FormatError('Общий стиль графиков: неверный формат') from None
+    return _fill(doc, 'Общий стиль', ALL_STYLE) if isinstance(doc, dict) else {}
+
+
 def merge(cfg: Mapping[str, Any], own: Mapping[str, Any]) -> Dict[str, Any]:
     """Настройки типа графиков + свои настройки одного графика (они сильнее)."""
     out = dict(cfg)
@@ -193,6 +217,9 @@ def common(form: Mapping[str, Any]) -> Dict[str, Any]:
         out['title'] = 'hide'
     if form.get('fmt_legend') in LEGENDS and form.get('fmt_legend') != 'bottom':
         out['legend'] = form['fmt_legend']
+    whole = parse_all(form.get('fmt_all'))
+    if whole:
+        out['all'] = whole
     style = style_of(form)
     if style:
         out['style'] = style
@@ -282,8 +309,20 @@ def apply(figure, cfg: Mapping[str, Any]):
         meta['style'] = _merged_style(meta.get('style'), cfg['style'])
     if look or cfg.get('style'):
         fig.layout.meta = meta
-    rules = cfg.get('series', [])
+    rules = list(cfg.get('series', []))
+    whole = cfg.get('all') or {}
+    if whole:       # общий стиль — первое правило без фрагмента названия: подходит всем рядам, а правила наборов данных идут после и перекрывают его
+        base: Dict[str, Any] = {'match': ''}
+        for key, name in (('width', 'width'), ('marker', 'marker')):
+            if key in whole:
+                base[name] = whole[key]
+        look = {k: whole[k] for k in ALL_LOOK if k in whole}
+        if look:
+            base['look'] = look
+        rules.insert(0, base)
     for trace in fig.data:
+        if whole and trace.type == 'bar':
+            _bars(trace, whole)
         line = trace.type in (None, 'scatter')
         mode = (trace.mode or '') if line else ''     # у столбцов и ящиков поля ``mode`` нет: цвет и скрытие к ним применяются, толщина и маркеры — нет
         width = size = None
@@ -326,6 +365,24 @@ def apply(figure, cfg: Mapping[str, Any]):
             tmeta['own'] = sorted(own)
             trace.meta = tmeta
     return fig
+
+
+def _bars(trace, whole: Mapping[str, Any]) -> None:
+    """Общий стиль столбцов: непрозрачность, ширина (доля от обычной), граница; помечено как заданное вручную."""
+    own = set()
+    if 'bar_opacity' in whole:
+        trace.opacity = whole['bar_opacity']
+        own.add('alpha')
+    if 'bar_border' in whole or 'bar_border_width' in whole:
+        width = whole.get('bar_border_width', 1)
+        trace.marker.line = {'color': whole.get('bar_border') or '#333333', 'width': width}
+        own.add('border')
+    tmeta = dict(trace.meta) if isinstance(trace.meta, dict) else {}
+    if 'bar_width' in whole:
+        tmeta['bar_width'] = whole['bar_width']
+    if own:
+        tmeta['own'] = sorted(set(tmeta.get('own', ())) | own)
+    trace.meta = tmeta or trace.meta
 
 
 def _look(trace, looks: List[Dict[str, Any]], own: set) -> None:
