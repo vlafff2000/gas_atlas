@@ -23,7 +23,8 @@ GDI = DatasetKind.GDI
 NOTE = ('Сравниваются первое и последнее надёжное исследование скважины одним методом (R² не ниже порога, не менее трёх '
         'разных расходов, коэффициенты неотрицательны). Расход считается при одном ΔP² — общем для надёжных исследований '
         'метода, без экстраполяции. Причины изменения по этим данным не устанавливаются: сначала проверьте исследования.')
-VERDICTS = {'down': 'Ухудшение', 'up': 'Улучшение', 'same': 'Без изменений', 'few': 'Недостаточно надёжных исследований'}
+VERDICTS = {'down': 'Ухудшение', 'up': 'Улучшение', 'same': 'Без изменений', 'few': 'Недостаточно надёжных исследований',
+            'coef': 'Только по a и b (задайте опорный ΔP²)'}
 
 
 _MEMO: dict[tuple, pd.DataFrame] = {}
@@ -38,18 +39,19 @@ def _fingerprint(frame: pd.DataFrame) -> tuple:
     return (len(frame), tuple(map(str, frame.columns)), int(hashed.astype('uint64').sum()) & 0xFFFFFFFFFFFFFFFF)
 
 
-def _history_chunk(job: tuple[list[tuple[str, pd.DataFrame]], float]) -> list[tuple[str, pd.DataFrame]]:
+def _history_chunk(job: tuple) -> list[tuple[str, pd.DataFrame]]:
     """Расчёт ``gdi_history`` 5.8 для пачки скважин (функция верхнего уровня: её можно отдать процессу)."""
-    chunk, threshold = job
-    return [(well, legacy.gdi_history(group, threshold)) for well, group in chunk]
+    chunk, threshold, *rest = job
+    delta = rest[0] if rest else None
+    return [(well, legacy.gdi_history(group, threshold, delta)) for well, group in chunk]
 
 
-def histories(gdi: pd.DataFrame, threshold: float, methods: list[str]) -> pd.DataFrame:
+def histories(gdi: pd.DataFrame, threshold: float, methods: list[str], delta: float | None = None) -> pd.DataFrame:
     """Исследования всех выбранных скважин: a, b, R², надёжность, расход при общем ΔP² (``gdi_history`` 5.8 по скважине).
 
     Раздел и его соседи (ГДИ «сроки», динамика, рейтинг) просят одну и ту же историю по несколько раз — результат помнится для
     последнего набора данных. Скважины считаются процессами, если строк много; математика не менялась, порядок результата тот же."""
-    key = (_fingerprint(gdi), float(threshold), tuple(methods))      # по содержимому: раздел часто отбирает свою копию таблицы
+    key = (_fingerprint(gdi), float(threshold), tuple(methods), delta)      # по содержимому: раздел часто отбирает свою копию таблицы
     hit = _MEMO.get(key)
     if hit is not None:
         return hit.copy()
@@ -62,10 +64,10 @@ def histories(gdi: pd.DataFrame, threshold: float, methods: list[str]) -> pd.Dat
     if len(gdi) >= PARALLEL_ROWS and len(items) >= 16:
         from ..parallel import map_jobs, default_workers
         size = max(4, -(-len(items) // (default_workers(300) * 3)))
-        done = map_jobs(_history_chunk, [(items[k:k + size], threshold) for k in range(0, len(items), size)], 300)
+        done = map_jobs(_history_chunk, [(items[k:k + size], threshold, delta) for k in range(0, len(items), size)], 300)
         computed = [pair for part in done for pair in part]
     else:
-        computed = _history_chunk((items, threshold))
+        computed = _history_chunk((items, threshold, delta))
     parts = []
     for well, h in computed:
         if not h.empty:
@@ -94,6 +96,12 @@ def rating(history: pd.DataFrame, threshold: float) -> pd.DataFrame:
         ok = ok.drop_duplicates('date', keep='last')
         row = {'well': well, 'method': method or '—', 'studies': len(g), 'reliable': len(ok)}
         if len(ok) < 2:
+            coef = g[g.reliable & g.a.notna() & g.b.notna()].sort_values('date').drop_duplicates('date', keep='last')
+            if len(coef) >= 2 and coef.by_coef.any():      # есть только a и b: без опорного ΔP² расход не сравнить, показываем их изменение
+                f, l = coef.iloc[0], coef.iloc[-1]
+                rows.append({**row, 'reliable': len(coef), 'first': f.date, 'last': l.date, 'a_change': _pct(f.a, l.a),
+                             'b_change': _pct(f.b, l.b), 'verdict': VERDICTS['coef']})
+                continue
             rows.append({**row, 'verdict': VERDICTS['few']})
             continue
         first, last = ok.iloc[0], ok.iloc[-1]
@@ -103,8 +111,8 @@ def rating(history: pd.DataFrame, threshold: float) -> pd.DataFrame:
         fit = [int(v) if pd.notna(v) else 0 for v in (first.get('fit_points'), last.get('fit_points'))]
         enough = min(fit) >= AB_MIN_POINTS      # a и b по трём точкам шумят: разброс 2 % даёт «изменение ≥ 10 %» в большинстве пар
         rows.append({**row, 'first': first.date, 'last': last.date, 'q_first': first.q_reference, 'q_last': last.q_reference,
-                     'change': change, 'a_change': _pct(first.a, last.a) if enough else np.nan,
-                     'b_change': _pct(first.b, last.b) if enough else np.nan, 'fit_first': fit[0], 'fit_last': fit[1],
+                     'change': change, 'a_change': _pct(first.a, last.a) if enough or first.by_coef or last.by_coef else np.nan,
+                     'b_change': _pct(first.b, last.b) if enough or first.by_coef or last.by_coef else np.nan, 'fit_first': fit[0], 'fit_last': fit[1],
                      'dp2': last.reference_dp2, 'verdict': verdict})
     out = pd.DataFrame(rows)
     for col in ('first', 'last', 'q_first', 'q_last', 'change', 'a_change', 'b_change', 'dp2', 'fit_first', 'fit_last'):
@@ -145,6 +153,10 @@ class GdiTrendModule(Module):
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01,
                   setting='r2_threshold', section='Выбор данных',
                   help='Общая настройка проекта. Исследования с R² ниже порога в рейтинг не попадают.'),
+            Param('dp2_ref', 'Опорный ΔP² (для ГДИ только с a и b)', 'number', default=0.0, minimum=0.0, step=10.0, unit=UNITS['dp2'],
+                  section='Выбор данных',
+                  help='Нужен, если по скважине есть только коэффициенты a и b, без замеров: расход считается при этом ΔP² = aQ + bQ² '
+                       'для всех исследований. 0 — авто (общий ΔP² надёжных исследований с замерами). Значение выбирает инженер.'),
             Param('change', 'Порог изменения', 'number', default=10.0, minimum=1, maximum=80, step=1, unit='%', section='Выбор данных',
                   help='Изменение расхода при общем ΔP² меньше порога считается «без изменений».',
                   formula='изменение = (Q последнего исследования − Q первого) / Q первого × 100%',
@@ -156,7 +168,8 @@ class GdiTrendModule(Module):
         notes: list[Note] = []
         # Пустой список скважин в select означает «все»; фильтр групп и скважин проекта уже применён к данным.
         gdi = select(data[GDI], params['wells'], [], int(params['last_n']))
-        history = histories(gdi, params['threshold'], []) if not gdi.empty else pd.DataFrame()
+        delta = float(params.get('dp2_ref') or 0) or None
+        history = histories(gdi, params['threshold'], [], delta) if not gdi.empty else pd.DataFrame()
         history = quality_filter(history, params['quality'], params['threshold'])
         if history.empty:
             return Result(notes=notes + [Note('Под выбранные условия не попало ни одного исследования. Выберите скважины с данными ГДИ.',
@@ -168,6 +181,9 @@ class GdiTrendModule(Module):
             Stat('Надёжных', str(int(history.reliable.sum())), 'R² не ниже порога, три разных расхода, a и b не отрицательны'),
             Stat('С ухудшением', str(worse), f'Расход при общем ΔP² снизился на {params["change"]:g}% и более')])
         result.notes.extend(notes + [Note(NOTE)])
+        if history.by_coef.any() and not history[history.by_coef].q_reference.notna().any():
+            result.notes.append(Note('Часть исследований — только коэффициенты a и b, без замеров и давлений. Расход по ним можно сравнить, '
+                                     'если задать «Опорный ΔP²»; пока показано только изменение a и b. Давления и Рпл здесь не нужны.', 'info'))
         result.tables.append(Table('rating', 'Рейтинг скважин по изменению отдачи', table, [
             Column('rank', 'Место', kind='number', decimals=0), Column('well', 'Скважина'), Column('method', 'Метод'),
             Column('first', 'Первое исследование', kind='date'), Column('last', 'Последнее исследование', kind='date'),

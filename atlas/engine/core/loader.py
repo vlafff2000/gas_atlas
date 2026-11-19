@@ -362,7 +362,8 @@ def detect_layout(head,module='auto'):
         if {'well','date'} <= mapping.keys():
             if module != 'auto': detected=module
             elif 'horizon' in mapping and ('level' in mapping or 'pressure' in mapping): detected='response'
-            elif 'q' in mapping and ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys() or {'a_db','b_db'}<=mapping.keys()): detected='gdi'
+            elif ('q' in mapping and ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys())) or {'a_db','b_db'}<=mapping.keys() and 'q' in mapping: detected='gdi'
+            elif {'a_db','b_db'}<=mapping.keys(): detected='gdi'        # только коэффициенты a и b: ни Q, ни давлений
             elif 'q' in mapping: detected='production'
             if detected: header=i; break
         if 'well' in mapping and ('group' in mapping or 'subgroup' in mapping) and 'date' not in mapping:
@@ -398,7 +399,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             layout=detect_layout(head,module);detected=layout['module'];mapping=layout['mapping'];wide=layout['wide'];header=layout['header']
         if detected is None:
             result.issue(filename,sheet,1,'Таблица не распознана. Нужны заголовки из шаблона.', 'предупреждение'); continue
-        required={**WELL_REQUIRED,'production':{'well','date','q'},'gdi':{'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'water_factor':{'date','gas_in_place'},'groups':{'well'},'annulus':{'well','date','annulus_q','annulus_p'}}[detected]
+        required={**WELL_REQUIRED,'production':{'well','date','q'},'gdi':{'well','date'} if {'a_db','b_db'}<=mapping.keys() else {'well','date','q'},'response':{'well','date','horizon'},'object_pressure':{'date','pressure'},'plan':{'group','date','plan_volume'},'water_factor':{'date','gas_in_place'},'groups':{'well'},'annulus':{'well','date','annulus_q','annulus_p'}}[detected]
         if not wide and not required<=mapping.keys():
             raise ValueError(f'{sheet}: не найдены поля {", ".join(sorted(required-mapping.keys()))}.')
         if detected=='gdi' and not ('dp2' in mapping or {'p_res','p_bh'}<=mapping.keys() or {'a_db','b_db'}<=mapping.keys()):
@@ -495,7 +496,8 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
                 df['kind']=df.get('kind',pd.Series('',index=df.index)).fillna('').astype(str).apply(lambda x:'injection' if re.search('закач|inject',x,re.I) else 'withdrawal' if re.search('отбор|withdraw',x,re.I) else named)
             elif detected=='gdi':
                 unit=gdi_unit
-                label=str(head[header][mapping['q']])
+                if 'q' not in df: df['q']=np.nan           # файл только с коэффициентами a и b
+                label=str(head[header][mapping['q']]) if 'q' in mapping else ''
                 unit=rate_unit(label,unit)
                 if unit!=gdi_unit and label: result.issue(filename,sheet,max(header,0)+1,f'Единица Q взята из заголовка «{label}»: {unit} (выбрано: {gdi_unit}).','предупреждение')
                 k=RATE_TO_M3[unit]/1000      # хранится в тыс. м³/сут; коэффициенты a, b пересчитываются вместе с Q
