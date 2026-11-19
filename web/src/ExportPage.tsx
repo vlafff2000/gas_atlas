@@ -965,6 +965,10 @@ function ModuleTab({ module, label, enabled, onEnable, adoptPanels, ...F }: Fiel
         <Check {...F} field="gdi_show_excluded" label="ГДИ: показывать исключенные точки" def />
         <Check {...F} field="gdi_krs_pairs" label="ГДИ: ИД до и после КРС (два исследования, красный и зелёный)" def={false} />
         <Text {...F} field="gdi_krs_pairs_manual" label="ГДИ: пары вручную (скважина=ДД.ММ.ГГГГ; ДД.ММ.ГГГГ)" def="" wide />
+        {(choices.gdi_krs_years?.length ?? 0) > 0 && <>
+          <Multi {...F} field="gdi_krs_years" label="ИД до и после КРС: годы ремонтов" options={choices.gdi_krs_years!} def={[]} empty="по выбранным сезонам" />
+          <Multi {...F} field="gdi_krs_periods" label="ИД до и после КРС: период ГДИ после ремонта" options={choices.gdi_krs_periods ?? []} def={[]} empty="любой" />
+        </>}
         {(choices.gdi_seasons?.length ?? 0) > 0 &&
           <Multi {...F} field="gdi_seasons" label="ГДИ: сезоны" options={choices.gdi_seasons!} def={[]} empty="все" />}
       </Section>

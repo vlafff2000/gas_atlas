@@ -416,3 +416,17 @@ def test_repair_follow_up_analysis_effect_and_next_withdrawal():
     g, works = frames()
     r = GdiSummaryModule().run(Data({G: g, W: works}), {**PARAMS, 'seasons': ['2025-2026'], 'repair_year': 0})
     assert any(c.id == 'gdi-summary-follow' for c in r.charts) and any(x.label == 'ГДИ в следующем отборе' for x in r.summary)
+
+
+def test_export_krs_pairs_by_repair_year_and_period():
+    """Выгрузка ИД до/после КРС: годы ремонтов задаются явно (подпись сезона ГДИ лета не обязана совпасть с годом ремонта), период ГДИ после ремонта — как в справке."""
+    from atlas.api_export import krs_pairs_cfg
+    g = pd.DataFrame(gdi('1', '2025-12-10') + gdi('1', '2026-09-10', 0.8, season='2025-2026'))     # лето 2026 подписано сезоном отбора
+    works = pd.DataFrame([dict(well='1', year=2026, work_type='Замена фильтра', detail='')])
+    data = Data({G: g, DatasetKind.KRS_WORKS: works})
+    data.settings = {'r2_threshold': 0.95, 'season_start': 11, 'season_end': 4}
+    assert krs_pairs_cfg(data, [], '', ['2025-2026']) == []                                         # по подписи сезона ремонт 2026 не находится
+    got = krs_pairs_cfg(data, [], '', ['2025-2026'], ['2026'])
+    assert [(x['well'], x['year']) for x in got] == [('1', 2026)]
+    assert krs_pairs_cfg(data, [], '', [], ['2026'], ['Сезон закачки']) == got
+    assert krs_pairs_cfg(data, [], '', [], ['2026'], ['Сезон отбора']) == []

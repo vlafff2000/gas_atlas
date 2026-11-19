@@ -43,15 +43,34 @@ def _history_chunk(job: tuple) -> list[tuple[str, pd.DataFrame]]:
     """Расчёт ``gdi_history`` 5.8 для пачки скважин (функция верхнего уровня: её можно отдать процессу)."""
     chunk, threshold, *rest = job
     delta = rest[0] if rest else None
-    return [(well, legacy.gdi_history(group, threshold, delta)) for well, group in chunk]
+    q_max = rest[1] if len(rest) > 1 else None
+    return [(well, history_at(group, threshold, delta, q_max)) for well, group in chunk]
 
 
-def histories(gdi: pd.DataFrame, threshold: float, methods: list[str], delta: float | None = None) -> pd.DataFrame:
+def history_at(group: pd.DataFrame, threshold: float, delta: float | None = None, q_max: float | None = None) -> pd.DataFrame:
+    """``gdi_history`` 5.8 с опорным ΔP². Задан ``delta`` — он общий. Задан граничный расход ``q_max`` (и нет ``delta``) — опорный ΔP²
+    свой у каждого метода скважины: ΔP² первого надёжного исследования при Q = q_max (кривая продолжается за режимы, без ограничения данными);
+    остальные исследования сравниваются при том же ΔP²."""
+    if delta is not None or not q_max:
+        return legacy.gdi_history(group, threshold, delta)
+    parts = []
+    for _, part in group.groupby(group.method.fillna('').astype(str), sort=False):
+        first = legacy.gdi_history(part, threshold)
+        ok = first[first.reliable].sort_values('date')
+        if ok.empty:
+            parts.append(first)
+            continue
+        base = ok.iloc[0]
+        parts.append(legacy.gdi_history(part, threshold, float(base.a * q_max + base.b * q_max ** 2), extrapolate=True))
+    return pd.concat(parts, ignore_index=True).sort_values(['date', 'method', 'study']).reset_index(drop=True) if parts else pd.DataFrame()
+
+
+def histories(gdi: pd.DataFrame, threshold: float, methods: list[str], delta: float | None = None, q_max: float | None = None) -> pd.DataFrame:
     """Исследования всех выбранных скважин: a, b, R², надёжность, расход при общем ΔP² (``gdi_history`` 5.8 по скважине).
 
     Раздел и его соседи (ГДИ «сроки», динамика, рейтинг) просят одну и ту же историю по несколько раз — результат помнится для
     последнего набора данных. Скважины считаются процессами, если строк много; математика не менялась, порядок результата тот же."""
-    key = (_fingerprint(gdi), float(threshold), tuple(methods), delta)      # по содержимому: раздел часто отбирает свою копию таблицы
+    key = (_fingerprint(gdi), float(threshold), tuple(methods), delta, q_max)      # по содержимому: раздел часто отбирает свою копию таблицы
     hit = _MEMO.get(key)
     if hit is not None:
         return hit.copy()
@@ -64,10 +83,10 @@ def histories(gdi: pd.DataFrame, threshold: float, methods: list[str], delta: fl
     if len(gdi) >= PARALLEL_ROWS and len(items) >= 16:
         from ..parallel import map_jobs, default_workers
         size = max(4, -(-len(items) // (default_workers(300) * 3)))
-        done = map_jobs(_history_chunk, [(items[k:k + size], threshold, delta) for k in range(0, len(items), size)], 300)
+        done = map_jobs(_history_chunk, [(items[k:k + size], threshold, delta, q_max) for k in range(0, len(items), size)], 300)
         computed = [pair for part in done for pair in part]
     else:
-        computed = _history_chunk((items, threshold, delta))
+        computed = _history_chunk((items, threshold, delta, q_max))
     parts = []
     for well, h in computed:
         if not h.empty:
@@ -157,6 +176,10 @@ class GdiTrendModule(Module):
                   section='Выбор данных',
                   help='Нужен, если по скважине есть только коэффициенты a и b, без замеров: расход считается при этом ΔP² = aQ + bQ² '
                        'для всех исследований. 0 — авто (общий ΔP² надёжных исследований с замерами). Значение выбирает инженер.'),
+            Param('q_max', 'Граничный расход газа', 'number', default=0.0, minimum=0.0, step=10.0, unit=UNITS['q_gdi'], section='Выбор данных',
+                  help='Расход, при котором сравниваются исследования. Опорный ΔP² подбирается автоматически: это ΔP² первого надёжного исследования '
+                       'скважины при этом расходе (кривая продолжается за режимы, данными не ограничена). 0 — как раньше (общий ΔP² режимов). '
+                       'Явный «Опорный ΔP²» главнее.'),
             Param('change', 'Порог изменения', 'number', default=10.0, minimum=1, maximum=80, step=1, unit='%', section='Выбор данных',
                   help='Изменение расхода при общем ΔP² меньше порога считается «без изменений».',
                   formula='изменение = (Q последнего исследования − Q первого) / Q первого × 100%',
@@ -169,7 +192,7 @@ class GdiTrendModule(Module):
         # Пустой список скважин в select означает «все»; фильтр групп и скважин проекта уже применён к данным.
         gdi = select(data[GDI], params['wells'], [], int(params['last_n']))
         delta = float(params.get('dp2_ref') or 0) or None
-        history = histories(gdi, params['threshold'], [], delta) if not gdi.empty else pd.DataFrame()
+        history = histories(gdi, params['threshold'], [], delta, float(params.get('q_max') or 0) or None) if not gdi.empty else pd.DataFrame()
         history = quality_filter(history, params['quality'], params['threshold'])
         if history.empty:
             return Result(notes=notes + [Note('Под выбранные условия не попало ни одного исследования. Выберите скважины с данными ГДИ.',

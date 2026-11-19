@@ -43,6 +43,8 @@ export interface ExportChoices {
   mapping: Record<string, string>
   periods?: Record<'withdrawal' | 'injection', string[]>
   gdi_seasons?: string[]
+  gdi_krs_years?: string[]
+  gdi_krs_periods?: string[]
   gdi_methods?: string[]
   horizons?: string[]
   working?: string[]
