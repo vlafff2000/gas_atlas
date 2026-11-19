@@ -198,7 +198,7 @@ class Project:
         with self.lock:
             if self._catalog is not None:return self._catalog
             import pyarrow.parquet as pq
-            entries={};mapping={};allw=set()
+            entries={};mapping={};allw=set();merges={}
             for module in sorted(self.names,key=lambda m:m=='production'):      # группа из эксплуатации — главная: обрабатывается последней
                 path=self.path/(module+'.parquet');columns=pq.ParquetFile(path).schema.names
                 d=self._raw[module] if module in self._raw else pd.read_parquet(path,columns=[c for c in ('well','group','subgroup','date') if c in columns])
@@ -207,9 +207,13 @@ class Project:
                 entries[module]={'rows':len(d),'wells':wells,'start':d.date.min() if 'date' in d else None,'end':d.date.max() if 'date' in d else None}
                 if 'well' in d and 'group' in d:
                     if 'subgroup' not in d:d['subgroup']=''
+                    from .loader import normalize_groups,group_merges
+                    fixed=normalize_groups(d['group'])
+                    for k,v in group_merges(d['group'],fixed).items():merges.setdefault(k,[]).extend(x for x in v if x not in merges.get(k,[]))
+                    d=d.assign(group=fixed)      # проекты, загруженные до единой нормировки, сводятся при чтении
                     for row in d[['well','group','subgroup']].drop_duplicates('well',keep='last').itertuples(index=False):
                         if row.group!='Без группы' or row.well not in mapping:mapping[row.well]={'group':row.group,'subgroup':row.subgroup}
-            self._catalog={'modules':entries,'mapping':mapping,'wells':list(allw)}
+            self._catalog={'modules':entries,'mapping':mapping,'wells':list(allw),'group_merges':merges}
             return self._catalog
 
 
