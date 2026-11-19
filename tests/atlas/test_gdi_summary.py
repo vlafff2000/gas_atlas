@@ -438,3 +438,11 @@ def test_single_study_chart_keeps_legend_with_date():
     fig = charts.gdi_chart(pd.DataFrame(gdi('1', '2025-12-10')), '1')
     assert fig.layout.showlegend is True
     assert [t.name for t in fig.data if t.showlegend is not False] == ['10.12.2025 · Установившиеся отборы']
+
+
+def test_id_charts_come_first_when_enabled():
+    """Включённые ИД до/после КРС стоят первыми среди графиков справки (иначе при постраничном показе они уходят на 2–3-ю страницу)."""
+    g, works = frames()
+    r = GdiSummaryModule().run(Data({G: g, W: works, DatasetKind.KRS_WORKS: works}), {**PARAMS, 'id_charts': 'yes', 'id_pairs': ''})
+    ids = [i for i, c in enumerate(r.charts) if c.id.startswith('gdi-summary-id-')]
+    assert ids and ids == list(range(len(ids)))

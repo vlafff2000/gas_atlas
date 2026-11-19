@@ -116,7 +116,7 @@ def rating(history: pd.DataFrame, threshold: float) -> pd.DataFrame:
         row = {'well': well, 'method': method or '—', 'studies': len(g), 'reliable': len(ok)}
         if len(ok) < 2:
             coef = g[g.reliable & g.a.notna() & g.b.notna()].sort_values('date').drop_duplicates('date', keep='last')
-            if len(coef) >= 2 and coef.by_coef.any():      # есть только a и b: без опорного ΔP² расход не сравнить, показываем их изменение
+            if len(coef) >= 2 and 'by_coef' in coef and coef.by_coef.fillna(False).astype(bool).any():      # есть только a и b: без опорного ΔP² расход не сравнить, показываем их изменение
                 f, l = coef.iloc[0], coef.iloc[-1]
                 rows.append({**row, 'reliable': len(coef), 'first': f.date, 'last': l.date, 'a_change': _pct(f.a, l.a),
                              'b_change': _pct(f.b, l.b), 'verdict': VERDICTS['coef']})
@@ -130,8 +130,8 @@ def rating(history: pd.DataFrame, threshold: float) -> pd.DataFrame:
         fit = [int(v) if pd.notna(v) else 0 for v in (first.get('fit_points'), last.get('fit_points'))]
         enough = min(fit) >= AB_MIN_POINTS      # a и b по трём точкам шумят: разброс 2 % даёт «изменение ≥ 10 %» в большинстве пар
         rows.append({**row, 'first': first.date, 'last': last.date, 'q_first': first.q_reference, 'q_last': last.q_reference,
-                     'change': change, 'a_change': _pct(first.a, last.a) if enough or first.by_coef or last.by_coef else np.nan,
-                     'b_change': _pct(first.b, last.b) if enough or first.by_coef or last.by_coef else np.nan, 'fit_first': fit[0], 'fit_last': fit[1],
+                     'change': change, 'a_change': _pct(first.a, last.a) if enough or bool(first.get('by_coef', False)) or bool(last.get('by_coef', False)) else np.nan,
+                     'b_change': _pct(first.b, last.b) if enough or bool(first.get('by_coef', False)) or bool(last.get('by_coef', False)) else np.nan, 'fit_first': fit[0], 'fit_last': fit[1],
                      'dp2': last.reference_dp2, 'verdict': verdict})
     out = pd.DataFrame(rows)
     for col in ('first', 'last', 'q_first', 'q_last', 'change', 'a_change', 'b_change', 'dp2', 'fit_first', 'fit_last'):
@@ -204,7 +204,7 @@ class GdiTrendModule(Module):
             Stat('Надёжных', str(int(history.reliable.sum())), 'R² не ниже порога, три разных расхода, a и b не отрицательны'),
             Stat('С ухудшением', str(worse), f'Расход при общем ΔP² снизился на {params["change"]:g}% и более')])
         result.notes.extend(notes + [Note(NOTE)])
-        if history.by_coef.any() and not history[history.by_coef].q_reference.notna().any():
+        if 'by_coef' in history and history.by_coef.any() and not history[history.by_coef].q_reference.notna().any():
             result.notes.append(Note('Часть исследований — только коэффициенты a и b, без замеров и давлений. Расход по ним можно сравнить, '
                                      'если задать «Опорный ΔP²»; пока показано только изменение a и b. Давления и Рпл здесь не нужны.', 'info'))
         result.tables.append(Table('rating', 'Рейтинг скважин по изменению отдачи', table, [
