@@ -154,6 +154,10 @@ def choices(data: Data, apply_exclusions: bool = True) -> dict[str, Any]:
         g = source['gdi']
         out['gdi_seasons'] = ordered(g.season[g.season.ne('')]) if 'season' in g else []
         out['gdi_methods'] = ordered(g.method) if 'method' in g else []
+        from atlas.modules import gdi_summary
+        rep = gdi_summary.repairs(raw.get('krs_works'), raw.get('krs_plan'))
+        out['gdi_krs_years'] = sorted({str(int(y)) for y in rep.year.dropna()}) if not rep.empty else []
+        out['gdi_krs_periods'] = list(gdi_summary.SLICES)
     if 'response' in source:
         r = source['response']
         out['horizons'] = ordered(r.horizon)
@@ -277,7 +281,8 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             seasons = ordered(g.season[g.season.ne('')]) if 'season' in g else []
             cfg['seasons'] = pick('gdi_seasons', seasons, []) if seasons else []
             if form.get('gdi_krs_pairs'):      # ИД двух исследований: «до КРС» красным и «после КРС» зелёным (подсказка по справке КРС + ручной выбор)
-                cfg['krs_pairs'] = krs_pairs_cfg(data, ws, str(form.get('gdi_krs_pairs_manual') or ''), cfg['seasons'])
+                cfg['krs_pairs'] = krs_pairs_cfg(data, ws, str(form.get('gdi_krs_pairs_manual') or ''), cfg['seasons'],
+                                                 [str(y) for y in form.get('gdi_krs_years') or []], [str(v) for v in form.get('gdi_krs_periods') or []])
         elif module == 'response':
             r = source['response']
             hs = ordered(r.horizon)
@@ -316,16 +321,24 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
     return options, source, raw
 
 
-def krs_pairs_cfg(data: Data, wells: list[str], manual: str, seasons: list[str] | None = None) -> list[dict[str, Any]]:
+def krs_pairs_cfg(data: Data, wells: list[str], manual: str, seasons: list[str] | None = None,
+                  years: list[str] | None = None, periods: list[str] | None = None) -> list[dict[str, Any]]:
     """Пары дат ИД для выгрузки: по одной на ремонт выбранных сезонов (``seasons`` — год начала сезона = год ремонта; пусто — все ремонты) и выбранных скважин:
-    [{'well', 'before', 'after', 'year'}]. Подсказка — последнее надёжное ГДИ до ремонта и первое надёжное после (справка КРС); ручные пары главнее."""
+    [{'well', 'before', 'after', 'year'}]. ``years`` — годы ремонтов явно (главнее сезонов: подпись сезона у ГДИ лета может не совпасть с годом ремонта);
+    ``periods`` — период (отбор / закачка / нейтральный) ГДИ после ремонта, как в справке; пусто — любой. Подсказка — последнее надёжное ГДИ до ремонта и первое надёжное после (справка КРС); ручные пары главнее."""
     from atlas.domain import DatasetKind
     from atlas.modules import gdi_summary
     if DatasetKind.GDI not in data:
         return []
     rows = gdi_summary.study_rows(data[DatasetKind.GDI], float(data.settings.get('r2_threshold', .95)))
     rep = gdi_summary.repairs(data.get(DatasetKind.KRS_WORKS), data.get(DatasetKind.KRS_PLAN))
-    pairs = gdi_summary.krs_pairs(rows, rep, gdi_summary.season_years(seasons), gdi_summary.parse_pairs(manual), wells or None)
+    chosen = {int(y) for y in years or [] if str(y).isdigit()} or gdi_summary.season_years(seasons)
+    pairs = gdi_summary.krs_pairs(rows, rep, chosen, gdi_summary.parse_pairs(manual), wells or None)
+    if periods:
+        cfg = data.settings
+        keep = {gdi_summary.normalize_slice(v) for v in periods}
+        pairs = [x for x in pairs if not x['year'] or gdi_summary.period_of(pd.Timestamp(x['after']), cfg.get('season_schedule'),
+                                                                           *(cfg.get('season_start', 11), cfg.get('season_end', 4))) in keep]
     return [{'well': x['well'], 'before': _date(x['before']), 'after': _date(x['after']), 'year': x['year']} for x in pairs]
 
 
