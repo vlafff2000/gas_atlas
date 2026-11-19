@@ -680,7 +680,7 @@ def merge_frames(old, new, module, policy='new'):
     keys={'production':['kind','well','date'],'response':['well','date','horizon'],
           'pressure_match':['object','scenario','well','date'],'groups':['well'],'object_pressure':['date','horizon'],'water_factor':['date'],'plan':['kind','group','date'],'gdi':['well','date','method','study','q','dp2'],
           'operations':['well','date','kind'],'water':['well','date'],'bottom':['well','date'],'annulus':['well','date'],
-          'construction':['well','date','element','top_m','bottom_m','diameter_mm']}[module]
+          'construction':['well','date','data_set','element','top_m','bottom_m','diameter_mm']}[module]
     keys=[k for k in keys if k in base]
     if module=='gdi': keys += [c for c in ('p_res','p_bh','a_db','b_db') if c in base]
     before=len(base); base=base.drop_duplicates(keys,keep='last').reset_index(drop=True)

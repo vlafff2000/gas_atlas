@@ -22,6 +22,7 @@ ALIASES={
  'status':['Состояние','Статус','status'],
  'resource':['Ресурс','Пометка Ресурс','resource'],
  'kit':['Комплект','Комплект оборудования','kit'],
+ 'data_set':['Набор','Набор данных','data_set'],
  'comment':['Комментарий','Примечание','comment']}
 REQUIRED={'operations':{'well','date'},'water':{'well','date'},
           'bottom':{'well','date','bottom_m'},'construction':{'well','date','element','top_m','bottom_m'}}
