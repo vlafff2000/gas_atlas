@@ -430,3 +430,11 @@ def test_export_krs_pairs_by_repair_year_and_period():
     assert [(x['well'], x['year']) for x in got] == [('1', 2026)]
     assert krs_pairs_cfg(data, [], '', [], ['2026'], ['Сезон закачки']) == got
     assert krs_pairs_cfg(data, [], '', [], ['2026'], ['Сезон отбора']) == []
+
+
+def test_single_study_chart_keeps_legend_with_date():
+    """ИД с одним исследованием: легенда включена явно (plotly прячет её при единственной записи), подпись — с датой."""
+    from atlas.engine.modules import charts
+    fig = charts.gdi_chart(pd.DataFrame(gdi('1', '2025-12-10')), '1')
+    assert fig.layout.showlegend is True
+    assert [t.name for t in fig.data if t.showlegend is not False] == ['10.12.2025 · Установившиеся отборы']

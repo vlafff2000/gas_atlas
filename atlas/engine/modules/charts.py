@@ -139,7 +139,7 @@ def gdi_chart(df,well,threshold=.95,orientation='standard',curves=True,db_curves
             fig.add_trace(go.Scatter(x=y if swapped else q,y=q if swapped else y,mode='lines',
                 name=label+' · '+suffix,legendgroup=label,showlegend=False,line={'color':color,'width':1.8,'dash':dash},
                 customdata=np.column_stack([q,y]),meta={'module':'gdi','selectable':False},hovertemplate=hover))
-    fig.update_layout(meta={'module':'gdi','wells':[well]},height=600,margin={'l':65,'r':30,'t':55,'b':55},
+    fig.update_layout(showlegend=True,meta={'module':'gdi','wells':[well]},height=600,margin={'l':65,'r':30,'t':55,'b':55},
         legend={'orientation':'h','y':-.13,'x':0,'yanchor':'top','font':{'size':10},'groupclick':'togglegroup'})
     if show_excluded and raw_df is not None and '_point_id' in raw_df:
         excluded=raw_df[raw_df.well.eq(well)&~raw_df['_point_id'].isin(df.get('_point_id',[]))]

@@ -1631,7 +1631,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
 
   const legendEl = chart.style?.legend === 'hide' || compact ? null : (
     <ChartLegend model={legend} position={chart.style?.legend} fmt={chart.style} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
-        offEvents={offEvents} onHighlight={highlight}
+        offEvents={offEvents} onHighlight={highlight} showSingle={chart.id.startsWith('gdi')}
         onFormat={chart.id.startsWith('builder') ? undefined : hit => {
           const i = !hit ? -1 : hit.facet ? chart.series.findIndex(s => s.facets?.[hit.facet!] === hit.value) : chart.series.findIndex(s => key(s) === hit.name)
           openFormat(i >= 0 ? 'series:' + i : 'chart')
@@ -1908,9 +1908,10 @@ interface LegendProps {
   onEvent: (kind: string) => void; onHighlight: (name: string | null) => void
   onFormat?: (hit: DOMStringMap | null) => void      // правая кнопка: формат ряда под указателем или графика
   position?: ChartStyle['legend']; fmt?: ChartStyle      // ручное оформление: положение, шрифт, размер
+  showSingle?: boolean      // одно исследование ГДИ: подпись с датой нужна и при единственной записи
 }
 
-function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onFacet, onEvent, onHighlight, onFormat, position, fmt }: LegendProps) {
+function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onFacet, onEvent, onHighlight, onFormat, position, fmt, showSingle }: LegendProps) {
   const [open, setOpen] = useState(false)
   const [overflow, setOverflow] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -1920,7 +1921,7 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
   })
   const kinds = EVENT_KINDS.filter(k => events.some(e => e.kind === k.kind))
   const tk = { muted: 'var(--chart-muted)', accent: 'var(--chart-accent)', faint: 'var(--chart-faint)' } as ChartTokens
-  if (model.items.length < 2 && !kinds.length) return null
+  if (model.items.length < (showSingle ? 1 : 2) && !kinds.length) return null
   const hint = 'Щелчок — скрыть или показать, двойной щелчок — только этот'
   return (
     <div className={'chart-legend-wrap' + (position === 'right' || position === 'left' ? ' side' : '')} style={legendStyle(fmt)}
