@@ -1631,7 +1631,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
 
   const legendEl = chart.style?.legend === 'hide' || compact ? null : (
     <ChartLegend model={legend} position={chart.style?.legend} fmt={chart.style} hidden={hidden} facetOff={facetOff} events={chart.events ?? []}
-        offEvents={offEvents} onHighlight={highlight} showSingle={chart.id.startsWith('gdi')}
+        offEvents={offEvents} onHighlight={highlight} showSingle={IND_DIAGRAM.test(chart.id)}
         onFormat={chart.id.startsWith('builder') ? undefined : hit => {
           const i = !hit ? -1 : hit.facet ? chart.series.findIndex(s => s.facets?.[hit.facet!] === hit.value) : chart.series.findIndex(s => key(s) === hit.name)
           openFormat(i >= 0 ? 'series:' + i : 'chart')
@@ -1911,6 +1911,9 @@ interface LegendProps {
   showSingle?: boolean      // одно исследование ГДИ: подпись с датой нужна и при единственной записи
 }
 
+/** Индикаторные диаграммы ГДИ (раздел, справка до/после КРС, паспорт, карточка скважины): подпись с датой нужна и при одном исследовании. */
+const IND_DIAGRAM = /^gdi-\d|^gdi-summary-id-|-gdi$|^passport-gdi$/
+
 function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onFacet, onEvent, onHighlight, onFormat, position, fmt, showSingle }: LegendProps) {
   const [open, setOpen] = useState(false)
   const [overflow, setOverflow] = useState(false)
@@ -1939,7 +1942,7 @@ function ChartLegend({ model, hidden, facetOff, events, offEvents, onToggle, onF
             ))}
           </div>
         ))}
-        {model.plain.length > (model.facets.length ? 0 : 1) && (
+        {model.plain.length > (model.facets.length || showSingle ? 0 : 1) && (
           <div className="legend-row">
             {model.facets.length > 0 && <span className="legend-title">Кривые</span>}
             {model.plain.map(i => (
