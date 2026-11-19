@@ -553,6 +553,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         </div>
       )}
 
+      <AllStylePanel form={form} set={set} />
       <ChartFormat {...F} modules={modules} projectId={project.id} ready={readyPlan} />
       <AxisSettings {...F} modules={modules} />
 
@@ -1459,6 +1460,46 @@ function StylePanel({ form, set }: { form: Form; set: (key: string, value: unkno
         <legend>Оси (все)</legend>
         <AxisStyleFields value={axes} set={p => put({ chart, axes: { ...axes, ...p } })} />
       </fieldset>
+    </details>
+  )
+}
+
+/** Общий стиль ВСЕХ выгружаемых графиков (поле ``fmt_all``, см. atlas/chart_format.py): линии, маркеры, столбцы гистограмм.
+ *  Самый нижний уровень: правила наборов данных, «Отдельные графики» и ручные настройки ряда сильнее; «Сбросить» очищает поле. */
+interface AllStyle { width?: number; dash?: string; marker?: number; shape?: string; hollow?: boolean; markerColor?: string; marker_border?: string; marker_border_width?: number
+  opacity?: number; bar_opacity?: number; bar_width?: number; bar_border?: string; bar_border_width?: number }
+function AllStylePanel({ form, set }: { form: Form; set: (key: string, value: unknown) => void }) {
+  let doc: AllStyle = {}
+  try { doc = JSON.parse((form.fmt_all as string | undefined) || '{}') } catch { doc = {} }
+  const put = (p: Partial<AllStyle>) => { const next = compact({ ...doc, ...p }) as AllStyle; set('fmt_all', Object.keys(next).length ? JSON.stringify(next) : '') }
+  return (
+    <details className="table-block">
+      <summary className="block-head"><h3>Общий стиль всех графиков: линии, маркеры, гистограммы{Object.keys(doc).length ? ' ●' : ''}</h3></summary>
+      <p className="muted pad">Действует на все выгружаемые графики сразу. Правила наборов данных, настройки одного графика и ручной вид ряда сильнее общего стиля.</p>
+      <fieldset>
+        <legend>Кривые</legend>
+        <FNum label="Толщина линии, пт (0 — без линии)" value={doc.width} min={0} max={10} step={0.5} onChange={v => put({ width: v })} />
+        <Choice label="Тип линии" value={doc.dash} options={LINE_STYLES} onChange={v => put({ dash: v })} />
+        <FNum label="Непрозрачность линий" value={doc.opacity} min={0.05} max={1} step={0.05} onChange={v => put({ opacity: v })} />
+      </fieldset>
+      <fieldset>
+        <legend>Маркеры</legend>
+        <FNum label="Размер, пт (0 — без маркеров)" value={doc.marker} min={0} max={20} step={0.5} onChange={v => put({ marker: v })} />
+        <Choice label="Форма" value={doc.shape} options={MARKER_SHAPES} onChange={v => put({ shape: v })} />
+        <Choice label="Заливка" value={doc.hollow === undefined ? undefined : doc.hollow ? 'hollow' : 'solid'} auto="как в графике"
+          options={[{ value: 'solid', label: 'Закрашенный' }, { value: 'hollow', label: 'Полый' }]} onChange={v => put({ hollow: v === undefined ? undefined : v === 'hollow' })} />
+        <Color label="Цвет заливки" value={doc.markerColor} onChange={v => put({ markerColor: v })} />
+        <Color label="Цвет границы" value={doc.marker_border} onChange={v => put({ marker_border: v })} />
+        <FNum label="Толщина границы" value={doc.marker_border_width} min={0} max={6} step={0.25} onChange={v => put({ marker_border_width: v })} />
+      </fieldset>
+      <fieldset>
+        <legend>Гистограммы (столбцы)</legend>
+        <FNum label="Непрозрачность заливки" value={doc.bar_opacity} min={0.05} max={1} step={0.05} onChange={v => put({ bar_opacity: v })} />
+        <FNum label="Ширина (доля обычной)" value={doc.bar_width} min={0.1} max={1} step={0.05} onChange={v => put({ bar_width: v })} />
+        <Color label="Цвет границы" value={doc.bar_border} onChange={v => put({ bar_border: v })} />
+        <FNum label="Толщина границы" value={doc.bar_border_width} min={0} max={6} step={0.25} onChange={v => put({ bar_border_width: v })} />
+      </fieldset>
+      <button type="button" disabled={!Object.keys(doc).length} onClick={() => set('fmt_all', '')}>Сбросить общий стиль</button>
     </details>
   )
 }
