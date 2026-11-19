@@ -24,10 +24,10 @@ RULES = (('reaming', r'расшир|подзабой|каверн'), ('filter', 
 KIND_LABELS = {'casing': 'Эксплуатационная колонна', 'tubing': 'НКТ', 'filter': 'Фильтр', 'perf': 'Перфорация',
                'reaming': 'Расширка', 'packer': 'Пакер', 'bridge': 'Цементный мост', 'pay': 'Пласт', 'bottom': 'Забой',
                'artificial': 'Искусственный забой', 'blank': 'Надфильтровые трубы', 'perf_nipple': 'Перфорированный патрубок',
-               'equipment': 'Оборудование', 'casing_mark': 'Элемент ЭК'}
+               'equipment': 'Оборудование', 'casing_mark': 'Элемент ЭК', 'perf_liner': 'Перфорированный хвостовик'}
 # Элементы фильтровой компоновки, у которых в названии есть «фильтр»/«перфор», но которые сами не фильтр и не перфорация колонны:
 # проверяются раньше общих правил (иначе «Надфильтровые трубы» становились фильтром и сливались с ним на схеме).
-SPECIFIC = (('perf_nipple', r'перфорированн\w*\s+(?:патруб|труб)|перфопатруб|перфорированная\s+труб'), ('blank', r'надфильтр|затворн|глух\w*\s+труб'),
+SPECIFIC = (('perf_liner', r'перфорированн\w*\s+хвостовик|хвостовик\w*\s+перфорированн|перф\.?\s*хвостовик'), ('perf_nipple', r'перфорированн\w*\s+(?:патруб|труб)|перфопатруб|перфорированная\s+труб'), ('blank', r'надфильтр|затворн|глух\w*\s+труб'),
             ('equipment', r'зумпф|подгоночн|клапан|переводник'),
             ('casing_mark', r'элемент\w*\s+конструкц|не\s*отмечен\w*\s+в\s+мер|не\s*указан\w*\s+в\s+мер'))   # отбит ГИС, в мерах нет
 SKIPPED = r'кондуктор|направлени|потайн|хвостовик|техническ'
@@ -74,7 +74,7 @@ def _date(value: Any) -> str:
 
 BREAK_M = 50.0          # пустой участок длиннее этого (м) на схеме сжимается; 0 — не сжимать (ручной режим)
 BREAK_KEEP_M = 12.0     # высота сжатого участка на схеме, м (подписи — реальные глубины)
-FOCUS = ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'artificial', 'bottom', 'blank', 'perf_nipple', 'equipment', 'casing_mark')
+FOCUS = ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'artificial', 'bottom', 'blank', 'perf_nipple', 'equipment', 'casing_mark', 'perf_liner')
 
 
 def _gaps(items: list[dict[str, Any]], top: float, low: float, threshold: float, pad: float = 6.0) -> list[tuple[float, float]]:
@@ -208,7 +208,7 @@ def _schematic(construction: pd.DataFrame, bottom_m: float | None, break_m: floa
     if not kinds & {'filter', 'perf'}:
         notes.append('Не указан фильтр или интервал перфорации.')
     # Окно: от точки чуть выше самого верхнего элемента забойной части до забоя; колонна и НКТ идут сверху, их верх не берём.
-    tops = [i['top'] for i in items if i['kind'] in ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'blank', 'perf_nipple', 'equipment')]
+    tops = [i['top'] for i in items if i['kind'] in ('filter', 'perf', 'reaming', 'packer', 'pay', 'bridge', 'blank', 'perf_nipple', 'equipment', 'perf_liner')]
     tubing = [i['bottom'] for i in items if i['kind'] == 'tubing']
     ends = [i['bottom'] for i in items]
     top_depth = min(tops + tubing) if tops or tubing else min(i['top'] for i in items)
@@ -329,6 +329,17 @@ def shapes(sch: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, An
                 pts = [[sign * (1.12 if k % 2 == 0 else 1.6), float(y)] for k, y in enumerate(ys)]
                 out.append({'t': 'poly', 'pts': pts, 'stroke': '#e11d48', 'width': 1.6, 'name': 'perf'})
             tag((a + b) / 2, f"Перфорация {i['top']:g}–{i['bottom']:g} м", '#be123c')
+    for i in by['perf_liner']:         # перфорированный хвостовик — отдельный элемент, не перфорация: стенка хвостовика с отверстиями и «пила» внутрь ствола (у перфорации — наружу, красная)
+        for sign in (-1, 1):
+            x0, x1 = sorted((sign * .5, sign * .75))
+            rect(x0, x1, i['top'], i['bottom'], '#f59e0b', 'slots', 'perf_liner')
+        a, b = max(i['top'], top), min(i['bottom'], low)
+        if b >= a:
+            teeth = max(3, min(18, int((b - a) / max((low - top) / 36, .5)) + 1))
+            ys = np.linspace(a, b, teeth * 2 + 1)
+            for sign in (-1, 1):
+                out.append({'t': 'poly', 'pts': [[sign * (.5 if k % 2 == 0 else .28), float(y)] for k, y in enumerate(ys)], 'stroke': '#b45309', 'width': 1.4, 'name': 'perf_liner'})
+        tag((max(i['top'], top) + min(i['bottom'], low)) / 2, f"{_title(i, 'perf_liner')} {i['top']:g}–{i['bottom']:g} м", '#b45309')
     for i in by['tubing']:
         rect(-.45, .45, i['top'], i['bottom'], '#dbeafe', name='bore')
         for sign in (-1, 1):

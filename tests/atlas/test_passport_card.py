@@ -449,3 +449,17 @@ def test_program_notes_show_gdi_program_and_krs_in_injection():
                          'reason': ['план капремонта', 'давно не проводились'], 'krs_injection': [True, False]})
     assert program_notes(prog, '31') == ['Программа ГДИ 2025-2026: I этап, план капремонта (КР в сезоне закачки: ГДИ после ремонта).']
     assert program_notes(prog, '99') == [] and program_notes(None, '31') == []
+
+
+def test_perforated_liner_is_its_own_kind_not_perforation():
+    """«Перфорированный хвостовик» (скв. 410) — отдельный элемент: не перфорация, не скрывается как хвостовик, рисуется похоже, но отличимо."""
+    assert pc.classify('Перфорированный хвостовик') == 'perf_liner' and pc.classify('Хвостовик перфорированный') == 'perf_liner' and pc.classify('Перф. хвостовик') == 'perf_liner'
+    assert pc.classify('Интервал перфорации') == 'perf' and pc.classify('Хвостовик') is None and pc.classify('Потайная колонна-фильтр') == 'filter'
+    cons = frame([('Эксплуатационная колонна', 0, 793.9, 168, 150), ('Фильтр', 759.45, 772.45, None, None), ('Хвостовик перфорированный', 773.0, 782.0, None, None),
+                  ('Интервал перфорации', 761.0, 771.0, None, None)])
+    sch = pc.schematic(cons, 782.0)
+    assert {i['kind'] for i in sch['items']} >= {'perf', 'perf_liner', 'filter'}
+    names = {s['name'] for s in sch['shapes']}
+    assert 'perf_liner' in names and 'perf' in names
+    assert any(l['text'].startswith('Хвостовик перфорированный 773') for l in sch['labels']) and any(l['text'].startswith('Перфорация 761') for l in sch['labels'])
+    assert not [c for c in sch['checks'] if c['code'] == 'reaming_and_perf']
