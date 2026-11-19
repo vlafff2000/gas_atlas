@@ -963,6 +963,9 @@ class GdiSummaryModule(Module):
                 result.notes.append(Note(f'ИД до и после КРС: для ремонтов {', '.join(map(str, sorted(years)))} г. нет скважин с надёжным ГДИ до и после. Укажите пары вручную.'))
         age_block(result, rows, rep, program, seasons)
         matrix_block(result, rows, program, rep, parse_manual(params.get('done_manual', '')))
+        ids = [c for c in result.charts if c.id.startswith('gdi-summary-id-')]
+        if ids:      # включённые ИД до/после КРС — первыми: остальных графиков много, и на постраничном экране ИД оказывались на 2–3-й странице
+            result.charts = ids + [c for c in result.charts if not c.id.startswith('gdi-summary-id-')]
         return result
 
     @staticmethod
