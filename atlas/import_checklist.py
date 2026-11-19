@@ -220,6 +220,18 @@ def _lines(key: str, f: pd.DataFrame) -> list[list[str]]:
     return out
 
 
+def _group_merges(frames: dict[str, pd.DataFrame]) -> dict[str, list[str]]:
+    """Подсказка инженеру: какие написания группы («ГСП 5», «ГСП-5») программа свела к одному."""
+    from atlas.engine.core.loader import group_merges, normalize_groups
+    out: dict[str, list[str]] = {}
+    for frame in frames.values():
+        if 'group' in frame:
+            raw = frame['group'].dropna().astype(str).drop_duplicates()
+            for k, v in group_merges(raw, normalize_groups(raw)).items():
+                out.setdefault(k, []).extend(x for x in v if x not in out.get(k, []))
+    return out
+
+
 def build(manifest: dict[str, Any], frames: dict[str, pd.DataFrame] | None = None) -> list[dict[str, Any]]:
     tables = manifest.get('tables', {})
     groups = manifest.get('groups', {})
@@ -236,6 +248,9 @@ def build(manifest: dict[str, Any], frames: dict[str, pd.DataFrame] | None = Non
             if len(names):
                 vc = names.value_counts()
                 lines.append(['Группы (скважин)', ', '.join(f'{k} ({int(vc[k])})' for k in sorted(vc.index)[:30])])
+            merged = _group_merges(frames)
+            if merged:
+                lines.append(['Сведены написания групп', '; '.join(f'{k} ← {", ".join(v)}' for k, v in merged.items())])
         else:
             lines = _lines(key, frame) if frame is not None and len(frame) else []
         out.append({'key': key, 'label': item['label'], 'used': item['used'], 'count': count,

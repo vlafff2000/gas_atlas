@@ -255,6 +255,7 @@ class Projects:
         for well, value in m.get('groups', {}).items():
             mapping.setdefault(well, {}).update(value)
         data.mapping = mapping
+        data.group_merges = cache.catalog().get('group_merges', {})      # написания групп, сведённые автоматически (подсказка инженеру)
         group_colors.set_known_groups(v.get('group') for v in mapping.values() if v.get('group'))
         data.project = ProjectInfo(pid, m, self.store, cache)
         data.wells = ordered(cache.catalog()['wells'])

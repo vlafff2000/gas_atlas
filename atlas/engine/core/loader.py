@@ -262,6 +262,18 @@ def canonical_gsp(groups):
     out[hit]='ГСП '+g[hit].str.extract(GSP_NAME)[0]
     return out
 
+def normalize_groups(groups,reference=None):
+    """Единая нормировка названий групп (импорт и чтение проекта): «ГСП 5» = «ГСП-5» = «гсп_5» = «ГСП5».
+    Автосведение — подсказка: какие написания объединены, показывает ``group_merges``; ручное назначение группы его не трогает."""
+    return unify_groups(canonical_gsp(groups.astype(object).where(groups.notna(),'').astype(str)),reference)
+
+def group_merges(raw,normalized):
+    """Какие написания сведены в одну группу: {итоговое название: [прежние написания]}."""
+    out={}
+    for old,new in zip(raw.fillna('').astype(str).str.strip(),normalized.fillna('').astype(str)):
+        if old and old!=new and old not in out.setdefault(new,[]):out[new].append(old)
+    return out
+
 def filled_rows(raw):
     """Строки, где есть хотя бы одна непустая ячейка (пробелы и пустые строки — пусто); по колонкам, без копии всей таблицы."""
     out=pd.Series(False,index=raw.index)
@@ -574,7 +586,7 @@ def load_file(path, module='auto', production_kind='withdrawal', production_unit
             for col in ('group','subgroup','season','year','method','study'):
                 if col not in df: df[col]=''
                 df[col]=df[col].fillna('').astype(str).str.strip()
-            df['group']=unify_groups(canonical_gsp(df['group'])).replace('','Без группы')
+            df['group']=normalize_groups(df['group']).replace('','Без группы')
             df['file']=filename; df['sheet']=sheet
             if not df.empty:
                 from .performance import compact_strings
