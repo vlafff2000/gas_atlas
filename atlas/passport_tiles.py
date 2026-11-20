@@ -47,7 +47,7 @@ def kru_tiles(priority: pd.DataFrame | None, well: str) -> dict[str, Any] | None
     return {'columns': columns, 'cells': cells, 'group': group}
 
 
-SHORT = (('замен', 'фильтр'), ('колтюбинг с', 'СКО'), ('ско', 'СКО'), ('колтюбинг', 'колтюбинг'), ('армиров', 'армиров.'))
+SHORT = (('замен', 'фильтр'), ('без ско', 'колтюбинг'), ('колтюбинг с', 'СКО'), ('ско', 'СКО'), ('колтюбинг', 'колтюбинг'), ('армиров', 'армиров.'))
 
 
 def short_type(name: str) -> str:
