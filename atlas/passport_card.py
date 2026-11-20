@@ -659,7 +659,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     auto_type = passport_depression.well_type(kinds, types, None)
     kind_key = passport_depression.well_type(kinds, types, (settings.get('well_depression_type') or {}).get(well))
     limit = next((t['limit'] for t in types if t['key'] == kind_key), None)
-    dep_rows = passport_depression.season_rows(seasons, gdi_all, pressure, limit)
+    dep_rows = passport_depression.season_rows(seasons, gdi_all, pressure, limit, daily_series(by_kind['withdrawal']['daily'], 'withdrawal'))
     depression = {'rows': dep_rows, 'types': types, 'type': kind_key, 'type_auto': auto_type, 'limit': limit}
     evidence = passport_assess.collect(depression=dep_rows, 
         bottom_m=bottom_m, bottom_date=bottom.iloc[-1].date if not bottom.empty else None, bottom_row=bottom.iloc[-1] if not bottom.empty else None,
