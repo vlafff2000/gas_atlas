@@ -390,7 +390,7 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
             title=mpl_text(fig.layout.title.text or '')
             fo=(fig.layout.meta or {}).get('format',{}) if isinstance(fig.layout.meta,dict) else {}
             if fo.get('title')=='hide':title=''
-            if compact:ax.set_title(title,loc='center',fontsize=8.5*k,fontweight='bold',pad=5)
+            if compact:ax.set_title(fit_title(f,title,8.5*k*1.1),loc='center',fontsize=8.5*k,fontweight='bold',pad=5)
             else:ax.set_title(fit_title(f,title,12*k),loc='left',fontsize=12*k,pad=14)
             ax.set_xlabel(mpl_text(fig.layout.xaxis.title.text));ax.set_ylabel(mpl_text(fig.layout.yaxis.title.text))
             if fig.layout.xaxis.autorange=='reversed' and not date_axis:ax.invert_xaxis()
