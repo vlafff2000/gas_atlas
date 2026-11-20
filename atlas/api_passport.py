@@ -32,13 +32,23 @@ log = logging.getLogger(__name__)
 SEARCH_JOBS: dict[str, dict[str, Any]] = {}      # автоперебор критериев: одно задание на проект, в памяти процесса
 
 
-def _search_job(pid: str, passport: 'Passport', years: list[int], job: dict[str, Any]) -> None:
+def _horizon(body: dict[str, Any]) -> int:
+    try:
+        h = int(body.get('horizon', 1))
+    except (TypeError, ValueError):
+        raise ParamError('Горизонт ремонта: целое число лет от 1 до 5.') from None
+    if not 1 <= h <= 5:
+        raise ParamError('Горизонт ремонта: целое число лет от 1 до 5.')
+    return h
+
+
+def _search_job(pid: str, passport: 'Passport', years: list[int], job: dict[str, Any], horizon: int = 1) -> None:
     """Фоновый поток автоперебора: сначала история (улики на каждую дату), затем сетка вариантов; прерывается флагом ``cancel``."""
     from atlas import passport_assess, passport_blocks, well_search
     try:
         job.update(stage='Собираю улики на историю по всем скважинам')
         keep: dict[str, Any] = {}
-        passport.backtest(years, keep)
+        passport.backtest(years, keep, horizon)
         if job['cancel']:
             job.update(state='canceled')
             return
@@ -168,7 +178,7 @@ class Passport:
         from atlas import passport_assess
         return well_backtest.candidates({w: self.card(w) for w in self.wells()}, passport_assess.weights_of(self.settings))
 
-    def backtest(self, years: list[int], keep: dict[str, Any] | None = None) -> dict[str, Any]:
+    def backtest(self, years: list[int], keep: dict[str, Any] | None = None, horizon: int = 1) -> dict[str, Any]:
         """Проверка критериев на истории по всем скважинам проекта: карточки (все сезоны), КР, замеры забоя и низ фильтра/перфорации."""
         from atlas import passport_card, well_backtest
         names = self.manifest.get('tables', {})
@@ -181,12 +191,15 @@ class Passport:
         filters: dict[str, float | None] = {}
         for w in cards:
             cons = passport_card._well_rows(self.frames, 'construction', w)
-            cons = cons[cons['date'] == cons['date'].max()] if not cons.empty else cons
-            low = [float(v) for e, v in zip(cons.element, cons.bottom_m) if passport_card.classify(str(e)) in ('filter', 'perf') and pd.notna(v)] if not cons.empty else []
-            filters[w] = max(low) if low else None
+            hist = []                                 # низ фильтра по каждой конструкции: на дату проверки берётся последняя из бывших до неё
+            for d, g in (cons.groupby('date') if not cons.empty else []):
+                low = [float(v) for e, v in zip(g.element, g.bottom_m) if passport_card.classify(str(e)) in ('filter', 'perf') and pd.notna(v)]
+                if low:
+                    hist.append((pd.Timestamp(d), max(low)))
+            filters[w] = sorted(hist) or None
         from atlas import passport_assess
         return well_backtest.run(cards, works, bottoms, filters, self.object_pressure(), years, passport_assess.thresholds_of(self.settings),
-                                 passport_assess.weights_of(self.settings), keep)
+                                 passport_assess.weights_of(self.settings), keep, horizon)
 
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting
@@ -338,7 +351,7 @@ def routes(projects: Projects) -> list[Route]:
         years = sorted({int(y) for y in body.get('years') or [2022, 2023, 2024, 2025]})
         if not years or len(years) > 10 or any(y < 2000 or y > 2100 for y in years):
             raise ParamError('Проверка на истории: годы от 2000 до 2100, не больше десяти.')
-        result = Passport(projects, request.path_params['pid']).backtest(years)
+        result = Passport(projects, request.path_params['pid']).backtest(years, None, _horizon(body))
         return {**result, 'tables': [_table_json(t) for t in passport_blocks.backtest_tables(result) + passport_blocks.sweep_tables(result.get('sweep') or {})]}
 
     def search(request, body):
@@ -354,7 +367,7 @@ def routes(projects: Projects) -> list[Route]:
             if not 1 <= len(years) <= 10 or any(not 2000 <= y <= 2100 for y in years):
                 raise ParamError('Автоперебор: годы от 2000 до 2100, не больше десяти.')
             job = SEARCH_JOBS[pid] = {'state': 'running', 'stage': 'Запуск', 'done': 0, 'total': 0, 'cancel': False}
-            threading.Thread(target=_search_job, args=(pid, Passport(projects, pid), years, job), daemon=True).start()
+            threading.Thread(target=_search_job, args=(pid, Passport(projects, pid), years, job, _horizon(body)), daemon=True).start()
         elif action == 'cancel' and job:
             job['cancel'] = True
         elif not job:

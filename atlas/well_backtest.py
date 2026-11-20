@@ -23,9 +23,18 @@ def _day(value: Any) -> pd.Timestamp | None:
     return None if pd.isna(t) else pd.Timestamp(t).normalize()
 
 
-def repaired_wells(works: dict[str, list[dict[str, Any]]], year: int) -> set[str]:
-    """Скважины, у которых в году был капитальный ремонт (текущий ремонт «ТР» не считается)."""
-    return {w for w, rows in works.items() for r in rows if r.get('year') == year and 'ТР' not in str(r.get('type') or '').upper().split()}
+def repaired_wells(works: dict[str, list[dict[str, Any]]], year: int, horizon: int = 1) -> set[str]:
+    """Скважины, у которых в году проверки или в ``horizon - 1`` следующих был капитальный ремонт (текущий ремонт «ТР» не считается)."""
+    return {w for w, rows in works.items() for r in rows
+            if r.get('year') is not None and year <= r['year'] < year + max(1, horizon) and 'ТР' not in str(r.get('type') or '').upper().split()}
+
+
+def filter_at(value: Any, cut: pd.Timestamp) -> float | None:
+    """Низ фильтра/перфорации на дату: число (одна конструкция) или список (дата, низ) — берётся последняя конструкция до даты."""
+    if not isinstance(value, list):
+        return value
+    old = [low for d, low in value if d < cut]
+    return old[-1] if old else None
 
 
 def evidence_at(card: dict[str, Any], cut: pd.Timestamp, *, works: list[dict[str, Any]], bottoms: pd.DataFrame | None, filter_bottom_m: float | None,
@@ -107,7 +116,7 @@ def by_mechanism(years: list[dict[str, Any]], evidence: dict[int, dict[str, list
 
 def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]], bottoms: dict[str, pd.DataFrame], filters: dict[str, float | None],
         pressure: pd.DataFrame | None, years: list[int], thresholds: dict[str, float] | None = None, weights: dict[str, float] | None = None,
-        keep: dict[str, Any] | None = None) -> dict[str, Any]:
+        keep: dict[str, Any] | None = None, horizon: int = 1) -> dict[str, Any]:
     """Проверка по всем скважинам и годам. ``cards`` — карточки паспорта (все сезоны), ``works`` — КР по скважинам, ``thresholds`` — применённые пороги."""
     th = {**passport_assess.thresholds_of(None), **(thresholds or {})}
     feats: dict[int, dict[str, dict[str, Any]]] = {}
@@ -121,17 +130,17 @@ def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]]
             if not any((_day(s.get('end')) or cut) < cut for s in card.get('seasons', [])):
                 continue          # до этой даты по скважине нет ни одного сезона
             feats[year][well] = {}
-            evidence[year][well] = evidence_at(card, cut, works=works.get(well, []), bottoms=bottoms.get(well), filter_bottom_m=filters.get(well),
+            evidence[year][well] = evidence_at(card, cut, works=works.get(well, []), bottoms=bottoms.get(well), filter_bottom_m=filter_at(filters.get(well), cut),
                                                pressure=pressure, limit=(card.get('depression') or {}).get('limit'), features=feats[year][well],
                                                dep_min_dates=th['dep_min_dates'])
-        fact[year] = repaired_wells(works, year)
+        fact[year] = repaired_wells(works, year, horizon)
         out_years.append(check_year(year, evidence[year], fact[year], weights))
-    notes = ['Проверка на истории: улики собраны только по данным до 1 января года; приоритет КР по ревизиям КРУ восстановлен на дату по сезонам с песком и ремонтам.']
+    notes = [f'Проверка на истории: улики собраны только по данным до 1 января года; ремонт считается, если он был в течение {horizon} календарных лет, начиная с года проверки; конструкция берётся на дату; приоритет КР по ревизиям КРУ восстановлен на дату по сезонам с песком и ремонтам.']
     if not any(y['wells'] for y in out_years):
         notes.append(EMPTY_NOTE)
     if keep is not None:
         keep.update(feats=feats, evidence=evidence, fact=fact, thresholds=th)
-    return {'years': out_years, 'mechanisms': by_mechanism(out_years, evidence, fact) if out_years else [], 'notes': notes,
+    return {'years': out_years, 'mechanisms': by_mechanism(out_years, evidence, fact) if out_years else [], 'notes': notes, 'horizon': horizon,
             'sweep': sweep(feats, fact, th), 'thresholds': th}
 
 

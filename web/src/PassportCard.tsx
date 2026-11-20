@@ -39,10 +39,11 @@ function AssessOverride({ card, project, revision, onProject }: { card: Card; pr
 function Backtest({ project, revision, onProject }: { project: string; revision?: number; onProject?: (p: Project) => void }) {
   const [result, setResult] = useState<{ years: unknown[]; mechanisms: unknown[]; notes: string[]; tables: Table[]; sweep?: Sweep } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [horizon, setHorizon] = useState(1)
   const [error, setError] = useState('')
   const run = async () => {
     setBusy(true); setError('')
-    try { setResult(await passportApi.backtest(project, [2022, 2023, 2024, 2025])) } catch (e) { setError((e as Error).message) }
+    try { setResult(await passportApi.backtest(project, [2022, 2023, 2024, 2025], horizon)) } catch (e) { setError((e as Error).message) }
     setBusy(false)
   }
   const apply = (key: 'depression' | 'throttle', r: SweepRow) => {
@@ -54,6 +55,7 @@ function Backtest({ project, revision, onProject }: { project: string; revision?
     <details className="note info wide-table">
       <summary>Проверка критериев на истории (КР 2022–2025)</summary>
       <p>Что показали бы улики на 1 января года, в котором скважину потом ремонтировали: только данные до этой даты. Считает все скважины проекта, это занимает время.</p>
+      <label>Ремонт в течение{' '}<select value={horizon} onChange={e => setHorizon(Number(e.target.value))}>{[1, 2, 3].map(h => <option key={h} value={h}>{h} {h === 1 ? 'года' : 'лет'}</option>)}</select></label>{' '}
       <button type="button" onClick={run} disabled={busy}>{busy ? 'Считаю…' : 'Проверить'}</button>
       {error && <p className="error">{error}</p>}
       {result?.tables.map(t => <TableView key={t.id} table={t} docked
@@ -74,13 +76,14 @@ function Backtest({ project, revision, onProject }: { project: string; revision?
 /** Автоперебор критериев вывода в КРС: один запуск прогоняет варианты на истории, итог — таблица; вариант применяет только инженер кнопкой. */
 function AutoSearch({ project, revision, onProject }: { project: string; revision?: number; onProject?: (p: Project) => void }) {
   const [job, setJob] = useState<SearchJob>({ state: 'idle' })
+  const [horizon, setHorizon] = useState(1)
   const [error, setError] = useState('')
   useEffect(() => {
     if (job.state !== 'running') return
     const t = setInterval(() => passportApi.search(project, 'status').then(setJob).catch(e => setError((e as Error).message)), 1000)
     return () => clearInterval(t)
   }, [job.state, project])
-  const act = (a: 'start' | 'cancel') => { setError(''); passportApi.search(project, a).then(setJob).catch(e => setError((e as Error).message)) }
+  const act = (a: 'start' | 'cancel') => { setError(''); passportApi.search(project, a, horizon).then(setJob).catch(e => setError((e as Error).message)) }
   const apply = (r: SearchRow) => passportApi.saveThresholds(project, { variant: r.variant }, revision).then(p => onProject?.(p)).catch(e => setError((e as Error).message))
   const res = job.result
   return (
@@ -89,7 +92,7 @@ function AutoSearch({ project, revision, onProject }: { project: string; revisio
       <p>Один запуск прогоняет варианты порогов депрессии и ЭЛПРО, веса механизмов и слабых улик на истории КР 2022–2025. Подбор идёт по ранним годам, последний год служит проверкой от подгонки. Ничего не применяется само.</p>
       {job.state === 'running'
         ? <p>{job.stage}{job.total ? `: ${job.done} из ${job.total}` : '…'} <button type="button" onClick={() => act('cancel')}>Прервать</button></p>
-        : <button type="button" onClick={() => act('start')}>{job.state === 'idle' ? 'Запустить перебор' : 'Запустить заново'}</button>}
+        : <><label>Ремонт в течение{' '}<select value={horizon} onChange={e => setHorizon(Number(e.target.value))}>{[1, 2, 3].map(h => <option key={h} value={h}>{h} {h === 1 ? 'года' : 'лет'}</option>)}</select></label>{' '}<button type="button" onClick={() => act('start')}>{job.state === 'idle' ? 'Запустить перебор' : 'Запустить заново'}</button></>}
       {error && <p className="error">{error}</p>}
       {job.state === 'error' && <p className="error">{job.error}</p>}
       {job.state === 'canceled' && !res && <p>Прервано.</p>}

@@ -84,11 +84,11 @@ export const passportApi = {
   saveDepression: async (project: string, body: { types?: DepressionType[]; well?: string; type?: string | null }, revision?: number) =>
     (await send(`/api/projects/${project}/passport/depression`, post({ ...body, revision }))).json() as Promise<Project>,
   /** Проверка критериев на истории: улики на 1 января каждого года против фактических КР года. */
-  backtest: async (project: string, years: number[]) =>
-    (await send(`/api/projects/${project}/passport/backtest`, post({ years }))).json() as Promise<{ years: unknown[]; mechanisms: unknown[]; tables: Table[]; notes: string[]; sweep?: Sweep }>,
+  backtest: async (project: string, years: number[], horizon = 1) =>
+    (await send(`/api/projects/${project}/passport/backtest`, post({ years, horizon }))).json() as Promise<{ years: unknown[]; mechanisms: unknown[]; tables: Table[]; notes: string[]; sweep?: Sweep }>,
   /** Автоперебор критериев вывода в КРС: запуск фонового задания, опрос прогресса, прерывание. */
-  search: async (project: string, action: 'start' | 'status' | 'cancel') =>
-    (await send(`/api/projects/${project}/passport/search`, post({ action }))).json() as Promise<SearchJob>,
+  search: async (project: string, action: 'start' | 'status' | 'cancel', horizon = 1) =>
+    (await send(`/api/projects/${project}/passport/search`, post({ action, horizon }))).json() as Promise<SearchJob>,
   /** Таблица «механизм → операция»: правки по уровням (strong/weak) или сброс к умолчаниям. */
   saveOperations: async (project: string, operations: Record<string, { strong?: string; weak?: string }> | null, revision?: number) =>
     (await send(`/api/projects/${project}/passport/operations`, post(operations ? { operations, revision } : { reset: true, revision }))).json() as Promise<Project>,
