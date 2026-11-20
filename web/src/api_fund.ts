@@ -3,9 +3,12 @@ import { ApiError } from './api'
 
 export interface FundInfo { id: string; label: string }
 export interface FundRow {
-  well: string; group: string; fund: string; hint: string; reason: string; manual: boolean; sources: string[]
+  well: string; group: string; fund: string; hint: string; reason: string; manual: boolean; sources: string[]; horizon: string
 }
-export interface FundTable { funds: FundInfo[]; wells: FundRow[]; revision: number }
+export interface FundTable {
+  funds: FundInfo[]; wells: FundRow[]; revision: number
+  imported?: { wells: number; horizons: number; notes: string[] }
+}
 
 async function send(path: string, init?: RequestInit): Promise<FundTable> {
   let response: Response
@@ -26,4 +29,13 @@ export const fundApi = {
     send(`/api/projects/${project}/well-fund`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes, revision }),
     }),
+  /** Горизонты контрольных скважин; пустая строка снимает горизонт. */
+  horizons: (project: string, horizons: Record<string, string>, revision?: number) =>
+    send(`/api/projects/${project}/well-fund`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horizons, revision }),
+    }),
+  /** Лист «скважина, фонд, горизонт» (xlsx, csv). */
+  importFile: (project: string, file: File, revision?: number) =>
+    send(`/api/projects/${project}/well-fund/import?name=${encodeURIComponent(file.name)}${revision != null ? `&revision=${revision}` : ''}`,
+      { method: 'POST', body: file }),
 }

@@ -234,38 +234,46 @@ def fund_tables(rows: list[dict[str, Any]]) -> list[Table]:
 
 
 def depression_chart(dep: dict[str, Any] | None) -> Chart | None:
-    """Депрессия Рпл − Рзаб по сезонам отбора (обратный пересчёт по ГДИ): столбцы на среднем и максимальном расходе и линия предела типа забоя."""
-    rows = [r for r in (dep or {}).get('rows', []) if r['dep_max'] is not None]
-    if not rows:
+    """Депрессия Рпл − Рзаб на каждую дату замера Рпл (когда скважина работала) по времени: точки на линии предела типа забоя; превышения — красным."""
+    pts = [(p, r['period']) for r in (dep or {}).get('rows', []) for p in r.get('points', [])]
+    if not pts:
         return None
-    cats = [r['period'] for r in rows]
-    chart = Chart('passport-depression', 'Депрессия по сезонам отбора (по ГДИ)', Axis('Сезон отбора', scale='category', categories=cats),
-                  Axis('Депрессия Рпл − Рзаб', 'кгс/см²', from_zero=True))
-    for key, name, color in (('dep_mean', 'На среднем расходе', '#6baed6'), ('dep_max', 'На максимальном расходе', '#08519c')):
-        chart.series.append(Series(name, cats, _f([r[key] for r in rows]), 'bar', group=name, color=color,
-                                   labels=[f"{name}: {r[key]:.2f} кгс/см² · Рпл {r['p_res']:.1f} на {r['p_date']} · {r['note']}" if r[key] is not None else name for r in rows]))
+    pts.sort(key=lambda x: x[0]['day'])
+    when = pd.to_datetime([p['day'] for p, _ in pts]).to_numpy()
+    chart = Chart('passport-depression', 'Депрессия на даты замеров пластового давления (по ГДИ)', Axis('Дата замера Рпл', scale='time'),
+                  Axis('Депрессия Рпл − Рзаб', 'кгс/см²', from_zero=True), crosshair=True)
+    labels = [f"Депрессия {p['dep']:.2f} кгс/см² · Рпл {p['p_res']:.1f} · Q {p['q']:.1f} тыс. м³/сут · сезон {per}" for p, per in pts]
+    chart.series.append(Series('Депрессия на дату замера', when, np.array([p['dep'] for p, _ in pts]), 'line', group='Депрессия на дату замера', color='#08519c',
+                               labels=labels, width=1.4))
+    over = [(p, per) for p, per in pts if p['over']]
+    if over:
+        chart.series.append(Series('Выше предела', pd.to_datetime([p['day'] for p, _ in over]).to_numpy(), np.array([p['dep'] for p, _ in over]), 'points',
+                                   group='Выше предела', color='#c0392b', labels=[f"Выше предела: {p['dep']:.2f} на {p['date']}" for p, _ in over]))
     if dep.get('limit'):
         name = f"Предел {dep['limit']:g} кгс/см²"
-        chart.series.append(Series(name, cats, np.full(len(cats), float(dep['limit'])), 'line', color='#c0392b', dash='dash', width=2, group=name))
+        chart.series.append(Series(name, when, np.full(len(when), float(dep['limit'])), 'line', color='#c0392b', dash='dash', width=2, group=name))
     return chart
 
 
 def depression_table(dep: dict[str, Any] | None) -> Table | None:
+    """По сезонам: дат замера при работе, дат выше предела, доля, максимум депрессии (на какую дату и при каком Рпл) и статус."""
     rows = (dep or {}).get('rows') or []
     if not rows:
         return None
-    frame = pd.DataFrame({'period': [r['period'] for r in rows], 'q_mean': _f([r['q_mean'] for r in rows]), 'q_max': _f([r['q_max'] for r in rows]),
-                          'p_res': _f([r['p_res'] for r in rows]), 'p_date': [r['p_date'] for r in rows], 'dep_mean': _f([r['dep_mean'] for r in rows]),
-                          'dep_max': _f([r['dep_max'] for r in rows]), 'limit': _f([r['limit'] for r in rows]), 'status': [r['status'] for r in rows],
-                          'note': [r['note'] for r in rows]})
+    frame = pd.DataFrame({'period': [r['period'] for r in rows], 'n': [r['n'] for r in rows], 'n_over': [r['n_over'] for r in rows],
+                          'share': _f([None if r['share_over'] is None else r['share_over'] * 100 for r in rows]),
+                          'dep_max': _f([r['dep_max'] for r in rows]), 'p_date': [r['p_date'] for r in rows], 'p_res': _f([r['p_res'] for r in rows]),
+                          'dep_mean': _f([r['dep_mean'] for r in rows]), 'q_max': _f([r['q_max'] for r in rows]), 'limit': _f([r['limit'] for r in rows]),
+                          'status': [r['status'] for r in rows], 'note': [r['note'] for r in rows]})
     bad = [i for i, r in enumerate(rows) if r['status'] == 'превышен']
-    return Table('passport-depression', 'Депрессия по сезонам отбора', frame, [
-        Column('period', 'Сезон'), Column('q_mean', 'Qср', 'тыс. м³/сут', 1, 'number'), Column('q_max', 'Qmax', 'тыс. м³/сут', 1, 'number'),
-        Column('p_res', 'Рпл (среднее по сетке)', 'кгс/см²', 1, 'number'), Column('p_date', 'Дата замеров'),
-        Column('dep_mean', 'Депрессия на Qср', 'кгс/см²', 2, 'number'), Column('dep_max', 'Депрессия на Qmax', 'кгс/см²', 2, 'number'),
-        Column('limit', 'Предел', 'кгс/см²', 1, 'number'), Column('status', 'Статус'), Column('note', 'Примечание')],
-        styles=[CellStyle(bad, font='c0392b')] if bad else [],
-        note='Депрессия — Рпл − Рзаб (не квадрат), обратный пересчёт по последнему надёжному ГДИ: Рзаб² = Рпл² − (a·q + b·q²). Оценка, не замер; предел и тип забоя задаёт инженер.')
+    return Table('passport-depression', 'Депрессия по сезонам отбора (на даты замеров Рпл)', frame, [
+        Column('period', 'Сезон'), Column('n', 'Дат замера при работе', 'шт.', 0, 'number'), Column('n_over', 'Из них выше предела', 'шт.', 0, 'number'),
+        Column('share', 'Доля выше предела', '%', 0, 'number'), Column('dep_max', 'Максимум депрессии', 'кгс/см²', 2, 'number'), Column('p_date', 'Дата максимума'),
+        Column('p_res', 'Рпл на эту дату', 'кгс/см²', 1, 'number'), Column('dep_mean', 'Средняя депрессия', 'кгс/см²', 2, 'number'),
+        Column('q_max', 'Q в день максимума', 'тыс. м³/сут', 1, 'number'), Column('limit', 'Предел', 'кгс/см²', 1, 'number'), Column('status', 'Статус'),
+        Column('note', 'Примечание')], styles=[CellStyle(bad, font='c0392b')] if bad else [],
+        note='Депрессия — Рпл − Рзаб (не квадрат), обратный пересчёт по последнему надёжному ГДИ: Рзаб² = Рпл² − (a·q + b·q²) на каждую дату замера Рпл, '
+             'когда скважина работала (расход этой даты). Оценка, не замер; предел и тип забоя задаёт инженер.')
 
 
 def blocks(card: dict[str, Any]) -> tuple[list[Chart], list[Table]]:

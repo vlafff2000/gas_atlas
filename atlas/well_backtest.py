@@ -35,7 +35,9 @@ def evidence_at(card: dict[str, Any], cut: pd.Timestamp, *, works: list[dict[str
     done = {str(s['period']) for s in seasons if s['kind'] == 'withdrawal'}
     gdi = [g for g in card.get('gdi', []) if (_day(g.get('date')) or cut) < cut]
     elpro = [r for r in card.get('elpro', []) if str(r['period']) in done]
-    dep = passport_depression.season_rows(seasons, gdi, pressure, limit)
+    daily = card.get('daily', {}).get('withdrawal') or {}
+    keep = [i for i, d in enumerate(daily.get('date', [])) if (_day(d) or cut) < cut]          # суточные расходы только до даты проверки
+    dep = passport_depression.season_rows(seasons, gdi, pressure, limit, {k: [v[i] for i in keep] for k, v in daily.items()})
     past = [w for w in works if w.get('year') is not None and w['year'] < cut.year]
     bottom_m = bottom_date = row = None
     if bottoms is not None and not bottoms.empty:

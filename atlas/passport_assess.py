@@ -15,6 +15,7 @@ from atlas import well_assess as wa
 MECHANISMS = {'depression': 'Превышение предельной депрессии', 'bottom_fill': 'Заполнение забоя', 'sand': 'Вынос песка (ревизии КРУ)', 'throttle': 'Ограничение устья / КРУ', 'gdi_old': 'Устаревшее ГДИ'}
 LEVEL_NAMES = {'none': 'нет', 'weak': 'слабая', 'strong': 'сильная', 'unknown': 'неизвестно'}
 GDI_OLD_YEARS = 5.0
+DEP_STRONG_DATES = 2     # дат замера Рпл с превышением предела депрессии, с которых улика сильная
 # Таблица «механизм → операция» по умолчанию: что подсказывать при сильной и слабой улике. Инженер правит её в проекте (settings.well_operations);
 # изменённая строка главнее подсказки, которую даёт автоматика по конкретному случаю.
 DEFAULT_OPERATIONS: dict[str, dict[str, str]] = {
@@ -77,10 +78,11 @@ def collect(*, bottom_m: float | None, bottom_date: Any, bottom_row: Any, filter
     last_dep = next((r for r in reversed(depression or []) if r['status'] in ('превышен', 'близко', 'норма')), None)
     if last_dep and last_dep['status'] != 'норма':
         over = last_dep['status'] == 'превышен'
-        out.append(wa.Evidence('depression', 'strong' if over else 'weak',
-                               f'Сезон {last_dep["period"]}: депрессия на максимальном расходе {last_dep["dep_max"]:.2f} кгс/см² при пределе {last_dep["limit"]:g} '
-                               f'({"предел превышен" if over else "близко к пределу"}); {last_dep["note"]}.', '', 1.0,
-                               'Снизить режим отбора по скважине (риск выноса песка), проверить ГДИ.'))
+        many = last_dep['n_over'] >= DEP_STRONG_DATES        # одна дата выше предела может быть случайностью замера: это слабая улика
+        detail = (f'выше предела {last_dep["n_over"]} из {last_dep["n"]} дат замера Рпл ({last_dep["share_over"] * 100:.0f} %), максимум '
+                  f'{last_dep["dep_max"]:.2f} на {last_dep["p_date"]}') if over else f'максимум {last_dep["dep_max"]:.2f} на {last_dep["p_date"]}, близко к пределу'
+        out.append(wa.Evidence('depression', 'strong' if many else 'weak', f'Сезон {last_dep["period"]}: депрессия {detail} при пределе {last_dep["limit"]:g} '
+                               f'кгс/см²; {last_dep["note"]}.', '', 1.0, 'Снизить режим отбора по скважине (риск выноса песка), проверить ГДИ.'))
     pr = (krs.get('priority') or {})
     value = pr.get('value')
     if value is not None:
