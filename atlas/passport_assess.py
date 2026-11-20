@@ -24,7 +24,9 @@ def bottom_source(row: Any) -> str:
     text = ' '.join(str(row.get(c, '') or '') for c in ('method', 'origin', 'source', 'comment')).lower().strip()
     if not text or text == 'nan':
         return 'unknown'
-    if 'геолог' in text or ('шаблон' in text and 'гис' not in text):
+    # «Комментарий» листа «Замеры забоя» БД шаблонирования: «<вид>; <источник данных>; …». Свои Excel = шаблонирование геологической службы,
+    # «БД ГИС из отчётов» / «Отчёт ГИС» = отчёты ГИС; конструкции из Word и решения инженера — прочее.
+    if 'геолог' in text or 'excel' in text or ('шаблон' in text and 'гис' not in text):
         return 'geo_template'
     return 'gis_report' if 'гис' in text else 'other'
 

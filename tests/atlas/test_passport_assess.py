@@ -12,6 +12,15 @@ def test_bottom_source_distinguishes_gis_report_and_geo_service():
     assert pa.bottom_source(None) == 'unknown' and pa.bottom_source({'method': float('nan')}) == 'unknown'
 
 
+def test_bottom_source_from_templating_db_comment():
+    """Строки «Комментарий» листа «Замеры забоя» БД шаблонирования (`pxg_core.templating_db.bottom_frame`): «вид; источник данных»."""
+    src = lambda text: pa.bottom_source({'method': 'шаблон', 'comment': text})
+    assert src('доход шаблона; БД ГИС из отчётов') == 'gis_report' and src('остановка прибора; Отчёт ГИС') == 'gis_report'
+    assert src('шаблонирование (Excel); Excel') == 'geo_template'
+    assert pa.bottom_source({'method': 'текущий забой', 'comment': 'текущий забой; Конструкции из Word'}) == 'other'
+    assert pa.bottom_source({'method': 'решение инженера', 'comment': 'решение инженера; Решение инженера'}) == 'other'
+
+
 def test_collect_sand_old_gdi_and_manual_override_wins():
     krs = {'works': [], 'priority': {'value': 1.0, 'reason': 'песок в 3 ревизиях подряд'}}
     gdi = [{'date': '01.01.2018', 'reliable': True}]
