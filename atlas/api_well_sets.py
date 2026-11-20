@@ -35,6 +35,12 @@ def project_presets(projects: Projects, pid: str) -> list[dict]:
     labels = dict(well_funds.FUNDS)
     out += [{'id': f'fund:{fund}', 'kind': 'fund', 'label': labels.get(fund, fund), 'wells': sorted(wells, key=natural_key)}
             for fund, wells in by_fund.items()]
+    by_horizon: dict[str, list[str]] = {}
+    for row in projects.well_funds(pid)['wells']:
+        if row.get('fund') == 'control' and row.get('horizon'):
+            by_horizon.setdefault(row['horizon'], []).append(str(row['well']))
+    out += [{'id': f'fund:control:{h}', 'kind': 'fund', 'label': f'Контрольная · {h}', 'wells': sorted(wells, key=natural_key)}
+            for h, wells in sorted(by_horizon.items())]
     grid = survey_pressure(data)
     if grid is not None and not grid.empty:
         out.append({'id': 'grid', 'kind': 'grid', 'label': 'Замерная сетка (БД давлений по замерам, с ГСП)',
