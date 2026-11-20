@@ -41,7 +41,7 @@ export interface KrsInfo { works: { year: number | null; type: string; detail: s
   priority: { value: number | null; reason: string; sand: string } | null }
 export interface PassportCard {
   well: string; group: string; construction_date: string; kpi: Kpi[]; seasons: SeasonRow[]; season_options: string[]; gdi: GdiRow[]; gdi_diagrams: GdiDiagram[]; daily: Record<'withdrawal' | 'injection', DailySeries>; krs: KrsInfo
-  schematic: Schematic; elpro_help?: string[]; assess?: AssessRow[]; notes: string[]; charts: Chart[]; tables: Table[]
+  schematic: Schematic; elpro_help?: string[]; assess?: AssessRow[]; depression?: DepressionInfo; notes: string[]; charts: Chart[]; tables: Table[]
 }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
@@ -80,6 +80,9 @@ export const passportApi = {
   /** Ручное решение инженера по механизму оценки (level = null снимает его). */
   saveAssess: async (project: string, well: string, mechanism: string, level: string | null, note: string, revision?: number) =>
     (await send(`/api/projects/${project}/passport/assess`, post({ well, mechanism, level, note, revision }))).json() as Promise<Project>,
+  /** Пределы депрессии по типам забоя (types) или тип забоя скважины (well + type; null — авто). */
+  saveDepression: async (project: string, body: { types?: DepressionType[]; well?: string; type?: string | null }, revision?: number) =>
+    (await send(`/api/projects/${project}/passport/depression`, post({ ...body, revision }))).json() as Promise<Project>,
   /** Формирует PDF (сохраняется и в выгрузках проекта) и отдаёт его браузеру. */
   pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true, wells?: string[], seasons: string[] = []) => {
     const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, wells, sections, periods, comment, card, seasons }))
@@ -91,3 +94,5 @@ export const passportApi = {
 }
 
 export interface AssessRow { mechanism: string; name: string; auto_level: string; level: string; manual: boolean; note: string; reason: string; date: string; weight: number; recommendation: string }
+export interface DepressionType { key: string; name: string; limit: number }
+export interface DepressionInfo { types: DepressionType[]; type: string | null; type_auto: string | null; limit: number | null; rows: unknown[] }
