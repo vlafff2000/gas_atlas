@@ -514,3 +514,9 @@ table.frozen tbody tr.is-synced td:first-child { background: var(--accent-soft);
 .skeleton.tall { height: 300px; }
 @keyframes skeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+/* Широкие сводные таблицы паспорта (кандидаты в КРС, проверка на истории): на всю ширину, выше обычной, переносят длинные тексты */
+.wide-table { max-width: none; }
+.wide-table .table-scroll { max-height: 78vh; }
+.wide-table td { white-space: normal; vertical-align: top; max-width: 46ch; font-size: 14px; line-height: 1.35; }
+.wide-table th { font-size: 13px; }

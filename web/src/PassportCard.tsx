@@ -37,21 +37,22 @@ function AssessOverride({ card, project, revision, onProject }: { card: Card; pr
 
 /** Проверка критериев на истории: улики на 1 января каждого года против фактических КР; считается по запросу (по всем скважинам проекта). */
 function Backtest({ project }: { project: string }) {
-  const [tables, setTables] = useState<Table[] | null>(null)
+  const [result, setResult] = useState<{ years: unknown[]; mechanisms: unknown[]; notes: string[]; tables: Table[] } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const run = async () => {
     setBusy(true); setError('')
-    try { setTables((await passportApi.backtest(project, [2022, 2023, 2024, 2025])).tables) } catch (e) { setError((e as Error).message) }
+    try { setResult(await passportApi.backtest(project, [2022, 2023, 2024, 2025])) } catch (e) { setError((e as Error).message) }
     setBusy(false)
   }
   return (
-    <details className="note info">
+    <details className="note info wide-table">
       <summary>Проверка критериев на истории (КР 2022–2025)</summary>
       <p>Что показали бы улики на 1 января года, в котором скважину потом ремонтировали: только данные до этой даты. Считает все скважины проекта, это занимает время.</p>
       <button type="button" onClick={run} disabled={busy}>{busy ? 'Считаю…' : 'Проверить'}</button>
       {error && <p className="error">{error}</p>}
-      {tables?.map(t => <TableView key={t.id} table={t} docked onDownload={async () => { throw new Error('Выгрузка проверки пока не сделана: скопируйте таблицу с экрана.') }} />)}
+      {result?.tables.map(t => <TableView key={t.id} table={t} docked
+        onDownload={format => passportApi.exportSummary(project, 'backtest', { years: result.years, mechanisms: result.mechanisms, notes: result.notes }, t.id, format)} />)}
     </details>
   )
 }
@@ -86,23 +87,24 @@ function Operations({ card, project, revision, onProject }: { card: Card; projec
 }
 
 /** Кандидаты в КРС по всему фонду: скважины по убыванию суммы улик; считается по запросу. */
-function Fund({ project }: { project: string }) {
-  const [tables, setTables] = useState<Table[] | null>(null)
+function Fund({ project, onOpenWell }: { project: string; onOpenWell?: (well: string) => void }) {
+  const [result, setResult] = useState<{ rows: unknown[]; tables: Table[] } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const run = async () => {
     setBusy(true); setError('')
-    try { setTables((await passportApi.fund(project)).tables) } catch (e) { setError((e as Error).message) }
+    try { setResult(await passportApi.fund(project)) } catch (e) { setError((e as Error).message) }
     setBusy(false)
   }
   return (
-    <details className="note info">
+    <details className="note info wide-table">
       <summary>Кандидаты в КРС по фонду</summary>
-      <p>Скважины проекта по убыванию суммы улик с причинами и подсказкой операции. Считает все скважины, это занимает время.</p>
+      <p>Скважины проекта по убыванию суммы улик с причинами и подсказкой операции. Номер скважины открывает её паспорт. Считает все скважины, это занимает время.</p>
       <button type="button" onClick={run} disabled={busy}>{busy ? 'Считаю…' : 'Составить список'}</button>
       {error && <p className="error">{error}</p>}
-      {tables && !tables.length && <p>Улик ни у одной скважины нет.</p>}
-      {tables?.map(t => <TableView key={t.id} table={t} docked onDownload={async () => { throw new Error('Выгрузка списка пока не сделана: скопируйте таблицу с экрана.') }} />)}
+      {result && !result.tables.length && <p>Улик ни у одной скважины нет.</p>}
+      {result?.tables.map(t => <TableView key={t.id} table={t} docked onWell={onOpenWell}
+        onDownload={format => passportApi.exportSummary(project, 'fund', { rows: result.rows }, t.id, format)} />)}
     </details>
   )
 }
@@ -135,7 +137,7 @@ function DepressionSettings({ card, project, revision, onProject }: { card: Card
     </div>)
 }
 
-export function PassportDashboard({ card, project, seasons, revision, onProject }: { card: Card; project: string; seasons: string[]; revision?: number; onProject?: (p: Project) => void }) {
+export function PassportDashboard({ card, project, seasons, revision, onProject, onOpenWell }: { card: Card; project: string; seasons: string[]; revision?: number; onProject?: (p: Project) => void; onOpenWell?: (well: string) => void }) {
   const none = (value: Card['kpi'][number]) => value.value === null && !value.text
   const num = (v: number, digits: number) => v.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })
   return (
@@ -168,7 +170,7 @@ export function PassportDashboard({ card, project, seasons, revision, onProject 
       <TableDock tables={card.tables} scope="passport" render={t => (
         <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, seasons, 'table', t.id, format)} />)} />
       {onProject && <Operations card={card} project={project} revision={revision} onProject={onProject} />}
-      {onProject && <Fund project={project} />}
+      {onProject && <Fund project={project} onOpenWell={onOpenWell} />}
       {onProject && <Backtest project={project} />}
       {onProject && <DepressionSettings card={card} project={project} revision={revision} onProject={onProject} />}
       {onProject && <AssessOverride card={card} project={project} revision={revision} onProject={onProject} />}
