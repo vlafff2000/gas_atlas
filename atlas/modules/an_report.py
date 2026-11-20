@@ -426,12 +426,6 @@ class AuthorReportModule(Module):
                   help='Как в «Производительности скважин» и в анализе ГДИ: по дате или по накопленному отбору объекта с начала сезона.'),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
                   show_if={'view': 'canvas'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.SHOW)),
-            Param('wells_source', 'Источник числа работающих скважин', 'choice', default='auto', section='Вид',
-                  options=(Option('auto', 'БД учёта газа, где нет — по скважинам'), Option('gas_db', 'Только БД учёта газа'),
-                           Option('wells', 'Суточные расходы скважин (расход > 0)')),
-                  help='Подпись «скважин в работе» и ряд «Скважин в работе». «БД учёта газа» — столбец «Работающие скважины, всего по ПХГ» листа «БД»; '
-                       'его нужно загрузить заново, если база импортирована раньше. По суточным расходам считаются скважины с расходом больше нуля; '
-                       'ноль, сутки без записи и исключённые точки в число не входят. Источник указан в названии ряда.'),
             Param('show_curve', 'Ряды на графике «от накопленного объёма»', 'multi', default=list(an_charts.CURVE_SHOW_DEFAULT),
                   section='Вид', empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.CURVE_SHOW),
                   help='Для графика «Расход от накопленного объёма» (основного или правого). По оси X — накопленный объём. '
@@ -503,7 +497,7 @@ class AuthorReportModule(Module):
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
             by_cum = params.get('group_x') == 'cumulative'
             group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'],
-                                                            an_charts.daily_of(whole_production(data), kind, period, node_ref(data), params.get('wells_source') or 'auto')[0] if by_cum else None)
+                                                            an_charts.daily_of(whole_production(data), kind, period, node_ref(data))[0] if by_cum else None)
             if group_pressure is not None:
                 result.charts.append(group_pressure)
             self.plan_details(result, data, kind, period)
@@ -658,7 +652,8 @@ class AuthorReportModule(Module):
                       means: pd.DataFrame, pressure: pd.DataFrame | None, params: dict[str, Any],
                       fund_frame: pd.DataFrame) -> None:
         """Графики сезона: основной по выбранному виду и второй («Правый график»: по умолчанию фонд скважин)."""
-        daily, wells = an_charts.daily_of(whole_production(data), kind, period, node_ref(data), params.get('wells_source') or 'auto')
+        daily, wells = an_charts.daily_of(whole_production(data), kind, period, node_ref(data))
+        wells_db = an_charts.wells_gas_db(node_ref(data), kind, daily.index)
         start, stop = summary['start'], summary['stop']
         factor = data[FACTOR] if FACTOR in data else None
         rates: list[pd.DataFrame] = []                # считается один раз и только если нужен группам
@@ -679,11 +674,11 @@ class AuthorReportModule(Module):
             if view == 'canvas':
                 show = list(params['show']) if 'show' in params else list(an_charts.SHOW_DEFAULT)
                 water = water_table(factor) if factor is not None and not factor.empty and kind == 'withdrawal' else None
-                return [an_charts.canvas_chart(kind, period, show, daily, wells, pressure, water, factor)]
+                return [an_charts.canvas_chart(kind, period, show, daily, wells, pressure, water, factor, wells_db)]
             if view == 'curve':
                 show = list(params['show_curve']) if 'show_curve' in params else list(an_charts.CURVE_SHOW_DEFAULT)
                 water = water_table(factor) if factor is not None and not factor.empty and kind == 'withdrawal' else None
-                return [an_charts.curve_chart(kind, period, daily, wells, pressure, show, water)]
+                return [an_charts.curve_chart(kind, period, daily, wells, pressure, show, water, wells_db)]
             if view == 'group_mean':
                 return [an_charts.group_means_chart(kind, period, means)]
             if view == 'group_mean_months':
