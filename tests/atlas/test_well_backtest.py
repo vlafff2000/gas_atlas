@@ -61,6 +61,7 @@ def test_api_backtest_runs_on_project(tmp_path):
     r = client.post(url, json={'years': [2023, 2024]})
     assert r.status_code == 200 and [y['year'] for y in r.json()['years']] == [2023, 2024] and r.json()['tables']
     assert client.post(url, json={'years': [1500]}).status_code == 400
+    assert client.post(url, json={'years': [2023], 'horizon': 9}).status_code == 400 and client.post(url, json={'years': [2023], 'horizon': 2}).json()['horizon'] == 2
 
 
 def test_fund_candidates_rank_by_score_and_api_saves_operations(tmp_path):
@@ -114,3 +115,13 @@ def test_sand_evidence_reconstructed_on_date_and_labels_explain_well_years():
     assert (sand['repaired_hit'], sand['repaired'], sand['other_hit']) == (1, 1, 0) and sand['strong_repaired'] == 1.0
     t = passport_blocks.backtest_tables(res)[1]
     assert 'скважино-лет' in t.columns[1].label and 'Скважино-год' in t.note
+
+
+def test_horizon_counts_repair_in_following_years_and_construction_is_taken_on_date():
+    works = {'A': [{'year': 2025, 'type': 'КР'}], 'B': [{'year': 2024, 'type': 'ТР'}], 'C': [{'year': 2023, 'type': 'КР'}]}
+    assert bt.repaired_wells(works, 2024) == set()
+    assert bt.repaired_wells(works, 2024, horizon=2) == {'A'}
+    assert bt.repaired_wells(works, 2022, horizon=2) == {'C'}
+    hist = [(pd.Timestamp('2020-01-01'), 1000.0), (pd.Timestamp('2023-06-01'), 900.0)]
+    assert bt.filter_at(hist, pd.Timestamp('2023-01-01')) == 1000.0 and bt.filter_at(hist, pd.Timestamp('2024-01-01')) == 900.0
+    assert bt.filter_at(hist, pd.Timestamp('2019-01-01')) is None and bt.filter_at(950.0, pd.Timestamp('2024-01-01')) == 950.0
