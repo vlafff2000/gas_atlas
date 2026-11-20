@@ -83,6 +83,9 @@ export const passportApi = {
   /** Пределы депрессии по типам забоя (types) или тип забоя скважины (well + type; null — авто). */
   saveDepression: async (project: string, body: { types?: DepressionType[]; well?: string; type?: string | null }, revision?: number) =>
     (await send(`/api/projects/${project}/passport/depression`, post({ ...body, revision }))).json() as Promise<Project>,
+  /** Проверка критериев на истории: улики на 1 января каждого года против фактических КР года. */
+  backtest: async (project: string, years: number[]) =>
+    (await send(`/api/projects/${project}/passport/backtest`, post({ years }))).json() as Promise<{ tables: Table[]; notes: string[] }>,
   /** Формирует PDF (сохраняется и в выгрузках проекта) и отдаёт его браузеру. */
   pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true, wells?: string[], seasons: string[] = []) => {
     const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, wells, sections, periods, comment, card, seasons }))

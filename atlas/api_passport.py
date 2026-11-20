@@ -136,6 +136,24 @@ class Passport:
         return passport_card.build(self.frames, self.settings, self.mapping(), well, krs, seasons, gis=gis, program=program,
                                    elpro=self.raw['elpro'] if 'elpro' in names else None, pressure=self.object_pressure())
 
+    def backtest(self, years: list[int]) -> dict[str, Any]:
+        """Проверка критериев на истории по всем скважинам проекта: карточки (все сезоны), КР, замеры забоя и низ фильтра/перфорации."""
+        from atlas import passport_card, well_backtest
+        names = self.manifest.get('tables', {})
+        works: dict[str, list[dict[str, Any]]] = {}
+        if 'krs_works' in names:
+            for w, g in self.raw['krs_works'].groupby(self.raw['krs_works'].well.astype(str)):
+                works[w] = [{'year': None if pd.isna(r.year) else int(r.year), 'type': str(r.work_type or '')} for _, r in g.iterrows()]
+        cards = {w: self.card(w) for w in self.wells()}
+        bottoms = {w: passport_card._well_rows(self.frames, 'bottom', w) for w in cards}
+        filters: dict[str, float | None] = {}
+        for w in cards:
+            cons = passport_card._well_rows(self.frames, 'construction', w)
+            cons = cons[cons['date'] == cons['date'].max()] if not cons.empty else cons
+            low = [float(v) for e, v in zip(cons.element, cons.bottom_m) if passport_card.classify(str(e)) in ('filter', 'perf') and pd.notna(v)] if not cons.empty else []
+            filters[w] = max(low) if low else None
+        return well_backtest.run(cards, works, bottoms, filters, self.object_pressure(), years)
+
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting
         from atlas.engine.core.documents import passport_pdf
@@ -280,6 +298,15 @@ def routes(projects: Projects) -> list[Route]:
         saved = projects._commit(pid, cfg, body.get('revision'), 'Решение инженера по оценке скважины')
         return projects.summary(saved)
 
+    def backtest(request, body):
+        """Проверка критериев на истории: улики на 1 января каждого года против фактических КР этого года."""
+        from atlas import passport_blocks
+        years = sorted({int(y) for y in body.get('years') or [2022, 2023, 2024, 2025]})
+        if not years or len(years) > 10 or any(y < 2000 or y > 2100 for y in years):
+            raise ParamError('Проверка на истории: годы от 2000 до 2100, не больше десяти.')
+        result = Passport(projects, request.path_params['pid']).backtest(years)
+        return {**result, 'tables': [_table_json(t) for t in passport_blocks.backtest_tables(result)]}
+
     def depression(request, body):
         """Пределы депрессии по типам забоя (``types``) для проекта или тип забоя скважины (``well`` + ``type``; null — вернуть авто-тип)."""
         from atlas import passport_depression
@@ -346,6 +373,7 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/passport/export', E(export), methods=['POST']),
         Route('/api/projects/{pid}/passport/comment', E(comment), methods=['POST']),
         Route('/api/projects/{pid}/passport/assess', E(assess), methods=['POST']),
+        Route('/api/projects/{pid}/passport/backtest', E(backtest), methods=['POST']),
         Route('/api/projects/{pid}/passport/depression', E(depression), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),
     ]
