@@ -233,6 +233,26 @@ def fund_tables(rows: list[dict[str, Any]]) -> list[Table]:
         note='Сильная улика = 2 балла, слабая = 1, с весом свежести. Это подсказка для отбора: решает инженер, его решения по механизмам учтены.')]
 
 
+def sweep_tables(sweep: dict[str, list[dict[str, Any]]]) -> list[Table]:
+    """Перебор порогов на истории: наборы, при которых механизм срабатывает у 5–10 % скважино-лет, и текущий набор (общая таблица ядра)."""
+    pct = lambda v: '' if v is None else f'{v * 100:.0f} %'
+    out = []
+    for key, title in (('depression', 'Перебор порогов: превышение предельной депрессии'), ('throttle', 'Перебор порогов: ограничение устья / КРУ')):
+        rows = sweep.get(key) or []
+        if not rows:
+            continue
+        frame = pd.DataFrame({'label': [r['label'] + ('  ← сейчас' if r['current'] else '') for r in rows], 'n': [r['n'] for r in rows],
+                              'all': [pct(r['share_all']) for r in rows], 'rep': [pct(r['share_repaired']) for r in rows], 'oth': [pct(r['share_other']) for r in rows],
+                              'lift': ['' if r['lift'] is None else f"{r['lift']:.1f}" for r in rows], 'prec': [pct(r['precision']) for r in rows],
+                              'zone': ['5–10 %' if r['in_target'] else 'вне 5–10 %' for r in rows]})
+        out.append(Table(f'passport-sweep-{key}', title, frame, [
+            Column('label', 'Пороги'), Column('n', 'Скважино-лет с данными'), Column('all', 'Срабатывает у'), Column('zone', 'Доля срабатывания'),
+            Column('rep', 'У ушедших в КР'), Column('oth', 'У остальных'), Column('lift', 'Во сколько раз чаще у ушедших в КР'), Column('prec', 'Точность среди сработавших')],
+            note='Цель — механизм срабатывает у 5–10 % скважино-лет и заметно чаще у ушедших в КР. Показаны лучшие наборы по этому признаку и текущий. '
+                 'Пороги применяются только вручную кнопкой под таблицами. Выборка мала: смотрите как подсказку.'))
+    return out
+
+
 def elpro_pressure_chart(data: dict[str, Any] | None) -> Chart | None:
     """Давление ЭЛПРО скважины, медиана по группе и замеры среднего Рпл на одной оси, расход скважины на правой; полосами — аномалии давления ЭЛПРО."""
     ser = (data or {}).get('series') or {}
@@ -321,3 +341,27 @@ def blocks(card: dict[str, Any]) -> tuple[list[Chart], list[Table]]:
     charts = tile_charts(card.get('tiles')) + [c for c in (depression_chart(card.get('depression')), elpro_pressure_chart(card.get('elpro_p')), seasons_chart(card['seasons']), daily_chart(card['daily'], card.get('elpro_cru')), gdi_chart(card['gdi_diagrams'])) if c]
     tables = [t for t in (assess_table(card.get('assess') or []), depression_table(card.get('depression')), seasons_table(card['seasons']), elpro_table(card.get('elpro') or []), elpro_anomaly_table(card.get('elpro_p')), gdi_table(card['gdi']), krs_table(card['krs'])) if t]
     return charts, tables
+
+
+def search_tables(result: dict[str, Any]) -> list[Table]:
+    """Итог автоперебора критериев: лучшие варианты и текущий набор, подбор и проверка на отложенном годе (общая таблица ядра)."""
+    rows = result.get('rows') or []
+    if not rows:
+        return []
+    pct = lambda v: '' if v is None else f'{v * 100:.0f} %'
+    num = lambda v: '' if v is None else f'{v:.1f}'
+    fit, test = result.get('fit_years') or [], result.get('test_years') or []
+    frame = pd.DataFrame({'text': [r['text'] + ('  ← сейчас' if r['current'] else '') for r in rows],
+                          'fit_lift': [num(r['fit_lift']) for r in rows], 'fit_prec': [pct(r['fit_precision']) for r in rows],
+                          'test_lift': [num(r['test_lift']) for r in rows], 'test_prec': [pct(r['test_precision']) for r in rows],
+                          'dep': [pct(r['dep_share']) for r in rows], 'el': [pct(r['el_share']) for r in rows], 'flag': [pct(r['flagged']) for r in rows],
+                          'stable': [f"{r['years_better']} из {r['years']}" for r in rows], 'worst': [num(r['worst_lift']) for r in rows],
+                          'zone': ['5–10 %' if r['in_target'] else 'вне 5–10 %' for r in rows]})
+    fit_t = ', '.join(map(str, fit))
+    cols = [Column('text', 'Вариант критериев'), Column('fit_lift', f'Лучше случайного, подбор ({fit_t})'), Column('fit_prec', 'Точность, подбор')]
+    if test:
+        cols += [Column('test_lift', f'Лучше случайного, проверка ({", ".join(map(str, test))})'), Column('test_prec', 'Точность, проверка')]
+    cols += [Column('dep', 'Депрессия срабатывает у'), Column('el', 'ЭЛПРО срабатывает у'), Column('zone', 'Доля срабатывания'), Column('flag', 'Скважин с любой уликой'),
+             Column('stable', 'Лет лучше случайного'), Column('worst', 'Худший год, во сколько раз')]
+    return [Table('passport-search', f'Автоперебор критериев вывода в КРС (перебрано вариантов: {result.get("tried", 0)})', frame, cols,
+                  note=' '.join(result.get('notes') or []))]

@@ -85,13 +85,19 @@ export const passportApi = {
     (await send(`/api/projects/${project}/passport/depression`, post({ ...body, revision }))).json() as Promise<Project>,
   /** Проверка критериев на истории: улики на 1 января каждого года против фактических КР года. */
   backtest: async (project: string, years: number[]) =>
-    (await send(`/api/projects/${project}/passport/backtest`, post({ years }))).json() as Promise<{ years: unknown[]; mechanisms: unknown[]; tables: Table[]; notes: string[] }>,
+    (await send(`/api/projects/${project}/passport/backtest`, post({ years }))).json() as Promise<{ years: unknown[]; mechanisms: unknown[]; tables: Table[]; notes: string[]; sweep?: Sweep }>,
+  /** Автоперебор критериев вывода в КРС: запуск фонового задания, опрос прогресса, прерывание. */
+  search: async (project: string, action: 'start' | 'status' | 'cancel') =>
+    (await send(`/api/projects/${project}/passport/search`, post({ action }))).json() as Promise<SearchJob>,
   /** Таблица «механизм → операция»: правки по уровням (strong/weak) или сброс к умолчаниям. */
   saveOperations: async (project: string, operations: Record<string, { strong?: string; weak?: string }> | null, revision?: number) =>
     (await send(`/api/projects/${project}/passport/operations`, post(operations ? { operations, revision } : { reset: true, revision }))).json() as Promise<Project>,
   /** Выгрузка таблиц сводки по фонду и проверки на истории (те же данные, что на экране): CSV или XLSX. */
-  exportSummary: (project: string, kind: 'fund' | 'backtest', data: unknown, id: string, format: string) =>
+  exportSummary: (project: string, kind: 'fund' | 'backtest' | 'search', data: unknown, id: string, format: string) =>
     download(`/api/projects/${project}/passport/summary_export`, { kind, data, id, format }),
+  /** Применить пороги из перебора на истории (только по кнопке инженера) или сбросить к умолчаниям. */
+  saveThresholds: async (project: string, body: { variant?: SearchVariant; depression?: { min_dates: number; factor: number }; elpro?: { high_share: number; drop: number }; reset?: boolean }, revision?: number) =>
+    (await send(`/api/projects/${project}/passport/thresholds`, post({ ...body, revision }))).json() as Promise<Project>,
   /** Сводка по фонду «кандидаты в КРС» (считает все скважины проекта). */
   fund: async (project: string) => (await send(`/api/projects/${project}/passport/fund`, post({}))).json() as Promise<{ rows: unknown[]; tables: Table[] }>,
   /** Формирует PDF (сохраняется и в выгрузках проекта) и отдаёт его браузеру. */
@@ -107,3 +113,11 @@ export const passportApi = {
 export interface AssessRow { mechanism: string; name: string; auto_level: string; level: string; manual: boolean; note: string; reason: string; date: string; weight: number; recommendation: string }
 export interface DepressionType { key: string; name: string; limit: number }
 export interface DepressionInfo { types: DepressionType[]; type: string | null; type_auto: string | null; limit: number | null; rows: unknown[] }
+
+export interface SweepRow { mechanism: string; label: string; params: Record<string, number>; current: boolean; n: number; share_all: number | null; lift: number | null; in_target: boolean }
+export type Sweep = { depression?: SweepRow[]; throttle?: SweepRow[] }
+
+export interface SearchVariant { dep_on: boolean; dep_min_dates: number; dep_factor: number; el_on: boolean; elpro_high_share: number; elpro_drop: number; weak: number; mults: Record<string, number> }
+export interface SearchRow { variant: SearchVariant; text: string; current: boolean; fit_lift: number | null; test_lift: number | null; in_target: boolean }
+export interface SearchJob { state: 'idle' | 'running' | 'done' | 'canceled' | 'error'; stage?: string; done?: number; total?: number; error?: string
+  result?: { rows: SearchRow[]; tables: Table[]; fit_years: number[]; test_years: number[]; tried: number; canceled: boolean; notes: string[] } }

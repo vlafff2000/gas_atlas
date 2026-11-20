@@ -3,9 +3,9 @@ import { HeatView } from './HeatView'
 import { TableDock } from './TableDock'
 import { TableView } from './TableView'
 import { SchematicNotes, WellSchematic } from './WellFigure'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Project, Table } from './api'
-import { passportApi, type DepressionType, type PassportCard as Card } from './api_passport'
+import { passportApi, type DepressionType, type PassportCard as Card, type SearchJob, type SearchRow, type Sweep, type SweepRow } from './api_passport'
 
 /** Дашборд паспорта: показатели, схема забоя, графики и таблицы — те же ChartView и TableView, что в остальных модулях. */
 const LEVELS: [string, string][] = [['strong', 'сильная'], ['weak', 'слабая'], ['none', 'нет'], ['unknown', 'неизвестно']]
@@ -36,14 +36,19 @@ function AssessOverride({ card, project, revision, onProject }: { card: Card; pr
 }
 
 /** Проверка критериев на истории: улики на 1 января каждого года против фактических КР; считается по запросу (по всем скважинам проекта). */
-function Backtest({ project }: { project: string }) {
-  const [result, setResult] = useState<{ years: unknown[]; mechanisms: unknown[]; notes: string[]; tables: Table[] } | null>(null)
+function Backtest({ project, revision, onProject }: { project: string; revision?: number; onProject?: (p: Project) => void }) {
+  const [result, setResult] = useState<{ years: unknown[]; mechanisms: unknown[]; notes: string[]; tables: Table[]; sweep?: Sweep } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const run = async () => {
     setBusy(true); setError('')
     try { setResult(await passportApi.backtest(project, [2022, 2023, 2024, 2025])) } catch (e) { setError((e as Error).message) }
     setBusy(false)
+  }
+  const apply = (key: 'depression' | 'throttle', r: SweepRow) => {
+    setError('')
+    const body = key === 'depression' ? { depression: { min_dates: r.params.dep_min_dates, factor: r.params.dep_factor } } : { elpro: { high_share: r.params.elpro_high_share, drop: r.params.elpro_drop } }
+    passportApi.saveThresholds(project, body, revision).then(p => onProject?.(p)).catch(e => setError((e as Error).message))
   }
   return (
     <details className="note info wide-table">
@@ -52,7 +57,53 @@ function Backtest({ project }: { project: string }) {
       <button type="button" onClick={run} disabled={busy}>{busy ? 'Считаю…' : 'Проверить'}</button>
       {error && <p className="error">{error}</p>}
       {result?.tables.map(t => <TableView key={t.id} table={t} docked
-        onDownload={format => passportApi.exportSummary(project, 'backtest', { years: result.years, mechanisms: result.mechanisms, notes: result.notes }, t.id, format)} />)}
+        onDownload={format => passportApi.exportSummary(project, 'backtest', { years: result.years, mechanisms: result.mechanisms, notes: result.notes, sweep: result.sweep }, t.id, format)} />)}
+      {result?.sweep && onProject && (
+        <div className="note info">
+          <b>Применить пороги вручную</b>
+          <p>Пороги сами не меняются. Кнопка записывает набор в проект; для порогов депрессии коэффициент пересчитывает сами пределы (их видно и можно поправить ниже).</p>
+          {(['depression', 'throttle'] as const).map(key => (result.sweep?.[key] ?? []).filter(r => r.in_target && !r.current).slice(0, 3).map(r => (
+            <p key={key + r.label}><button type="button" onClick={() => apply(key, r)}>Применить</button>{' '}
+              {key === 'depression' ? 'Депрессия' : 'ЭЛПРО'}: {r.label} (срабатывает у {Math.round((r.share_all ?? 0) * 100)} %{r.lift ? `, у ушедших в КР чаще в ${r.lift.toFixed(1)} раза` : ''})</p>)))}
+          <button type="button" onClick={() => passportApi.saveThresholds(project, { reset: true }, revision).then(onProject).catch(e => setError((e as Error).message))}>Сбросить пороги к умолчаниям</button>
+        </div>)}
+    </details>
+  )
+}
+
+/** Автоперебор критериев вывода в КРС: один запуск прогоняет варианты на истории, итог — таблица; вариант применяет только инженер кнопкой. */
+function AutoSearch({ project, revision, onProject }: { project: string; revision?: number; onProject?: (p: Project) => void }) {
+  const [job, setJob] = useState<SearchJob>({ state: 'idle' })
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (job.state !== 'running') return
+    const t = setInterval(() => passportApi.search(project, 'status').then(setJob).catch(e => setError((e as Error).message)), 1000)
+    return () => clearInterval(t)
+  }, [job.state, project])
+  const act = (a: 'start' | 'cancel') => { setError(''); passportApi.search(project, a).then(setJob).catch(e => setError((e as Error).message)) }
+  const apply = (r: SearchRow) => passportApi.saveThresholds(project, { variant: r.variant }, revision).then(p => onProject?.(p)).catch(e => setError((e as Error).message))
+  const res = job.result
+  return (
+    <details className="note info wide-table">
+      <summary>Автоперебор критериев вывода в КРС</summary>
+      <p>Один запуск прогоняет варианты порогов депрессии и ЭЛПРО, веса механизмов и слабых улик на истории КР 2022–2025. Подбор идёт по ранним годам, последний год служит проверкой от подгонки. Ничего не применяется само.</p>
+      {job.state === 'running'
+        ? <p>{job.stage}{job.total ? `: ${job.done} из ${job.total}` : '…'} <button type="button" onClick={() => act('cancel')}>Прервать</button></p>
+        : <button type="button" onClick={() => act('start')}>{job.state === 'idle' ? 'Запустить перебор' : 'Запустить заново'}</button>}
+      {error && <p className="error">{error}</p>}
+      {job.state === 'error' && <p className="error">{job.error}</p>}
+      {job.state === 'canceled' && !res && <p>Прервано.</p>}
+      {res && (<>
+        {res.canceled && <p>Прервано: показаны варианты, которые успели посчитать ({res.tried}).</p>}
+        {res.tables.map(t => <TableView key={t.id} table={t} docked
+          onDownload={format => passportApi.exportSummary(project, 'search', { rows: res.rows, fit_years: res.fit_years, test_years: res.test_years, tried: res.tried, notes: res.notes }, t.id, format)} />)}
+        {onProject && (
+          <div className="note info">
+            <b>Применить вариант вручную</b>
+            {res.rows.filter(r => !r.current).slice(0, 5).map(r => (
+              <p key={r.text}><button type="button" onClick={() => apply(r)}>Применить</button> {r.text} (подбор {r.fit_lift?.toFixed(1) ?? '–'}, проверка {r.test_lift?.toFixed(1) ?? '–'})</p>))}
+          </div>)}
+      </>)}
     </details>
   )
 }
@@ -179,7 +230,8 @@ export function PassportDashboard({ card, project, seasons, revision, onProject,
         <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, seasons, 'table', t.id, format)} />)} />
       {onProject && <Operations card={card} project={project} revision={revision} onProject={onProject} />}
       {onProject && <Fund project={project} onOpenWell={onOpenWell} />}
-      {onProject && <Backtest project={project} />}
+      {onProject && <Backtest project={project} revision={revision} onProject={onProject} />}
+      {onProject && <AutoSearch project={project} revision={revision} onProject={onProject} />}
       {onProject && <DepressionSettings card={card} project={project} revision={revision} onProject={onProject} />}
       {onProject && <AssessOverride card={card} project={project} revision={revision} onProject={onProject} />}
       {(card.elpro_help ?? []).length > 0 && card.tables.some(t => t.id === 'passport-elpro') && (

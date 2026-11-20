@@ -16,6 +16,32 @@ MECHANISMS = {'depression': 'Превышение предельной депр�
 LEVEL_NAMES = {'none': 'нет', 'weak': 'слабая', 'strong': 'сильная', 'unknown': 'неизвестно'}
 GDI_OLD_YEARS = 5.0
 DEP_STRONG_DATES = 2     # дат замера Рпл с превышением предела депрессии, с которых улика сильная
+THRESHOLD_KEYS = ('dep_min_dates', 'elpro_high_share', 'elpro_drop')
+
+
+def thresholds_of(settings: dict[str, Any] | None) -> dict[str, float]:
+    """Пороги улик: умолчания, поверх них значения, которые инженер применил вручную после перебора порогов (``settings.passport_thresholds``)."""
+    from atlas import passport_elpro
+    out = {'dep_min_dates': float(DEP_STRONG_DATES), 'elpro_high_share': passport_elpro.HIGH_SHARE, 'elpro_drop': passport_elpro.DROP}
+    for k, v in ((settings or {}).get('passport_thresholds') or {}).items():
+        if k in out:
+            try:
+                out[k] = float(v)
+            except (TypeError, ValueError):
+                continue
+    return out
+def weights_of(settings: dict[str, Any] | None) -> dict[str, float]:
+    """Веса, применённые инженером вручную после автоперебора (``settings.passport_weights``): множители механизмов и ``weak`` — баллы слабой улики."""
+    out: dict[str, float] = {}
+    for k, v in ((settings or {}).get('passport_weights') or {}).items():
+        if k in MECHANISMS or k == 'weak':
+            try:
+                out[k] = float(v)
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
 # Таблица «механизм → операция» по умолчанию: что подсказывать при сильной и слабой улике. Инженер правит её в проекте (settings.well_operations);
 # изменённая строка главнее подсказки, которую даёт автоматика по конкретному случаю.
 DEFAULT_OPERATIONS: dict[str, dict[str, str]] = {
@@ -66,7 +92,7 @@ def sand_priority_at(sand_text: Any, works: list[dict[str, Any]], year: int) -> 
 
 
 def collect(*, bottom_m: float | None, bottom_date: Any, bottom_row: Any, filter_bottom_m: float | None, krs: dict[str, Any], seasons: list[dict[str, Any]],
-            gdi: list[dict[str, Any]], elpro: list[dict[str, Any]], today: Any, depression: list[dict[str, Any]] | None = None) -> list[wa.Evidence]:
+            gdi: list[dict[str, Any]], elpro: list[dict[str, Any]], today: Any, depression: list[dict[str, Any]] | None = None, dep_min_dates: float = DEP_STRONG_DATES) -> list[wa.Evidence]:
     """Улики по скважине в порядке важности: забой, песок и ревизии, ЭЛПРО, возраст ГДИ."""
     out: list[wa.Evidence] = []
     if bottom_date is not None and pd.isna(bottom_date):
@@ -78,7 +104,7 @@ def collect(*, bottom_m: float | None, bottom_date: Any, bottom_row: Any, filter
     last_dep = next((r for r in reversed(depression or []) if r['status'] in ('превышен', 'близко', 'норма')), None)
     if last_dep and last_dep['status'] != 'норма':
         over = last_dep['status'] == 'превышен'
-        many = last_dep['n_over'] >= DEP_STRONG_DATES        # одна дата выше предела может быть случайностью замера: это слабая улика
+        many = last_dep['n_over'] >= dep_min_dates        # одна дата выше предела может быть случайностью замера: это слабая улика
         detail = (f'выше предела {last_dep["n_over"]} из {last_dep["n"]} дат замера Рпл ({last_dep["share_over"] * 100:.0f} %), максимум '
                   f'{last_dep["dep_max"]:.2f} на {last_dep["p_date"]}') if over else f'максимум {last_dep["dep_max"]:.2f} на {last_dep["p_date"]}, близко к пределу'
         out.append(wa.Evidence('depression', 'strong' if many else 'weak', f'Сезон {last_dep["period"]}: депрессия {detail} при пределе {last_dep["limit"]:g} '
