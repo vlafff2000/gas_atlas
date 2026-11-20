@@ -28,6 +28,32 @@ from .api_projects import internal_error_text
 from .projects import Conflict, Projects
 
 log = logging.getLogger(__name__)
+
+SEARCH_JOBS: dict[str, dict[str, Any]] = {}      # автоперебор критериев: одно задание на проект, в памяти процесса
+
+
+def _search_job(pid: str, passport: 'Passport', years: list[int], job: dict[str, Any]) -> None:
+    """Фоновый поток автоперебора: сначала история (улики на каждую дату), затем сетка вариантов; прерывается флагом ``cancel``."""
+    from atlas import passport_assess, passport_blocks, well_search
+    try:
+        job.update(stage='Собираю улики на историю по всем скважинам')
+        keep: dict[str, Any] = {}
+        passport.backtest(years, keep)
+        if job['cancel']:
+            job.update(state='canceled')
+            return
+        prep = well_search.prepare(keep['feats'], keep['evidence'], keep['fact'])
+        job.update(stage='Прогоняю варианты критериев')
+
+        def progress(done: int, total: int) -> None:
+            job.update(done=done, total=total)
+
+        res = well_search.search(prep, passport_assess.thresholds_of(passport.settings), progress, lambda: job['cancel'])
+        res['tables'] = [_table_json(t) for t in passport_blocks.search_tables(res)]
+        job.update(state='canceled' if res['canceled'] else 'done', result=res)
+    except Exception as e:                                   # фоновый поток: ошибка должна дойти до экрана, а не пропасть
+        log.exception('автоперебор критериев')
+        job.update(state='error', error=internal_error_text(e))
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 COMMENT_LIMIT = 20000
 # Разделы, которые 5.8 умеет строить по скважине. Остальные наборы проекта (ГГХ, ЭЛПРО, ГИС, межколонные и т. д.) без колонки «скважина»
@@ -139,9 +165,10 @@ class Passport:
     def candidates(self) -> list[dict[str, Any]]:
         """Сводка по фонду: скважины проекта по убыванию суммы улик (карточки паспорта целиком, считается по запросу)."""
         from atlas import well_backtest
-        return well_backtest.candidates({w: self.card(w) for w in self.wells()})
+        from atlas import passport_assess
+        return well_backtest.candidates({w: self.card(w) for w in self.wells()}, passport_assess.weights_of(self.settings))
 
-    def backtest(self, years: list[int]) -> dict[str, Any]:
+    def backtest(self, years: list[int], keep: dict[str, Any] | None = None) -> dict[str, Any]:
         """Проверка критериев на истории по всем скважинам проекта: карточки (все сезоны), КР, замеры забоя и низ фильтра/перфорации."""
         from atlas import passport_card, well_backtest
         names = self.manifest.get('tables', {})
@@ -157,7 +184,9 @@ class Passport:
             cons = cons[cons['date'] == cons['date'].max()] if not cons.empty else cons
             low = [float(v) for e, v in zip(cons.element, cons.bottom_m) if passport_card.classify(str(e)) in ('filter', 'perf') and pd.notna(v)] if not cons.empty else []
             filters[w] = max(low) if low else None
-        return well_backtest.run(cards, works, bottoms, filters, self.object_pressure(), years)
+        from atlas import passport_assess
+        return well_backtest.run(cards, works, bottoms, filters, self.object_pressure(), years, passport_assess.thresholds_of(self.settings),
+                                 passport_assess.weights_of(self.settings), keep)
 
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting
@@ -310,7 +339,27 @@ def routes(projects: Projects) -> list[Route]:
         if not years or len(years) > 10 or any(y < 2000 or y > 2100 for y in years):
             raise ParamError('Проверка на истории: годы от 2000 до 2100, не больше десяти.')
         result = Passport(projects, request.path_params['pid']).backtest(years)
-        return {**result, 'tables': [_table_json(t) for t in passport_blocks.backtest_tables(result)]}
+        return {**result, 'tables': [_table_json(t) for t in passport_blocks.backtest_tables(result) + passport_blocks.sweep_tables(result.get('sweep') or {})]}
+
+    def search(request, body):
+        """Автоперебор критериев вывода в КРС: ``start`` (годы) запускает фоновое задание, ``status`` отдаёт прогресс и итог, ``cancel`` прерывает."""
+        import threading
+        pid = request.path_params['pid']
+        action = body.get('action', 'status')
+        job = SEARCH_JOBS.get(pid)
+        if action == 'start':
+            if job and job['state'] == 'running':
+                return {k: v for k, v in job.items() if k != 'cancel'}
+            years = [int(y) for y in body.get('years') or [2022, 2023, 2024, 2025]]
+            if not 1 <= len(years) <= 10 or any(not 2000 <= y <= 2100 for y in years):
+                raise ParamError('Автоперебор: годы от 2000 до 2100, не больше десяти.')
+            job = SEARCH_JOBS[pid] = {'state': 'running', 'stage': 'Запуск', 'done': 0, 'total': 0, 'cancel': False}
+            threading.Thread(target=_search_job, args=(pid, Passport(projects, pid), years, job), daemon=True).start()
+        elif action == 'cancel' and job:
+            job['cancel'] = True
+        elif not job:
+            return {'state': 'idle'}
+        return {k: v for k, v in job.items() if k != 'cancel'}
 
     def operations(request, body):
         """Таблица «механизм → операция»: правки инженера по уровням (strong/weak); пустой текст возвращает умолчание, ``reset`` сбрасывает всё."""
@@ -340,7 +389,9 @@ def routes(projects: Projects) -> list[Route]:
             if kind == 'fund':
                 tables = passport_blocks.fund_tables([r for r in data.get('rows') or [] if isinstance(r, dict)])
             elif kind == 'backtest':
-                tables = passport_blocks.backtest_tables({k: data.get(k) or [] for k in ('years', 'mechanisms', 'notes')})
+                tables = passport_blocks.backtest_tables({k: data.get(k) or [] for k in ('years', 'mechanisms', 'notes')}) + passport_blocks.sweep_tables(data.get('sweep') or {})
+            elif kind == 'search':
+                tables = passport_blocks.search_tables(data)
             else:
                 raise ParamError('Выгрузка: неизвестная сводка.')
             found = next((t for t in tables if t.id == body.get('id')), None)
@@ -350,6 +401,58 @@ def routes(projects: Projects) -> list[Route]:
         except (ValueError, KeyError, TypeError) as e:
             raise ParamError(f'Выгрузка: данные сводки не подходят ({e}).') from None
         return Response(content, media_type=mime, headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(name)}"})
+
+    def thresholds(request, body):
+        """Применить пороги из перебора на истории (только по кнопке инженера): число дат выше предела и коэффициент пределов депрессии, пороги ЭЛПРО; ``reset`` — умолчания."""
+        from atlas import passport_assess, passport_depression
+        pid = request.path_params['pid']
+        passport = Passport(projects, pid)
+        cfg = copy.deepcopy(passport.manifest.get('settings', {}))
+        mine = cfg.setdefault('passport_thresholds', {})
+
+        def number(src: Any, key: str, low: float, high: float) -> float:
+            try:
+                v = float(src[key])
+            except (KeyError, TypeError, ValueError):
+                raise ParamError(f'Пороги: нужно число «{key}».') from None
+            if not low <= v <= high:
+                raise ParamError(f'Пороги: «{key}» должно быть от {low:g} до {high:g}.')
+            return v
+
+        if body.get('reset'):
+            cfg.pop('passport_thresholds', None)
+            cfg.pop('passport_weights', None)
+        elif isinstance(body.get('depression'), dict):
+            dep = body['depression']
+            mine['dep_min_dates'] = number(dep, 'min_dates', 1, 30)
+            factor = number(dep, 'factor', 0.3, 3)
+            if factor != 1.0:           # коэффициент меняет сами пределы депрессии: они остаются видны и правятся в паспорте
+                cfg['depression_limits'] = [{**t, 'limit': round(t['limit'] * factor, 2)} for t in passport_depression.types_of(cfg)]
+        elif isinstance(body.get('variant'), dict):          # целиком вариант из автоперебора: пороги депрессии и ЭЛПРО, веса механизмов
+            v = body['variant']
+            if v.get('dep_on'):
+                mine['dep_min_dates'] = number(v, 'dep_min_dates', 1, 30)
+                factor = number(v, 'dep_factor', 0.3, 3)
+                if factor != 1.0:
+                    cfg['depression_limits'] = [{**t, 'limit': round(t['limit'] * factor, 2)} for t in passport_depression.types_of(cfg)]
+            if v.get('el_on'):
+                mine['elpro_high_share'] = number(v, 'elpro_high_share', 5, 100)
+                mine['elpro_drop'] = number(v, 'elpro_drop', -90, -1)
+            weights = {'weak': number(v, 'weak', 0, 3)}
+            mults = v.get('mults') if isinstance(v.get('mults'), dict) else {}
+            weights.update({m: number(mults, m, 0, 5) for m in mults if m in passport_assess.MECHANISMS})
+            if not v.get('dep_on'):
+                weights['depression'] = 0.0
+            if not v.get('el_on'):
+                weights['throttle'] = 0.0
+            cfg['passport_weights'] = weights
+        elif isinstance(body.get('elpro'), dict):
+            mine['elpro_high_share'] = number(body['elpro'], 'high_share', 5, 100)
+            mine['elpro_drop'] = number(body['elpro'], 'drop', -90, -1)
+        else:
+            raise ParamError('Пороги: ожидаются depression, elpro или reset.')
+        saved = projects._commit(pid, cfg, body.get('revision'), 'Пороги улик паспорта (перебор на истории)')
+        return projects.summary(saved)
 
     def fund(request, body):
         """Сводка по фонду «кандидаты в КРС»: скважины по убыванию суммы улик с причинами и подсказкой операции."""
@@ -424,8 +527,10 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/passport/comment', E(comment), methods=['POST']),
         Route('/api/projects/{pid}/passport/assess', E(assess), methods=['POST']),
         Route('/api/projects/{pid}/passport/backtest', E(backtest), methods=['POST']),
+        Route('/api/projects/{pid}/passport/search', E(search), methods=['POST']),
         Route('/api/projects/{pid}/passport/operations', E(operations), methods=['POST']),
         Route('/api/projects/{pid}/passport/summary_export', E(summary_export), methods=['POST']),
+        Route('/api/projects/{pid}/passport/thresholds', E(thresholds), methods=['POST']),
         Route('/api/projects/{pid}/passport/fund', E(fund), methods=['POST']),
         Route('/api/projects/{pid}/passport/depression', E(depression), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),

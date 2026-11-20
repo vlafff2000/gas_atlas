@@ -660,7 +660,8 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     if not seasons:
         notes.append('Нет данных по сезонам эксплуатации: загрузите динамику или суточную эксплуатацию.')
     filter_bottoms = [float(v) for e, v in zip(construction.element, construction.bottom_m) if classify(str(e)) in ('filter', 'perf') and pd.notna(v)] if not construction.empty else []
-    elpro_rows = passport_elpro.season_rows(elpro, by_kind['withdrawal']['daily'], well)
+    th = passport_assess.thresholds_of(settings)
+    elpro_rows = passport_elpro.season_rows(elpro, by_kind['withdrawal']['daily'], well, th['elpro_high_share'], th['elpro_drop'])
     el_days = passport_elpro_anomaly.series(elpro, frames.get('production'), pressure, well, {w: (m or {}).get('group', '') for w, m in mapping.items()})
     elpro_p = {'rows': passport_elpro_anomaly.episodes(el_days), 'help': list(passport_elpro_anomaly.HOW_TO_READ) if not el_days.empty else [],
                'series': {'date': [d.strftime('%Y-%m-%d') for d in el_days.index],
@@ -672,7 +673,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     limit = next((t['limit'] for t in types if t['key'] == kind_key), None)
     dep_rows = passport_depression.season_rows(seasons, gdi_all, pressure, limit, daily_series(by_kind['withdrawal']['daily'], 'withdrawal'))
     depression = {'rows': dep_rows, 'types': types, 'type': kind_key, 'type_auto': auto_type, 'limit': limit}
-    evidence = passport_assess.collect(depression=dep_rows, 
+    evidence = passport_assess.collect(depression=dep_rows, dep_min_dates=th['dep_min_dates'],
         bottom_m=bottom_m, bottom_date=bottom.iloc[-1].date if not bottom.empty else None, bottom_row=bottom.iloc[-1] if not bottom.empty else None,
         filter_bottom_m=max(filter_bottoms) if filter_bottoms else None, krs=krs, seasons=seasons, gdi=gdi_all, elpro=elpro_rows, today=passport_assess.today_stamp())
     assess = passport_assess.rows(evidence, (settings.get('well_assess') or {}).get(well), settings.get('well_operations'))

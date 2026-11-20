@@ -30,7 +30,7 @@ HOW_TO_READ = (
     'Сезон без записей ЭЛПРО остаётся пустым, ноль туда не подставляется. «Внимание» — подсказка с причиной, а не приговор: решает инженер.')
 
 
-def season_rows(elpro: pd.DataFrame | None, daily: pd.DataFrame, well: str) -> list[dict[str, Any]]:
+def season_rows(elpro: pd.DataFrame | None, daily: pd.DataFrame, well: str, high_share: float = HIGH_SHARE, drop: float = DROP) -> list[dict[str, Any]]:
     """Сезоны отбора по порядку: суток с ЭЛПРО, КРУ среднее/макс, доля суток ≥ 90 %, расход на 1 % КРУ, давление при обычном расходе, вывод."""
     if elpro is None or elpro.empty or daily is None or daily.empty or not {'p', 'y'} <= set(elpro.columns):
         return []
@@ -61,9 +61,9 @@ def season_rows(elpro: pd.DataFrame | None, daily: pd.DataFrame, well: str) -> l
             if p_same is not None and prev['p_same_q']:
                 row['p_change'] = p_same - prev['p_same_q']
         reasons = []
-        if share >= HIGH_SHARE:
+        if share >= high_share:
             reasons.append(f'КРУ ≥ {HIGH_OPEN:g} % в {share:.0f} % суток: запас регулирования выбран')
-        if row['eff_change'] is not None and row['eff_change'] <= DROP:
+        if row['eff_change'] is not None and row['eff_change'] <= drop:
             reasons.append(f'расход на 1 % КРУ упал на {abs(row["eff_change"]):.0f} % к прошлому сезону')
         row['verdict'] = 'внимание' if reasons else 'норма'
         row['reason'] = '; '.join(reasons)
