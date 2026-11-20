@@ -12,7 +12,7 @@ def seasons(factor):
 
 
 def ev(factor, **kw):
-    args = dict(bottom_m=990.0, bottom_date='01.06.2025', filter_bottom_m=1000.0, last_kr_year=None, seasons=seasons(factor), gdi=[], from_gis=True, today='01.09.2026')
+    args = dict(bottom_m=990.0, bottom_date='01.06.2025', filter_bottom_m=1000.0, last_kr_year=None, seasons=seasons(factor), gdi=[], source='gis_report', today='01.09.2026')
     args.update(kw)
     return wa.bottom_evidence(**args)
 
@@ -34,8 +34,13 @@ def test_complex_decline_means_real_overlap():
 
 def test_stable_work_with_gis_bottom_suggests_templating():
     e = ev(1.0)
-    assert e.level == 'weak' and 'шаблоном из отчёта ГИС' in e.reason and 'шаблонирование' in e.recommendation.lower()
-    assert 'неизвестен' in ev(1.0, from_gis=None).reason and ev(1.0, from_gis=False).recommendation.startswith('ГДИ')
+    assert e.level == 'weak' and 'отбит из отчёта ГИС' in e.reason and 'шаблонирование' in e.recommendation.lower()
+    assert 'неизвестен' in ev(1.0, source='unknown').reason and ev(1.0, source='other').recommendation.startswith('ГДИ')
+
+
+def test_geo_service_template_means_real_overlap_even_when_work_is_stable():
+    e = ev(1.0, source='geo_template')
+    assert e.level == 'strong' and 'прибор не причина' in e.reason and 'Промывка' in e.recommendation
 
 
 def test_old_measure_or_after_kr_is_not_used_and_gdi_worse_blocks_templating():

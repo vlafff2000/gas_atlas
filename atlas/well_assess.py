@@ -18,6 +18,8 @@ STABLE = 0.90           # не ниже 90 % — стабильно
 GDI_WORSE = 1.10        # Δp² при одном расходе выросла на 10 % — ГДИ хуже
 NEAR_DAYS = 400         # «ГДИ рядом»: не дальше года (с запасом) от замера забоя
 LEVELS = ('none', 'weak', 'strong', 'unknown')
+SOURCES = {'gis_report': 'отчёт ГИС (шаблон / доход прибора)', 'geo_template': 'шаблонирование силами геологической службы', 'other': 'другой источник',
+           'unknown': 'источник неизвестен'}      # источники БД шаблонирования, их нужно различать: у них разный смысл недохода
 
 
 @dataclass
@@ -107,12 +109,13 @@ def gdi_trend(gdi: list[dict[str, Any]], measured: date) -> str | None:
 
 
 def bottom_evidence(bottom_m: float | None, bottom_date: Any, filter_bottom_m: float | None, last_kr_year: int | None, seasons: list[dict[str, Any]],
-                    gdi: list[dict[str, Any]], from_gis: bool | None, today: Any) -> Evidence | None:
+                    gdi: list[dict[str, Any]], source: str, today: Any) -> Evidence | None:
     """Недоход отбитого забоя до низа фильтра/перфорации и что с ним делать (правило Egor 2026-11-20).
 
     Нет перекрытия — None (улики нет). КР после замера — старый замер не учитывается. Иначе сравниваем сезоны отбора до и после замера
     (накопленный объём, средний и максимальный суточный расход) и ГДИ рядом: комплексное снижение — перекрытие фильтра реально;
-    стабильная работа при забое, отбитом шаблоном из отчёта ГИС, — вероятно прибор не прошёл (центраторы), нужно шаблонирование силами геологов."""
+    стабильная работа при забое из отчёта ГИС — вероятно прибор не прошёл (центраторы), нужно шаблонирование силами геологов. Если забой уже
+    отбит шаблоном геологической службы, прибор не причина: недоход считается реальным (``source`` — ключ из ``SOURCES``)."""
     if bottom_m is None or filter_bottom_m is None or filter_bottom_m - bottom_m <= OVERLAP_TOL_M:
         return None
     m = _day(bottom_date)
@@ -139,11 +142,14 @@ def bottom_evidence(bottom_m: float | None, bottom_date: Any, filter_bottom_m: f
         return Evidence('bottom_fill', 'strong', f'{head} ({stamp}); после замера снижение ({names}: к сезонам до замера {", ".join(f"{x * 100:.0f} %" for x in ratios)}){extra}: '
                         'перекрытие фильтра вероятно реальное.', stamp, weight, 'Промывка забоя / КР по причине заполнения.')
     if len(ratios) >= 2 and all(x >= STABLE for x in ratios) and trend != 'worse':
-        if from_gis is False:
-            return Evidence('bottom_fill', 'weak', f'{head} ({stamp}); работа стабильна ({names} без падения), забой не из отчёта ГИС.', stamp, weight,
-                            'ГДИ или шаблонирование для подтверждения.')
-        src = 'отбит шаблоном из отчёта ГИС' if from_gis else 'источник замера забоя неизвестен'
-        return Evidence('bottom_fill', 'weak', f'{head} ({stamp}); работа стабильна ({names} без падения), {src}: недоход вероятно из-за прибора '
+        stable = f'работа стабильна ({names} без падения)'
+        if source == 'geo_template':
+            return Evidence('bottom_fill', 'strong', f'{head} ({stamp}); забой отбит шаблоном геологической службы, прибор не причина, {stable}: '
+                            'недоход реальный, хотя добыча пока держится.', stamp, weight, 'Промывка забоя / КР по причине заполнения.')
+        if source == 'other':
+            return Evidence('bottom_fill', 'weak', f'{head} ({stamp}); {stable}, источник забоя — {SOURCES[source]}.', stamp, weight, 'ГДИ или шаблонирование для подтверждения.')
+        src = 'отбит из отчёта ГИС' if source == 'gis_report' else 'источник замера забоя неизвестен'
+        return Evidence('bottom_fill', 'weak', f'{head} ({stamp}); {stable}, {src}: недоход вероятно из-за прибора '
                         '(центраторы и другие элементы), не из-за перекрытия.', stamp, weight, 'Шаблонирование силами геологической службы (малый лом доходит до искусственного забоя).')
     return Evidence('bottom_fill', 'unknown', f'{head} ({stamp}); сезоны до и после замера дают смешанную картину.', stamp, weight,
                     'ГДИ и шаблонирование для уточнения.')
