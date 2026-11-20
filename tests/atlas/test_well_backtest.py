@@ -103,3 +103,14 @@ def test_summary_export_returns_excel_and_csv_of_screen_table(tmp_path):
     assert csv.status_code == 200 and '31' in csv.content.decode('utf-8-sig') and 'Промывка' in csv.content.decode('utf-8-sig')
     assert client.post(url, json={'kind': 'fund', 'data': {'rows': []}, 'id': 'passport-fund', 'format': 'csv'}).status_code == 400
     assert client.post(url, json={'kind': 'нет', 'data': {}, 'id': 'x', 'format': 'csv'}).status_code == 400
+
+
+def test_sand_evidence_reconstructed_on_date_and_labels_explain_well_years():
+    from atlas import passport_blocks
+    a = {**card([]), 'krs': {'priority': {'sand': '2021-2022, 2022-2023, 2023-2024'}}}     # к 1.01.2025 три ревизии с песком → приоритет 1, срочно
+    b = {**card([]), 'krs': {'priority': {'sand': ''}}}
+    res = run({'A': a, 'B': b}, {'A': [{'year': 2025, 'type': 'КР с заменой фильтра'}], 'B': []}, years=(2025,))
+    sand = next(m for m in res['mechanisms'] if m['mechanism'] == 'sand')
+    assert (sand['repaired_hit'], sand['repaired'], sand['other_hit']) == (1, 1, 0) and sand['strong_repaired'] == 1.0
+    t = passport_blocks.backtest_tables(res)[1]
+    assert 'скважино-лет' in t.columns[1].label and 'Скважино-год' in t.note

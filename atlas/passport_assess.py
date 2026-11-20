@@ -52,6 +52,19 @@ def _last_kr_year(works: list[dict[str, Any]]) -> int | None:
     return max(years) if years else None
 
 
+def sand_priority_at(sand_text: Any, works: list[dict[str, Any]], year: int) -> dict[str, Any] | None:
+    """Приоритет КР по ревизиям КРУ на 1 января ``year`` (логика «Анализа ревизии КРУ»): число ревизий с песком после последнего ремонта,
+    который сбрасывает счёт (замена фильтра, армирование ПЗП); 1 ревизия → 3, 2 → 2, 3 и больше → 1. Ревизия сезона «2023-2024» известна с весны 2024.
+    Нет ни одной ревизии с песком — None."""
+    from atlas.passport_tiles import sand_seasons, short_type
+    resets = [w['year'] for w in works if w.get('year') is not None and short_type(str(w.get('type') or '')) in ('фильтр', 'армиров.')]
+    after = max([y for y in resets if y < year], default=None)
+    seen = [s for s in sand_seasons(sand_text) if int(s[5:]) < year and (after is None or int(s[5:]) > after)]
+    if not seen:
+        return None
+    return {'value': float(max(1, 4 - len(seen))), 'reason': f'ревизий с песком после последнего ремонта со сбросом: {len(seen)} ({", ".join(seen)})'}
+
+
 def collect(*, bottom_m: float | None, bottom_date: Any, bottom_row: Any, filter_bottom_m: float | None, krs: dict[str, Any], seasons: list[dict[str, Any]],
             gdi: list[dict[str, Any]], elpro: list[dict[str, Any]], today: Any, depression: list[dict[str, Any]] | None = None) -> list[wa.Evidence]:
     """Улики по скважине в порядке важности: забой, песок и ревизии, ЭЛПРО, возраст ГДИ."""

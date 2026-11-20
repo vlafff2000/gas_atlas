@@ -198,18 +198,24 @@ def backtest_tables(result: dict[str, Any]) -> list[Table]:
     if years:
         frame = pd.DataFrame({'year': [str(y['year']) for y in years], 'wells': [y['wells'] for y in years], 'repaired': [y['repaired'] for y in years],
                               'hits': [y['hits'] for y in years], 'precision': [pct(y['precision']) for y in years], 'lift': [num(y['lift']) for y in years],
-                              'flagged': [f"{y['flagged_hits']} из {y['flagged']}" for y in years], 'missing': [y['missing'] for y in years]})
+                              'flagged': [y['flagged'] for y in years], 'flagged_hits': [y['flagged_hits'] for y in years], 'missing': [y['missing'] for y in years]})
         out.append(Table('passport-backtest-years', 'Проверка критериев на истории: по годам', frame, [
-            Column('year', 'Год КР'), Column('wells', 'Скважин с данными до 1 января'), Column('repaired', 'Ушли в КР (K)'), Column('hits', 'Попали в верхние K'),
-            Column('precision', 'Точность в верхних K'), Column('lift', 'Во сколько раз лучше случайного'), Column('flagged', 'С уликой: из них ремонтировали'),
-            Column('missing', 'КР без данных до даты')], note=' '.join(result.get('notes') or [])))
+            Column('year', 'Год КР'), Column('wells', 'Скважин с данными до 1 января'), Column('repaired', 'Ушли в КР в этом году (K)'),
+            Column('hits', 'Из них в верхних K по сумме улик'), Column('precision', 'Точность в верхних K'), Column('lift', 'Во сколько раз лучше случайного'),
+            Column('flagged', 'Скважин хоть с одной уликой'), Column('flagged_hits', 'Из них ушли в КР'), Column('missing', 'КР скважин без данных до даты')],
+            note=' '.join(result.get('notes') or []) + ' Верхние K: берём столько скважин с наибольшей суммой улик, сколько ушло в КР; «лучше случайного» = 1 значит, улики не помогают.'))
     if mechs:
         frame = pd.DataFrame({'name': [m['name'] for m in mechs], 'a': [f"{m['repaired_hit']} из {m['repaired']}" for m in mechs],
                               'sa': [pct(m['share_repaired']) for m in mechs], 'b': [f"{m['other_hit']} из {m['other']}" for m in mechs],
-                              'sb': [pct(m['share_other']) for m in mechs], 'lift': [num(m['lift']) for m in mechs]})
+                              'sb': [pct(m['share_other']) for m in mechs], 'lift': [num(m['lift']) for m in mechs],
+                              'ssa': [pct(m.get('strong_repaired')) for m in mechs], 'ssb': [pct(m.get('strong_other')) for m in mechs],
+                              'slift': [num(m.get('strong_lift')) for m in mechs]})
         out.append(Table('passport-backtest-mechanisms', 'Проверка критериев на истории: по механизмам', frame, [
-            Column('name', 'Механизм'), Column('a', 'Улика у ушедших в КР'), Column('sa', 'Доля'), Column('b', 'Улика у остальных'), Column('sb', 'Доля'),
-            Column('lift', 'Отношение долей')], note='Чем больше отношение долей, тем лучше механизм отличает скважины, которые потом ремонтировали. Выборка мала: смотрите как подсказку.'))
+            Column('name', 'Механизм'), Column('a', 'Улика у ушедших в КР (скважино-лет)'), Column('sa', 'Доля'), Column('b', 'Улика у остальных (скважино-лет)'),
+            Column('sb', 'Доля'), Column('lift', 'Во сколько раз чаще у ушедших в КР'), Column('ssa', 'Только сильная: у ушедших'), Column('ssb', 'Только сильная: у остальных'),
+            Column('slift', 'Только сильная: во сколько раз чаще')],
+            note='Скважино-год — одна скважина в одном проверяемом году (2022–2025): «ушедшие в КР» — скважино-годы, когда в этом году был КР, «остальные» — все прочие. '
+                 'Механизм полезен, если у ушедших в КР он встречается заметно чаще (отношение заметно больше 1). Выборка мала: смотрите как подсказку.'))
     return out
 
 

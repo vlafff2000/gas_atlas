@@ -70,3 +70,17 @@ def test_operations_table_override_beats_auto_hint_and_defaults_restore():
     assert pa.rows(ev, None, {'sand': {'strong': 'Своя операция'}})[0]['recommendation'] == 'Своя операция'
     assert pa.rows(ev, None, {'sand': {'weak': 'для слабой'}})[0]['recommendation'] == 'авто-подсказка'      # правка другого уровня не мешает
     assert pa.operations_of({'well_operations': {'sand': {'weak': 'X'}}})['sand'] == {'strong': pa.DEFAULT_OPERATIONS['sand']['strong'], 'weak': 'X'}
+
+
+def test_sand_priority_restored_on_date_from_seasons_and_resets():
+    from atlas import passport_assess as pa
+    sand = '2021-2022, 2022-2023, 2024-2025'
+    assert pa.sand_priority_at(sand, [], 2022) is None                              # ревизия сезона 2021-2022 известна только с 2022 года, на 1.01.2022 ещё нет
+    assert pa.sand_priority_at(sand, [], 2023)['value'] == 3.0                      # 2021-2022 → 1 ревизия → 3
+    assert pa.sand_priority_at(sand, [], 2024)['value'] == 2.0                      # + 2022-2023 → 2
+    assert pa.sand_priority_at(sand, [], 2026)['value'] == 1.0                      # + 2024-2025 → 3 ревизии → 1 (срочно)
+    reset = [{'year': 2023, 'type': 'КР с заменой фильтра'}]
+    assert pa.sand_priority_at(sand, reset, 2026)['value'] == 3.0                   # после замены фильтра в 2023 остаётся одна ревизия (2024-2025)
+    wash = [{'year': 2023, 'type': 'Колтюбинг без СКО'}]
+    assert pa.sand_priority_at(sand, wash, 2026)['value'] == 1.0                    # промывка счёт не сбрасывает
+    assert pa.sand_priority_at(None, [], 2026) is None
