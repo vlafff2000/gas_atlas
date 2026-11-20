@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.construction_checks import check_construction
+from atlas import passport_tiles
 
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 # Какие элементы шаблона конструкции попадают на схему забойной части; кондуктор и прочие колонны — нет.
@@ -621,6 +622,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     columns = gis_columns.prepare(well, gis[0], gis[1], gis[2] if len(gis) > 2 else None)   # колонки ГИС и техсостояние: те же, что в разделе «ГИС»
     cons = with_sets(construction, lambda r: schematic(r, bottom_m, gis=columns, bottom_date=stamp)) if not construction.empty else schematic(pd.DataFrame(
         columns=['element', 'top_m', 'bottom_m']), bottom_m)
+    krs_raw = krs
     krs = krs_rows(krs[0], krs[1], well)
     out_rows = [r for r in seasons if r['kind'] == 'withdrawal']
     notes_check = consistency(frames, settings, well, seasons)
@@ -653,7 +655,8 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     return {'well': well, 'group': mapping.get(well, {}).get('group', ''),
             'construction_date': _date(construction.date.max()) if not construction.empty else '',
             'kpi': kpi, 'seasons': seasons, 'season_options': season_options, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
-            'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes}
+            'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes,
+            'tiles': {'kru': passport_tiles.kru_tiles(krs_raw[1], well), 'krs': passport_tiles.krs_tiles(krs_raw[0], well)}}
 
 
 def _sum(rows: list[dict[str, Any]], key: str) -> float | None:
