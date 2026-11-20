@@ -31,7 +31,7 @@ def test_kru_tile_three_states_derived_from_group():
 def test_krs_tile_marks_years_and_keeps_types():
     tile = pt.krs_tiles(works(), '31')
     assert tile['columns'] == [str(y) for y in range(2019, 2024)]
-    assert tile['cells'] == [1, 0, 0, 0, 1] and tile['texts'][0] == 'Замена фильтра' and tile['texts'][1] == ''
+    assert tile['cells'] == [1, 0, 0, 0, 1] and tile['texts'][0] == 'фильтр' and tile['texts'][4] == 'колтюбинг' and tile['texts'][1] == ''
     assert pt.krs_tiles(works(), '99') is None
 
 

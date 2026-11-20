@@ -47,6 +47,15 @@ def kru_tiles(priority: pd.DataFrame | None, well: str) -> dict[str, Any] | None
     return {'columns': columns, 'cells': cells, 'group': group}
 
 
+SHORT = (('замен', 'фильтр'), ('колтюбинг с', 'СКО'), ('ско', 'СКО'), ('колтюбинг', 'колтюбинг'), ('армиров', 'армиров.'))
+
+
+def short_type(name: str) -> str:
+    """Короткая подпись типа ремонта для клетки плитки (полное название — в таблице «Проведённые КРС»)."""
+    low = name.lower()
+    return next((short for key, short in SHORT if key in low), name[:10])
+
+
 def krs_tiles(works: pd.DataFrame | None, well: str) -> dict[str, Any] | None:
     """Плитка КРС скважины по годам от первого до последнего ремонта в проекте: 1 — в год был ремонт (в подписи тип), 0 — нет."""
     if works is None or works.empty:
@@ -59,7 +68,7 @@ def krs_tiles(works: pd.DataFrame | None, well: str) -> dict[str, Any] | None:
     columns = list(range(first, last + 1))
     texts = []
     for y in columns:
-        types = [str(t) for t in mine[mine.year.astype(int).eq(y)].work_type if str(t) not in ('', 'nan', 'None')]
+        types = [short_type(str(t)) for t in mine[mine.year.astype(int).eq(y)].work_type if str(t) not in ('', 'nan', 'None')]
         texts.append(', '.join(dict.fromkeys(types)) or ('КР' if (mine.year.astype(int) == y).any() else ''))
     cells = [1 if (mine.year.astype(int) == y).any() else 0 for y in columns]
     return {'columns': [str(y) for y in columns], 'cells': cells, 'texts': texts}
