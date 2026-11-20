@@ -136,6 +136,11 @@ class Passport:
         return passport_card.build(self.frames, self.settings, self.mapping(), well, krs, seasons, gis=gis, program=program,
                                    elpro=self.raw['elpro'] if 'elpro' in names else None, pressure=self.object_pressure())
 
+    def candidates(self) -> list[dict[str, Any]]:
+        """Сводка по фонду: скважины проекта по убыванию суммы улик (карточки паспорта целиком, считается по запросу)."""
+        from atlas import well_backtest
+        return well_backtest.candidates({w: self.card(w) for w in self.wells()})
+
     def backtest(self, years: list[int]) -> dict[str, Any]:
         """Проверка критериев на истории по всем скважинам проекта: карточки (все сезоны), КР, замеры забоя и низ фильтра/перфорации."""
         from atlas import passport_card, well_backtest
@@ -307,6 +312,32 @@ def routes(projects: Projects) -> list[Route]:
         result = Passport(projects, request.path_params['pid']).backtest(years)
         return {**result, 'tables': [_table_json(t) for t in passport_blocks.backtest_tables(result)]}
 
+    def operations(request, body):
+        """Таблица «механизм → операция»: правки инженера по уровням (strong/weak); пустой текст возвращает умолчание, ``reset`` сбрасывает всё."""
+        from atlas import passport_assess
+        pid = request.path_params['pid']
+        passport = Passport(projects, pid)
+        cfg = copy.deepcopy(passport.manifest.get('settings', {}))
+        if body.get('reset'):
+            cfg.pop('well_operations', None)
+        else:
+            given = body.get('operations')
+            if not isinstance(given, dict) or any(m not in passport_assess.MECHANISMS or not isinstance(v, dict) or set(v) - {'strong', 'weak'} for m, v in given.items()):
+                raise ParamError('Таблица операций: ожидается {механизм: {strong, weak}}.')
+            mine = {m: {lvl: str(t)[:COMMENT_LIMIT] for lvl, t in v.items() if str(t).strip() and str(t).strip() != passport_assess.DEFAULT_OPERATIONS.get(m, {}).get(lvl)}
+                    for m, v in given.items()}
+            cfg['well_operations'] = {m: v for m, v in mine.items() if v}
+            if not cfg['well_operations']:
+                cfg.pop('well_operations')
+        saved = projects._commit(pid, cfg, body.get('revision'), 'Таблица «механизм → операция»')
+        return projects.summary(saved)
+
+    def fund(request, body):
+        """Сводка по фонду «кандидаты в КРС»: скважины по убыванию суммы улик с причинами и подсказкой операции."""
+        from atlas import passport_blocks
+        rows = Passport(projects, request.path_params['pid']).candidates()
+        return {'rows': rows, 'tables': [_table_json(t) for t in passport_blocks.fund_tables(rows)]}
+
     def depression(request, body):
         """Пределы депрессии по типам забоя (``types``) для проекта или тип забоя скважины (``well`` + ``type``; null — вернуть авто-тип)."""
         from atlas import passport_depression
@@ -374,6 +405,8 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/passport/comment', E(comment), methods=['POST']),
         Route('/api/projects/{pid}/passport/assess', E(assess), methods=['POST']),
         Route('/api/projects/{pid}/passport/backtest', E(backtest), methods=['POST']),
+        Route('/api/projects/{pid}/passport/operations', E(operations), methods=['POST']),
+        Route('/api/projects/{pid}/passport/fund', E(fund), methods=['POST']),
         Route('/api/projects/{pid}/passport/depression', E(depression), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),
     ]

@@ -664,12 +664,13 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     evidence = passport_assess.collect(depression=dep_rows, 
         bottom_m=bottom_m, bottom_date=bottom.iloc[-1].date if not bottom.empty else None, bottom_row=bottom.iloc[-1] if not bottom.empty else None,
         filter_bottom_m=max(filter_bottoms) if filter_bottoms else None, krs=krs, seasons=seasons, gdi=gdi_all, elpro=elpro_rows, today=passport_assess.today_stamp())
-    assess = passport_assess.rows(evidence, (settings.get('well_assess') or {}).get(well))
+    assess = passport_assess.rows(evidence, (settings.get('well_assess') or {}).get(well), settings.get('well_operations'))
     return {'well': well, 'group': mapping.get(well, {}).get('group', ''),
             'construction_date': _date(construction.date.max()) if not construction.empty else '',
             'kpi': kpi, 'seasons': seasons, 'season_options': season_options, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
             'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes,
-            'elpro': elpro_rows, 'assess': assess, 'depression': depression, 'elpro_cru': passport_elpro.cru_series(elpro, well), 'elpro_help': list(passport_elpro.HOW_TO_READ) if elpro is not None and not elpro.empty else [],
+            'elpro': elpro_rows, 'assess': assess, 'operations': {'rows': [{'mechanism': m, 'name': passport_assess.MECHANISMS[m], **levels} for m, levels in passport_assess.operations_of(settings).items()],
+                                                                  'edited': bool(settings.get('well_operations'))}, 'depression': depression, 'elpro_cru': passport_elpro.cru_series(elpro, well), 'elpro_help': list(passport_elpro.HOW_TO_READ) if elpro is not None and not elpro.empty else [],
             'tiles': {'kru': passport_tiles.kru_tiles(krs_raw[1], well), 'krs': passport_tiles.krs_tiles(krs_raw[0], well)}}
 
 

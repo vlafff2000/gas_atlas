@@ -61,3 +61,24 @@ def test_api_backtest_runs_on_project(tmp_path):
     r = client.post(url, json={'years': [2023, 2024]})
     assert r.status_code == 200 and [y['year'] for y in r.json()['years']] == [2023, 2024] and r.json()['tables']
     assert client.post(url, json={'years': [1500]}).status_code == 400
+
+
+def test_fund_candidates_rank_by_score_and_api_saves_operations(tmp_path):
+    import sys
+    from pathlib import Path
+    from starlette.testclient import TestClient
+    sys.path.insert(0, str(Path(__file__).parent))
+    from _wells_data import make_project
+    from atlas.api import create_app
+    from atlas.projects import Projects
+    rows = bt.candidates({'A': {'assess': [{'level': 'weak', 'weight': 1.0, 'manual': False, 'name': 'М', 'recommendation': 'р'}]},
+                          'B': {'assess': [{'level': 'strong', 'weight': 1.0, 'manual': True, 'name': 'М', 'recommendation': 'р'}]}})
+    assert [r['well'] for r in rows] == ['B', 'A'] and rows[0]['manual'] and rows[0]['score'] == 2.0
+    projects = Projects(tmp_path)
+    pid = make_project(projects)
+    client = TestClient(create_app(projects))
+    url = f'/api/projects/{pid}/passport/operations'
+    assert client.post(url, json={'operations': {'sand': {'strong': 'Своя'}}}).status_code == 200
+    assert client.post(url, json={'operations': {'нет': {'strong': 'x'}}}).status_code == 400
+    assert client.post(f'/api/projects/{pid}/passport/fund', json={}).status_code == 200
+    assert client.post(url, json={'reset': True}).status_code == 200

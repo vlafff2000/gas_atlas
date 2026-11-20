@@ -213,6 +213,20 @@ def backtest_tables(result: dict[str, Any]) -> list[Table]:
     return out
 
 
+def fund_tables(rows: list[dict[str, Any]]) -> list[Table]:
+    """Кандидаты в КРС по фонду: скважина, группа, сумма улик, механизмы и подсказка операции (только скважины хотя бы с одной уликой)."""
+    shown = [r for r in rows if r['score'] > 0]
+    if not shown:
+        return []
+    frame = pd.DataFrame({'well': [r['well'] for r in shown], 'group': [r['group'] for r in shown], 'score': [round(r['score'], 1) for r in shown],
+                          'mechanisms': [r['mechanisms'] for r in shown], 'recommendation': [r['recommendation'] for r in shown],
+                          'who': ['решение инженера' if r['manual'] else 'авто' for r in shown]})
+    return [Table('passport-fund', 'Кандидаты в КРС по фонду (подсказка)', frame, [
+        Column('well', 'Скважина'), Column('group', 'Группа'), Column('score', 'Сумма улик'), Column('mechanisms', 'Механизмы'),
+        Column('recommendation', 'Что делать (подсказка)'), Column('who', 'Кто решил')],
+        note='Сильная улика = 2 балла, слабая = 1, с весом свежести. Это подсказка для отбора: решает инженер, его решения по механизмам учтены.')]
+
+
 def depression_chart(dep: dict[str, Any] | None) -> Chart | None:
     """Депрессия Рпл − Рзаб по сезонам отбора (обратный пересчёт по ГДИ): столбцы на среднем и максимальном расходе и линия предела типа забоя."""
     rows = [r for r in (dep or {}).get('rows', []) if r['dep_max'] is not None]

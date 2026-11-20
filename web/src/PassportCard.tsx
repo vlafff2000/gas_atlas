@@ -56,6 +56,57 @@ function Backtest({ project }: { project: string }) {
   )
 }
 
+/** Таблица «механизм → операция»: что подсказывать при сильной и слабой улике; правит инженер, «Сбросить» возвращает умолчания. */
+function Operations({ card, project, revision, onProject }: { card: Card; project: string; revision?: number; onProject: (p: Project) => void }) {
+  const ops = card.operations
+  const [draft, setDraft] = useState<Record<string, { strong?: string; weak?: string }>>({})
+  const [error, setError] = useState('')
+  if (!ops) return null
+  const run = async (body: Record<string, { strong?: string; weak?: string }> | null) => {
+    setError('')
+    try { onProject(await passportApi.saveOperations(project, body, revision)); setDraft({}) } catch (e) { setError((e as Error).message) }
+  }
+  const text = (m: string, lvl: 'strong' | 'weak', base: string) => draft[m]?.[lvl] ?? base
+  const edit = (m: string, lvl: 'strong' | 'weak', v: string) => setDraft(d => ({ ...d, [m]: { ...d[m], [lvl]: v } }))
+  return (
+    <details className="note info assess-override">
+      <summary>Таблица «механизм → операция»{ops.edited ? ' (есть ваши правки)' : ''}</summary>
+      <p>Что подсказывать, когда улика механизма сильная или слабая. Это подсказка: решает инженер. Пустое поле возвращает умолчание.</p>
+      <table><thead><tr><th>Механизм</th><th>Сильная улика</th><th>Слабая улика</th></tr></thead><tbody>
+        {ops.rows.map(r => (
+          <tr key={r.mechanism}><td>{r.name}</td>
+            {(['strong', 'weak'] as const).map(l => <td key={l}><input style={{ width: '100%' }} value={text(r.mechanism, l, r[l])} onChange={e => edit(r.mechanism, l, e.target.value)} aria-label={`${r.name}: ${l === 'strong' ? 'сильная' : 'слабая'}`} /></td>)}
+          </tr>))}
+      </tbody></table>
+      <button type="button" onClick={() => run(Object.fromEntries(ops.rows.map(r => [r.mechanism, { strong: text(r.mechanism, 'strong', r.strong), weak: text(r.mechanism, 'weak', r.weak) }])))}>Записать</button>{' '}
+      <button type="button" onClick={() => run(null)}>Сбросить к умолчаниям</button>
+      {error && <p className="error">{error}</p>}
+    </details>
+  )
+}
+
+/** Кандидаты в КРС по всему фонду: скважины по убыванию суммы улик; считается по запросу. */
+function Fund({ project }: { project: string }) {
+  const [tables, setTables] = useState<Table[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const run = async () => {
+    setBusy(true); setError('')
+    try { setTables((await passportApi.fund(project)).tables) } catch (e) { setError((e as Error).message) }
+    setBusy(false)
+  }
+  return (
+    <details className="note info">
+      <summary>Кандидаты в КРС по фонду</summary>
+      <p>Скважины проекта по убыванию суммы улик с причинами и подсказкой операции. Считает все скважины, это занимает время.</p>
+      <button type="button" onClick={run} disabled={busy}>{busy ? 'Считаю…' : 'Составить список'}</button>
+      {error && <p className="error">{error}</p>}
+      {tables && !tables.length && <p>Улик ни у одной скважины нет.</p>}
+      {tables?.map(t => <TableView key={t.id} table={t} docked onDownload={async () => { throw new Error('Выгрузка списка пока не сделана: скопируйте таблицу с экрана.') }} />)}
+    </details>
+  )
+}
+
 /** Пределы депрессии и тип забоя скважины: редактирует инженер; авто-тип — подсказка по конструкции, «авто» снимает ручной выбор. */
 function DepressionSettings({ card, project, revision, onProject }: { card: Card; project: string; revision?: number; onProject: (p: Project) => void }) {
   const dep = card.depression
@@ -116,6 +167,8 @@ export function PassportDashboard({ card, project, seasons, revision, onProject 
       </div>
       <TableDock tables={card.tables} scope="passport" render={t => (
         <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, seasons, 'table', t.id, format)} />)} />
+      {onProject && <Operations card={card} project={project} revision={revision} onProject={onProject} />}
+      {onProject && <Fund project={project} />}
       {onProject && <Backtest project={project} />}
       {onProject && <DepressionSettings card={card} project={project} revision={revision} onProject={onProject} />}
       {onProject && <AssessOverride card={card} project={project} revision={revision} onProject={onProject} />}

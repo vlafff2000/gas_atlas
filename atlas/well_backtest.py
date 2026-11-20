@@ -107,3 +107,16 @@ def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]]
     if not any(y['wells'] for y in out_years):
         notes.append(EMPTY_NOTE)
     return {'years': out_years, 'mechanisms': by_mechanism(out_years, evidence, fact) if out_years else [], 'notes': notes}
+
+
+def candidates(cards: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Сводка по фонду: скважины по убыванию суммы улик на сегодня. Берутся строки оценки самих карточек: в них уже учтены приоритет КР по ревизиям,
+    решения инженера по механизмам и правки таблицы «механизм → операция»."""
+    out = []
+    for well, card in cards.items():
+        shown = card.get('assess') or []
+        main = [r for r in shown if r['level'] in POINTS]
+        out.append({'well': well, 'group': card.get('group', ''), 'score': sum(POINTS[r['level']] * r['weight'] for r in main), 'manual': any(r['manual'] for r in shown),
+                    'mechanisms': '; '.join(f"{r['name']} ({passport_assess.LEVEL_NAMES[r['level']]})" for r in main),
+                    'recommendation': '; '.join(dict.fromkeys(r['recommendation'] for r in main if r['recommendation']))})
+    return sorted(out, key=lambda r: (-r['score'], r['well']))
