@@ -216,7 +216,8 @@ def test_fund_pack_six_per_page(env):
     xml = docx.read('word/document.xml').decode('utf-8')
     assert 'Производительность скважины №' in xml and 'при отборе газа за ' in xml and 'Рисунок П4.1 ' in xml
     charts = len([n for n in docx.namelist() if n.startswith('word/media/')])
-    assert xml.count('<w:tbl>') == -(-charts // 6) and xml.count('pageBreakBefore') == xml.count('<w:tbl>') - 1
+    pages = -(-charts // 6)
+    assert xml.count('<w:tbl>') == 1 and xml.count('pageBreakBefore') == pages - 1       # все графики приложения — в единой таблице
     pdf = client.get(f'/api/projects/{pid}/exports/{names[1]}').content
     assert pdf[:4] == b'%PDF'
     assert b'/Count %d' % (-(-charts // 6)) in pdf
@@ -248,7 +249,9 @@ def test_fund_pack_seasons_and_layout(env):
         assert len(media) == charts
         assert docx.read(media[0])[25] == 3        # PNG: тип цвета 3 — палитра
         assert len(docx.read(media[0])) < 60_000
-        sizes[per] = docx.read('word/document.xml').decode('utf-8').count('<w:tbl>')
+        xml = docx.read('word/document.xml').decode('utf-8')
+        assert xml.count('<w:tbl>') == 1
+        sizes[per] = xml.count('pageBreakBefore') + 1
     assert sizes[2] >= sizes[4]
 
 
