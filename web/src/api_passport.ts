@@ -85,12 +85,15 @@ export const passportApi = {
     (await send(`/api/projects/${project}/passport/depression`, post({ ...body, revision }))).json() as Promise<Project>,
   /** Проверка критериев на истории: улики на 1 января каждого года против фактических КР года. */
   backtest: async (project: string, years: number[]) =>
-    (await send(`/api/projects/${project}/passport/backtest`, post({ years }))).json() as Promise<{ tables: Table[]; notes: string[] }>,
+    (await send(`/api/projects/${project}/passport/backtest`, post({ years }))).json() as Promise<{ years: unknown[]; mechanisms: unknown[]; tables: Table[]; notes: string[] }>,
   /** Таблица «механизм → операция»: правки по уровням (strong/weak) или сброс к умолчаниям. */
   saveOperations: async (project: string, operations: Record<string, { strong?: string; weak?: string }> | null, revision?: number) =>
     (await send(`/api/projects/${project}/passport/operations`, post(operations ? { operations, revision } : { reset: true, revision }))).json() as Promise<Project>,
+  /** Выгрузка таблиц сводки по фонду и проверки на истории (те же данные, что на экране): CSV или XLSX. */
+  exportSummary: (project: string, kind: 'fund' | 'backtest', data: unknown, id: string, format: string) =>
+    download(`/api/projects/${project}/passport/summary_export`, { kind, data, id, format }),
   /** Сводка по фонду «кандидаты в КРС» (считает все скважины проекта). */
-  fund: async (project: string) => (await send(`/api/projects/${project}/passport/fund`, post({}))).json() as Promise<{ tables: Table[] }>,
+  fund: async (project: string) => (await send(`/api/projects/${project}/passport/fund`, post({}))).json() as Promise<{ rows: unknown[]; tables: Table[] }>,
   /** Формирует PDF (сохраняется и в выгрузках проекта) и отдаёт его браузеру. */
   pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true, wells?: string[], seasons: string[] = []) => {
     const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, wells, sections, periods, comment, card, seasons }))

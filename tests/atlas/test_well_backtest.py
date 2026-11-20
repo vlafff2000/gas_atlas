@@ -82,3 +82,24 @@ def test_fund_candidates_rank_by_score_and_api_saves_operations(tmp_path):
     assert client.post(url, json={'operations': {'нет': {'strong': 'x'}}}).status_code == 400
     assert client.post(f'/api/projects/{pid}/passport/fund', json={}).status_code == 200
     assert client.post(url, json={'reset': True}).status_code == 200
+
+
+def test_summary_export_returns_excel_and_csv_of_screen_table(tmp_path):
+    import sys
+    from pathlib import Path
+    from starlette.testclient import TestClient
+    sys.path.insert(0, str(Path(__file__).parent))
+    from _wells_data import make_project
+    from atlas.api import create_app
+    from atlas.projects import Projects
+    projects = Projects(tmp_path)
+    pid = make_project(projects)
+    client = TestClient(create_app(projects))
+    url = f'/api/projects/{pid}/passport/summary_export'
+    rows = [{'well': '31', 'group': 'ГСП-1', 'score': 3.0, 'manual': False, 'mechanisms': 'Заполнение забоя (сильная)', 'recommendation': 'Промывка'}]
+    xlsx = client.post(url, json={'kind': 'fund', 'data': {'rows': rows}, 'id': 'passport-fund', 'format': 'xlsx'})
+    assert xlsx.status_code == 200 and xlsx.content[:2] == b'PK'                      # книга Excel
+    csv = client.post(url, json={'kind': 'fund', 'data': {'rows': rows}, 'id': 'passport-fund', 'format': 'csv'})
+    assert csv.status_code == 200 and '31' in csv.content.decode('utf-8-sig') and 'Промывка' in csv.content.decode('utf-8-sig')
+    assert client.post(url, json={'kind': 'fund', 'data': {'rows': []}, 'id': 'passport-fund', 'format': 'csv'}).status_code == 400
+    assert client.post(url, json={'kind': 'нет', 'data': {}, 'id': 'x', 'format': 'csv'}).status_code == 400

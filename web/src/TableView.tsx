@@ -28,16 +28,36 @@ interface Props {
   onRow?: (index: number) => void    // щелчок по строке (индекс в исходной таблице); для журнала проверки импорта
   rowOpen?: (index: number) => boolean   // строку можно открыть (иначе щелчок не работает)
   docked?: boolean                   // внутри единой области таблиц: без сворачивания, большая таблица грузится при показе
+  onWell?: (well: string) => void   // «Скважина» в ячейке открывает эту скважину в приложении (приоритетнее ссылки на карты)
   mapLink?: (well: string) => string | null   // «Скважина» в ячейке ведёт на Карты ГСП (если скважина есть в проекте)
 }
 
-export function TableView({ table: given, onDownload, onApply, onAssign, onLoad, onRow, rowOpen, mapLink, docked }: Props) {
+/** Копирование в буфер: API буфера работает не везде (окно приложения, http), тогда через скрытое поле и execCommand. */
+async function copyText(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return }
+  } catch { /* пробуем запасной путь */ }
+  const box = document.createElement('textarea')
+  box.value = text
+  box.style.position = 'fixed'
+  box.style.opacity = '0'
+  document.body.appendChild(box)
+  box.select()
+  const ok = document.execCommand('copy')
+  box.remove()
+  if (!ok) throw new Error('Не удалось скопировать: браузер не дал доступ к буферу обмена.')
+}
+
+export function TableView({ table: given, onDownload, onApply, onAssign, onLoad, onRow, rowOpen, onWell, mapLink, docked }: Props) {
   const [loaded, setLoaded] = useState<Table | null>(null)
   const [loading, setLoading] = useState(false)
   useEffect(() => { setLoaded(null) }, [given])
   const table = loaded ?? given
   // колонка «Скважина»: номер со ссылкой на Карты ГСП; щелчок по ссылке не открывает строку журнала
   const cellView = (c: Column, v: Cell) => {
+    if (c.key === 'well' && onWell && !blank(v)) {
+      return <a href="#passport" title="Открыть паспорт скважины" onClick={e => { e.preventDefault(); e.stopPropagation(); onWell(String(v)) }}>{formatCell(v, c)}</a>
+    }
     const href = c.key === 'well' && mapLink && !blank(v) ? mapLink(String(v)) : null
     return href
       ? <a href={href} target="_blank" rel="noopener" onClick={e => e.stopPropagation()}>{formatCell(v, c)}</a>
@@ -127,7 +147,7 @@ export function TableView({ table: given, onDownload, onApply, onAssign, onLoad,
   const copy = () => {
     const head = table.columns.map(c => (c.unit ? `${c.label}, ${c.unit}` : c.label)).join('\t')
     const body = order.map(i => table.columns.map((c, k) => formatCell(table.rows[k][i], c)).join('\t')).join('\n')
-    navigator.clipboard?.writeText(head + '\n' + body)
+    copyText(head + '\n' + body).catch(e => setFailure((e as Error).message))
   }
 
   const add = action ? [...checked].filter(id => !initial.has(id)) : []

@@ -332,6 +332,25 @@ def routes(projects: Projects) -> list[Route]:
         saved = projects._commit(pid, cfg, body.get('revision'), 'Таблица «механизм → операция»')
         return projects.summary(saved)
 
+    def summary_export(request, body):
+        """Выгрузка сводных таблиц (кандидаты по фонду, проверка на истории) в CSV/XLSX из тех данных, что показаны на экране."""
+        from atlas import passport_blocks
+        data, kind, fmt = body.get('data') or {}, body.get('kind'), str(body.get('format', 'xlsx'))
+        try:
+            if kind == 'fund':
+                tables = passport_blocks.fund_tables([r for r in data.get('rows') or [] if isinstance(r, dict)])
+            elif kind == 'backtest':
+                tables = passport_blocks.backtest_tables({k: data.get(k) or [] for k in ('years', 'mechanisms', 'notes')})
+            else:
+                raise ParamError('Выгрузка: неизвестная сводка.')
+            found = next((t for t in tables if t.id == body.get('id')), None)
+            if found is None:
+                raise ParamError('Таблица не найдена. Составьте сводку заново.')
+            content, name, mime = render.table_csv(found) if fmt == 'csv' else render.tables_file([found], found.title)
+        except (ValueError, KeyError, TypeError) as e:
+            raise ParamError(f'Выгрузка: данные сводки не подходят ({e}).') from None
+        return Response(content, media_type=mime, headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(name)}"})
+
     def fund(request, body):
         """Сводка по фонду «кандидаты в КРС»: скважины по убыванию суммы улик с причинами и подсказкой операции."""
         from atlas import passport_blocks
@@ -406,6 +425,7 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/passport/assess', E(assess), methods=['POST']),
         Route('/api/projects/{pid}/passport/backtest', E(backtest), methods=['POST']),
         Route('/api/projects/{pid}/passport/operations', E(operations), methods=['POST']),
+        Route('/api/projects/{pid}/passport/summary_export', E(summary_export), methods=['POST']),
         Route('/api/projects/{pid}/passport/fund', E(fund), methods=['POST']),
         Route('/api/projects/{pid}/passport/depression', E(depression), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),
