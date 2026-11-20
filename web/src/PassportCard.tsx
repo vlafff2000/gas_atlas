@@ -157,16 +157,24 @@ export function PassportDashboard({ card, project, seasons, revision, onProject,
           скрыты. Ширина условная, диаметры — в подписях.{card.construction_date ? ` Конструкция на ${card.construction_date}.` : ''}</p>
       </section>
       {card.notes.map(n => <div key={n} className="note info">{n}</div>)}
-      <div className="chart-grid">
-        {card.charts.map(c => c.heat ? (          // плитки КРУ и КРС по годам — общая тепловая карта
+      {(() => {
+        // Суточные расходы — длинный ряд за все сезоны: в сетке рядом с остальными он мелкий, поэтому идёт отдельно под ними, на всю ширину окна.
+        const draw = (c: Card['charts'][number]) => c.heat ? (          // плитки КРУ и КРС по годам — общая тепловая карта
           <HeatView key={c.id} chart={c} module="passport"
             onCopy={() => passportApi.exportBlob(project, card.well, seasons, 'chart', c.id, 'png', 300)}
             onDownload={(format, dpi) => passportApi.exportFile(project, card.well, seasons, 'chart', c.id, format, dpi)} />
         ) : (
           <ChartView key={c.id} chart={c} excludeMode={false} onExclude={() => {}}
             onCopy={view => passportApi.exportBlob(project, card.well, seasons, 'chart', c.id, 'png', 300, view)}
-            onDownload={(format, dpi, view) => passportApi.exportFile(project, card.well, seasons, 'chart', c.id, format, dpi, view)} />))}
-      </div>
+            onDownload={(format, dpi, view) => passportApi.exportFile(project, card.well, seasons, 'chart', c.id, format, dpi, view)} />)
+        const wide = card.charts.filter(c => c.id === 'passport-daily')
+        return (
+          <>
+            <div className="chart-grid">{card.charts.filter(c => c.id !== 'passport-daily').map(draw)}</div>
+            {wide.length > 0 && <div className="chart-wide">{wide.map(draw)}</div>}
+          </>
+        )
+      })()}
       <TableDock tables={card.tables} scope="passport" render={t => (
         <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, seasons, 'table', t.id, format)} />)} />
       {onProject && <Operations card={card} project={project} revision={revision} onProject={onProject} />}
