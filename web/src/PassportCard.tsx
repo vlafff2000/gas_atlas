@@ -3,10 +3,39 @@ import { HeatView } from './HeatView'
 import { TableDock } from './TableDock'
 import { TableView } from './TableView'
 import { SchematicNotes, WellSchematic } from './WellFigure'
+import { useState } from 'react'
+import type { Project } from './api'
 import { passportApi, type PassportCard as Card } from './api_passport'
 
 /** Дашборд паспорта: показатели, схема забоя, графики и таблицы — те же ChartView и TableView, что в остальных модулях. */
-export function PassportDashboard({ card, project, seasons }: { card: Card; project: string; seasons: string[] }) {
+const LEVELS: [string, string][] = [['strong', 'сильная'], ['weak', 'слабая'], ['none', 'нет'], ['unknown', 'неизвестно']]
+
+/** Решение инженера по механизму оценки: главнее автоматической подсказки, сохраняется в проекте; «Снять» возвращает расчёт. */
+function AssessOverride({ card, project, revision, onProject }: { card: Card; project: string; revision?: number; onProject: (p: Project) => void }) {
+  const rows = card.assess ?? []
+  const [mech, setMech] = useState('')
+  const [level, setLevel] = useState('weak')
+  const [note, setNote] = useState('')
+  const [error, setError] = useState('')
+  if (!rows.length) return null
+  const current = mech || rows[0].mechanism
+  const save = async (value: string | null) => {
+    setError('')
+    try { onProject(await passportApi.saveAssess(project, card.well, current, value, note, revision)); setNote('') } catch (e) { setError((e as Error).message) }
+  }
+  return (
+    <div className="note info assess-override">
+      <b>Решение инженера</b>{' '}
+      <select value={current} onChange={e => setMech(e.target.value)} aria-label="Механизм">{rows.map(r => <option key={r.mechanism} value={r.mechanism}>{r.name}</option>)}</select>{' '}
+      <select value={level} onChange={e => setLevel(e.target.value)} aria-label="Уровень">{LEVELS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select>{' '}
+      <input value={note} onChange={e => setNote(e.target.value)} placeholder="Примечание (необязательно)" aria-label="Примечание" />{' '}
+      <button type="button" onClick={() => save(level)}>Записать</button>{' '}
+      <button type="button" className="quiet" onClick={() => save(null)}>Снять решение</button>
+      {error && <span className="muted"> {error}</span>}
+    </div>)
+}
+
+export function PassportDashboard({ card, project, seasons, revision, onProject }: { card: Card; project: string; seasons: string[]; revision?: number; onProject?: (p: Project) => void }) {
   const none = (value: Card['kpi'][number]) => value.value === null && !value.text
   const num = (v: number, digits: number) => v.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })
   return (
@@ -38,6 +67,7 @@ export function PassportDashboard({ card, project, seasons }: { card: Card; proj
       </div>
       <TableDock tables={card.tables} scope="passport" render={t => (
         <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, seasons, 'table', t.id, format)} />)} />
+      {onProject && <AssessOverride card={card} project={project} revision={revision} onProject={onProject} />}
       {(card.elpro_help ?? []).length > 0 && card.tables.some(t => t.id === 'passport-elpro') && (
         <details className="note info"><summary>Как читать данные ЭЛПРО</summary>
           <ul>{(card.elpro_help ?? []).map(t => <li key={t}>{t}</li>)}</ul></details>)}
