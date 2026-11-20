@@ -187,3 +187,13 @@ def test_empty_depth_gap_is_compressed_but_labels_stay_real():
         ys = [m for _, m in s['pts']] if 'pts' in s else [s['y0'], s['y1']]
         assert all(sch['top'] <= y <= sch['bottom'] for y in ys)
     assert any('Перфорация 800–810 м' == lab['text'] for lab in sch['labels'])
+
+
+def test_card_shows_fund_and_horizon_of_control_well(env):
+    """В паспорте видны фонд (выбор инженера) и горизонт контрольной скважины."""
+    client, pid, _ = env
+    client.post(f'/api/projects/{pid}/well-fund', json={'changes': {WELL: 'control'}})
+    client.post(f'/api/projects/{pid}/well-fund', json={'horizons': {WELL: 'Г-2'}})
+    card = client.get(f'/api/projects/{pid}/passport/card?well={WELL}').json()
+    kpi = {k['label']: k for k in card['kpi']}
+    assert kpi['Фонд']['text'] == 'Контрольная' and kpi['Горизонт']['text'] == 'Г-2'

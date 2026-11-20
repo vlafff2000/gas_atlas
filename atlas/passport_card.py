@@ -645,6 +645,13 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
         {'label': 'Вода по последнему контролю', 'value': None, 'text': 'нет данных' if water.empty else str(water.iloc[-1]['Состояние']),
          'hint': '' if water.empty else _date(water.iloc[-1]['Дата'])},
     ]
+    from atlas import well_funds
+    fund = well_funds.fund_of(settings, well)
+    if fund:
+        kpi.append({'label': 'Фонд', 'value': None, 'text': well_funds.LABEL[fund], 'hint': 'выбор инженера, страница «Фонды скважин»'})
+        horizon = well_funds.horizon_of(settings, well)
+        if fund == 'control' and horizon:
+            kpi.append({'label': 'Горизонт', 'value': None, 'text': horizon, 'hint': 'контрольный фонд'})
     res = first.get('resource') or {'flag': False}
     if res['flag']:
         kpi.append({'label': 'Пометка «Ресурс»', 'value': None, 'text': 'есть', 'hint': ', '.join(res['kits']),
