@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.construction_checks import check_construction
-from atlas import passport_tiles
+from atlas import passport_elpro, passport_tiles
 
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 # Какие элементы шаблона конструкции попадают на схему забойной части; кондуктор и прочие колонны — нет.
@@ -590,7 +590,7 @@ def program_notes(program: pd.DataFrame | None, well: str) -> list[str]:
 
 def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None),
           only: list[str] | None = None, gis: tuple[pd.DataFrame | None, ...] = (None, None),
-          program: pd.DataFrame | None = None) -> dict[str, Any]:
+          program: pd.DataFrame | None = None, elpro: pd.DataFrame | None = None) -> dict[str, Any]:
     """Всё для карточки одной скважины. Пустые разделы — заметка, не ошибка.
 
     ``only`` — подписи сезонов («Отбор 2025-2026»), которые показывать: показатели, таблица сезонов, графики и PDF считаются
@@ -656,6 +656,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
             'construction_date': _date(construction.date.max()) if not construction.empty else '',
             'kpi': kpi, 'seasons': seasons, 'season_options': season_options, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
             'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes,
+            'elpro': passport_elpro.season_rows(elpro, by_kind['withdrawal']['daily'], well), 'elpro_cru': passport_elpro.cru_series(elpro, well), 'elpro_help': list(passport_elpro.HOW_TO_READ) if elpro is not None and not elpro.empty else [],
             'tiles': {'kru': passport_tiles.kru_tiles(krs_raw[1], well), 'krs': passport_tiles.krs_tiles(krs_raw[0], well)}}
 
 

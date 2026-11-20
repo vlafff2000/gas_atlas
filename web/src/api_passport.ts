@@ -41,7 +41,7 @@ export interface KrsInfo { works: { year: number | null; type: string; detail: s
   priority: { value: number | null; reason: string; sand: string } | null }
 export interface PassportCard {
   well: string; group: string; construction_date: string; kpi: Kpi[]; seasons: SeasonRow[]; season_options: string[]; gdi: GdiRow[]; gdi_diagrams: GdiDiagram[]; daily: Record<'withdrawal' | 'injection', DailySeries>; krs: KrsInfo
-  schematic: Schematic; notes: string[]; charts: Chart[]; tables: Table[]
+  schematic: Schematic; elpro_help?: string[]; notes: string[]; charts: Chart[]; tables: Table[]
 }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
