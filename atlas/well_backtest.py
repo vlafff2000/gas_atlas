@@ -44,7 +44,7 @@ def evidence_at(card: dict[str, Any], cut: pd.Timestamp, *, works: list[dict[str
             row = old.iloc[-1]
             bottom_m, bottom_date = row.get('bottom_m'), row.get('date')
             bottom_m = None if bottom_m is None or pd.isna(bottom_m) else float(bottom_m)
-    return passport_assess.collect(bottom_m=bottom_m, bottom_date=bottom_date, bottom_row=row, filter_bottom_m=filter_bottom_m, krs={'works': past, 'priority': None},
+    return passport_assess.collect(bottom_m=bottom_m, bottom_date=bottom_date, bottom_row=row, filter_bottom_m=filter_bottom_m, krs={'works': past, 'priority': passport_assess.sand_priority_at((card.get('krs', {}).get('priority') or {}).get('sand'), works, cut.year)},
                                    seasons=seasons, gdi=gdi, elpro=elpro, today=cut.strftime('%d.%m.%Y'), depression=dep)
 
 
@@ -68,22 +68,25 @@ def check_year(year: int, evidence: dict[str, list[wa.Evidence]], fact: set[str]
 
 
 def by_mechanism(years: list[dict[str, Any]], evidence: dict[int, dict[str, list[wa.Evidence]]], fact: dict[int, set[str]]) -> list[dict[str, Any]]:
-    """Как часто улика механизма была у скважин, которые потом ушли в КР, и у остальных (во всех проверенных годах вместе)."""
+    """Как часто улика механизма была у скважин, которые потом ушли в КР, и у остальных; считаются скважино-годы (скважина в проверяемом году), все годы вместе."""
     rows = []
     for mech, name in passport_assess.MECHANISMS.items():
-        pos = neg = pos_hit = neg_hit = 0
+        pos = neg = pos_hit = neg_hit = pos_strong = neg_strong = 0
         for year in (y['year'] for y in years):
             for well, items in evidence[year].items():
                 hit = any(e.mechanism == mech and e.level in POINTS for e in items)
+                strong = any(e.mechanism == mech and e.level == 'strong' for e in items)
                 if well in fact[year]:
-                    pos, pos_hit = pos + 1, pos_hit + hit
+                    pos, pos_hit, pos_strong = pos + 1, pos_hit + hit, pos_strong + strong
                 else:
-                    neg, neg_hit = neg + 1, neg_hit + hit
+                    neg, neg_hit, neg_strong = neg + 1, neg_hit + hit, neg_strong + strong
         share_pos = pos_hit / pos if pos else None
         share_neg = neg_hit / neg if neg else None
         rows.append({'mechanism': mech, 'name': name, 'repaired_hit': pos_hit, 'repaired': pos, 'other_hit': neg_hit, 'other': neg,
                      'share_repaired': share_pos, 'share_other': share_neg,
-                     'lift': share_pos / share_neg if share_pos is not None and share_neg else None})
+                     'lift': share_pos / share_neg if share_pos is not None and share_neg else None,
+                     'strong_repaired': pos_strong / pos if pos else None, 'strong_other': neg_strong / neg if neg else None,
+                     'strong_lift': (pos_strong / pos) / (neg_strong / neg) if pos and neg and neg_strong else None})
     return rows
 
 
@@ -103,7 +106,7 @@ def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]]
                                                pressure=pressure, limit=(card.get('depression') or {}).get('limit'))
         fact[year] = repaired_wells(works, year)
         out_years.append(check_year(year, evidence[year], fact[year]))
-    notes = ['Проверка на истории: улики собраны только по данным до 1 января года. Приоритет КР по ревизиям КРУ не входит: он составлен по нынешним данным.']
+    notes = ['Проверка на истории: улики собраны только по данным до 1 января года; приоритет КР по ревизиям КРУ восстановлен на дату по сезонам с песком и ремонтам.']
     if not any(y['wells'] for y in out_years):
         notes.append(EMPTY_NOTE)
     return {'years': out_years, 'mechanisms': by_mechanism(out_years, evidence, fact) if out_years else [], 'notes': notes}
