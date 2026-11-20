@@ -167,10 +167,10 @@ export function PassportDashboard({ card, project, seasons, revision, onProject,
           <ChartView key={c.id} chart={c} excludeMode={false} onExclude={() => {}}
             onCopy={view => passportApi.exportBlob(project, card.well, seasons, 'chart', c.id, 'png', 300, view)}
             onDownload={(format, dpi, view) => passportApi.exportFile(project, card.well, seasons, 'chart', c.id, format, dpi, view)} />)
-        const wide = card.charts.filter(c => c.id === 'passport-daily')
+        const wide = card.charts.filter(c => ['passport-daily', 'passport-elpro-p'].includes(c.id))
         return (
           <>
-            <div className="chart-grid">{card.charts.filter(c => c.id !== 'passport-daily').map(draw)}</div>
+            <div className="chart-grid">{card.charts.filter(c => !['passport-daily', 'passport-elpro-p'].includes(c.id)).map(draw)}</div>
             {wide.length > 0 && <div className="chart-wide">{wide.map(draw)}</div>}
           </>
         )
@@ -184,7 +184,7 @@ export function PassportDashboard({ card, project, seasons, revision, onProject,
       {onProject && <AssessOverride card={card} project={project} revision={revision} onProject={onProject} />}
       {(card.elpro_help ?? []).length > 0 && card.tables.some(t => t.id === 'passport-elpro') && (
         <details className="note info"><summary>Как читать данные ЭЛПРО</summary>
-          <ul>{(card.elpro_help ?? []).map(t => <li key={t}>{t}</li>)}</ul></details>)}
+          <ul>{[...(card.elpro_help ?? []), ...(card.elpro_p?.help ?? [])].map(t => <li key={t}>{t}</li>)}</ul></details>)}
       {!card.tables.some(t => t.id === 'passport-krs') && card.krs.note && <div className="note info">{card.krs.note}</div>}
       {card.krs.priority && card.krs.priority.value !== null && (
         <div className="note info">Приоритет КР (подсказка, решает инженер): <b>{card.krs.priority.value}</b>

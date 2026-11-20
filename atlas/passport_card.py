@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.construction_checks import check_construction
-from atlas import passport_assess, passport_depression, passport_elpro, passport_tiles
+from atlas import passport_assess, passport_depression, passport_elpro, passport_elpro_anomaly, passport_tiles
 
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 # Какие элементы шаблона конструкции попадают на схему забойной части; кондуктор и прочие колонны — нет.
@@ -661,6 +661,10 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
         notes.append('Нет данных по сезонам эксплуатации: загрузите динамику или суточную эксплуатацию.')
     filter_bottoms = [float(v) for e, v in zip(construction.element, construction.bottom_m) if classify(str(e)) in ('filter', 'perf') and pd.notna(v)] if not construction.empty else []
     elpro_rows = passport_elpro.season_rows(elpro, by_kind['withdrawal']['daily'], well)
+    el_days = passport_elpro_anomaly.series(elpro, frames.get('production'), pressure, well, {w: (m or {}).get('group', '') for w, m in mapping.items()})
+    elpro_p = {'rows': passport_elpro_anomaly.episodes(el_days), 'help': list(passport_elpro_anomaly.HOW_TO_READ) if not el_days.empty else [],
+               'series': {'date': [d.strftime('%Y-%m-%d') for d in el_days.index],
+                          **{c: [None if pd.isna(v) else float(v) for v in el_days[c]] for c in ('p', 'grp_p', 'q', 'p_res')}} if not el_days.empty else {}}
     types = passport_depression.types_of(settings)
     kinds = {classify(str(e)) for e in construction.element} if not construction.empty else set()
     auto_type = passport_depression.well_type(kinds, types, None)
@@ -676,7 +680,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
             'construction_date': _date(construction.date.max()) if not construction.empty else '',
             'kpi': kpi, 'seasons': seasons, 'season_options': season_options, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
             'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes,
-            'elpro': elpro_rows, 'assess': assess, 'operations': {'rows': [{'mechanism': m, 'name': passport_assess.MECHANISMS[m], **levels} for m, levels in passport_assess.operations_of(settings).items()],
+            'elpro': elpro_rows, 'elpro_p': elpro_p, 'assess': assess, 'operations': {'rows': [{'mechanism': m, 'name': passport_assess.MECHANISMS[m], **levels} for m, levels in passport_assess.operations_of(settings).items()],
                                                                   'edited': bool(settings.get('well_operations'))}, 'depression': depression, 'elpro_cru': passport_elpro.cru_series(elpro, well), 'elpro_help': list(passport_elpro.HOW_TO_READ) if elpro is not None and not elpro.empty else [],
             'tiles': {'kru': passport_tiles.kru_tiles(krs_raw[1], well), 'krs': passport_tiles.krs_tiles(krs_raw[0], well)}}
 
