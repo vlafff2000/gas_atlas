@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.construction_checks import check_construction
-from atlas import passport_elpro, passport_tiles
+from atlas import passport_assess, passport_elpro, passport_tiles
 
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 # Какие элементы шаблона конструкции попадают на схему забойной части; кондуктор и прочие колонны — нет.
@@ -652,11 +652,17 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
     notes = list(notes_check) + program_notes(program, well)         # пояснения по конструкции и КРС показываются в своих блоках, здесь не повторяются
     if not seasons:
         notes.append('Нет данных по сезонам эксплуатации: загрузите динамику или суточную эксплуатацию.')
+    filter_bottoms = [float(v) for e, v in zip(construction.element, construction.bottom_m) if classify(str(e)) in ('filter', 'perf') and pd.notna(v)] if not construction.empty else []
+    elpro_rows = passport_elpro.season_rows(elpro, by_kind['withdrawal']['daily'], well)
+    evidence = passport_assess.collect(
+        bottom_m=bottom_m, bottom_date=bottom.iloc[-1].date if not bottom.empty else None, bottom_row=bottom.iloc[-1] if not bottom.empty else None,
+        filter_bottom_m=max(filter_bottoms) if filter_bottoms else None, krs=krs, seasons=seasons, gdi=gdi_all, elpro=elpro_rows, today=passport_assess.today_stamp())
+    assess = passport_assess.rows(evidence, (settings.get('well_assess') or {}).get(well))
     return {'well': well, 'group': mapping.get(well, {}).get('group', ''),
             'construction_date': _date(construction.date.max()) if not construction.empty else '',
             'kpi': kpi, 'seasons': seasons, 'season_options': season_options, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
             'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes,
-            'elpro': passport_elpro.season_rows(elpro, by_kind['withdrawal']['daily'], well), 'elpro_cru': passport_elpro.cru_series(elpro, well), 'elpro_help': list(passport_elpro.HOW_TO_READ) if elpro is not None and not elpro.empty else [],
+            'elpro': elpro_rows, 'assess': assess, 'elpro_cru': passport_elpro.cru_series(elpro, well), 'elpro_help': list(passport_elpro.HOW_TO_READ) if elpro is not None and not elpro.empty else [],
             'tiles': {'kru': passport_tiles.kru_tiles(krs_raw[1], well), 'krs': passport_tiles.krs_tiles(krs_raw[0], well)}}
 
 

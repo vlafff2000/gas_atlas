@@ -253,6 +253,24 @@ def routes(projects: Projects) -> list[Route]:
         saved = projects._commit(pid, cfg, body.get('revision'), 'Комментарий инженера')
         return {**projects.summary(saved), 'comment': text}
 
+    def assess(request, body):
+        """Ручное решение инженера по механизму (уровень и примечание) или его снятие (level = null); хранится в проекте, пересчёт не затирает."""
+        from atlas import passport_assess, well_assess
+        pid = request.path_params['pid']
+        passport = Passport(projects, pid)
+        well = passport.well(body.get('well'))
+        mech, level = str(body.get('mechanism') or ''), body.get('level')
+        if mech not in passport_assess.MECHANISMS or (level is not None and level not in well_assess.LEVELS):
+            raise ParamError('Оценка: неизвестный механизм или уровень.')
+        cfg = copy.deepcopy(passport.manifest.get('settings', {}))
+        mine = cfg.setdefault('well_assess', {}).setdefault(well, {})
+        if level is None:
+            mine.pop(mech, None)
+        else:
+            mine[mech] = {'level': level, 'note': str(body.get('note') or '')[:COMMENT_LIMIT]}
+        saved = projects._commit(pid, cfg, body.get('revision'), 'Решение инженера по оценке скважины')
+        return projects.summary(saved)
+
     def pdf(request, body):
         passport = Passport(projects, request.path_params['pid'])
         well = passport.well(body.get('well'))
@@ -294,5 +312,6 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/passport/card', E(card)),
         Route('/api/projects/{pid}/passport/export', E(export), methods=['POST']),
         Route('/api/projects/{pid}/passport/comment', E(comment), methods=['POST']),
+        Route('/api/projects/{pid}/passport/assess', E(assess), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),
     ]

@@ -172,7 +172,22 @@ def elpro_table(rows: list[dict[str, Any]]) -> Table | None:
         note='Вывод — подсказка с причиной; пороги фиксированы (КРУ ≥ 90 % в 30 % суток; падение расхода на 1 % КРУ на 15 %). Решает инженер.')
 
 
+def assess_table(rows: list[dict[str, Any]]) -> Table | None:
+    """Оценка состояния: механизм, уровень (авто или решение инженера), причина, дата данных и подсказка операции."""
+    if not rows:
+        return None
+    from atlas.passport_assess import LEVEL_NAMES
+    frame = pd.DataFrame({'name': [r['name'] for r in rows], 'level': [LEVEL_NAMES[r['level']] for r in rows],
+                          'who': [('решение инженера' + (f': {r["note"]}' if r['note'] else '')) if r['manual'] else 'авто' for r in rows],
+                          'reason': [r['reason'] for r in rows], 'date': [r['date'] for r in rows], 'recommendation': [r['recommendation'] for r in rows]})
+    manual = [i for i, r in enumerate(rows) if r['manual']]
+    return Table('passport-assess', 'Оценка состояния скважины', frame, [
+        Column('name', 'Механизм'), Column('level', 'Улика'), Column('who', 'Кто решил'), Column('reason', 'Причина'), Column('date', 'Данные от'),
+        Column('recommendation', 'Что делать (подсказка)')], styles=[CellStyle(manual, font='1f4e8c')] if manual else [],
+        note='Это подсказка: решает инженер. Замер до последнего КР и старше двух лет в оценку не идёт; пропуск данных — «неизвестно», не «хорошо».')
+
+
 def blocks(card: dict[str, Any]) -> tuple[list[Chart], list[Table]]:
     charts = tile_charts(card.get('tiles')) + [c for c in (seasons_chart(card['seasons']), daily_chart(card['daily'], card.get('elpro_cru')), gdi_chart(card['gdi_diagrams'])) if c]
-    tables = [t for t in (seasons_table(card['seasons']), elpro_table(card.get('elpro') or []), gdi_table(card['gdi']), krs_table(card['krs'])) if t]
+    tables = [t for t in (assess_table(card.get('assess') or []), seasons_table(card['seasons']), elpro_table(card.get('elpro') or []), gdi_table(card['gdi']), krs_table(card['krs'])) if t]
     return charts, tables

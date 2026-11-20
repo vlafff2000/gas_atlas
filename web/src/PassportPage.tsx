@@ -118,7 +118,7 @@ export function PassportPage({ project, onProject }: { project: Project; onProje
         {message && <div className={'note ' + message.level} role="status">{message.text}</div>}
         {tab === 'dash' ? (
           cardError ? <div className="note warning">{cardError}</div>
-            : !card ? <p className="muted loading-line">Собираю паспорт…</p> : <PassportDashboard card={card} project={project.id} seasons={seasonPick} />
+            : !card ? <p className="muted loading-line">Собираю паспорт…</p> : <PassportDashboard card={card} project={project.id} seasons={seasonPick} revision={project.revision} onProject={onProject} />
         ) : (
         <section className="panel">
           <div className="param-bar">
