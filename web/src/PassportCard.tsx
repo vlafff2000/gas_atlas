@@ -4,7 +4,7 @@ import { TableDock } from './TableDock'
 import { TableView } from './TableView'
 import { SchematicNotes, WellSchematic } from './WellFigure'
 import { useState } from 'react'
-import type { Project } from './api'
+import type { Project, Table } from './api'
 import { passportApi, type DepressionType, type PassportCard as Card } from './api_passport'
 
 /** Дашборд паспорта: показатели, схема забоя, графики и таблицы — те же ChartView и TableView, что в остальных модулях. */
@@ -33,6 +33,27 @@ function AssessOverride({ card, project, revision, onProject }: { card: Card; pr
       <button type="button" className="quiet" onClick={() => save(null)}>Снять решение</button>
       {error && <span className="muted"> {error}</span>}
     </div>)
+}
+
+/** Проверка критериев на истории: улики на 1 января каждого года против фактических КР; считается по запросу (по всем скважинам проекта). */
+function Backtest({ project }: { project: string }) {
+  const [tables, setTables] = useState<Table[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const run = async () => {
+    setBusy(true); setError('')
+    try { setTables((await passportApi.backtest(project, [2022, 2023, 2024, 2025])).tables) } catch (e) { setError((e as Error).message) }
+    setBusy(false)
+  }
+  return (
+    <details className="note info">
+      <summary>Проверка критериев на истории (КР 2022–2025)</summary>
+      <p>Что показали бы улики на 1 января года, в котором скважину потом ремонтировали: только данные до этой даты. Считает все скважины проекта, это занимает время.</p>
+      <button type="button" onClick={run} disabled={busy}>{busy ? 'Считаю…' : 'Проверить'}</button>
+      {error && <p className="error">{error}</p>}
+      {tables?.map(t => <TableView key={t.id} table={t} docked onDownload={async () => { throw new Error('Выгрузка проверки пока не сделана: скопируйте таблицу с экрана.') }} />)}
+    </details>
+  )
 }
 
 /** Пределы депрессии и тип забоя скважины: редактирует инженер; авто-тип — подсказка по конструкции, «авто» снимает ручной выбор. */
@@ -95,6 +116,7 @@ export function PassportDashboard({ card, project, seasons, revision, onProject 
       </div>
       <TableDock tables={card.tables} scope="passport" render={t => (
         <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, seasons, 'table', t.id, format)} />)} />
+      {onProject && <Backtest project={project} />}
       {onProject && <DepressionSettings card={card} project={project} revision={revision} onProject={onProject} />}
       {onProject && <AssessOverride card={card} project={project} revision={revision} onProject={onProject} />}
       {(card.elpro_help ?? []).length > 0 && card.tables.some(t => t.id === 'passport-elpro') && (

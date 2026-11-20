@@ -187,6 +187,32 @@ def assess_table(rows: list[dict[str, Any]]) -> Table | None:
         note='Это подсказка: решает инженер. Замер до последнего КР и старше двух лет в оценку не идёт; пропуск данных — «неизвестно», не «хорошо».')
 
 
+def backtest_tables(result: dict[str, Any]) -> list[Table]:
+    """Проверка критериев на истории: итог по годам и по механизмам (общая таблица ядра)."""
+    def pct(v):
+        return '' if v is None else f'{v * 100:.0f} %'
+    def num(v):
+        return '' if v is None else f'{v:.1f}'
+    years, mechs = result.get('years') or [], result.get('mechanisms') or []
+    out = []
+    if years:
+        frame = pd.DataFrame({'year': [str(y['year']) for y in years], 'wells': [y['wells'] for y in years], 'repaired': [y['repaired'] for y in years],
+                              'hits': [y['hits'] for y in years], 'precision': [pct(y['precision']) for y in years], 'lift': [num(y['lift']) for y in years],
+                              'flagged': [f"{y['flagged_hits']} из {y['flagged']}" for y in years], 'missing': [y['missing'] for y in years]})
+        out.append(Table('passport-backtest-years', 'Проверка критериев на истории: по годам', frame, [
+            Column('year', 'Год КР'), Column('wells', 'Скважин с данными до 1 января'), Column('repaired', 'Ушли в КР (K)'), Column('hits', 'Попали в верхние K'),
+            Column('precision', 'Точность в верхних K'), Column('lift', 'Во сколько раз лучше случайного'), Column('flagged', 'С уликой: из них ремонтировали'),
+            Column('missing', 'КР без данных до даты')], note=' '.join(result.get('notes') or [])))
+    if mechs:
+        frame = pd.DataFrame({'name': [m['name'] for m in mechs], 'a': [f"{m['repaired_hit']} из {m['repaired']}" for m in mechs],
+                              'sa': [pct(m['share_repaired']) for m in mechs], 'b': [f"{m['other_hit']} из {m['other']}" for m in mechs],
+                              'sb': [pct(m['share_other']) for m in mechs], 'lift': [num(m['lift']) for m in mechs]})
+        out.append(Table('passport-backtest-mechanisms', 'Проверка критериев на истории: по механизмам', frame, [
+            Column('name', 'Механизм'), Column('a', 'Улика у ушедших в КР'), Column('sa', 'Доля'), Column('b', 'Улика у остальных'), Column('sb', 'Доля'),
+            Column('lift', 'Отношение долей')], note='Чем больше отношение долей, тем лучше механизм отличает скважины, которые потом ремонтировали. Выборка мала: смотрите как подсказку.'))
+    return out
+
+
 def depression_chart(dep: dict[str, Any] | None) -> Chart | None:
     """Депрессия Рпл − Рзаб по сезонам отбора (обратный пересчёт по ГДИ): столбцы на среднем и максимальном расходе и линия предела типа забоя."""
     rows = [r for r in (dep or {}).get('rows', []) if r['dep_max'] is not None]
