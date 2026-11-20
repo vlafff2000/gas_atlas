@@ -505,6 +505,36 @@ class Projects:
         self._commit(pid, settings, expected, 'Фонды скважин', {'wells': len(changes)})
         return self.well_funds(pid)
 
+    def assign_well_horizons(self, pid: str, changes: Mapping[str, Any], expected: int | None = None) -> dict[str, Any]:
+        """Горизонты контрольных скважин (``settings['well_horizons']``)."""
+        from . import well_funds as well_fund
+        settings = well_fund.with_horizons(self.manifest(pid).get('settings', {}), changes)
+        self._commit(pid, settings, expected, 'Горизонты скважин', {'wells': len(changes)})
+        return self.well_funds(pid)
+
+    def import_well_funds(self, pid: str, content: bytes, name: str, expected: int | None = None) -> dict[str, Any]:
+        """Фонды и горизонты из листа «скважина, фонд, горизонт»: записываются как ручной выбор инженера."""
+        from . import well_funds as well_fund
+        from .engine.core.tabular import read_content
+        try:
+            _, tables = read_content(content, name)
+        except Exception as e:  # noqa: BLE001
+            raise ParamError(f'Не удалось прочитать файл: {e}') from e
+        funds = horizons = notes = None
+        for raw in tables.values():
+            try:
+                funds, horizons, notes = well_fund.parse_sheet(raw)
+                break
+            except ParamError as e:
+                error = e
+        if funds is None:
+            raise error
+        settings = well_fund.with_funds(self.manifest(pid).get('settings', {}), funds)
+        if horizons:
+            settings = well_fund.with_horizons(settings, horizons)
+        self._commit(pid, settings, expected, 'Импорт фондов скважин', {'wells': len(funds), 'horizons': len(horizons)})
+        return {**self.well_funds(pid), 'imported': {'wells': len(funds), 'horizons': len(horizons), 'notes': notes}}
+
     # --- сохранённые параметры и расчёты ---
     def saved_state(self, pid: str, module, panel_index: int = 0) -> dict[str, Any]:
         m = self.manifest(pid)
