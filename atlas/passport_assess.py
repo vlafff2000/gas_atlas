@@ -15,6 +15,21 @@ from atlas import well_assess as wa
 MECHANISMS = {'depression': 'Превышение предельной депрессии', 'bottom_fill': 'Заполнение забоя', 'sand': 'Вынос песка (ревизии КРУ)', 'throttle': 'Ограничение устья / КРУ', 'gdi_old': 'Устаревшее ГДИ'}
 LEVEL_NAMES = {'none': 'нет', 'weak': 'слабая', 'strong': 'сильная', 'unknown': 'неизвестно'}
 GDI_OLD_YEARS = 5.0
+# Таблица «механизм → операция» по умолчанию: что подсказывать при сильной и слабой улике. Инженер правит её в проекте (settings.well_operations);
+# изменённая строка главнее подсказки, которую даёт автоматика по конкретному случаю.
+DEFAULT_OPERATIONS: dict[str, dict[str, str]] = {
+    'sand': {'strong': 'КР: замена фильтра / армирование ПЗП', 'weak': 'Специальное ГДИ или промывка'},
+    'bottom_fill': {'strong': 'Промывка / КР по заполнению забоя', 'weak': 'Шаблонирование силами геологической службы или ГДИ'},
+    'depression': {'strong': 'Снизить режим отбора, провести ГДИ', 'weak': 'Контролировать депрессию на следующем сезоне'},
+    'throttle': {'strong': 'Проверить режим, шлейф и сопротивление КРУ', 'weak': 'Проверить режим и шлейф'},
+    'gdi_old': {'strong': 'Провести ГДИ', 'weak': 'Провести ГДИ'},
+}
+
+
+def operations_of(settings: dict[str, Any] | None) -> dict[str, dict[str, str]]:
+    """Таблица операций: умолчания, поверх них правки инженера из ``settings.well_operations`` (пустой текст возвращает умолчание)."""
+    mine = (settings or {}).get('well_operations') or {}
+    return {m: {lvl: str((mine.get(m) or {}).get(lvl) or text) for lvl, text in levels.items()} for m, levels in DEFAULT_OPERATIONS.items()}
 
 
 def bottom_source(row: Any) -> str:
@@ -71,16 +86,18 @@ def collect(*, bottom_m: float | None, bottom_date: Any, bottom_row: Any, filter
     return out
 
 
-def rows(evidence: list[wa.Evidence], manual: dict[str, Any] | None) -> list[dict[str, Any]]:
+def rows(evidence: list[wa.Evidence], manual: dict[str, Any] | None, edited: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Строки для экрана: уровень авто и итоговый, ручное решение главнее; причина и подсказка операции остаются видны."""
     manual = manual or {}
+    edited = edited or {}
     shown = []
     for e in evidence:
         m = manual.get(e.mechanism) or {}
         level = m.get('level') if m.get('level') in wa.LEVELS else e.level
+        own = str((edited.get(e.mechanism) or {}).get(level) or '')       # строка таблицы «механизм → операция», правленная инженером
         shown.append({'mechanism': e.mechanism, 'name': MECHANISMS.get(e.mechanism, e.mechanism), 'auto_level': e.level, 'level': level,
                       'manual': bool(m.get('level') in wa.LEVELS), 'note': str(m.get('note') or ''), 'reason': e.reason, 'date': e.data_date,
-                      'weight': round(e.weight, 2), 'recommendation': e.recommendation})
+                      'weight': round(e.weight, 2), 'recommendation': own or e.recommendation})
     for mech, m in manual.items():           # ручное решение по механизму без авто-улики — тоже показывается
         if mech in MECHANISMS and m.get('level') in wa.LEVELS and not any(s['mechanism'] == mech for s in shown):
             shown.append({'mechanism': mech, 'name': MECHANISMS[mech], 'auto_level': 'none', 'level': m['level'], 'manual': True, 'note': str(m.get('note') or ''),

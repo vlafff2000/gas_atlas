@@ -60,3 +60,13 @@ def test_api_saves_and_clears_manual_decision():
     card = client.get(f'/api/projects/{pid}/passport/card', params={'well': '31'}).json()
     assert not any(r['mechanism'] == 'gdi_old' and r['manual'] for r in card['assess'])
     assert client.post(f'/api/projects/{pid}/passport/assess', json={'well': '31', 'mechanism': 'x', 'level': 'weak'}).status_code == 400
+
+
+def test_operations_table_override_beats_auto_hint_and_defaults_restore():
+    from atlas import passport_assess as pa
+    from atlas import well_assess as wa
+    ev = [wa.Evidence('sand', 'strong', 'причина', '', 1.0, 'авто-подсказка')]
+    assert pa.rows(ev, None)[0]['recommendation'] == 'авто-подсказка'
+    assert pa.rows(ev, None, {'sand': {'strong': 'Своя операция'}})[0]['recommendation'] == 'Своя операция'
+    assert pa.rows(ev, None, {'sand': {'weak': 'для слабой'}})[0]['recommendation'] == 'авто-подсказка'      # правка другого уровня не мешает
+    assert pa.operations_of({'well_operations': {'sand': {'weak': 'X'}}})['sand'] == {'strong': pa.DEFAULT_OPERATIONS['sand']['strong'], 'weak': 'X'}

@@ -41,7 +41,7 @@ export interface KrsInfo { works: { year: number | null; type: string; detail: s
   priority: { value: number | null; reason: string; sand: string } | null }
 export interface PassportCard {
   well: string; group: string; construction_date: string; kpi: Kpi[]; seasons: SeasonRow[]; season_options: string[]; gdi: GdiRow[]; gdi_diagrams: GdiDiagram[]; daily: Record<'withdrawal' | 'injection', DailySeries>; krs: KrsInfo
-  schematic: Schematic; elpro_help?: string[]; assess?: AssessRow[]; depression?: DepressionInfo; notes: string[]; charts: Chart[]; tables: Table[]
+  schematic: Schematic; elpro_help?: string[]; assess?: AssessRow[]; operations?: { rows: { mechanism: string; name: string; strong: string; weak: string }[]; edited: boolean }; depression?: DepressionInfo; notes: string[]; charts: Chart[]; tables: Table[]
 }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
@@ -86,6 +86,11 @@ export const passportApi = {
   /** Проверка критериев на истории: улики на 1 января каждого года против фактических КР года. */
   backtest: async (project: string, years: number[]) =>
     (await send(`/api/projects/${project}/passport/backtest`, post({ years }))).json() as Promise<{ tables: Table[]; notes: string[] }>,
+  /** Таблица «механизм → операция»: правки по уровням (strong/weak) или сброс к умолчаниям. */
+  saveOperations: async (project: string, operations: Record<string, { strong?: string; weak?: string }> | null, revision?: number) =>
+    (await send(`/api/projects/${project}/passport/operations`, post(operations ? { operations, revision } : { reset: true, revision }))).json() as Promise<Project>,
+  /** Сводка по фонду «кандидаты в КРС» (считает все скважины проекта). */
+  fund: async (project: string) => (await send(`/api/projects/${project}/passport/fund`, post({}))).json() as Promise<{ tables: Table[] }>,
   /** Формирует PDF (сохраняется и в выгрузках проекта) и отдаёт его браузеру. */
   pdf: async (project: string, well: string, sections: string[], periods: Record<string, string[]>, comment: string, card = true, wells?: string[], seasons: string[] = []) => {
     const response = await send(`/api/projects/${project}/passport/pdf`, post({ well, wells, sections, periods, comment, card, seasons }))
