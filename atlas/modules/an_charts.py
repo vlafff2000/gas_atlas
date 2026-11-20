@@ -27,20 +27,13 @@ OBJECT_COLOR = '#6b7c84'        # объект целиком — нейтрал
 MONTHS = ('январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь')
 
 
-WELLS_AUTO, WELLS_GAS_DB, WELLS_PROD = 'auto', 'gas_db', 'wells'
-WELLS_LABEL = {WELLS_GAS_DB: 'БД учёта газа', WELLS_PROD: 'суточные расходы скважин (расход > 0)'}
-
-
-def daily_of(prod: pd.DataFrame, kind: str, period: str, ref: pd.DataFrame | None = None,
-             wells_source: str = WELLS_AUTO) -> tuple[pd.Series, pd.Series]:
+def daily_of(prod: pd.DataFrame, kind: str, period: str, ref: pd.DataFrame | None = None) -> tuple[pd.Series, pd.Series]:
     """Суточный расход объекта (м³/сут) и число работающих скважин по всем календарным суткам сезона.
 
     Как у соседних разделов: ноль и день без записи — 0 (падают на ось X), исключённая вручную точка — NaN (разрыв линии).
     Границы — первые и последние сутки с расходом (нейтральный период до закачки/отбора не рисуется).
     ``ref`` — «БД по учету газа»: объём объекта берётся из узла учёта по тому же правилу, что в «Сезонных показателях» (``_seasonal.object_daily``);
-    число работающих скважин — по выбору ``wells_source``: «auto» — из «БД по учету газа» (столбец ``wells``), а в сутки, где его нет, — по
-    скважинам (расход > 0); «gas_db» — только БД (нет значения — NaN); «wells» — только по скважинам. Источник — в ``wells.attrs['source']``:
-    «БД учёта газа», «суточные расходы…» или «смешанный»; сутки по скважинам при смешанном — в ``wells.attrs['fallback']``."""
+    число работающих скважин здесь — по суточным расходам скважин (расход > 0); из «БД по учету газа» — ``wells_gas_db``."""
     rows = an_wells.season_rows(prod, kind, period)
     pos = rows[rows.q.gt(0)]
     if pos.empty:
@@ -49,22 +42,6 @@ def daily_of(prod: pd.DataFrame, kind: str, period: str, ref: pd.DataFrame | Non
     sums = rows.groupby('date').q.sum(min_count=1)
     daily = sums.reindex(days).where(days.isin(sums.index), 0.0)      # нет записи → 0; все записи суток исключены → NaN
     wells = pos.groupby('date').well.nunique().reindex(days, fill_value=0)
-    by_prod = wells
-    fallback = 0
-    source = WELLS_PROD
-    if wells_source != WELLS_PROD and ref is not None and 'wells' in ref:
-        r = ref[ref.kind.eq(kind)].assign(date=lambda x: pd.to_datetime(x.date).dt.normalize())
-        db = r.drop_duplicates('date', keep='last').set_index('date').wells.astype(float).reindex(days)
-        if db.notna().any():
-            source = WELLS_GAS_DB
-            if wells_source == WELLS_AUTO:
-                fallback = int(db.isna().sum())
-                wells = db.fillna(by_prod.astype(float))
-            else:
-                wells = db
-            wells = wells.round()
-    wells.attrs['source'] = WELLS_LABEL[source] + (' (в части суток — по скважинам)' if fallback else '')
-    wells.attrs['fallback'] = fallback
     if ref is not None:
         from ._seasonal import SOURCE_REF, object_daily
         node, source = object_daily(prod, ref, kind, period)
@@ -73,13 +50,18 @@ def daily_of(prod: pd.DataFrame, kind: str, period: str, ref: pd.DataFrame | Non
     return daily, wells
 
 
+def wells_gas_db(ref: pd.DataFrame | None, kind: str, days: pd.Index) -> pd.Series | None:
+    """Число работающих скважин по ПХГ из «БД по учету газа» (столбец ``wells``) на сутки ``days``; нет столбца или значений — None.
+    Сутки без значения — NaN (на графике разрыв): подставлять число по скважинам нельзя, это другой источник."""
+    if ref is None or 'wells' not in ref or len(days) == 0:
+        return None
+    r = ref[ref.kind.eq(kind)].assign(date=lambda x: pd.to_datetime(x.date).dt.normalize())
+    out = r.drop_duplicates('date', keep='last').set_index('date').wells.astype(float).reindex(days).round()
+    return out if out.notna().any() else None
+
+
 def _count(value: Any) -> str:
     return '—' if pd.isna(value) else str(int(value))
-
-
-def _wells_name(wells: pd.Series) -> str:
-    src = wells.attrs.get('source')
-    return f'Скважин в работе ({src})' if src and src.startswith('БД') else 'Скважин в работе'
 
 
 def pressure_points(pressure: pd.DataFrame | None, start: Any, stop: Any) -> pd.DataFrame | None:
@@ -119,11 +101,12 @@ def group_pressure_chart(kind: str, period: str, reference: pd.DataFrame | None,
     return chart
 
 
-SHOW = (('rate', 'Суточный расход'), ('pressure', 'Среднее Рпл (замеры)'), ('wells', 'Скважин в работе'),
+WELLS_PROD_LABEL, WELLS_DB_LABEL = 'Скважин в работе по суточным расходам', 'Скважин в работе по БД учёта газа'
+SHOW = (('rate', 'Суточный расход'), ('pressure', 'Среднее Рпл (замеры)'), ('wells', WELLS_PROD_LABEL), ('wells_db', WELLS_DB_LABEL),
         ('cumulative', 'Накопленный объём'), ('water', 'Вынос воды'), ('wf', 'Водный фактор, суточный'),
         ('wf_cum', 'Водный фактор, накопленный'), ('gas', 'Объём газа в пласте'))
-SHOW_DEFAULT = ('Суточный расход', 'Среднее Рпл (замеры)', 'Скважин в работе')      # в списке параметра значения — подписи
-SHOW_KEY = {label: key for key, label in SHOW}
+SHOW_DEFAULT = ('Суточный расход', 'Среднее Рпл (замеры)', WELLS_PROD_LABEL, WELLS_DB_LABEL)      # в списке параметра значения — подписи
+SHOW_KEY = {**{label: key for key, label in SHOW}, 'Скважин в работе': 'wells'}      # старое название ряда в сохранённых видах
 # Ряды режима «от накопленного объёма»: по оси X — накопленный объём, поэтому накопленный объём и газ в пласте не выводятся.
 CURVE_SHOW = tuple(s for s in SHOW if s[0] not in ('cumulative', 'gas'))
 CURVE_SHOW_DEFAULT = ('Суточный расход', 'Среднее Рпл (замеры)')
@@ -171,7 +154,8 @@ def _place(items: list[tuple[str, str, str, Series]]) -> tuple[Axis, Axis | None
 
 
 def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None,
-                show: tuple[str, ...] | list[str] = CURVE_SHOW_DEFAULT, water: pd.DataFrame | None = None) -> Chart | None:
+                show: tuple[str, ...] | list[str] = CURVE_SHOW_DEFAULT, water: pd.DataFrame | None = None,
+                wells_db: pd.Series | None = None) -> Chart | None:
     """Суточный расход объекта по накопленному объёму за сезон; остальные ряды на выбор (``show``), все — по накопленному объёму.
     Рпл — по датам замеров; число работающих скважин — в подсказке к точке (и отдельным рядом, если выбрано)."""
     if daily.empty:
@@ -189,8 +173,11 @@ def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pres
     if p is not None:
         items.append(('pressure', 'Рпл, абс.', P_UNIT, Series('Рпл, абс.', _cum_at(cum, p.date), p.pressure.to_numpy(), 'points')))
     if 'wells' in show:
-        items.append(('wells', 'Скважин в работе', 'скв.', Series(_wells_name(wells), _cum_at(cum, wells.index), wells.to_numpy(float),
+        items.append(('wells', 'Скважин в работе', 'скв.', Series(WELLS_PROD_LABEL, _cum_at(cum, wells.index), wells.to_numpy(float),
                                                                     'points', symbol='square')))
+    if 'wells_db' in show and wells_db is not None:
+        items.append(('wells', 'Скважин в работе', 'скв.', Series(WELLS_DB_LABEL, _cum_at(cum, wells_db.index), wells_db.to_numpy(float),
+                                                                    'points', symbol='circle')))
     items += _water_items(water, show, start, stop, lambda dates: _cum_at(cum, dates))
     if not items:
         return None
@@ -200,7 +187,8 @@ def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pres
 
 
 def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, wells: pd.Series, pressure: pd.DataFrame | None,
-                 water: pd.DataFrame | None = None, factor: pd.DataFrame | None = None) -> Chart | None:
+                 water: pd.DataFrame | None = None, factor: pd.DataFrame | None = None,
+                 wells_db: pd.Series | None = None) -> Chart | None:
     """Единый холст сезона: ряды по датам на выбор. Левая шкала — первая из выбранных величин, вторая — справа,
     третья — на дополнительной оси справа (если величин больше трёх, остальные делят её; единицы — в подписи оси)."""
     if daily.empty:
@@ -220,8 +208,11 @@ def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, well
     if p is not None:
         items.append(('pressure', 'Рпл, абс.', P_UNIT, Series('Среднее Рпл, абс.', p.date.to_numpy(), p.pressure.to_numpy(), 'points')))
     if 'wells' in show:
-        items.append(('wells', 'Скважин в работе', 'скв.', Series(_wells_name(wells), wells.index.to_numpy(), wells.to_numpy(float),
+        items.append(('wells', 'Скважин в работе', 'скв.', Series(WELLS_PROD_LABEL, wells.index.to_numpy(), wells.to_numpy(float),
                                                                     'points', symbol='square')))
+    if 'wells_db' in show and wells_db is not None:
+        items.append(('wells', 'Скважин в работе', 'скв.', Series(WELLS_DB_LABEL, wells_db.index.to_numpy(), wells_db.to_numpy(float),
+                                                                    'points', symbol='circle')))
     items += _water_items(water, show, start, stop, lambda dates: dates.to_numpy())
     if 'gas' in show and factor is not None and 'gas_in_place' in factor and not factor.empty:
         f = factor.assign(date=pd.to_datetime(factor.date), gas=pd.to_numeric(factor.gas_in_place, errors='coerce'))

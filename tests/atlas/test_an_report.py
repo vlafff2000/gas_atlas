@@ -206,7 +206,7 @@ def test_canvas_series_selection_and_axes():
     assert list(pres.y) == [65.0, 80.0]                              # замер 30.04 — до сезона, не входит
     assert list(cnt.y[cnt.y > 0]) == [1, 2, 1]
     only = an_charts.canvas_chart('injection', '2024', ['wells'], daily, wells, None)
-    assert [s.name for s in only.series] == ['Скважин в работе'] and only.y2 is None and only.y3 is None and only.y.unit == 'скв.'
+    assert [s.name for s in only.series] == ['Скважин в работе по суточным расходам'] and only.y2 is None and only.y3 is None and only.y.unit == 'скв.'
     assert an_charts.canvas_chart('injection', '2024', [], daily, wells, None) is None
     empty, none = an_charts.daily_of(INJ_SEASON.iloc[0:0], 'injection', '2024')
     assert an_charts.canvas_chart('injection', '2024', ['rate'], empty, none, None) is None
@@ -224,10 +224,10 @@ def test_group_series_views():
     assert 'an-group-means-injection-2024' in ids(view='group_mean')
     assert 'an-monthly-groups-injection-2024' in ids(view='group_mean_months')
     assert 'an-canvas-injection-2024' in ids(view='canvas', show=['rate'])
-    assert [s.name for s in module.run(data, {**base, 'view': 'curve', 'show_curve': ['Скважин в работе'], 'side': 'none'}).charts[0].series] == ['Скважин в работе']
+    assert [s.name for s in module.run(data, {**base, 'view': 'curve', 'show_curve': ['Скважин в работе'], 'side': 'none'}).charts[0].series] == ['Скважин в работе по суточным расходам']
     right = module.run(data, {**base, 'view': 'canvas', 'side': 'curve', 'show_curve': ['Скважин в работе']}).charts
     assert [c.id for c in right if not c.id.startswith('an-group-pressure')] == ['an-canvas-injection-2024', 'an-curve-injection-2024']
-    assert [s.name for s in right[1].series] == ['Скважин в работе']
+    assert [s.name for s in right[1].series] == ['Скважин в работе по суточным расходам']
     assert 'an-fund-injection-2024' in ids()                          # правый график по умолчанию — фонд
     assert 'an-fund-injection-2024' not in ids(side='none')
     side = ids(side='cum_months')
@@ -413,17 +413,18 @@ def test_object_daily_follows_gas_accounting_like_seasonal():
     assert an_charts.daily_of(frame, 'withdrawal', '2023-2024', sparse)[0].sum() == pytest.approx(3000.0)
 
 
-def test_working_wells_come_from_gas_db_with_fallback_to_wells():
-    """Скважин в работе: из «БД по учету газа» (столбец wells), где в БД нет суток — по скважинам; источник выбирается и подписан."""
+def test_working_wells_two_independent_series_gas_db_and_daily_rates():
+    """Скважин в работе — два ряда: по «БД по учету газа» (столбец wells; нет значения — разрыв) и по суточным расходам (расход > 0)."""
     frame = production([('1', '2024-01-01', 1000), ('2', '2024-01-01', 500), ('1', '2024-01-02', 800), ('2', '2024-01-02', 0)], '2023-2024')
     ref = pd.DataFrame({'kind': 'withdrawal', 'date': pd.to_datetime(['2024-01-01']), 'gas': [1.5], 'wells': [317.0]})
-    _, auto = an_charts.daily_of(frame, 'withdrawal', '2023-2024', ref)
-    assert list(auto) == [317, 1] and 'БД учёта газа' in auto.attrs['source'] and auto.attrs['fallback'] == 1
-    _, only_db = an_charts.daily_of(frame, 'withdrawal', '2023-2024', ref, 'gas_db')
-    assert only_db.iloc[0] == 317 and pd.isna(only_db.iloc[1])
-    _, by_wells = an_charts.daily_of(frame, 'withdrawal', '2023-2024', ref, 'wells')
-    assert list(by_wells) == [2, 1] and 'расход > 0' in by_wells.attrs['source']
-    assert list(an_charts.daily_of(frame, 'withdrawal', '2023-2024')[1]) == [2, 1]      # БД нет — как раньше
+    daily, wells = an_charts.daily_of(frame, 'withdrawal', '2023-2024', ref)
+    db = an_charts.wells_gas_db(ref, 'withdrawal', daily.index)
+    assert list(wells) == [2, 1] and db.iloc[0] == 317 and pd.isna(db.iloc[1])
+    assert an_charts.wells_gas_db(ref.drop(columns='wells'), 'withdrawal', daily.index) is None
+    both = an_charts.canvas_chart('withdrawal', '2023-2024', [an_charts.WELLS_PROD_LABEL, an_charts.WELLS_DB_LABEL], daily, wells, None, wells_db=db)
+    assert [s.name for s in both.series] == [an_charts.WELLS_PROD_LABEL, an_charts.WELLS_DB_LABEL]
+    only_db = an_charts.canvas_chart('withdrawal', '2023-2024', [an_charts.WELLS_DB_LABEL], daily, wells, None, wells_db=db)
+    assert [s.name for s in only_db.series] == [an_charts.WELLS_DB_LABEL]
 
 
 def test_gas_db_import_reads_working_wells_column(tmp_path):
