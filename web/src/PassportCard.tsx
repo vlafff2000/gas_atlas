@@ -1,4 +1,5 @@
 import { ChartView } from './ChartView'
+import { HeatView } from './HeatView'
 import { TableDock } from './TableDock'
 import { TableView } from './TableView'
 import { SchematicNotes, WellSchematic } from './WellFigure'
@@ -26,7 +27,11 @@ export function PassportDashboard({ card, project, seasons }: { card: Card; proj
       </section>
       {card.notes.map(n => <div key={n} className="note info">{n}</div>)}
       <div className="chart-grid">
-        {card.charts.map(c => (
+        {card.charts.map(c => c.heat ? (          // плитки КРУ и КРС по годам — общая тепловая карта
+          <HeatView key={c.id} chart={c} module="passport"
+            onCopy={() => passportApi.exportBlob(project, card.well, seasons, 'chart', c.id, 'png', 300)}
+            onDownload={(format, dpi) => passportApi.exportFile(project, card.well, seasons, 'chart', c.id, format, dpi)} />
+        ) : (
           <ChartView key={c.id} chart={c} excludeMode={false} onExclude={() => {}}
             onCopy={view => passportApi.exportBlob(project, card.well, seasons, 'chart', c.id, 'png', 300, view)}
             onDownload={(format, dpi, view) => passportApi.exportFile(project, card.well, seasons, 'chart', c.id, format, dpi, view)} />))}

@@ -525,3 +525,12 @@ def test_import_keeps_same_element_in_different_construction_sets(tmp_path):
     c = imports.projects.data(pid)['construction']
     c = c[c.well.astype(str) == '410']
     assert sorted(c.data_set) == ['комбинированный (подсказки)', 'по данным ГИС', 'по промысловым данным']
+
+
+def test_card_has_year_tiles_and_they_export(env, krs_loaded):
+    client, pid, _ = env
+    card = client.get(f'/api/projects/{pid}/passport/card', params={'well': WELL}).json()
+    ids = {c['id'] for c in card['charts'] if c.get('heat')}
+    assert 'passport-krs-tiles' in ids                      # КРС скважины 31 загружены в фикстуре, плитка идёт общей тепловой картой
+    r = client.post(f'/api/projects/{pid}/passport/export', json={'well': WELL, 'seasons': [], 'target': 'chart', 'id': 'passport-krs-tiles', 'format': 'png', 'dpi': 100})
+    assert r.status_code == 200 and r.content[:4] == b'\x89PNG'

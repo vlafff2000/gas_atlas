@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .contract import Axis, Chart, CellStyle, Column, Series, Table
+from .contract import Axis, Chart, CellStyle, Column, HeatMap, Series, Table
 
 KIND_LABEL = {'withdrawal': 'Отбор', 'injection': 'Закачка'}
 
@@ -129,7 +129,28 @@ def krs_table(krs: dict[str, Any]) -> Table | None:
         Column('year', 'Год', '', 0, 'number'), Column('type', 'Тип ремонта'), Column('detail', 'Подробности')])
 
 
+def _tile(chart_id: str, title: str, tile: dict[str, Any] | None, texts: list[str], scale: str, missing: str, unit: str) -> Chart | None:
+    """Плитка по годам — общая тепловая карта из одной строки; цвет задаёт шкала (её можно сменить в оформлении, как у любой карты)."""
+    if not tile:
+        return None
+    cols = tile['columns']
+    chart = Chart(chart_id, title, Axis('Сезон', scale='category', categories=cols), Axis('', scale='category', categories=[title]),
+                  style={'heat_scale': scale, 'heat_bar': 'hide'})
+    chart.heat = HeatMap([title], cols, [[None if v is None else float(v) for v in tile['cells']]], [texts], unit, 1.0, missing)
+    return chart
+
+
+def tile_charts(tiles: dict[str, Any] | None) -> list[Chart]:
+    """Плитки КРУ и КРС по годам: закрашены годы с песком в ревизии КРУ и годы ремонтов."""
+    tiles = tiles or {}
+    kru, krs = tiles.get('kru'), tiles.get('krs')
+    out = [_tile('passport-kru-tiles', 'Ревизия КРУ', kru, ['песок' if v else '' if v == 0 else 'нет ревизии' for v in kru['cells']] if kru else [],
+                 'redgreen', 'нет ревизии', 'песок'),
+           _tile('passport-krs-tiles', 'КРС', krs, krs['texts'] if krs else [], 'orange', 'нет данных', 'ремонт')]
+    return [c for c in out if c]
+
+
 def blocks(card: dict[str, Any]) -> tuple[list[Chart], list[Table]]:
-    charts = [c for c in (seasons_chart(card['seasons']), daily_chart(card['daily']), gdi_chart(card['gdi_diagrams'])) if c]
+    charts = tile_charts(card.get('tiles')) + [c for c in (seasons_chart(card['seasons']), daily_chart(card['daily']), gdi_chart(card['gdi_diagrams'])) if c]
     tables = [t for t in (seasons_table(card['seasons']), gdi_table(card['gdi']), krs_table(card['krs'])) if t]
     return charts, tables
