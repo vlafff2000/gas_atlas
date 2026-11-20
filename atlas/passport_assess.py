@@ -12,7 +12,7 @@ import pandas as pd
 
 from atlas import well_assess as wa
 
-MECHANISMS = {'bottom_fill': 'Заполнение забоя', 'sand': 'Вынос песка (ревизии КРУ)', 'throttle': 'Ограничение устья / КРУ', 'gdi_old': 'Устаревшее ГДИ'}
+MECHANISMS = {'depression': 'Превышение предельной депрессии', 'bottom_fill': 'Заполнение забоя', 'sand': 'Вынос песка (ревизии КРУ)', 'throttle': 'Ограничение устья / КРУ', 'gdi_old': 'Устаревшее ГДИ'}
 LEVEL_NAMES = {'none': 'нет', 'weak': 'слабая', 'strong': 'сильная', 'unknown': 'неизвестно'}
 GDI_OLD_YEARS = 5.0
 
@@ -37,7 +37,7 @@ def _last_kr_year(works: list[dict[str, Any]]) -> int | None:
 
 
 def collect(*, bottom_m: float | None, bottom_date: Any, bottom_row: Any, filter_bottom_m: float | None, krs: dict[str, Any], seasons: list[dict[str, Any]],
-            gdi: list[dict[str, Any]], elpro: list[dict[str, Any]], today: Any) -> list[wa.Evidence]:
+            gdi: list[dict[str, Any]], elpro: list[dict[str, Any]], today: Any, depression: list[dict[str, Any]] | None = None) -> list[wa.Evidence]:
     """Улики по скважине в порядке важности: забой, песок и ревизии, ЭЛПРО, возраст ГДИ."""
     out: list[wa.Evidence] = []
     if bottom_date is not None and pd.isna(bottom_date):
@@ -46,6 +46,13 @@ def collect(*, bottom_m: float | None, bottom_date: Any, bottom_row: Any, filter
     bottom = wa.bottom_evidence(bottom_m, bottom_date, filter_bottom_m, last_kr, seasons, gdi, bottom_source(bottom_row), today)
     if bottom:
         out.append(bottom)
+    last_dep = next((r for r in reversed(depression or []) if r['status'] in ('превышен', 'близко', 'норма')), None)
+    if last_dep and last_dep['status'] != 'норма':
+        over = last_dep['status'] == 'превышен'
+        out.append(wa.Evidence('depression', 'strong' if over else 'weak',
+                               f'Сезон {last_dep["period"]}: депрессия на максимальном расходе {last_dep["dep_max"]:.2f} кгс/см² при пределе {last_dep["limit"]:g} '
+                               f'({"предел превышен" if over else "близко к пределу"}); {last_dep["note"]}.', '', 1.0,
+                               'Снизить режим отбора по скважине (риск выноса песка), проверить ГДИ.'))
     pr = (krs.get('priority') or {})
     value = pr.get('value')
     if value is not None:

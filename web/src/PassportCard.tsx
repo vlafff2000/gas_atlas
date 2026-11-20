@@ -5,7 +5,7 @@ import { TableView } from './TableView'
 import { SchematicNotes, WellSchematic } from './WellFigure'
 import { useState } from 'react'
 import type { Project } from './api'
-import { passportApi, type PassportCard as Card } from './api_passport'
+import { passportApi, type DepressionType, type PassportCard as Card } from './api_passport'
 
 /** Дашборд паспорта: показатели, схема забоя, графики и таблицы — те же ChartView и TableView, что в остальных модулях. */
 const LEVELS: [string, string][] = [['strong', 'сильная'], ['weak', 'слабая'], ['none', 'нет'], ['unknown', 'неизвестно']]
@@ -31,6 +31,34 @@ function AssessOverride({ card, project, revision, onProject }: { card: Card; pr
       <input value={note} onChange={e => setNote(e.target.value)} placeholder="Примечание (необязательно)" aria-label="Примечание" />{' '}
       <button type="button" onClick={() => save(level)}>Записать</button>{' '}
       <button type="button" className="quiet" onClick={() => save(null)}>Снять решение</button>
+      {error && <span className="muted"> {error}</span>}
+    </div>)
+}
+
+/** Пределы депрессии и тип забоя скважины: редактирует инженер; авто-тип — подсказка по конструкции, «авто» снимает ручной выбор. */
+function DepressionSettings({ card, project, revision, onProject }: { card: Card; project: string; revision?: number; onProject: (p: Project) => void }) {
+  const dep = card.depression
+  const [limits, setLimits] = useState<Record<string, string>>({})
+  const [error, setError] = useState('')
+  if (!dep || !dep.rows.length) return null
+  const text = (t: DepressionType) => limits[t.key] ?? String(t.limit)
+  const run = async (body: Parameters<typeof passportApi.saveDepression>[1]) => {
+    setError('')
+    try { onProject(await passportApi.saveDepression(project, body, revision)); setLimits({}) } catch (e) { setError((e as Error).message) }
+  }
+  const saveLimits = () => run({ types: dep.types.map(t => ({ ...t, limit: Number(text(t).replace(',', '.')) })) })
+  return (
+    <div className="note info assess-override">
+      <b>Предел депрессии, кгс/см²</b>{' '}
+      {dep.types.map(t => (
+        <label key={t.key}>{t.name}{' '}
+          <input value={text(t)} size={4} onChange={e => setLimits(v => ({ ...v, [t.key]: e.target.value }))} aria-label={`Предел: ${t.name}`} />{' '}</label>))}
+      <button type="button" onClick={saveLimits}>Записать пределы</button>{' · '}
+      <label>Тип забоя скважины{' '}
+        <select value={dep.type === dep.type_auto ? '' : dep.type ?? ''} onChange={e => run({ well: card.well, type: e.target.value || null })} aria-label="Тип забоя">
+          <option value="">авто{dep.type_auto ? `: ${dep.types.find(t => t.key === dep.type_auto)?.name}` : ': не определён'}</option>
+          {dep.types.map(t => <option key={t.key} value={t.key}>{t.name}</option>)}
+        </select></label>
       {error && <span className="muted"> {error}</span>}
     </div>)
 }
@@ -67,6 +95,7 @@ export function PassportDashboard({ card, project, seasons, revision, onProject 
       </div>
       <TableDock tables={card.tables} scope="passport" render={t => (
         <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, seasons, 'table', t.id, format)} />)} />
+      {onProject && <DepressionSettings card={card} project={project} revision={revision} onProject={onProject} />}
       {onProject && <AssessOverride card={card} project={project} revision={revision} onProject={onProject} />}
       {(card.elpro_help ?? []).length > 0 && card.tables.some(t => t.id === 'passport-elpro') && (
         <details className="note info"><summary>Как читать данные ЭЛПРО</summary>

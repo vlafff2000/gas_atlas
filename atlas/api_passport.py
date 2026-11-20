@@ -13,6 +13,7 @@ import logging
 from typing import Any
 from urllib.parse import quote
 
+import pandas as pd
 from starlette.concurrency import run_in_threadpool
 from .modules._production import visible_periods
 from starlette.requests import Request
@@ -118,6 +119,14 @@ class Passport:
     def mapping(self) -> dict[str, dict[str, str]]:
         return self.projects.data(self.pid).mapping
 
+    def object_pressure(self) -> pd.DataFrame | None:
+        """Среднее пластовое объекта по замерной сетке (для депрессии); нет БД давлений — None."""
+        from atlas.modules.an_report import object_pressure_of
+        try:
+            return object_pressure_of(self.projects.data(self.pid))[0]
+        except Exception:         # нет БД давлений или нет ГСП в замерах: депрессия просто не считается
+            return None
+
     def card(self, well: str, seasons: list[str] | None = None) -> dict[str, Any]:
         from atlas import passport_card
         names = self.manifest.get('tables', {})
@@ -125,7 +134,7 @@ class Passport:
         gis = tuple(self.raw[n] if n in names else None for n in ('gis_intervals', 'gis_filling', 'gis_annotations'))
         program = self.raw['gdi_program'] if 'gdi_program' in names else None
         return passport_card.build(self.frames, self.settings, self.mapping(), well, krs, seasons, gis=gis, program=program,
-                                   elpro=self.raw['elpro'] if 'elpro' in names else None)
+                                   elpro=self.raw['elpro'] if 'elpro' in names else None, pressure=self.object_pressure())
 
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting
@@ -271,6 +280,30 @@ def routes(projects: Projects) -> list[Route]:
         saved = projects._commit(pid, cfg, body.get('revision'), 'Решение инженера по оценке скважины')
         return projects.summary(saved)
 
+    def depression(request, body):
+        """Пределы депрессии по типам забоя (``types``) для проекта или тип забоя скважины (``well`` + ``type``; null — вернуть авто-тип)."""
+        from atlas import passport_depression
+        pid = request.path_params['pid']
+        passport = Passport(projects, pid)
+        cfg = copy.deepcopy(passport.manifest.get('settings', {}))
+        if body.get('types') is not None:
+            types = passport_depression.types_of({'depression_limits': body['types']})
+            if len(types) != len(body['types']) or any(t['limit'] <= 0 for t in types) or len({t['key'] for t in types}) != len(types):
+                raise ParamError('Пределы депрессии: нужны уникальные ключи и положительные числа.')
+            cfg['depression_limits'] = types
+        else:
+            well = passport.well(body.get('well'))
+            kind = body.get('type')
+            if kind is not None and kind not in {t['key'] for t in passport_depression.types_of(cfg)}:
+                raise ParamError('Неизвестный тип забоя.')
+            mine = cfg.setdefault('well_depression_type', {})
+            if kind is None:
+                mine.pop(well, None)
+            else:
+                mine[well] = kind
+        saved = projects._commit(pid, cfg, body.get('revision'), 'Пределы депрессии паспорта')
+        return projects.summary(saved)
+
     def pdf(request, body):
         passport = Passport(projects, request.path_params['pid'])
         well = passport.well(body.get('well'))
@@ -313,5 +346,6 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/passport/export', E(export), methods=['POST']),
         Route('/api/projects/{pid}/passport/comment', E(comment), methods=['POST']),
         Route('/api/projects/{pid}/passport/assess', E(assess), methods=['POST']),
+        Route('/api/projects/{pid}/passport/depression', E(depression), methods=['POST']),
         Route('/api/projects/{pid}/passport/pdf', E(pdf), methods=['POST']),
     ]

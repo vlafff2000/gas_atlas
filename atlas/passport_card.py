@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from atlas.construction_checks import check_construction
-from atlas import passport_assess, passport_elpro, passport_tiles
+from atlas import passport_assess, passport_depression, passport_elpro, passport_tiles
 
 KINDS = (('withdrawal', 'Отбор'), ('injection', 'Закачка'))
 # Какие элементы шаблона конструкции попадают на схему забойной части; кондуктор и прочие колонны — нет.
@@ -590,7 +590,7 @@ def program_notes(program: pd.DataFrame | None, well: str) -> list[str]:
 
 def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, pd.DataFrame | None] = (None, None),
           only: list[str] | None = None, gis: tuple[pd.DataFrame | None, ...] = (None, None),
-          program: pd.DataFrame | None = None, elpro: pd.DataFrame | None = None) -> dict[str, Any]:
+          program: pd.DataFrame | None = None, elpro: pd.DataFrame | None = None, pressure: pd.DataFrame | None = None) -> dict[str, Any]:
     """Всё для карточки одной скважины. Пустые разделы — заметка, не ошибка.
 
     ``only`` — подписи сезонов («Отбор 2025-2026»), которые показывать: показатели, таблица сезонов, графики и PDF считаются
@@ -654,7 +654,14 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
         notes.append('Нет данных по сезонам эксплуатации: загрузите динамику или суточную эксплуатацию.')
     filter_bottoms = [float(v) for e, v in zip(construction.element, construction.bottom_m) if classify(str(e)) in ('filter', 'perf') and pd.notna(v)] if not construction.empty else []
     elpro_rows = passport_elpro.season_rows(elpro, by_kind['withdrawal']['daily'], well)
-    evidence = passport_assess.collect(
+    types = passport_depression.types_of(settings)
+    kinds = {classify(str(e)) for e in construction.element} if not construction.empty else set()
+    auto_type = passport_depression.well_type(kinds, types, None)
+    kind_key = passport_depression.well_type(kinds, types, (settings.get('well_depression_type') or {}).get(well))
+    limit = next((t['limit'] for t in types if t['key'] == kind_key), None)
+    dep_rows = passport_depression.season_rows(seasons, gdi_all, pressure, limit)
+    depression = {'rows': dep_rows, 'types': types, 'type': kind_key, 'type_auto': auto_type, 'limit': limit}
+    evidence = passport_assess.collect(depression=dep_rows, 
         bottom_m=bottom_m, bottom_date=bottom.iloc[-1].date if not bottom.empty else None, bottom_row=bottom.iloc[-1] if not bottom.empty else None,
         filter_bottom_m=max(filter_bottoms) if filter_bottoms else None, krs=krs, seasons=seasons, gdi=gdi_all, elpro=elpro_rows, today=passport_assess.today_stamp())
     assess = passport_assess.rows(evidence, (settings.get('well_assess') or {}).get(well))
@@ -662,7 +669,7 @@ def build(frames, settings, mapping, well: str, krs: tuple[pd.DataFrame | None, 
             'construction_date': _date(construction.date.max()) if not construction.empty else '',
             'kpi': kpi, 'seasons': seasons, 'season_options': season_options, 'gdi': gdi_all, 'gdi_diagrams': gdi_diagrams(frames.get('gdi'), first['gdi_history'], well),
             'daily': {kind: daily_series(by_kind[kind]['daily'], kind) for kind, _ in KINDS}, 'krs': krs, 'schematic': cons, 'notes': notes,
-            'elpro': elpro_rows, 'assess': assess, 'elpro_cru': passport_elpro.cru_series(elpro, well), 'elpro_help': list(passport_elpro.HOW_TO_READ) if elpro is not None and not elpro.empty else [],
+            'elpro': elpro_rows, 'assess': assess, 'depression': depression, 'elpro_cru': passport_elpro.cru_series(elpro, well), 'elpro_help': list(passport_elpro.HOW_TO_READ) if elpro is not None and not elpro.empty else [],
             'tiles': {'kru': passport_tiles.kru_tiles(krs_raw[1], well), 'krs': passport_tiles.krs_tiles(krs_raw[0], well)}}
 
 
