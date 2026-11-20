@@ -86,3 +86,15 @@ def test_import_sheet_with_horizons(tmp_path):
     assert client.post(f'/api/projects/{pid}/well-fund/import?name=f.csv', content='a;b\n1;2'.encode()).status_code == 400
     one = client.post(f'/api/projects/{pid}/well-fund', json={'horizons': {'5': ''}})
     assert one.status_code == 200 and '5' not in projects.manifest(pid)['settings']['well_horizons']
+
+
+def test_control_horizon_becomes_filter_preset(tmp_path):
+    """В общих фильтрах скважин есть набор «Контрольная · горизонт»."""
+    projects = Projects(tmp_path)
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    well = client.get(f'/api/projects/{pid}/well-fund').json()['wells'][0]['well']
+    client.post(f'/api/projects/{pid}/well-fund', json={'changes': {well: 'control'}})
+    client.post(f'/api/projects/{pid}/well-fund', json={'horizons': {well: 'Г-1'}})
+    presets = {p['id']: p for p in client.get(f'/api/projects/{pid}/well-presets').json()['presets']}
+    assert presets['fund:control:Г-1']['wells'] == [well] and presets['fund:control:Г-1']['label'] == 'Контрольная · Г-1'
