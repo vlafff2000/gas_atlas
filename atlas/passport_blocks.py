@@ -46,7 +46,7 @@ def seasons_chart(seasons: list[dict[str, Any]]) -> Chart | None:
     return chart
 
 
-def daily_chart(daily: dict[str, dict[str, list]]) -> Chart | None:
+def daily_chart(daily: dict[str, dict[str, list]], cru: tuple[list[str], list[float | None]] | None = None) -> Chart | None:
     """Суточные расходы за все сезоны: отбор и закачка линиями по времени; в подсказке часы работы."""
     chart = Chart('passport-daily', 'Суточные расходы', Axis('Дата', scale='time'), Axis('Суточный объём', 'тыс. м³/сут', from_zero=True),
                   crosshair=True)
@@ -57,6 +57,12 @@ def daily_chart(daily: dict[str, dict[str, list]]) -> Chart | None:
         hours = [f'Часы работы: {h:g}' if h is not None else 'Часы работы: нет данных' for h in s['hours']]
         chart.series.append(Series(label, pd.to_datetime(s['date']).to_numpy(), _f(s['volume']), 'line', group=label, labels=hours,
                                    width=1.4))
+    if chart.series and cru and cru[0]:
+        # КРУ — на правой оси, как в «Производительности» (общий ряд ЭЛПРО, свой цвет и шкала); включается легендой
+        from atlas.modules import _elpro_series as E
+        chart.y2 = E.extra_axis('cru')
+        chart.series.append(Series(E.LABEL['cru'], pd.to_datetime(cru[0]).to_numpy(), _f(cru[1]), 'line', axis='y2', color=E.COLOR['cru'], width=1.2,
+                                   group=E.LABEL['cru']))
     return chart if chart.series else None
 
 
@@ -150,7 +156,23 @@ def tile_charts(tiles: dict[str, Any] | None) -> list[Chart]:
     return [c for c in out if c]
 
 
+def elpro_table(rows: list[dict[str, Any]]) -> Table | None:
+    """Сезоны отбора по ЭЛПРО: открытие КРУ, расход на 1 % КРУ, давление при обычном расходе и вывод-подсказка."""
+    if not rows:
+        return None
+    frame = pd.DataFrame({k: ([r[k] for r in rows] if k in ('period', 'verdict', 'reason') else _f([r[k] for r in rows]))
+                          for k in ('period', 'days', 'mean_open', 'max_open', 'high_share', 'eff', 'eff_change', 'p_same_q', 'p_change', 'verdict', 'reason')})
+    bad = [i for i, r in enumerate(rows) if r['verdict'] == 'внимание']
+    return Table('passport-elpro', 'ЭЛПРО по сезонам отбора', frame, [
+        Column('period', 'Сезон'), Column('days', 'Суток ЭЛПРО', '', 0, 'number'), Column('mean_open', 'КРУ средн.', '%', 1, 'number'),
+        Column('max_open', 'КРУ макс.', '%', 0, 'number'), Column('high_share', 'Суток КРУ ≥ 90 %', '%', 0, 'number'),
+        Column('eff', 'Расход на 1 % КРУ', 'тыс. м³/сут', 2, 'number'), Column('eff_change', 'Изменение к прошлому сезону', '%', 0, 'number'),
+        Column('p_same_q', 'Давление при обычном расходе', 'кгс/см²', 1, 'number'), Column('p_change', 'Изменение давления', 'кгс/см²', 1, 'number'),
+        Column('verdict', 'Вывод'), Column('reason', 'Причина')], styles=[CellStyle(bad, font='b45f06')] if bad else [],
+        note='Вывод — подсказка с причиной; пороги фиксированы (КРУ ≥ 90 % в 30 % суток; падение расхода на 1 % КРУ на 15 %). Решает инженер.')
+
+
 def blocks(card: dict[str, Any]) -> tuple[list[Chart], list[Table]]:
-    charts = tile_charts(card.get('tiles')) + [c for c in (seasons_chart(card['seasons']), daily_chart(card['daily']), gdi_chart(card['gdi_diagrams'])) if c]
-    tables = [t for t in (seasons_table(card['seasons']), gdi_table(card['gdi']), krs_table(card['krs'])) if t]
+    charts = tile_charts(card.get('tiles')) + [c for c in (seasons_chart(card['seasons']), daily_chart(card['daily'], card.get('elpro_cru')), gdi_chart(card['gdi_diagrams'])) if c]
+    tables = [t for t in (seasons_table(card['seasons']), elpro_table(card.get('elpro') or []), gdi_table(card['gdi']), krs_table(card['krs'])) if t]
     return charts, tables

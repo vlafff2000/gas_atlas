@@ -38,6 +38,9 @@ export function PassportDashboard({ card, project, seasons }: { card: Card; proj
       </div>
       <TableDock tables={card.tables} scope="passport" render={t => (
         <TableView key={t.id} table={t} docked onDownload={format => passportApi.exportFile(project, card.well, seasons, 'table', t.id, format)} />)} />
+      {(card.elpro_help ?? []).length > 0 && card.tables.some(t => t.id === 'passport-elpro') && (
+        <details className="note info"><summary>Как читать данные ЭЛПРО</summary>
+          <ul>{(card.elpro_help ?? []).map(t => <li key={t}>{t}</li>)}</ul></details>)}
       {!card.tables.some(t => t.id === 'passport-krs') && card.krs.note && <div className="note info">{card.krs.note}</div>}
       {card.krs.priority && card.krs.priority.value !== null && (
         <div className="note info">Приоритет КР (подсказка, решает инженер): <b>{card.krs.priority.value}</b>
