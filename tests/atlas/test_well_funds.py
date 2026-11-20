@@ -64,3 +64,25 @@ def test_old_gis_tables_in_project_are_read_in_one_form(tmp_path):
     got = data[DatasetKind.GIS_INTERVALS]
     assert got['well'].tolist() == ['21', '21'] and [round(v, 2) for v in got['kg']] == [0.1, 0.3]
     assert data.gis_notes
+
+
+def test_import_sheet_with_horizons(tmp_path):
+    """Лист «скважина, фонд, горизонт»: фонды и горизонты контрольных попадают в проект как ручной выбор."""
+    import io
+    projects = Projects(tmp_path)
+    client = TestClient(create_app(projects))
+    pid = make_project(projects)
+    sheet = pd.DataFrame({'Скважина': ['5', '6.0', '7', '8'], 'Фонд': ['Контрольная', 'контрольные', 'Наблюдательная', 'что-то'],
+                          'Горизонт': ['Г-1', 'Г-2', 'Г-3', None]})
+    buf = io.BytesIO()
+    sheet.to_excel(buf, index=False)
+    got = client.post(f'/api/projects/{pid}/well-fund/import?name=f.xlsx', content=buf.getvalue())
+    assert got.status_code == 200, got.text
+    settings = projects.manifest(pid)['settings']
+    assert settings['well_funds'] == {'5': 'control', '6': 'control', '7': 'observation'}
+    assert settings['well_horizons'] == {'5': 'Г-1', '6': 'Г-2'}      # у наблюдательной горизонт не берётся
+    rows = {r['well']: r for r in got.json()['wells']}
+    assert rows['5']['horizon'] == 'Г-1' and rows['5']['fund'] == 'control' and got.json()['imported']['notes']
+    assert client.post(f'/api/projects/{pid}/well-fund/import?name=f.csv', content='a;b\n1;2'.encode()).status_code == 400
+    one = client.post(f'/api/projects/{pid}/well-fund', json={'horizons': {'5': ''}})
+    assert one.status_code == 200 and '5' not in projects.manifest(pid)['settings']['well_horizons']

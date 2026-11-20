@@ -15,6 +15,7 @@ import pandas as pd
 from .contract import ParamError
 
 KEY = 'well_funds'
+HKEY = 'well_horizons'   # {скважина: горизонт}, только для контрольного фонда
 FUNDS = (('production', 'Эксплуатационная'), ('observation', 'Наблюдательная'),
          ('geophysical', 'Геофизическая'), ('control', 'Контрольная'))
 LABEL = dict(FUNDS)
@@ -67,14 +68,15 @@ def table(frames: Mapping[str, pd.DataFrame], groups: Mapping[str, str], setting
         perf = _wells(both)
     grouped = {norm(w): str(g) for w, g in groups.items() if str(g or '').strip() and str(g) != 'Без группы'}
     manual = manual_of(settings)
-    names = prod | gis | press | known_geo | set(grouped) | set(manual)
+    horizons = horizons_of(settings)
+    names = prod | gis | press | known_geo | set(grouped) | set(manual) | set(horizons)
     rows = []
     for w in names:
         fund, why = hint(w in prod or w in grouped, w in gis, w in press, w in perf)
         mine = manual.get(w, '')
         sources = [n for n, s in (('расходы', prod), ('ГИС', gis), ('давления', press), ('перфорация', perf), ('координаты', known_geo)) if w in s]
         rows.append({'well': w, 'group': grouped.get(w, ''), 'fund': mine or fund, 'hint': fund, 'reason': why,
-                     'manual': bool(mine), 'sources': sources})
+                     'manual': bool(mine), 'sources': sources, 'horizon': horizons.get(w, '')})
     rows.sort(key=lambda r: (not r['well'].isdigit(), int(r['well']) if r['well'].isdigit() else 0, r['well']))
     return rows
 
@@ -102,3 +104,78 @@ def fund_of(settings: Mapping[str, Any], well: Any) -> str:
 
 def wells_of(settings: Mapping[str, Any], fund: str) -> list[str]:
     return sorted(w for w, f in manual_of(settings).items() if f == fund)
+
+
+def horizons_of(settings: Mapping[str, Any]) -> dict[str, str]:
+    saved = settings.get(HKEY) or {}
+    return {norm(w): str(h).strip() for w, h in saved.items() if str(h).strip()}
+
+
+def with_horizons(settings: Mapping[str, Any], changes: Mapping[str, Any]) -> dict[str, Any]:
+    """Горизонты контрольных скважин: пустое значение снимает горизонт."""
+    if not isinstance(changes, Mapping) or not changes:
+        raise ParamError('Нет изменений для сохранения')
+    saved = horizons_of(settings)
+    for well, horizon in changes.items():
+        horizon = str(horizon or '').strip()
+        if horizon:
+            saved[norm(well)] = horizon
+        else:
+            saved.pop(norm(well), None)
+    return {**settings, HKEY: saved}
+
+
+def horizon_of(settings: Mapping[str, Any], well: Any) -> str:
+    """Горизонт скважины или пустая строка (читают другие программы)."""
+    return horizons_of(settings).get(norm(well), '')
+
+
+_FUND_WORDS = (('эксплуатац', 'production'), ('добыв', 'production'), ('наблюд', 'observation'),
+               ('геофиз', 'geophysical'), ('контрол', 'control'))
+
+
+def fund_from_text(text: Any) -> str:
+    low = str(text or '').strip().lower().replace('ё', 'е')
+    return next((fund for word, fund in _FUND_WORDS if low.startswith(word)), '')
+
+
+def parse_sheet(raw: pd.DataFrame) -> tuple[dict[str, str], dict[str, str], list[str]]:
+    """Лист «скважина, фонд, горизонт» -> (фонды, горизонты, заметки). Заголовок ищется среди первых 20 строк.
+
+    Горизонт берётся только у контрольных; фонд, который не распознан, пропускается с заметкой."""
+    notes: list[str] = []
+    head = None
+    for i in range(min(20, len(raw))):
+        cells = [str(c).strip().lower() for c in raw.iloc[i]]
+        if any(c.startswith('скв') or c in ('№', 'well') for c in cells) and any(c.startswith('фонд') for c in cells):
+            head = i
+            break
+    if head is None:
+        raise ParamError('Не нашёл заголовок: нужны столбцы «Скважина», «Фонд» и (для контрольных) «Горизонт».')
+    cells = [str(c).strip().lower() for c in raw.iloc[head]]
+    col = lambda test: next((i for i, c in enumerate(cells) if test(c)), None)  # noqa: E731
+    cw = col(lambda c: c.startswith('скв') or c in ('№', 'well'))
+    cf = col(lambda c: c.startswith('фонд'))
+    ch = col(lambda c: c.startswith('горизонт') or c.startswith('пласт'))
+    funds: dict[str, str] = {}
+    horizons: dict[str, str] = {}
+    bad = 0
+    for _, row in raw.iloc[head + 1:].iterrows():
+        well = row.iloc[cw]
+        if well is None or str(well).strip() in ('', 'nan', 'None'):
+            continue
+        key = norm(str(well).replace('№', ''))
+        fund = fund_from_text(row.iloc[cf])
+        if not fund:
+            bad += 1
+            continue
+        funds[key] = fund
+        if fund == 'control' and ch is not None:
+            value = row.iloc[ch]
+            if value is not None and str(value).strip() not in ('', 'nan', 'None'):
+                horizons[key] = str(value).strip()
+    if bad:
+        notes.append(f'Строк с нераспознанным фондом пропущено: {bad}.')
+    if not funds:
+        raise ParamError('В файле нет скважин с распознанным фондом.')
+    return funds, horizons, notes

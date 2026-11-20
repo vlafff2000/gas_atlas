@@ -38,6 +38,24 @@ export function FundPage({ project, onProject }: { project: Project; onProject: 
       setMessage({ text: value === 'auto' ? `Скважин с подсказкой программы: ${wells.length}.` : `Скважин переведено в «${label[value]}»: ${wells.length}.`, level: 'info' })
     } catch (e) { setMessage({ text: (e as Error).message, level: 'warning' }) } finally { setBusy(false) }
   }
+  const setHorizon = async (well: string, value: string) => {
+    setBusy(true); setMessage(null)
+    try {
+      setInfo(await fundApi.horizons(project.id, { [well]: value }, info?.revision))
+      onProject(await api.project(project.id))
+    } catch (e) { setMessage({ text: (e as Error).message, level: 'warning' }) } finally { setBusy(false) }
+  }
+  const importFile = async (file: File | undefined) => {
+    if (!file) return
+    setBusy(true); setMessage(null)
+    try {
+      const next = await fundApi.importFile(project.id, file, info?.revision)
+      setInfo(next)
+      onProject(await api.project(project.id))
+      const r = next.imported
+      setMessage({ text: `Загружено скважин: ${r?.wells ?? 0}, горизонтов: ${r?.horizons ?? 0}. ${(r?.notes ?? []).join(' ')} Фонды из файла записаны как выбор инженера, их можно поправить вручную.`, level: 'info' })
+    } catch (e) { setMessage({ text: (e as Error).message, level: 'warning' }) } finally { setBusy(false) }
+  }
   const toggle = (w: string) => setPicked(old => { const n = new Set(old); if (n.has(w)) n.delete(w); else n.add(w); return n })
   const allShown = rows.length > 0 && rows.every(r => picked.has(r.well))
 
@@ -46,7 +64,7 @@ export function FundPage({ project, onProject }: { project: Project; onProject: 
       <header className="module-title">
         <div>
           <h1>Фонды скважин</h1>
-          <p className="lede">Эксплуатационные, наблюдательные, геофизические (ГИС без перфораций) и контрольные скважины. Программа лишь подсказывает фонд и показывает причину; решение за инженером. Настройка общая для Карт и других программ.</p>
+          <p className="lede">Эксплуатационные, наблюдательные, геофизические (ГИС без перфораций) и контрольные скважины (у контрольных можно указать горизонт; файл: Скважина, Фонд, Горизонт). Программа лишь подсказывает фонд и показывает причину; решение за инженером. Настройка общая для Карт и других программ.</p>
         </div>
       </header>
       {!info ? <p className="muted loading-line">Загрузка…</p> : info.wells.length === 0 ? (
@@ -61,6 +79,9 @@ export function FundPage({ project, onProject }: { project: Project; onProject: 
               <select value={fund} onChange={e => setFund(e.target.value)}>
                 <option value="">все</option>{info.funds.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
               </select></label>
+            <label className="field"><span className="field-label">Загрузить из файла</span>
+              <input type="file" accept=".xlsx,.xls,.csv" disabled={busy} title="Лист со столбцами: Скважина, Фонд, Горизонт (горизонт у контрольных)"
+                onChange={e => { importFile(e.target.files?.[0]); e.target.value = '' }} /></label>
             <label className="toggle"><input type="checkbox" checked={onlyManual} onChange={e => setOnlyManual(e.target.checked)} /><span>только выбранные вручную</span></label>
           </div>
           <div className="toolbar">
@@ -76,7 +97,7 @@ export function FundPage({ project, onProject }: { project: Project; onProject: 
           {message && <div className={'note ' + message.level} role="status">{message.text}</div>}
           <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
             <table className="data-grid">
-              <thead><tr><th></th><th>Скважина</th><th>Группа</th><th>Фонд</th><th>Подсказка программы</th><th>Откуда известна</th></tr></thead>
+              <thead><tr><th></th><th>Скважина</th><th>Группа</th><th>Фонд</th><th>Горизонт</th><th>Подсказка программы</th><th>Откуда известна</th></tr></thead>
               <tbody>{rows.map(r => (
                 <tr key={r.well}>
                   <td><input type="checkbox" checked={picked.has(r.well)} onChange={() => toggle(r.well)} aria-label={'Отметить ' + r.well} /></td>
@@ -85,6 +106,10 @@ export function FundPage({ project, onProject }: { project: Project; onProject: 
                     {!r.fund && <option value="">не определён</option>}
                     {info.funds.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
                   </select>{r.manual && <span className="muted"> · вручную</span>}</td>
+                  <td>{r.fund === 'control'
+                    ? <input defaultValue={r.horizon} key={r.well + r.horizon} disabled={busy} size={10} placeholder="горизонт" aria-label={'Горизонт скважины ' + r.well}
+                        onBlur={e => { if (e.target.value.trim() !== r.horizon) setHorizon(r.well, e.target.value) }} />
+                    : <span className="muted">{r.horizon || '—'}</span>}</td>
                   <td className="muted">{r.hint ? `${label[r.hint]}: ` : ''}{r.reason}</td>
                   <td className="muted">{r.sources.join(', ') || '—'}</td>
                 </tr>))}</tbody>
