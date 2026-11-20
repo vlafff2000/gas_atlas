@@ -41,13 +41,14 @@ def caption_for(figure,name,config,counters):
 
 def report_docx(figures,project,caption_config=None,progress=None,errors=None,counters=None,target=None,per_page=None,image_mm=(84,180),labeler=None,render=None,title=True,columns=2):
     """A real two-column Word table, with editable captions below each image.
-    ``per_page`` (even) — fixed number of charts on an A4 page, one table per page; ``image_mm`` — (width, max height) of a chart; ``columns`` — 1 or 2;
+    ``per_page`` (even) — fixed number of charts on an A4 page, one table for the whole appendix, a page break before each page's first row; ``image_mm`` — (width, max height) of a chart; ``columns`` — 1 or 2;
     ``labeler(figure,name)`` / ``render(figure)`` replace the default caption and PNG rendering (appendix packs)."""
     if not figures:raise ValueError('Для отчета Word выберите хотя бы один график.')
-    size='18' if per_page else '20'
+    size='22' if per_page else '20'       # лист с фиксированным числом графиков — как в отчёте: Times New Roman 11 пт, подпись по центру
+    font='Times New Roman' if per_page else 'Arial'
     def paragraph(text,bold=False,style=''):
-        props='<w:pPr><w:spacing w:after="100" w:line="240" w:lineRule="auto"/>'+('<w:pStyle w:val="'+style+'"/>' if style else '')+'</w:pPr>'
-        return '<w:p>'+props+'<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="'+('32' if style=='Title' else size)+'"/>'+('<w:b/>' if bold else '')+'</w:rPr><w:t xml:space="preserve">'+escape(str(text))+'</w:t></w:r></w:p>'
+        props='<w:pPr><w:spacing w:after="100" w:line="240" w:lineRule="auto"/>'+('<w:pStyle w:val="'+style+'"/>' if style else '')+('<w:jc w:val="center"/>' if per_page and not style else '')+'</w:pPr>'
+        return '<w:p>'+props+'<w:r><w:rPr><w:rFonts w:ascii="'+font+'" w:hAnsi="'+font+'" w:cs="'+font+'"/><w:sz w:val="'+('32' if style=='Title' else size)+'"/>'+('<w:b/>' if bold else '')+'</w:rPr><w:t xml:space="preserve">'+escape(str(text))+'</w:t></w:r></w:p>'
     namespaces='xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"'
     rows=[];cells=[];rels=[];counters={} if counters is None else counters
     buf=io.BytesIO() if target is None else None
@@ -64,19 +65,19 @@ def report_docx(figures,project,caption_config=None,progress=None,errors=None,co
             z.writestr('word/media/chart'+str(i)+'.png',content)
             cx=int(image_mm[0]*36000);cy=int(cx*h/w);limit=int(image_mm[1]*36000)
             if cy>limit:cx=int(cx*limit/cy);cy=limit
-            drawing=f'''<w:p><w:pPr>{'<w:spacing w:after="40"/>' if per_page else ''}<w:jc w:val="center"/><w:keepNext/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{i}" name="Chart {i}" descr="{escape(label, {'&quot;':'&quot;', chr(34):'&quot;'})}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="chart{i}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId{i}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'''
+            drawing=f'''<w:p><w:pPr><w:keepNext/>{'<w:spacing w:after="40"/>' if per_page else ''}<w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{i}" name="Chart {i}" descr="{escape(label, {'&quot;':'&quot;', chr(34):'&quot;'})}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="chart{i}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId{i}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>'''
             cells.append('<w:tc><w:tcPr><w:tcW w:w="'+str(10200//columns)+'" w:type="dxa"/><w:vAlign w:val="top"/></w:tcPr>'+drawing+paragraph(label)+'</w:tc>')
             rels.append(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/chart{i}.png"/>')
             if len(cells)==columns:rows.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>'+''.join(cells)+'</w:tr>');cells=[]
             if progress:progress(i/len(figures))
         if cells:rows.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>'+cells[0]+('<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/></w:tcPr><w:p/></w:tc>' if columns==2 else '')+'</w:tr>')
-        borders=''.join('<w:'+side+' w:val="single" w:sz="4" w:color="D9D9D9"/>' for side in ('top','left','bottom','right','insideH','insideV'))
+        borders='' if per_page else ''.join('<w:'+side+' w:val="single" w:sz="4" w:color="D9D9D9"/>' for side in ('top','left','bottom','right','insideH','insideV'))
         def make_table(chunk):
             return '<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>'+borders+'</w:tblBorders><w:tblCellMar><w:top w:w="120" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'+('<w:gridCol w:w="'+str(10200//columns)+'"/>')*columns+'</w:tblGrid>'+''.join(chunk)+'</w:tbl>'
-        if per_page:      # по таблице на лист; разрыв страницы — в крошечном абзаце перед следующей таблицей
-            step=max(1,per_page//columns);brk='<w:p><w:pPr><w:pageBreakBefore/><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t></w:t></w:r></w:p>'
-            table=brk.join(make_table(rows[k:k+step]) for k in range(0,len(rows),step))
-        else:table=make_table(rows)
+        if per_page:      # ОДНА таблица на всё приложение; лист начинается с pageBreakBefore в первом абзаце первой строки листа
+            step=max(1,per_page//columns)
+            for k in range(step,len(rows),step):rows[k]=rows[k].replace('<w:p><w:pPr><w:keepNext/>','<w:p><w:pPr><w:keepNext/><w:pageBreakBefore/>',1)
+        table=make_table(rows)
         document='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document '+namespaces+'><w:body>'+(paragraph('Газовый атлас',True,'Title')+paragraph(project) if title else '')+table+'<w:p/><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>'
         if errors:
             document=document.replace('<w:p/><w:sectPr>',paragraph('Ошибки формирования: '+str(len(errors)))+''.join(paragraph(str(e)) for e in errors)+'<w:p/><w:sectPr>')
