@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 
 SHEET = 'БД'
@@ -22,7 +24,9 @@ CANON_WITHDRAW = 'Отбор из ПХГ, тыс. м³/сут'
 CANON_INJECT = 'Закачка в ПХГ, тыс. м³/сут'
 CANON_WATER = 'Добыча пластовой воды, м³/сут'
 KIND_OF = {'отбор': 'withdrawal', 'закачка': 'injection'}
-COLUMNS = ['kind', 'date', 'gas', 'water']
+WELLS_TOTAL = 'Работающие скважины, всего по ПХГ'      # среднее число работающих скважин в сутки по ПХГ (отбор и закачка — один столбец)
+WELLS_LEGACY = re.compile(r'(работающих скважин|количество скважин).*/\s*всего по пхг$', re.I)
+COLUMNS = ['kind', 'date', 'gas', 'water', 'wells']
 
 
 def _one(columns, part: str, canonical: str = '') -> str:
@@ -34,8 +38,16 @@ def _one(columns, part: str, canonical: str = '') -> str:
     return hits[0]
 
 
+def _wells_column(columns) -> str | None:
+    """Столбец числа работающих скважин по ПХГ: каноническое имя или старое название; нет столбца — None (число тогда считается по скважинам)."""
+    if WELLS_TOTAL in list(columns):
+        return WELLS_TOTAL
+    hits = [c for c in columns if WELLS_LEGACY.search(re.sub(r'\s+', ' ', str(c)).strip())]
+    return hits[0] if len(hits) == 1 else None
+
+
 def build(path) -> pd.DataFrame:
-    """Таблица (kind, date, gas, water) по суткам. ``gas`` — тыс. м³/сут, ``water`` — м³ или NaN (нет замера)."""
+    """Таблица (kind, date, gas, water) по суткам. ``gas`` — тыс. м³/сут, ``water`` — м³ или NaN (нет замера), ``wells`` — число работающих скважин по ПХГ за сутки или NaN (нет в файле)."""
     db = pd.read_excel(path, sheet_name=SHEET)
     total_w = _one(db.columns, WITHDRAW_TOTAL, CANON_WITHDRAW)
     total_i = _one(db.columns, INJECT_TOTAL, CANON_INJECT)
@@ -44,11 +56,13 @@ def build(path) -> pd.DataFrame:
     gas = pd.Series(float('nan'), index=db.index)
     gas[mode.eq('отбор')] = pd.to_numeric(db.loc[mode.eq('отбор'), total_w], errors='coerce')
     gas[mode.eq('закачка')] = pd.to_numeric(db.loc[mode.eq('закачка'), total_i], errors='coerce')
+    wells_col = _wells_column(db.columns)
     out = pd.DataFrame({
         'kind': mode.map(KIND_OF),
         'date': pd.to_datetime(db['Дата'], errors='coerce').dt.normalize(),
         'gas': gas,
         'water': pd.to_numeric(db[water_col], errors='coerce'),
+        'wells': pd.to_numeric(db[wells_col], errors='coerce') if wells_col else float('nan'),
     })
     out = out[out['kind'].notna() & out['date'].notna()]
     return out.drop_duplicates(['kind', 'date'], keep='last').sort_values(['kind', 'date']).reset_index(drop=True)

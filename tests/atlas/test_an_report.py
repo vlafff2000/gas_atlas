@@ -411,3 +411,24 @@ def test_object_daily_follows_gas_accounting_like_seasonal():
     assert an_charts.daily_of(frame, 'withdrawal', '2023-2024')[0].sum() == pytest.approx(3000.0)
     sparse = ref.iloc[:1]                                              # покрытие < 80 % → скважины
     assert an_charts.daily_of(frame, 'withdrawal', '2023-2024', sparse)[0].sum() == pytest.approx(3000.0)
+
+
+def test_working_wells_come_from_gas_db_with_fallback_to_wells():
+    """Скважин в работе: из «БД по учету газа» (столбец wells), где в БД нет суток — по скважинам; источник выбирается и подписан."""
+    frame = production([('1', '2024-01-01', 1000), ('2', '2024-01-01', 500), ('1', '2024-01-02', 800), ('2', '2024-01-02', 0)], '2023-2024')
+    ref = pd.DataFrame({'kind': 'withdrawal', 'date': pd.to_datetime(['2024-01-01']), 'gas': [1.5], 'wells': [317.0]})
+    _, auto = an_charts.daily_of(frame, 'withdrawal', '2023-2024', ref)
+    assert list(auto) == [317, 1] and 'БД учёта газа' in auto.attrs['source'] and auto.attrs['fallback'] == 1
+    _, only_db = an_charts.daily_of(frame, 'withdrawal', '2023-2024', ref, 'gas_db')
+    assert only_db.iloc[0] == 317 and pd.isna(only_db.iloc[1])
+    _, by_wells = an_charts.daily_of(frame, 'withdrawal', '2023-2024', ref, 'wells')
+    assert list(by_wells) == [2, 1] and 'расход > 0' in by_wells.attrs['source']
+    assert list(an_charts.daily_of(frame, 'withdrawal', '2023-2024')[1]) == [2, 1]      # БД нет — как раньше
+
+
+def test_gas_db_import_reads_working_wells_column(tmp_path):
+    from atlas.engine.core import gas_db_import as g
+    path = tmp_path / 'бд.xlsx'
+    pd.DataFrame({'Режим': ['Отбор'], 'Дата': ['2024-01-01'], g.CANON_WITHDRAW: [1500.0], g.CANON_INJECT: [None],
+                  g.CANON_WATER: [None], g.WELLS_TOTAL: [317]}).to_excel(path, sheet_name='БД', index=False)
+    assert g.build(path).wells.tolist() == [317]

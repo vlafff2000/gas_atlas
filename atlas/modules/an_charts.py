@@ -27,13 +27,20 @@ OBJECT_COLOR = '#6b7c84'        # объект целиком — нейтрал
 MONTHS = ('январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь')
 
 
-def daily_of(prod: pd.DataFrame, kind: str, period: str, ref: pd.DataFrame | None = None) -> tuple[pd.Series, pd.Series]:
+WELLS_AUTO, WELLS_GAS_DB, WELLS_PROD = 'auto', 'gas_db', 'wells'
+WELLS_LABEL = {WELLS_GAS_DB: 'БД учёта газа', WELLS_PROD: 'суточные расходы скважин (расход > 0)'}
+
+
+def daily_of(prod: pd.DataFrame, kind: str, period: str, ref: pd.DataFrame | None = None,
+             wells_source: str = WELLS_AUTO) -> tuple[pd.Series, pd.Series]:
     """Суточный расход объекта (м³/сут) и число работающих скважин по всем календарным суткам сезона.
 
     Как у соседних разделов: ноль и день без записи — 0 (падают на ось X), исключённая вручную точка — NaN (разрыв линии).
     Границы — первые и последние сутки с расходом (нейтральный период до закачки/отбора не рисуется).
     ``ref`` — «БД по учету газа»: объём объекта берётся из узла учёта по тому же правилу, что в «Сезонных показателях» (``_seasonal.object_daily``);
-    число работающих скважин остаётся по скважинам."""
+    число работающих скважин — по выбору ``wells_source``: «auto» — из «БД по учету газа» (столбец ``wells``), а в сутки, где его нет, — по
+    скважинам (расход > 0); «gas_db» — только БД (нет значения — NaN); «wells» — только по скважинам. Источник — в ``wells.attrs['source']``:
+    «БД учёта газа», «суточные расходы…» или «смешанный»; сутки по скважинам при смешанном — в ``wells.attrs['fallback']``."""
     rows = an_wells.season_rows(prod, kind, period)
     pos = rows[rows.q.gt(0)]
     if pos.empty:
@@ -42,12 +49,37 @@ def daily_of(prod: pd.DataFrame, kind: str, period: str, ref: pd.DataFrame | Non
     sums = rows.groupby('date').q.sum(min_count=1)
     daily = sums.reindex(days).where(days.isin(sums.index), 0.0)      # нет записи → 0; все записи суток исключены → NaN
     wells = pos.groupby('date').well.nunique().reindex(days, fill_value=0)
+    by_prod = wells
+    fallback = 0
+    source = WELLS_PROD
+    if wells_source != WELLS_PROD and ref is not None and 'wells' in ref:
+        r = ref[ref.kind.eq(kind)].assign(date=lambda x: pd.to_datetime(x.date).dt.normalize())
+        db = r.drop_duplicates('date', keep='last').set_index('date').wells.astype(float).reindex(days)
+        if db.notna().any():
+            source = WELLS_GAS_DB
+            if wells_source == WELLS_AUTO:
+                fallback = int(db.isna().sum())
+                wells = db.fillna(by_prod.astype(float))
+            else:
+                wells = db
+            wells = wells.round()
+    wells.attrs['source'] = WELLS_LABEL[source] + (' (в части суток — по скважинам)' if fallback else '')
+    wells.attrs['fallback'] = fallback
     if ref is not None:
         from ._seasonal import SOURCE_REF, object_daily
         node, source = object_daily(prod, ref, kind, period)
         if source == SOURCE_REF:
             daily = node.reindex(days, fill_value=0.0)
     return daily, wells
+
+
+def _count(value: Any) -> str:
+    return '—' if pd.isna(value) else str(int(value))
+
+
+def _wells_name(wells: pd.Series) -> str:
+    src = wells.attrs.get('source')
+    return f'Скважин в работе ({src})' if src and src.startswith('БД') else 'Скважин в работе'
 
 
 def pressure_points(pressure: pd.DataFrame | None, start: Any, stop: Any) -> pd.DataFrame | None:
@@ -150,14 +182,14 @@ def curve_chart(kind: str, period: str, daily: pd.Series, wells: pd.Series, pres
     show = [SHOW_KEY.get(v, v) for v in show]
     items: list[tuple[str, str, str, Series]] = []
     if 'rate' in show:
-        labels = [f'{d:%d.%m.%Y} · скважин в работе: {int(wells[d])}' for d in daily.index]
+        labels = [f'{d:%d.%m.%Y} · скважин в работе: {_count(wells[d])}' for d in daily.index]
         items.append(('rate', 'Суточный расход', Q_UNIT, Series('Суточный расход', cum.to_numpy(), (daily / 1000).to_numpy(), 'line',
                                                               labels=labels, width=1.0)))
     p = pressure_points(pressure, start, stop) if 'pressure' in show else None
     if p is not None:
         items.append(('pressure', 'Рпл, абс.', P_UNIT, Series('Рпл, абс.', _cum_at(cum, p.date), p.pressure.to_numpy(), 'points')))
     if 'wells' in show:
-        items.append(('wells', 'Скважин в работе', 'скв.', Series('Скважин в работе', _cum_at(cum, wells.index), wells.to_numpy(float),
+        items.append(('wells', 'Скважин в работе', 'скв.', Series(_wells_name(wells), _cum_at(cum, wells.index), wells.to_numpy(float),
                                                                     'points', symbol='square')))
     items += _water_items(water, show, start, stop, lambda dates: _cum_at(cum, dates))
     if not items:
@@ -178,7 +210,7 @@ def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, well
     show = [SHOW_KEY.get(v, v) for v in show]
     items: list[tuple[str, str, str, Series]] = []         # (ключ, подпись шкалы, единица, ряд)
     if 'rate' in show:
-        labels = [f'скважин в работе: {int(wells[d])}' for d in daily.index]
+        labels = [f'скважин в работе: {_count(wells[d])}' for d in daily.index]
         items.append(('rate', 'Суточный расход', Q_UNIT, Series('Суточный расход', daily.index.to_numpy(),
                                                                 (daily / 1000).to_numpy(), 'line', width=1.0, labels=labels)))
     if 'cumulative' in show:
@@ -188,7 +220,7 @@ def canvas_chart(kind: str, period: str, show: list[str], daily: pd.Series, well
     if p is not None:
         items.append(('pressure', 'Рпл, абс.', P_UNIT, Series('Среднее Рпл, абс.', p.date.to_numpy(), p.pressure.to_numpy(), 'points')))
     if 'wells' in show:
-        items.append(('wells', 'Скважин в работе', 'скв.', Series('Скважин в работе', wells.index.to_numpy(), wells.to_numpy(float),
+        items.append(('wells', 'Скважин в работе', 'скв.', Series(_wells_name(wells), wells.index.to_numpy(), wells.to_numpy(float),
                                                                     'points', symbol='square')))
     items += _water_items(water, show, start, stop, lambda dates: dates.to_numpy())
     if 'gas' in show and factor is not None and 'gas_in_place' in factor and not factor.empty:
