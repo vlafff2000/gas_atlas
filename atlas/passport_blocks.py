@@ -233,6 +233,47 @@ def fund_tables(rows: list[dict[str, Any]]) -> list[Table]:
         note='Сильная улика = 2 балла, слабая = 1, с весом свежести. Это подсказка для отбора: решает инженер, его решения по механизмам учтены.')]
 
 
+def elpro_pressure_chart(data: dict[str, Any] | None) -> Chart | None:
+    """Давление ЭЛПРО скважины, медиана по группе и замеры среднего Рпл на одной оси, расход скважины на правой; полосами — аномалии давления ЭЛПРО."""
+    ser = (data or {}).get('series') or {}
+    if not ser.get('date') or not any(v is not None for v in ser.get('p', [])):
+        return None
+    x = pd.to_datetime(ser['date']).to_numpy()
+    chart = Chart('passport-elpro-p', 'Давление ЭЛПРО: скважина, группа, пластовое и расход', Axis('Дата', scale='time'), Axis('Давление', 'кгс/см²', from_zero=False),
+                  y2=Axis('Расход скважины', 'тыс. м³/сут', from_zero=True, color='#7a8a90'), crosshair=True)
+    chart.series.append(Series('Давление ЭЛПРО скважины', x, _f(ser['p']), 'line', group='Давление ЭЛПРО скважины', color='#08519c', width=1.8))
+    if any(v is not None for v in ser.get('grp_p', [])):
+        chart.series.append(Series('Давление ЭЛПРО: медиана по группе', x, _f(ser['grp_p']), 'line', group='Давление ЭЛПРО: медиана по группе', color='#e08214', width=1.4))
+    pr = [(d, v) for d, v in zip(ser['date'], ser.get('p_res', [])) if v is not None]
+    if pr:
+        chart.series.append(Series('Пластовое (среднее по замерам)', pd.to_datetime([d for d, _ in pr]).to_numpy(), np.array([v for _, v in pr]), 'points',
+                                   group='Пластовое (среднее по замерам)', color='#c0392b'))
+    if any(v is not None for v in ser.get('q', [])):
+        chart.series.append(Series('Расход скважины', x, _f(ser['q']), 'line', axis='y2', group='Расход скважины', color='#7a8a90', width=1.1))
+    rows = (data or {}).get('rows') or []
+    if rows:
+        chart.style = {'annotations': [{'kind': 'vband', 'value': pd.to_datetime(r['start'], dayfirst=True).strftime('%Y-%m-%d'),
+                                        'to': pd.to_datetime(r['end'], dayfirst=True).strftime('%Y-%m-%d'),
+                                        'text': f"Давление ЭЛПРО {r['direction']} на {abs(r['dp']):.1f}: {r['cause']}", 'color': '#c0392b'} for r in rows]}
+    return chart
+
+
+def elpro_anomaly_table(data: dict[str, Any] | None) -> Table | None:
+    rows = (data or {}).get('rows') or []
+    if not rows:
+        return None
+    pct = lambda k: _f([r[k] for r in rows])
+    frame = pd.DataFrame({'start': [r['start'] for r in rows], 'end': [r['end'] for r in rows], 'peak': [r['peak'] for r in rows], 'dp': pct('dp'),
+                          'dp_group': pct('dp_group'), 'dp_res': pct('dp_res'), 'dq': pct('dq'), 'dq_group': pct('dq_group'), 'dq_obj': pct('dq_obj'),
+                          'cause': [r['cause'] for r in rows]})
+    return Table('passport-elpro-anomalies', 'Аномалии давления ЭЛПРО', frame, [
+        Column('start', 'С'), Column('end', 'По'), Column('peak', 'Пик'), Column('dp', 'Сдвиг давления ЭЛПРО', 'кгс/см²', 1, 'number'),
+        Column('dp_group', 'Сдвиг по группе', 'кгс/см²', 1, 'number'), Column('dp_res', 'Изменение Рпл', 'кгс/см²', 1, 'number'),
+        Column('dq', 'Расход скважины', '%', 0, 'number'), Column('dq_group', 'Расход группы', '%', 0, 'number'), Column('dq_obj', 'Расход объекта', '%', 0, 'number'),
+        Column('cause', 'Вероятная причина')],
+        note='Сдвиг — медиана за 7 суток против медианы за 28 суток перед ней. Аномалия — сдвиг давления ЭЛПРО от 2 кгс/см². Причина — подсказка: решает инженер.')
+
+
 def depression_chart(dep: dict[str, Any] | None) -> Chart | None:
     """Депрессия Рпл − Рзаб на каждую дату замера Рпл (когда скважина работала) по времени: точки на линии предела типа забоя; превышения — красным."""
     pts = [(p, r['period']) for r in (dep or {}).get('rows', []) for p in r.get('points', [])]
@@ -277,6 +318,6 @@ def depression_table(dep: dict[str, Any] | None) -> Table | None:
 
 
 def blocks(card: dict[str, Any]) -> tuple[list[Chart], list[Table]]:
-    charts = tile_charts(card.get('tiles')) + [c for c in (depression_chart(card.get('depression')), seasons_chart(card['seasons']), daily_chart(card['daily'], card.get('elpro_cru')), gdi_chart(card['gdi_diagrams'])) if c]
-    tables = [t for t in (assess_table(card.get('assess') or []), depression_table(card.get('depression')), seasons_table(card['seasons']), elpro_table(card.get('elpro') or []), gdi_table(card['gdi']), krs_table(card['krs'])) if t]
+    charts = tile_charts(card.get('tiles')) + [c for c in (depression_chart(card.get('depression')), elpro_pressure_chart(card.get('elpro_p')), seasons_chart(card['seasons']), daily_chart(card['daily'], card.get('elpro_cru')), gdi_chart(card['gdi_diagrams'])) if c]
+    tables = [t for t in (assess_table(card.get('assess') or []), depression_table(card.get('depression')), seasons_table(card['seasons']), elpro_table(card.get('elpro') or []), elpro_anomaly_table(card.get('elpro_p')), gdi_table(card['gdi']), krs_table(card['krs'])) if t]
     return charts, tables
