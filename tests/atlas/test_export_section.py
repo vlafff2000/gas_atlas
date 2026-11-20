@@ -664,3 +664,20 @@ def test_quality_report_for_the_plan(env):
     one = wide['charts'][0]
     assert one['name'] and {f['code'] for f in one['findings']} == {'small-font'} and 'после уменьшения' in one['findings'][0]['text']
     assert not (store.path(pid) / 'exports').exists() or not list((store.path(pid) / 'exports').glob('*.zip'))      # файлов не появилось
+
+
+def test_word_narrow_cell_uses_compact_chart(monkeypatch):
+    """Две-три колонки на листе: график строится компактно (шрифт под ширину ячейки), а не обычным 12 пт, который сжимал область осей в щель."""
+    import atlas.engine.core.export as export
+    from atlas import word_export
+    seen = []
+    real = export.figure_bytes
+    monkeypatch.setattr(export, 'figure_bytes', lambda *a, **k: (seen.append((a[3], a[4], k.get('compact'))), real(*a, **k))[1])
+    import plotly.graph_objects as go
+    fig = go.Figure(go.Scatter(x=[1, 2, 3], y=[1, 3, 2], name='а'))
+    fig.update_layout(title='Производительность скважины № 31 в сезоны отбора 2023-2024, 2024-2025, 2025-2026')
+    for columns in (1, 2):
+        layout = word_export.layout_from({'word_columns': columns})
+        word_export.render_png(fig, layout, 8.0)
+    (w1, h1, c1), (w2, h2, c2) = seen[0], seen[1]
+    assert not c1 and c2 and h2 and h2 / w2 <= word_export.COMPACT_ASPECT + 0.01

@@ -233,6 +233,10 @@ def fit(layout: Layout, aspect: float, caption_h: float) -> Tuple[float, float]:
     return w, h
 
 
+NARROW_MM = 120.0               # уже этого график строится компактно (как лист приложения)
+COMPACT_ASPECT = 0.85           # высота/ширина компактного графика
+
+
 def render_png(figure, layout: Layout, caption_h: float, font: str = 'times', font_size=None, look: str = 'default') -> Tuple[bytes, float, float]:
     """PNG графика, построенный сразу в размер на листе (без сжатия картинки), и этот размер в мм."""
     from atlas.engine.core.export import figure_bytes
@@ -241,11 +245,16 @@ def render_png(figure, layout: Layout, caption_h: float, font: str = 'times', fo
     draw_w = min(300.0, max(80.0, inner))
     scale = inner / draw_w                                        # <1 при очень узкой колонке: лишь пропорционально уменьшаем
     want = min(layout.height_mm, limit / scale) if layout.height_mm else None
-    png = figure_bytes(figure, 'png', layout.dpi, int(round(draw_w)), int(round(want)) if want else None, font=font, font_size=font_size, look=look)
+    # узкая ячейка (2–3 колонки): обычный размер шрифта съедает весь график — заголовок в 3–4 строки, область осей «щель».
+    # Строим как листы приложений: компактный режим (шрифт 9,5 пт, легенда под осями), высота задана заранее
+    compact = draw_w < NARROW_MM
+    if compact and not want:
+        want = min(draw_w * COMPACT_ASPECT, limit / scale)
+    png = figure_bytes(figure, 'png', layout.dpi, int(round(draw_w)), int(round(want)) if want else None, compact=compact, font=font, font_size=font_size, look=look)
     w_px, h_px = struct.unpack('>II', png[16:24])
     h = inner * h_px / w_px
     if h > limit:                                                 # слишком высокий: строим ниже, а не сжимаем
-        png = figure_bytes(figure, 'png', layout.dpi, int(round(draw_w)), max(30, int(limit / scale)), font=font, font_size=font_size, look=look)
+        png = figure_bytes(figure, 'png', layout.dpi, int(round(draw_w)), max(30, int(limit / scale)), compact=compact, font=font, font_size=font_size, look=look)
         w_px, h_px = struct.unpack('>II', png[16:24])
         h = inner * h_px / w_px
     w = inner
