@@ -520,3 +520,7 @@ table.frozen tbody tr.is-synced td:first-child { background: var(--accent-soft);
 .wide-table .table-scroll { max-height: 78vh; }
 .wide-table td { white-space: normal; vertical-align: top; max-width: 46ch; font-size: 14px; line-height: 1.35; }
 .wide-table th { font-size: 13px; }
+
+/* График на всю ширину рабочего окна, под сеткой остальных графиков (суточные расходы в паспорте) */
+.chart-wide { margin-top: 16px; width: 100%; }
+.chart-wide > * { width: 100%; }
