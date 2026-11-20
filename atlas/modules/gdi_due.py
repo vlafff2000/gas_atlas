@@ -24,6 +24,20 @@ from .gdi_trend import VERDICTS, histories, rating
 GDI, PRODUCTION, PRIORITY_K, ELPRO = DatasetKind.GDI, DatasetKind.PRODUCTION, DatasetKind.KRS_PRIORITY, DatasetKind.ELPRO
 PROGRAM = DatasetKind.GDI_PROGRAM
 SECTION = 'Критерии'
+ADVANCED = 'Расширенные критерии'
+# Пресеты чувствительности вместо дюжины порогов. «Обычно» = прежние значения по умолчанию; «сдержанно» и «чувствительно» сдвигают пороги.
+# Значения предварительные: их подбирают на истории (проверка критериев на истории в паспорте) и меняют по результату.
+PRESETS: dict[str, dict[str, float]] = {
+    'soft': {'years': 7.0, 'gap': 25.0, 'cum_gap': 25.0, 'sync': 40.0, 'slope': 8.0, 'open_drop': 25.0, 'interval_drop': 25.0, 'prod_signals': 3, 'change': 15.0},
+    'normal': {'years': 5.0, 'gap': 15.0, 'cum_gap': 15.0, 'sync': 50.0, 'slope': 5.0, 'open_drop': 15.0, 'interval_drop': 15.0, 'prod_signals': 2, 'change': 10.0},
+    'strict': {'years': 3.0, 'gap': 10.0, 'cum_gap': 10.0, 'sync': 60.0, 'slope': 3.0, 'open_drop': 10.0, 'interval_drop': 10.0, 'prod_signals': 1, 'change': 7.0},
+}
+
+
+def with_preset(params: dict[str, Any]) -> dict[str, Any]:
+    """Пороги из пресета чувствительности; «свои» (``custom``) оставляют расширенные критерии как задал инженер."""
+    preset = PRESETS.get(str(params.get('sensitivity') or 'normal'))
+    return {**params, **preset} if preset else dict(params)
 STATE_AUTO, STATE_ADDED, STATE_REMOVED = 'по расчёту', 'добавлена вручную', 'убрана вручную'
 NOTE = ('Список — подсказка: причины видны в таблице, пороги задаёт инженер, любую скважину можно добавить вручную или убрать из списка '
         '(выбор сохраняется в параметрах раздела). Надёжное исследование — не меньше трёх режимов с разными расходами и R² не ниже порога. '
@@ -297,37 +311,42 @@ class GdiDueModule(Module):
         optional=(GDI, PRODUCTION, PRIORITY_K, ELPRO, PROGRAM),
         order=36,
         params=(
-            Param('years', 'Давность ГДИ', 'number', default=5.0, minimum=1, maximum=20, step=0.5, unit='лет', section=SECTION,
+            Param('sensitivity', 'Чувствительность списка', 'choice', default='normal', section=SECTION,
+                  options=(Option('soft', 'Сдержанно (меньше скважин)'), Option('normal', 'Обычно'), Option('strict', 'Чувствительно (больше скважин)'),
+                           Option('custom', 'Свои пороги (расширенные)')),
+                  help='Готовые наборы порогов вместо дюжины настроек. «Свои пороги» открывает расширенные критерии, и тогда пресет не применяется. '
+                       'Список остаётся подсказкой: любую скважину можно добавить или убрать вручную.'),
+            Param('years', 'Давность ГДИ', 'number', default=5.0, minimum=1, maximum=20, step=0.5, unit='лет', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Скважина попадает в список, если надёжного исследования нет или оно старше.'),
-            Param('gap', 'Отставание расхода от группы', 'number', default=15.0, minimum=1, maximum=80, step=1, unit='п.п.', section=SECTION,
+            Param('gap', 'Отставание расхода от группы', 'number', default=15.0, minimum=1, maximum=80, step=1, unit='п.п.', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Расход последнего сезона отбора по сравнению с предыдущим упал сильнее, чем медиана по группе, на столько процентных пунктов и больше.',
                   formula='отставание = изменение расхода скважины − медиана изменения по группе',
                   example='Скважина −25%, медиана группы −5%: отставание 20 п.п.; при пороге 15 — признак есть.'),
-            Param('cum_gap', 'Отставание накопленного отбора', 'number', default=15.0, minimum=1, maximum=80, step=1, unit='п.п.', section=SECTION,
+            Param('cum_gap', 'Отставание накопленного отбора', 'number', default=15.0, minimum=1, maximum=80, step=1, unit='п.п.', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Накопленный отбор за одинаковый отрезок сезона (от его начала) упал сильнее медианы по группе на столько п.п. и больше.'),
-            Param('sync', 'Совпадение динамики с объектом не ниже', 'number', default=50.0, minimum=0, maximum=100, step=5, unit='%', section=SECTION,
+            Param('sync', 'Совпадение динамики с объектом не ниже', 'number', default=50.0, minimum=0, maximum=100, step=5, unit='%', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Доля недельных шагов внутри сезона, где расход скважины и объекта растёт или падает вместе. Ниже порога и при худшем тренде — признак.'),
-            Param('slope', 'Тренд хуже объекта на', 'number', default=5.0, minimum=1, maximum=50, step=1, unit='п.п./30 сут', section=SECTION,
+            Param('slope', 'Тренд хуже объекта на', 'number', default=5.0, minimum=1, maximum=50, step=1, unit='п.п./30 сут', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Наклон расхода скважины внутри сезона (в % от её среднего) хуже наклона объекта на столько и больше.'),
-            Param('open_drop', 'Падение отдачи на раскрытие КРУ', 'number', default=15.0, minimum=1, maximum=80, step=1, unit='п.п.', section=SECTION,
+            Param('open_drop', 'Падение отдачи на раскрытие КРУ', 'number', default=15.0, minimum=1, maximum=80, step=1, unit='п.п.', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Расход на 1% раскрытия КРУ (ЭЛПРО) изменился хуже медианы по группе на столько п.п. и больше: при большем раскрытии расход должен быть больше. Нужны данные ЭЛПРО.'),
-            Param('min_days', 'Интервал снижения: не короче', 'number', default=14, minimum=7, maximum=90, step=1, unit='сут', section=SECTION,
+            Param('min_days', 'Интервал снижения: не короче', 'number', default=14, minimum=7, maximum=90, step=1, unit='сут', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Расход скважины относительно объекта держится ниже опорного уровня не меньше стольких суток подряд.'),
-            Param('interval_drop', 'Интервал снижения: падение', 'number', default=15.0, minimum=5, maximum=80, step=1, unit='%', section=SECTION,
+            Param('interval_drop', 'Интервал снижения: падение', 'number', default=15.0, minimum=5, maximum=80, step=1, unit='%', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Расход скважины (сглаженный за 7 суток) относительно объекта ниже уровня первых двух недель сезона на столько процентов и больше. Если раскрытие КРУ уменьшили, интервал не отмечается.'),
-            Param('tail_days', 'Интервал снижения: не оценивать конец ряда', 'number', default=14, minimum=0, maximum=60, step=1, unit='сут', section=SECTION,
+            Param('tail_days', 'Интервал снижения: не оценивать конец ряда', 'number', default=14, minimum=0, maximum=60, step=1, unit='сут', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Последние сутки работы скважины (остановка, закрытие, конец сезона) не участвуют в поиске интервала: падение расхода там — режим, а не продуктивность.'),
-            Param('ramp_days', 'Интервал снижения: выход на режим после старта', 'number', default=7, minimum=0, maximum=30, step=1, unit='сут', section=SECTION,
+            Param('ramp_days', 'Интервал снижения: выход на режим после старта', 'number', default=7, minimum=0, maximum=30, step=1, unit='сут', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Старт скважины — первая дата, когда часы работы в БД расходов не равны нулю. Эти сутки и столько дней после старта не оцениваются, опорный уровень берётся уже после них.'),
-            Param('low_share', 'Интервал снижения: малые дебиты', 'number', default=20, minimum=0, maximum=60, step=5, unit='% от медианы', section=SECTION,
+            Param('low_share', 'Интервал снижения: малые дебиты', 'number', default=20, minimum=0, maximum=60, step=5, unit='% от медианы', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Дни с расходом ниже этой доли медианы скважины за сезон (пуск, прикрытие, остановка в течение суток) не оцениваются.'),
-            Param('confirm', 'Интервал снижения: подтверждение, окон не меньше', 'choice', default=2, section=SECTION,
+            Param('confirm', 'Интервал снижения: подтверждение, окон не меньше', 'choice', default=2, section=ADVANCED, show_if={'sensitivity': 'custom'},
                   options=(Option(1, '1'), Option(2, '2'), Option(3, '3')),
                   help='Интервал считается признаком, если он не короче этого числа окон по «не короче» суток подряд: единичный провал не подтверждает снижение.'),
-            Param('need_open', 'Интервал снижения: нужны данные раскрытия КРУ', 'choice', default=1, section=SECTION,
+            Param('need_open', 'Интервал снижения: нужны данные раскрытия КРУ', 'choice', default=1, section=ADVANCED, show_if={'sensitivity': 'custom'},
                   options=(Option(1, 'Да'), Option(0, 'Нет')),
                   help='Да: без данных раскрытия КРУ (ЭЛПРО) режимы не сопоставить, интервал остаётся в таблице как неподтверждённый. Нет: достаточно расхода.'),
-            Param('prod_signals', 'Снижение продуктивности: сигналов не меньше', 'choice', default=2, section=SECTION,
+            Param('prod_signals', 'Снижение продуктивности: сигналов не меньше', 'choice', default=2, section=ADVANCED, show_if={'sensitivity': 'custom'},
                   options=(Option(1, '1'), Option(2, '2'), Option(3, '3'), Option(4, '4')),
                   help='Для второй таблицы: скважина попадает в неё при интервале снижения или при стольких совпавших сигналах: расход и накопленный отбор против группы, динамика против объекта, отдача на раскрытие КРУ, ГДИ.'),
             Param('xaxis', 'Ось X графиков', 'choice', default='date', section='Графики',
@@ -344,7 +363,7 @@ class GdiDueModule(Module):
                        'отдельную скважину можно вернуть через «Добавить вручную».'),
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01, setting='r2_threshold', section=SECTION,
                   help='Общая настройка проекта: исследования с R² ниже порога не считаются надёжными.'),
-            Param('change', 'Порог ухудшения ГДИ', 'number', default=10.0, minimum=1, maximum=80, step=1, unit='%', section=SECTION,
+            Param('change', 'Порог ухудшения ГДИ', 'number', default=10.0, minimum=1, maximum=80, step=1, unit='%', section=ADVANCED, show_if={'sensitivity': 'custom'},
                   help='Снижение расхода при общем ΔP² на столько процентов и больше — ухудшение (как в «Динамике коэффициентов ГДИ»).'),
             Param('kru_priority', 'Приоритет КР не ниже', 'choice', default=2, section=SECTION,
                   options=(Option(0, 'Не учитывать'), Option(1, '1 — срочно'), Option(2, '1–2'), Option(3, '1–3')),
@@ -366,6 +385,7 @@ class GdiDueModule(Module):
         if not any(k in data and not data[k].empty for k in (GDI, PRODUCTION)):
             result.notes.append(Note('В проекте нет данных ГДИ и расходов: список построить не из чего. Загрузите данные во вкладке «Импорт».'))
             return result
+        params = with_preset(params)
         params = {**params, 'kru_priority': int(params.get('kru_priority', 2)) or -1}
         table = apply_manual(build(data, params), params.get('add') or [], params.get('remove') or [])
         listed = table[table.in_list]

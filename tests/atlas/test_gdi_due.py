@@ -279,3 +279,14 @@ def test_program_label_is_shown_and_does_not_change_score():
     labels = program_labels(prog)
     assert labels['31'] == 'I этап: план КР (2025-2026) — КР в сезоне закачки; II этап: давно (2025-2026)' and labels['40'].startswith('I этап: фильтр')
     assert program_labels(None).empty
+
+
+def test_sensitivity_presets_replace_thresholds_unless_custom():
+    from atlas.modules import gdi_due
+    base = {'sensitivity': 'strict', 'years': 99.0}
+    assert gdi_due.with_preset(base)['years'] == 3.0                      # пресет главнее скрытых порогов
+    assert gdi_due.with_preset({**base, 'sensitivity': 'custom'})['years'] == 99.0   # «свои» — как задал инженер
+    assert gdi_due.with_preset({'years': 4.0})['years'] == 5.0            # без выбора = «обычно», прежние значения
+    normal = gdi_due.PRESETS['normal']
+    spec = {p.name: p.default for p in gdi_due.GdiDueModule.spec.params}
+    assert all(spec[k] == v for k, v in normal.items())            # «обычно» = значения по умолчанию модуля
