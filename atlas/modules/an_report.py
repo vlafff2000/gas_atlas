@@ -426,6 +426,12 @@ class AuthorReportModule(Module):
                   help='Как в «Производительности скважин» и в анализе ГДИ: по дате или по накопленному отбору объекта с начала сезона.'),
             Param('show', 'Ряды на графике', 'multi', default=list(an_charts.SHOW_DEFAULT), section='Вид',
                   show_if={'view': 'canvas'}, empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.SHOW)),
+            Param('wells_source', 'Источник числа работающих скважин', 'choice', default='auto', section='Вид',
+                  options=(Option('auto', 'БД учёта газа, где нет — по скважинам'), Option('gas_db', 'Только БД учёта газа'),
+                           Option('wells', 'Суточные расходы скважин (расход > 0)')),
+                  help='Подпись «скважин в работе» и ряд «Скважин в работе». «БД учёта газа» — столбец «Работающие скважины, всего по ПХГ» листа «БД»; '
+                       'его нужно загрузить заново, если база импортирована раньше. По суточным расходам считаются скважины с расходом больше нуля; '
+                       'ноль, сутки без записи и исключённые точки в число не входят. Источник указан в названии ряда.'),
             Param('show_curve', 'Ряды на графике «от накопленного объёма»', 'multi', default=list(an_charts.CURVE_SHOW_DEFAULT),
                   section='Вид', empty='ничего', options=tuple(Option(v, v) for _, v in an_charts.CURVE_SHOW),
                   help='Для графика «Расход от накопленного объёма» (основного или правого). По оси X — накопленный объём. '
@@ -497,7 +503,7 @@ class AuthorReportModule(Module):
             self.season_charts(result, data, kind, period, summary, table, pressure, params, fund[-1])
             by_cum = params.get('group_x') == 'cumulative'
             group_pressure = an_charts.group_pressure_chart(kind, period, reference, summary['start'], summary['stop'],
-                                                            an_charts.daily_of(whole_production(data), kind, period, node_ref(data))[0] if by_cum else None)
+                                                            an_charts.daily_of(whole_production(data), kind, period, node_ref(data), params.get('wells_source') or 'auto')[0] if by_cum else None)
             if group_pressure is not None:
                 result.charts.append(group_pressure)
             self.plan_details(result, data, kind, period)
@@ -652,7 +658,7 @@ class AuthorReportModule(Module):
                       means: pd.DataFrame, pressure: pd.DataFrame | None, params: dict[str, Any],
                       fund_frame: pd.DataFrame) -> None:
         """Графики сезона: основной по выбранному виду и второй («Правый график»: по умолчанию фонд скважин)."""
-        daily, wells = an_charts.daily_of(whole_production(data), kind, period, node_ref(data))
+        daily, wells = an_charts.daily_of(whole_production(data), kind, period, node_ref(data), params.get('wells_source') or 'auto')
         start, stop = summary['start'], summary['stop']
         factor = data[FACTOR] if FACTOR in data else None
         rates: list[pd.DataFrame] = []                # считается один раз и только если нужен группам
