@@ -115,7 +115,7 @@ def test_review_has_reasons_split_by_repair_and_real_drop():
     assert rv['flagged'] == rv['flagged_repaired'] + rv['flagged_not_repaired'] and rv['flagged_not_repaired'] > 0     # вторая группа — кандидаты вне плана КР
     assert all('депрессия' in e['reasons'] for e in rv['entries'])
     assert rv['perf_flagged_not_repaired']['n'] > 0 and rv['perf_flagged_not_repaired']['drop_share'] is not None
-    assert rv['persistence'] is not None and 0 <= rv['persistence'] <= 1
+    assert 'persistence' not in rv                                   # «те же скважины из года в год» не цель и не показывается
 
 
 def test_search_tables_show_reasons_and_split():
@@ -148,3 +148,29 @@ def test_sweep_picks_stable_sets_not_target_share():
     assert rows and all('stability' in r for r in rows) and any(r['current'] for r in rows)
     flags = [bool(r.get('stable')) for r in rows if not r['current']]
     assert flags == sorted(flags, reverse=True)
+
+
+def test_reset_repair_restarts_observation_window_but_flush_does_not():
+    import pandas as pd
+    from atlas import well_backtest as bt
+    card = {'seasons': [{'kind': 'withdrawal', 'period': '2022-2023', 'end': '30.04.2023', 'mean_rate': 100.0},
+                        {'kind': 'withdrawal', 'period': '2023-2024', 'end': '30.04.2024', 'mean_rate': 60.0}]}
+    filt, flush = [{'year': 2023, 'type': 'Замена фильтра'}], [{'year': 2023, 'type': 'Промывка колтюбингом'}]
+    assert bt.reset_years(filt) == [2023] and bt.reset_years(flush) == []
+    cut = pd.Timestamp(2023, 12, 1)
+    assert bt.perf_change(card, cut, bt.reset_years(filt))['reset'] is True          # до и после замены фильтра вслепую не сравниваем
+    assert bt.perf_change(card, cut, bt.reset_years(flush))['reset'] is False        # промывка признаки не сбрасывает
+    kw = dict(bottoms=None, filter_bottom_m=None, pressure=None, limit=None)
+    for works, expect in ((filt, 0), (flush, 1)):
+        f: dict = {}
+        bt.evidence_at({**card, 'elpro': [{'period': '2022-2023', 'verdict': 'внимание', 'reason': 'x', 'high_share': 80.0, 'eff_change': None}]},
+                       pd.Timestamp(2024, 1, 1), works=works, features=f, **kw)
+        assert ('elpro' in f) == bool(expect)                                           # сезон до замены фильтра в уликах не участвует
+
+
+def test_review_skips_perf_across_reset_repair():
+    prep = {2024: [{'well': '1', 'rep': False, 'lv': {'bottom_fill': 2, 'sand': 0, 'gdi_old': 0}, 'dep': None, 'el': None, 'perf': {'change': -40.0, 'reset': True}},
+                   {'well': '2', 'rep': False, 'lv': {'bottom_fill': 2, 'sand': 0, 'gdi_old': 0}, 'dep': None, 'el': None, 'perf': {'change': -20.0, 'reset': False}}]}
+    v = {**ws.variants()[0], 'dep_on': False, 'el_on': False, 'weak': 1.0, 'mults': {}}
+    rv = ws.review(v, prep, [2024])
+    assert rv['perf_flagged_not_repaired']['n'] == 1 and rv['perf_reset_skipped'] == 1

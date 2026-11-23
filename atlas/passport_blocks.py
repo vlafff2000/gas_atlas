@@ -366,14 +366,14 @@ def search_tables(result: dict[str, Any]) -> list[Table]:
         return '' if not p.get('n') else f"{pct(p['drop_share'])} (у {p['n']})"
 
     frame = pd.DataFrame({'text': [r['text'] + ('  ← сейчас' if r['current'] else '') for r in rows],
-                          'stab': [pct(r.get('stability')) for r in rows], 'persist': [pct((r.get('review') or {}).get('persistence')) for r in rows],
+                          'stab': [pct(r.get('stability')) for r in rows],
                           'flag': [pct(r['flagged']) for r in rows], 'split': [split(r) for r in rows],
                           'drop_not': [drop(r, 'perf_flagged_not_repaired') for r in rows], 'drop_rest': [drop(r, 'perf_not_flagged') for r in rows],
                           'dep': [pct(r['dep_share']) for r in rows], 'el': [pct(r['el_share']) for r in rows],
                           'fit_lift': [num(r['fit_lift']) for r in rows], 'fit_prec': [pct(r['fit_precision']) for r in rows],
                           'test_lift': [num(r['test_lift']) for r in rows], 'test_prec': [pct(r['test_precision']) for r in rows],
                           'stable': [f"{r['years_better']} из {r['years']}" for r in rows], 'worst': [num(r['worst_lift']) for r in rows]})
-    cols = [Column('text', 'Вариант критериев'), Column('stab', 'Устойчивость к сдвигу порога'), Column('persist', 'Те же скважины из года в год'),
+    cols = [Column('text', 'Вариант критериев'), Column('stab', 'Устойчивость к сдвигу порога'),
             Column('flag', 'Скважин с любой уликой'), Column('split', 'Отмечено: ремонтировались / нет (скважино-лет)'),
             Column('drop_not', 'Расход упал ≥ 10 %: отмеченные без КР'), Column('drop_rest', 'Расход упал ≥ 10 %: не отмеченные без КР'),
             Column('dep', 'Депрессия срабатывает у'), Column('el', 'ЭЛПРО срабатывает у'),

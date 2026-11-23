@@ -6,7 +6,7 @@
 Только таблица для инженера: ничего не применяется само.
 
 История КР — слабая проверка: план ремонтов ограничен ресурсами и не покрывает все проблемные скважины, поэтому скважина, отмеченная критериями и не взятая
-в КР, не считается ошибкой. Главное — явные причины отметки, устойчивость набора отмеченных скважин (к небольшому сдвигу порогов и от года к году)
+в КР, не считается ошибкой. Главное — явные причины отметки, устойчивость набора отмеченных скважин к небольшому сдвигу порогов
 и реальное падение расхода у отмеченных, в том числе у неремонтировавшихся."""
 from __future__ import annotations
 
@@ -164,25 +164,23 @@ def _stability(masks: dict[tuple, int], v: dict[str, Any]) -> float | None:
     return sum(_jaccard(mine, m) for m in near) / len(near) if near and mine is not None else None
 
 
+def _change(r: dict[str, Any]) -> float | None:
+    """Изменение расхода скважино-года; если между сезонами был ремонт со сбросом (фильтр, армирование), до и после вслепую не сравниваем."""
+    p = r.get('perf') or {}
+    return None if p.get('reset') else p.get('change')
+
+
 def review(v: dict[str, Any], prep: dict[int, list[dict[str, Any]]], years: list[int]) -> dict[str, Any]:
-    """Разбор варианта по скважинам: причины отметки, ремонтировали или нет, реальное изменение расхода, устойчивость от года к году.
+    """Разбор варианта по скважинам: причины отметки, ремонтировали или нет, реальное изменение расхода, сравнение с неотмеченными.
 
     Реальное падение — средний расход первого сезона отбора после 1 января года против последнего до него (индикатор, не замер продуктивности)."""
-    entries, flagged_by_year = [], {}
+    entries = []
     for y in years:
-        flagged_by_year[y] = set()
         for r in prep[y]:
             s, _, _ = _row(v, r)
             if s > 0:
-                flagged_by_year[y].add(r['well'])
-                ch = (r.get('perf') or {}).get('change')
+                ch = _change(r)
                 entries.append({'year': y, 'well': r['well'], 'repaired': r['rep'], 'reasons': '; '.join(reasons(v, r)), 'perf': None if ch is None else round(ch, 1)})
-    persist = []
-    for a, b in zip(years, years[1:]):
-        both = {r['well'] for r in prep[a]} & {r['well'] for r in prep[b]}
-        now = flagged_by_year[b] & both
-        if now:
-            persist.append(len(now & flagged_by_year[a]) / len(now))
     every = {(y, r['well']): r for y in years for r in prep[y]}
 
     def perf_part(items: list[float | None]) -> dict[str, Any]:
@@ -193,10 +191,10 @@ def review(v: dict[str, Any], prep: dict[int, list[dict[str, Any]]], years: list
     rep_total = sum(r['rep'] for r in every.values())
     fl_rep = [e for e in entries if e['repaired']]
     fl_not = [e for e in entries if not e['repaired']]
-    other = [(r.get('perf') or {}).get('change') for k, r in every.items() if k not in fl and not r['rep']]
+    other = [_change(r) for k, r in every.items() if k not in fl and not r['rep']]
     shown = sorted(entries, key=lambda e: (-e['year'], e['repaired'], e['well']))[:MAX_WELLS]
     return {'flagged': len(entries), 'flagged_repaired': len(fl_rep), 'flagged_not_repaired': len(fl_not), 'repaired': rep_total, 'missed_repaired': rep_total - len(fl_rep),
-            'persistence': sum(persist) / len(persist) if persist else None,
+            'perf_reset_skipped': sum(1 for r in every.values() if (r.get('perf') or {}).get('reset')),
             'perf_flagged_not_repaired': perf_part([e['perf'] for e in fl_not]), 'perf_flagged_repaired': perf_part([e['perf'] for e in fl_rep]),
             'perf_not_flagged': perf_part(other), 'entries': shown, 'entries_total': len(entries)}
 
