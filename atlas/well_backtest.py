@@ -103,7 +103,10 @@ def evidence_at(card: dict[str, Any], cut: pd.Timestamp, *, works: list[dict[str
             features['dep'] = {'limit': limit, 'deps': [p['dep'] for p in last_dep['points']]}
         last_el = next((r for r in reversed(elpro) if r.get('verdict') in ('норма', 'внимание')), None)
         if last_el:
-            features['elpro'] = {'high_share': last_el.get('high_share'), 'eff_change': last_el.get('eff_change')}
+            ok = [r for r in elpro if r.get('verdict') in ('норма', 'внимание')]
+            before = ok[ok.index(last_el) - 1]['period'] if ok.index(last_el) > 0 else None
+            features['elpro'] = {'high_share': last_el.get('high_share'), 'eff_change': last_el.get('eff_change'), 'period': str(last_el['period']),
+                                 'prev_period': None if before is None else str(before)}
     past = [w for w in works if w.get('year') is not None and w['year'] < cut.year]
     bottom_m = bottom_date = row = None
     if bottoms is not None and not bottoms.empty:
@@ -160,9 +163,40 @@ def by_mechanism(years: list[dict[str, Any]], evidence: dict[int, dict[str, list
     return rows
 
 
+GROUP_MIN = 3          # скважин группы с данными, начиная с которых считается медиана группы
+
+
+def _span(card: dict[str, Any], period: str | None) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    for s in card.get('seasons', []):
+        if s.get('kind') == 'withdrawal' and str(s.get('period')) == period and s.get('start') and s.get('end'):
+            return pd.Timestamp(s['start']).normalize(), _day(s['end'])      # начало сезона в карточке — ISO, конец — дд.мм.гггг
+    return None, None
+
+
+def add_system_context(cards: dict[str, dict[str, Any]], feats: dict[str, dict[str, Any]], line: pd.Series | None) -> None:
+    """К показателям ЭЛПРО скважин одного года: отставание изменения «расхода на 1 % КРУ» от медианы группы (``eff_gap``, п.п.)
+    и сдвиг среднего давления магистрали между последним и прошлым сезоном (``line_dp``, кгс/см²). Нет данных — None, не ноль."""
+    from atlas import line_pressure
+    by_group: dict[str, list[float]] = {}
+    for w, f in feats.items():
+        e = f.get('elpro')
+        if e and e.get('eff_change') is not None:
+            by_group.setdefault(str(cards[w].get('group') or ''), []).append(e['eff_change'])
+    med = {g: float(pd.Series(v).median()) for g, v in by_group.items() if g and len(v) >= GROUP_MIN}
+    for w, f in feats.items():
+        e = f.get('elpro')
+        if not e:
+            continue
+        g = str(cards[w].get('group') or '')
+        e['eff_gap'] = e['eff_change'] - med[g] if e.get('eff_change') is not None and g in med else None
+        now = line_pressure.season_mean(line, *_span(cards[w], e.get('period')))
+        was = line_pressure.season_mean(line, *_span(cards[w], e.get('prev_period')))
+        e['line_dp'] = None if now is None or was is None else now - was
+
+
 def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]], bottoms: dict[str, pd.DataFrame], filters: dict[str, float | None],
         pressure: pd.DataFrame | None, years: list[int], thresholds: dict[str, float] | None = None, weights: dict[str, float] | None = None,
-        keep: dict[str, Any] | None = None, horizon: int = 1) -> dict[str, Any]:
+        keep: dict[str, Any] | None = None, horizon: int = 1, line: pd.Series | None = None) -> dict[str, Any]:
     """Проверка по всем скважинам и годам. ``cards`` — карточки паспорта (все сезоны), ``works`` — КР по скважинам, ``thresholds`` — применённые пороги."""
     th = {**passport_assess.thresholds_of(None), **(thresholds or {})}
     feats: dict[int, dict[str, dict[str, Any]]] = {}
@@ -179,6 +213,7 @@ def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]]
             evidence[year][well] = evidence_at(card, cut, works=works.get(well, []), bottoms=bottoms.get(well), filter_bottom_m=filter_at(filters.get(well), cut),
                                                pressure=pressure, limit=(card.get('depression') or {}).get('limit'), features=feats[year][well],
                                                dep_min_dates=th['dep_min_dates'])
+        add_system_context(cards, feats[year], line)
         fact[year] = repaired_wells(works, year, horizon)
         out_years.append(check_year(year, evidence[year], fact[year], weights))
     notes = [f'Проверка на истории: улики собраны только по данным до 1 января года; ремонт считается, если он был в течение {horizon} календарных лет, начиная с года проверки; конструкция берётся на дату; приоритет КР по ревизиям КРУ восстановлен на дату по сезонам с песком и ремонтам.']

@@ -87,8 +87,11 @@ export const passportApi = {
   backtest: async (project: string, years: number[], horizon = 1) =>
     (await send(`/api/projects/${project}/passport/backtest`, post({ years, horizon }))).json() as Promise<{ years: unknown[]; mechanisms: unknown[]; tables: Table[]; notes: string[]; sweep?: Sweep }>,
   /** Автоперебор критериев вывода в КРС: запуск фонового задания, опрос прогресса, прерывание. */
-  search: async (project: string, action: 'start' | 'status' | 'cancel', horizon = 1) =>
-    (await send(`/api/projects/${project}/passport/search`, post({ action, horizon }))).json() as Promise<SearchJob>,
+  search: async (project: string, action: 'start' | 'status' | 'cancel', horizon = 1, lineSeries?: string, system = true) =>
+    (await send(`/api/projects/${project}/passport/search`, post({ action, horizon, line_series: lineSeries, system }))).json() as Promise<SearchJob>,
+  /** Ряды давления магистрали в «БД по учету газа» проекта (для поправки на систему сбора). */
+  lineSeries: async (project: string) =>
+    (await send(`/api/projects/${project}/passport/line_series`, post({}))).json() as Promise<{ options: { key: string; label: string }[]; default: string }>,
   /** Таблица «механизм → операция»: правки по уровням (strong/weak) или сброс к умолчаниям. */
   saveOperations: async (project: string, operations: Record<string, { strong?: string; weak?: string }> | null, revision?: number) =>
     (await send(`/api/projects/${project}/passport/operations`, post(operations ? { operations, revision } : { reset: true, revision }))).json() as Promise<Project>,

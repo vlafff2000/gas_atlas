@@ -175,3 +175,30 @@ def test_review_skips_perf_across_reset_repair():
     v = {**ws.variants()[0], 'dep_on': False, 'el_on': False, 'weak': 1.0, 'mults': {}}
     rv = ws.review(v, prep, [2024])
     assert rv['perf_flagged_not_repaired']['n'] == 1 and rv['perf_reset_skipped'] == 1
+
+
+def test_system_filter_counts_efficiency_drop_only_when_well_is_worse_than_group_and_line_is_steady():
+    base = {'high_share': 0.0, 'eff_change': -25.0}
+    assert ws._el_level({**base, 'eff_gap': -3.0, 'line_dp': 0.2}, 30, -15, system=True) == 0       # падает вся группа: система сбора
+    assert ws._el_level({**base, 'eff_gap': -15.0, 'line_dp': 4.0}, 30, -15, system=True) == 0      # магистраль сдвинулась на 4 кгс/см²
+    assert ws._el_level({**base, 'eff_gap': -15.0, 'line_dp': 0.5}, 30, -15, system=True) == 2      # хуже группы при ровной магистрали
+    assert ws._el_level({**base, 'eff_gap': -15.0, 'line_dp': None}, 30, -15, system=True) == 2     # нет ряда давления: только группа
+    assert ws._el_level({**base, 'eff_gap': None, 'line_dp': 0.0}, 30, -15, system=True) == 0       # нет группы: не доказано
+    assert ws._el_level({**base, 'eff_gap': -3.0, 'line_dp': 0.2}, 30, -15, system=False) == 2      # поправка выключена
+
+
+def test_add_system_context_gap_to_group_median_and_line_shift():
+    import pandas as pd
+    from atlas import well_backtest as bt
+    seasons = lambda: [{'kind': 'withdrawal', 'period': '2022-2023', 'start': '2022-11-01', 'end': '30.03.2023'},
+                       {'kind': 'withdrawal', 'period': '2023-2024', 'start': '2023-11-01', 'end': '30.03.2024'}]
+    cards = {w: {'group': 'ГСП-1', 'seasons': seasons()} for w in ('1', '2', '3')} | {'4': {'group': 'ГСП-2', 'seasons': seasons()}}
+    feats = {w: {'elpro': {'eff_change': c, 'period': '2023-2024', 'prev_period': '2022-2023'}} for w, c in (('1', -30.0), ('2', -5.0), ('3', -5.0), ('4', -30.0))}
+    idx = pd.date_range('2022-11-01', '2024-03-30')
+    line = pd.Series([50.0 if d < pd.Timestamp('2023-11-01') else 47.0 for d in idx], index=idx)
+    bt.add_system_context(cards, feats, line)
+    assert feats['1']['elpro']['eff_gap'] == -25.0 and feats['2']['elpro']['eff_gap'] == 0.0     # медиана группы ГСП-1 = -5
+    assert feats['4']['elpro']['eff_gap'] is None                                                # в группе меньше 3 скважин
+    assert abs(feats['1']['elpro']['line_dp'] + 3.0) < 1e-9
+    bt.add_system_context(cards, feats, None)
+    assert feats['1']['elpro']['line_dp'] is None

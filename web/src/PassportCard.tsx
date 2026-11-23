@@ -77,13 +77,19 @@ function Backtest({ project, revision, onProject }: { project: string; revision?
 function AutoSearch({ project, revision, onProject }: { project: string; revision?: number; onProject?: (p: Project) => void }) {
   const [job, setJob] = useState<SearchJob>({ state: 'idle' })
   const [horizon, setHorizon] = useState(1)
+  const [system, setSystem] = useState(true)
+  const [line, setLine] = useState('')
+  const [lines, setLines] = useState<{ key: string; label: string }[]>([])
   const [error, setError] = useState('')
+  useEffect(() => {
+    passportApi.lineSeries(project).then(r => { setLines(r.options); setLine(l => l || (r.options.some(o => o.key === r.default) ? r.default : r.options[0]?.key ?? '')) }).catch(() => undefined)
+  }, [project])
   useEffect(() => {
     if (job.state !== 'running') return
     const t = setInterval(() => passportApi.search(project, 'status').then(setJob).catch(e => setError((e as Error).message)), 1000)
     return () => clearInterval(t)
   }, [job.state, project])
-  const act = (a: 'start' | 'cancel') => { setError(''); passportApi.search(project, a, horizon).then(setJob).catch(e => setError((e as Error).message)) }
+  const act = (a: 'start' | 'cancel') => { setError(''); passportApi.search(project, a, horizon, line || undefined, system).then(setJob).catch(e => setError((e as Error).message)) }
   const apply = (r: SearchRow) => passportApi.saveThresholds(project, { variant: r.variant }, revision).then(p => onProject?.(p)).catch(e => setError((e as Error).message))
   const res = job.result
   return (
@@ -92,7 +98,12 @@ function AutoSearch({ project, revision, onProject }: { project: string; revisio
       <p>Один запуск прогоняет варианты порогов депрессии и ЭЛПРО, веса механизмов и слабых улик на истории КР 2022–2025. Первыми идут критерии, у которых набор отмеченных скважин устойчив к небольшому сдвигу порогов. История КР — слабая проверка (план ремонтов ограничен ресурсами и не покрывает все проблемные скважины); последний год служит проверкой от подгонки. Для лучшего варианта и текущих критериев ниже видны причины отметки, деление на ремонтировавшиеся и нет и изменение расхода. Ничего не применяется само.</p>
       {job.state === 'running'
         ? <p>{job.stage}{job.total ? `: ${job.done} из ${job.total}` : '…'} <button type="button" onClick={() => act('cancel')}>Прервать</button></p>
-        : <><label>Ремонт в течение{' '}<select value={horizon} onChange={e => setHorizon(Number(e.target.value))}>{[1, 2, 3].map(h => <option key={h} value={h}>{h} {h === 1 ? 'года' : 'лет'}</option>)}</select></label>{' '}<button type="button" onClick={() => act('start')}>{job.state === 'idle' ? 'Запустить перебор' : 'Запустить заново'}</button></>}
+        : <><label>Ремонт в течение{' '}<select value={horizon} onChange={e => setHorizon(Number(e.target.value))}>{[1, 2, 3].map(h => <option key={h} value={h}>{h} {h === 1 ? 'года' : 'лет'}</option>)}</select></label>{' '}
+          <label title="Падение расхода на 1 % КРУ засчитывается скважине, только если она хуже медианы группы и давление магистрали между сезонами почти не менялось"><input type="checkbox" checked={system} onChange={e => setSystem(e.target.checked)} /> Поправка на систему сбора</label>{' '}
+          {system && (lines.length
+            ? <label>Давление магистрали{' '}<select value={line} onChange={e => setLine(e.target.value)}>{lines.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}</select></label>
+            : <span>Нет давления магистрали в БД по учету газа: сравнение только с группой.</span>)}{' '}
+          <button type="button" onClick={() => act('start')}>{job.state === 'idle' ? 'Запустить перебор' : 'Запустить заново'}</button></>}
       {error && <p className="error">{error}</p>}
       {job.state === 'error' && <p className="error">{job.error}</p>}
       {job.state === 'canceled' && !res && <p>Прервано.</p>}
