@@ -29,6 +29,39 @@ def repaired_wells(works: dict[str, list[dict[str, Any]]], year: int, horizon: i
             if r.get('year') is not None and year <= r['year'] < year + max(1, horizon) and 'ТР' not in str(r.get('type') or '').upper().split()}
 
 
+PERF_DROP = -10.0           # падение среднего расхода сезона отбора, %, начиная с которого продуктивность считается реально упавшей
+
+
+def _season_rate(card: dict[str, Any], pick) -> tuple[pd.Timestamp, float] | None:
+    rows = [(d, float(s['mean_rate'])) for s in card.get('seasons', []) if s.get('kind') == 'withdrawal' and s.get('mean_rate') is not None
+            for d in [_day(s.get('end'))] if d is not None]
+    rows = pick(sorted(rows))
+    return rows[0] if rows else None
+
+
+def perf_change(card: dict[str, Any], cut: pd.Timestamp) -> dict[str, float] | None:
+    """Реальное изменение продуктивности: средний расход первого сезона отбора после даты против последнего до неё, %.
+    Индикатор для проверки отметки (на расход влияют режим и давление), не замер продуктивности: решает инженер."""
+    prev = _season_rate(card, lambda r: [x for x in r if x[0] < cut][-1:])
+    nxt = _season_rate(card, lambda r: [x for x in r if cut <= x[0] < cut + pd.Timedelta(days=500)][:1])
+    if not prev or not nxt or prev[1] <= 0:
+        return None
+    return {'prev': prev[1], 'next': nxt[1], 'change': (nxt[1] / prev[1] - 1) * 100}
+
+
+def perf_last(card: dict[str, Any]) -> float | None:
+    """Изменение среднего расхода двух последних сезонов отбора, % (для сводки по фонду на сегодня)."""
+    rows = sorted((d, float(s['mean_rate'])) for s in card.get('seasons', []) if s.get('kind') == 'withdrawal' and s.get('mean_rate') is not None
+                  for d in [_day(s.get('end'))] if d is not None)
+    return (rows[-1][1] / rows[-2][1] - 1) * 100 if len(rows) >= 2 and rows[-2][1] > 0 else None
+
+
+def last_kr(card: dict[str, Any]) -> int | None:
+    """Год последнего капитального ремонта (текущий ремонт «ТР» не считается)."""
+    years = [w['year'] for w in (card.get('krs') or {}).get('works', []) if w.get('year') is not None and 'ТР' not in str(w.get('type') or '').upper().split()]
+    return max(years) if years else None
+
+
 def filter_at(value: Any, cut: pd.Timestamp) -> float | None:
     """Низ фильтра/перфорации на дату: число (одна конструкция) или список (дата, низ) — берётся последняя конструкция до даты."""
     if not isinstance(value, list):
@@ -129,7 +162,7 @@ def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]]
         for well, card in cards.items():
             if not any((_day(s.get('end')) or cut) < cut for s in card.get('seasons', [])):
                 continue          # до этой даты по скважине нет ни одного сезона
-            feats[year][well] = {}
+            feats[year][well] = {'perf': perf_change(card, cut)}
             evidence[year][well] = evidence_at(card, cut, works=works.get(well, []), bottoms=bottoms.get(well), filter_bottom_m=filter_at(filters.get(well), cut),
                                                pressure=pressure, limit=(card.get('depression') or {}).get('limit'), features=feats[year][well],
                                                dep_min_dates=th['dep_min_dates'])
@@ -148,7 +181,8 @@ DEP_DATES = (1, 2, 3, 5, 8)                    # порог: сколько да
 DEP_FACTORS = (0.6, 0.8, 1.0, 1.2, 1.5)         # предел депрессии, умноженный на этот коэффициент
 EL_SHARE = (20.0, 30.0, 40.0, 50.0, 60.0, 70.0)   # доля суток сезона с КРУ ≥ 90 %, при которой сезон помечается
 EL_DROP = (-10.0, -15.0, -20.0, -30.0, -40.0)     # падение расхода на 1 % КРУ к прошлому сезону, %
-TARGET = (0.05, 0.10)                           # желаемая доля скважино-лет, у которых механизм срабатывает
+TARGET = (0.05, 0.10)                           # только справочно: в выборе и порядке наборов не участвует
+STABLE = 0.8                                    # перекрытие с соседними наборами, с которого набор считается устойчивым
 
 
 def _grid_row(mechanism: str, label: str, params: dict[str, float], flags: list[tuple[bool, bool]], current: bool) -> dict[str, Any]:
@@ -166,35 +200,50 @@ def _grid_row(mechanism: str, label: str, params: dict[str, float], flags: list[
 
 
 def sweep(feats: dict[int, dict[str, dict[str, Any]]], fact: dict[int, set[str]], current: dict[str, float]) -> dict[str, list[dict[str, Any]]]:
-    """Перебор порогов депрессии и ЭЛПРО на истории: при каких значениях механизм срабатывает у 5–10 % скважино-лет и как он отличает ушедших в КР.
+    """Перебор порогов депрессии и ЭЛПРО на истории: насколько устойчив набор отмеченных и как механизм отличает ушедших в КР.
 
     Только таблица для инженера: пороги никуда не применяются сами, применяет их инженер кнопкой."""
     dep_units = [(f['dep'], w in fact[y]) for y, wells in feats.items() for w, f in wells.items() if f.get('dep') and f['dep'].get('limit')]
     el_units = [(f['elpro'], w in fact[y]) for y, wells in feats.items() for w, f in wells.items()
                 if f.get('elpro') and f['elpro'].get('high_share') is not None]
-    dep_rows = []
+    dep_rows, dep_pos = [], {}
     for k in DEP_DATES:
         for factor in DEP_FACTORS:
             flags = [(sum(d > factor * u['limit'] for d in u['deps']) >= k, rep) for u, rep in dep_units]
+            dep_pos[len(dep_rows)] = (DEP_DATES.index(k), DEP_FACTORS.index(factor), _mask(flags))
             dep_rows.append(_grid_row('depression', f'от {k} дат выше предела × {factor:g}', {'dep_min_dates': float(k), 'dep_factor': factor}, flags,
                                       k == current['dep_min_dates'] and factor == 1.0))
-    el_rows = []
+    el_rows, el_pos = [], {}
     for share in EL_SHARE:
         for drop in EL_DROP:
             flags = [(u['high_share'] >= share or (u.get('eff_change') is not None and u['eff_change'] <= drop), rep) for u, rep in el_units]
+            el_pos[len(el_rows)] = (EL_SHARE.index(share), EL_DROP.index(drop), _mask(flags))
             el_rows.append(_grid_row('throttle', f'КРУ ≥ 90 % в {share:g} % суток или расход на 1 % КРУ {drop:g} %', {'elpro_high_share': share, 'elpro_drop': drop},
                                      flags, share == current['elpro_high_share'] and drop == current['elpro_drop']))
+    _stability(dep_rows, dep_pos)
+    _stability(el_rows, el_pos)
     return {'depression': _pick(dep_rows), 'throttle': _pick(el_rows)}
 
 
+def _mask(flags: list[tuple[bool, bool]]) -> int:
+    return int(''.join('1' if h else '0' for h, _ in flags) or '0', 2)
+
+
+def _stability(rows: list[dict[str, Any]], pos: dict[int, tuple[int, int, int]]) -> None:
+    """Устойчивость набора: перекрытие отмеченных скважино-лет с соседними по сетке порогами (шаг одного порога). 1 — набор не меняется."""
+    at = {(a, b): (i, m) for i, (a, b, m) in pos.items()}
+    for i, (a, b, m) in pos.items():
+        near = [at[k][1] for k in ((a - 1, b), (a + 1, b), (a, b - 1), (a, b + 1)) if k in at]
+        vals = [1.0 if not (m | n) else (m & n).bit_count() / (m | n).bit_count() for n in near]
+        rows[i]['stability'] = sum(vals) / len(vals) if vals else None
+        rows[i]['stable'] = rows[i]['stability'] is not None and rows[i]['stability'] >= STABLE
+
+
 def _pick(rows: list[dict[str, Any]], top: int = 6) -> list[dict[str, Any]]:
-    """Что показать: наборы с долей срабатывания 5–10 % по убыванию «во сколько раз чаще у ушедших в КР» и обязательно текущий набор."""
-    good = sorted((r for r in rows if r['in_target']), key=lambda r: (-(r['lift'] or 0), r['label']))[:top]
-    cur = [r for r in rows if r['current'] and r not in good]
-    if not good:       # нет наборов в целевой доле: показываем ближайшие по доле срабатывания
-        mid = sum(TARGET) / 2
-        good = sorted((r for r in rows if r['share_all'] is not None), key=lambda r: abs(r['share_all'] - mid))[:top]
-    return good + [r for r in cur if r not in good]
+    """Что показать: устойчивые к сдвигу порога наборы по убыванию «во сколько раз чаще у ушедших в КР» и обязательно текущий набор.
+    Доля срабатывания (5–10 %) в выборе не участвует. Историю КР учитываем как слабую проверку: план ремонтов ограничен ресурсами."""
+    good = sorted((r for r in rows if r['n'] and r['flagged']), key=lambda r: (not r.get('stable'), -(r['lift'] or 0), r['label']))[:top]
+    return good + [r for r in rows if r['current'] and r not in good]
 
 
 def _points(level: str, weights: dict[str, float] | None) -> float:
@@ -208,7 +257,8 @@ def candidates(cards: dict[str, dict[str, Any]], weights: dict[str, float] | Non
     for well, card in cards.items():
         shown = card.get('assess') or []
         main = [r for r in shown if r['level'] in POINTS]
-        out.append({'well': well, 'group': card.get('group', ''), 'score': sum(_points(r['level'], weights) * r['weight'] * (weights or {}).get(r.get('mechanism'), 1.0) for r in main), 'manual': any(r['manual'] for r in shown),
+        kr, perf = last_kr(card), perf_last(card)
+        out.append({'well': well, 'group': card.get('group', ''), 'last_kr': kr, 'perf': perf, 'score': sum(_points(r['level'], weights) * r['weight'] * (weights or {}).get(r.get('mechanism'), 1.0) for r in main), 'manual': any(r['manual'] for r in shown),
                     'mechanisms': '; '.join(f"{r['name']} ({passport_assess.LEVEL_NAMES[r['level']]})" for r in main),
                     'recommendation': '; '.join(dict.fromkeys(r['recommendation'] for r in main if r['recommendation']))})
     return sorted(out, key=lambda r: (-r['score'], r['well']))

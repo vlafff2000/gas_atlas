@@ -226,15 +226,19 @@ def fund_tables(rows: list[dict[str, Any]]) -> list[Table]:
         return []
     frame = pd.DataFrame({'well': [r['well'] for r in shown], 'group': [r['group'] for r in shown], 'score': [round(r['score'], 1) for r in shown],
                           'mechanisms': [r['mechanisms'] for r in shown], 'recommendation': [r['recommendation'] for r in shown],
+                          'last_kr': [('КР ' + str(r['last_kr'])) if r.get('last_kr') else 'КР не было' for r in shown],
+                          'perf': [None if r.get('perf') is None else round(r['perf']) for r in shown],
                           'who': ['решение инженера' if r['manual'] else 'авто' for r in shown]})
     return [Table('passport-fund', 'Кандидаты в КРС по фонду (подсказка)', frame, [
-        Column('well', 'Скважина'), Column('group', 'Группа'), Column('score', 'Сумма улик'), Column('mechanisms', 'Механизмы'),
-        Column('recommendation', 'Что делать (подсказка)'), Column('who', 'Кто решил')],
-        note='Сильная улика = 2 балла, слабая = 1, с весом свежести. Это подсказка для отбора: решает инженер, его решения по механизмам учтены.')]
+        Column('well', 'Скважина'), Column('group', 'Группа'), Column('score', 'Сумма улик'), Column('mechanisms', 'Причина отметки: механизмы'),
+        Column('recommendation', 'Что делать (подсказка)'), Column('last_kr', 'Ремонтировали'),
+        Column('perf', 'Средний расход, последний сезон к предыдущему', '%', 0, 'number'), Column('who', 'Кто решил')],
+        note='Сильная улика = 2 балла, слабая = 1, с весом свежести. Это подсказка для отбора: решает инженер, его решения по механизмам учтены. '
+             'Скважины без КР — кандидаты, которых план ремонтов мог не покрыть (план ограничен ресурсами). Падение среднего расхода — индикатор, на расход влияют режим и давление.')]
 
 
 def sweep_tables(sweep: dict[str, list[dict[str, Any]]]) -> list[Table]:
-    """Перебор порогов на истории: наборы, при которых механизм срабатывает у 5–10 % скважино-лет, и текущий набор (общая таблица ядра)."""
+    """Перебор порогов на истории: устойчивые наборы и текущий набор (общая таблица ядра)."""
     pct = lambda v: '' if v is None else f'{v * 100:.0f} %'
     out = []
     for key, title in (('depression', 'Перебор порогов: превышение предельной депрессии'), ('throttle', 'Перебор порогов: ограничение устья / КРУ')):
@@ -244,11 +248,11 @@ def sweep_tables(sweep: dict[str, list[dict[str, Any]]]) -> list[Table]:
         frame = pd.DataFrame({'label': [r['label'] + ('  ← сейчас' if r['current'] else '') for r in rows], 'n': [r['n'] for r in rows],
                               'all': [pct(r['share_all']) for r in rows], 'rep': [pct(r['share_repaired']) for r in rows], 'oth': [pct(r['share_other']) for r in rows],
                               'lift': ['' if r['lift'] is None else f"{r['lift']:.1f}" for r in rows], 'prec': [pct(r['precision']) for r in rows],
-                              'zone': ['5–10 %' if r['in_target'] else 'вне 5–10 %' for r in rows]})
+                              'stab': [pct(r.get('stability')) for r in rows]})
         out.append(Table(f'passport-sweep-{key}', title, frame, [
-            Column('label', 'Пороги'), Column('n', 'Скважино-лет с данными'), Column('all', 'Срабатывает у'), Column('zone', 'Доля срабатывания'),
+            Column('label', 'Пороги'), Column('n', 'Скважино-лет с данными'), Column('all', 'Срабатывает у'), Column('stab', 'Устойчивость к сдвигу порога'),
             Column('rep', 'У ушедших в КР'), Column('oth', 'У остальных'), Column('lift', 'Во сколько раз чаще у ушедших в КР'), Column('prec', 'Точность среди сработавших')],
-            note='Цель — механизм срабатывает у 5–10 % скважино-лет и заметно чаще у ушедших в КР. Показаны лучшие наборы по этому признаку и текущий. '
+            note='Первыми идут наборы, устойчивые к сдвигу порога на шаг, затем те, где механизм заметно чаще у ушедших в КР (история КР — слабая проверка: план ремонтов ограничен ресурсами). Показаны лучшие наборы и текущий. '
                  'Пороги применяются только вручную кнопкой под таблицами. Выборка мала: смотрите как подсказку.'))
     return out
 
@@ -344,24 +348,51 @@ def blocks(card: dict[str, Any]) -> tuple[list[Chart], list[Table]]:
 
 
 def search_tables(result: dict[str, Any]) -> list[Table]:
-    """Итог автоперебора критериев: лучшие варианты и текущий набор, подбор и проверка на отложенном годе (общая таблица ядра)."""
+    """Итог автоперебора критериев вывода в КРС (общая таблица ядра): устойчивость, деление отмеченных на ремонтировавшиеся и нет, реальное падение расхода,
+    история КР (слабая проверка); по лучшему варианту и текущим критериям — отмеченные скважины с причинами."""
     rows = result.get('rows') or []
     if not rows:
         return []
     pct = lambda v: '' if v is None else f'{v * 100:.0f} %'
     num = lambda v: '' if v is None else f'{v:.1f}'
     fit, test = result.get('fit_years') or [], result.get('test_years') or []
+
+    def split(r):
+        rv = r.get('review')
+        return f"{rv['flagged_repaired']} / {rv['flagged_not_repaired']}" if rv else ''
+
+    def drop(r, key):
+        p = (r.get('review') or {}).get(key) or {}
+        return '' if not p.get('n') else f"{pct(p['drop_share'])} (у {p['n']})"
+
     frame = pd.DataFrame({'text': [r['text'] + ('  ← сейчас' if r['current'] else '') for r in rows],
+                          'stab': [pct(r.get('stability')) for r in rows], 'persist': [pct((r.get('review') or {}).get('persistence')) for r in rows],
+                          'flag': [pct(r['flagged']) for r in rows], 'split': [split(r) for r in rows],
+                          'drop_not': [drop(r, 'perf_flagged_not_repaired') for r in rows], 'drop_rest': [drop(r, 'perf_not_flagged') for r in rows],
+                          'dep': [pct(r['dep_share']) for r in rows], 'el': [pct(r['el_share']) for r in rows],
                           'fit_lift': [num(r['fit_lift']) for r in rows], 'fit_prec': [pct(r['fit_precision']) for r in rows],
                           'test_lift': [num(r['test_lift']) for r in rows], 'test_prec': [pct(r['test_precision']) for r in rows],
-                          'dep': [pct(r['dep_share']) for r in rows], 'el': [pct(r['el_share']) for r in rows], 'flag': [pct(r['flagged']) for r in rows],
-                          'stable': [f"{r['years_better']} из {r['years']}" for r in rows], 'worst': [num(r['worst_lift']) for r in rows],
-                          'zone': ['5–10 %' if r['in_target'] else 'вне 5–10 %' for r in rows]})
-    fit_t = ', '.join(map(str, fit))
-    cols = [Column('text', 'Вариант критериев'), Column('fit_lift', f'Лучше случайного, подбор ({fit_t})'), Column('fit_prec', 'Точность, подбор')]
+                          'stable': [f"{r['years_better']} из {r['years']}" for r in rows], 'worst': [num(r['worst_lift']) for r in rows]})
+    cols = [Column('text', 'Вариант критериев'), Column('stab', 'Устойчивость к сдвигу порога'), Column('persist', 'Те же скважины из года в год'),
+            Column('flag', 'Скважин с любой уликой'), Column('split', 'Отмечено: ремонтировались / нет (скважино-лет)'),
+            Column('drop_not', 'Расход упал ≥ 10 %: отмеченные без КР'), Column('drop_rest', 'Расход упал ≥ 10 %: не отмеченные без КР'),
+            Column('dep', 'Депрессия срабатывает у'), Column('el', 'ЭЛПРО срабатывает у'),
+            Column('fit_lift', f'История КР, лучше случайного, подбор ({", ".join(map(str, fit))})'), Column('fit_prec', 'История КР, точность, подбор')]
     if test:
-        cols += [Column('test_lift', f'Лучше случайного, проверка ({", ".join(map(str, test))})'), Column('test_prec', 'Точность, проверка')]
-    cols += [Column('dep', 'Депрессия срабатывает у'), Column('el', 'ЭЛПРО срабатывает у'), Column('zone', 'Доля срабатывания'), Column('flag', 'Скважин с любой уликой'),
-             Column('stable', 'Лет лучше случайного'), Column('worst', 'Худший год, во сколько раз')]
-    return [Table('passport-search', f'Автоперебор критериев вывода в КРС (перебрано вариантов: {result.get("tried", 0)})', frame, cols,
-                  note=' '.join(result.get('notes') or []))]
+        cols += [Column('test_lift', f'История КР, лучше случайного, проверка ({", ".join(map(str, test))})'), Column('test_prec', 'История КР, точность, проверка')]
+    cols += [Column('stable', 'История КР: лет лучше случайного'), Column('worst', 'История КР: худший год, во сколько раз')]
+    out = [Table('passport-search', f'Автоперебор критериев вывода в КРС (перебрано вариантов: {result.get("tried", 0)})', frame, cols,
+                 note=' '.join(result.get('notes') or []))]
+    shown = [(r, 'сейчас' if r['current'] else 'лучший вариант') for r in rows if (r.get('review') or {}).get('entries')]
+    if shown:
+        items = [(label, r['review']['entries'], r['review']) for r, label in shown]
+        flat = [(label, e) for label, entries, _ in items for e in entries]
+        wells = pd.DataFrame({'variant': [x[0] for x in flat], 'year': [x[1]['year'] for x in flat], 'well': [x[1]['well'] for x in flat],
+                              'reasons': [x[1]['reasons'] for x in flat], 'kr': ['ремонтировали' if x[1]['repaired'] else 'без КР' for x in flat],
+                              'perf': [x[1]['perf'] for x in flat]})
+        out.append(Table('passport-search-wells', 'Отмеченные скважины: причины, ремонтировали или нет, изменение расхода', wells, [
+            Column('variant', 'Критерии'), Column('year', 'Год проверки', '', 0, 'number'), Column('well', 'Скважина'), Column('reasons', 'Причина отметки'),
+            Column('kr', 'КР в проверяемом периоде'), Column('perf', 'Средний расход сезона после даты к сезону до неё', '%', 0, 'number')],
+            note='«Без КР» — отмеченные скважины, которые не ремонтировали: кандидаты, которых план ремонтов мог не покрыть. Изменение среднего расхода — индикатор, '
+                 'на расход влияют режим и давление. Решение за инженером.'))
+    return out

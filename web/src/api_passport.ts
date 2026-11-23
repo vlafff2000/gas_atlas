@@ -114,10 +114,10 @@ export interface AssessRow { mechanism: string; name: string; auto_level: string
 export interface DepressionType { key: string; name: string; limit: number }
 export interface DepressionInfo { types: DepressionType[]; type: string | null; type_auto: string | null; limit: number | null; rows: unknown[] }
 
-export interface SweepRow { mechanism: string; label: string; params: Record<string, number>; current: boolean; n: number; share_all: number | null; lift: number | null; in_target: boolean }
+export interface SweepRow { mechanism: string; label: string; params: Record<string, number>; current: boolean; n: number; share_all: number | null; lift: number | null; in_target: boolean; stability?: number | null; stable?: boolean }
 export type Sweep = { depression?: SweepRow[]; throttle?: SweepRow[] }
 
 export interface SearchVariant { dep_on: boolean; dep_min_dates: number; dep_factor: number; el_on: boolean; elpro_high_share: number; elpro_drop: number; weak: number; mults: Record<string, number> }
-export interface SearchRow { variant: SearchVariant; text: string; current: boolean; fit_lift: number | null; test_lift: number | null; in_target: boolean }
+export interface SearchRow { variant: SearchVariant; text: string; current: boolean; fit_lift: number | null; test_lift: number | null; in_target: boolean; stability?: number | null; stable?: boolean }
 export interface SearchJob { state: 'idle' | 'running' | 'done' | 'canceled' | 'error'; stage?: string; done?: number; total?: number; error?: string
   result?: { rows: SearchRow[]; tables: Table[]; fit_years: number[]; test_years: number[]; tried: number; canceled: boolean; notes: string[] } }
