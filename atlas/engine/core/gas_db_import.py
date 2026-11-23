@@ -29,6 +29,40 @@ WELLS_LEGACY = re.compile(r'(работающих скважин|количес�
 COLUMNS = ['kind', 'date', 'gas', 'water', 'wells']
 
 
+P_MAX = 200.0       # кгс/см²: выше — опечатка записи (в файле встречается 4318), сутки без давления; 0 — тоже нет замера
+_PRESS = 'Давление газа'
+_IN, _OUT = 'Давление газа на входе КЦ, кг/см2 / ', 'Давление газа на выходе КЦ, кг/см2 / '
+# столбцы давления: ключ → (подпись, названия в файле; старые и новые выгрузки склеиваются, приоритет у первого непустого)
+PRESSURES: dict[str, tuple[str, list[str]]] = {
+    'p_gis_in': ('Давление на входе КЦ от ГИС Касимов, кгс/см²', [_IN + 'ГИС-КАСИМОВ']),
+    'p_gis': ('Давление газа, ГИС Касимов, кгс/см²', [f'{_PRESS} / ГИС Касимов', f'{_PRESS} (кг/см2) / ГИС Касимов']),
+    **{f'p_pzrg{n}': (f'Давление газа, ПЗРГ-{n}, кгс/см²', [f'{_PRESS} / ПЗРГ-{n}', f'{_PRESS} (кг/см2) / ПЗРГ-{n}']) for n in range(1, 6)},
+    **{f'p_kc{n}_in': (f'Давление на входе КЦ-{n}, кгс/см²', [f'{_IN}КЦ-{n}']) for n in range(1, 6)},
+    **{f'p_kc{n}_out': (f'Давление на выходе КЦ-{n}, кгс/см²', [f'{_OUT}КЦ-{n}']) for n in range(1, 6)},
+    'p_res_mean': ('Среднее пластовое давление, кгс/см²', ['Среднее пластовое давление, кг/см2', 'Р пл. среднее']),
+}
+
+
+def _norm(name) -> str:
+    return re.sub(r'\s+', ' ', str(name)).strip().lower()
+
+
+def pressure_columns(db: pd.DataFrame) -> dict[str, pd.Series]:
+    """Давления по суткам: склейка старых и новых названий столбца, ноль и значения выше ``P_MAX`` — нет замера (NaN). Нет столбца в файле — ключ пропускается."""
+    have = {_norm(c): c for c in db.columns}
+    out: dict[str, pd.Series] = {}
+    for key, (_, names) in PRESSURES.items():
+        merged = None
+        for n in names:
+            if _norm(n) in have:
+                v = pd.to_numeric(db[have[_norm(n)]], errors='coerce')
+                v = v.where((v > 0) & (v <= P_MAX))
+                merged = v if merged is None else merged.combine_first(v)
+        if merged is not None and merged.notna().any():
+            out[key] = merged
+    return out
+
+
 def _one(columns, part: str, canonical: str = '') -> str:
     if canonical and canonical in list(columns):
         return canonical
@@ -64,5 +98,7 @@ def build(path) -> pd.DataFrame:
         'water': pd.to_numeric(db[water_col], errors='coerce'),
         'wells': pd.to_numeric(db[wells_col], errors='coerce') if wells_col else float('nan'),
     })
+    for key, values in pressure_columns(db).items():
+        out[key] = values
     out = out[out['kind'].notna() & out['date'].notna()]
     return out.drop_duplicates(['kind', 'date'], keep='last').sort_values(['kind', 'date']).reset_index(drop=True)
