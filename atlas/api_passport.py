@@ -42,13 +42,13 @@ def _horizon(body: dict[str, Any]) -> int:
     return h
 
 
-def _search_job(pid: str, passport: 'Passport', years: list[int], job: dict[str, Any], horizon: int = 1) -> None:
+def _search_job(pid: str, passport: 'Passport', years: list[int], job: dict[str, Any], horizon: int = 1, line: str | None = None, system: bool = True) -> None:
     """Фоновый поток автоперебора: сначала история (улики на каждую дату), затем сетка вариантов; прерывается флагом ``cancel``."""
     from atlas import passport_assess, passport_blocks, well_search
     try:
         job.update(stage='Собираю улики на историю по всем скважинам')
         keep: dict[str, Any] = {}
-        passport.backtest(years, keep, horizon)
+        passport.backtest(years, keep, horizon, line if system else None)
         if job['cancel']:
             job.update(state='canceled')
             return
@@ -58,7 +58,7 @@ def _search_job(pid: str, passport: 'Passport', years: list[int], job: dict[str,
         def progress(done: int, total: int) -> None:
             job.update(done=done, total=total)
 
-        res = well_search.search(prep, passport_assess.thresholds_of(passport.settings), progress, lambda: job['cancel'])
+        res = well_search.search(prep, passport_assess.thresholds_of(passport.settings), progress, lambda: job['cancel'], system=system, line_label=passport.line_label(line))
         res['tables'] = [_table_json(t) for t in passport_blocks.search_tables(res)]
         job.update(state='canceled' if res['canceled'] else 'done', result=res)
     except Exception as e:                                   # фоновый поток: ошибка должна дойти до экрана, а не пропасть
@@ -178,7 +178,17 @@ class Passport:
         from atlas import passport_assess
         return well_backtest.candidates({w: self.card(w) for w in self.wells()}, passport_assess.weights_of(self.settings))
 
-    def backtest(self, years: list[int], keep: dict[str, Any] | None = None, horizon: int = 1) -> dict[str, Any]:
+    def line_options(self) -> list[tuple[str, str]]:
+        """Ряды давления магистрали, которые есть в загруженной «БД по учету газа»."""
+        from atlas import line_pressure
+        return line_pressure.options(self.raw['gas_db'] if 'gas_db' in self.manifest.get('tables', {}) else None)
+
+    def line_label(self, key: str | None) -> str:
+        from atlas import line_pressure
+        got = dict(self.line_options())
+        return got.get(key or line_pressure.DEFAULT, '') or ''
+
+    def backtest(self, years: list[int], keep: dict[str, Any] | None = None, horizon: int = 1, line: str | None = None) -> dict[str, Any]:
         """Проверка критериев на истории по всем скважинам проекта: карточки (все сезоны), КР, замеры забоя и низ фильтра/перфорации."""
         from atlas import passport_card, well_backtest
         names = self.manifest.get('tables', {})
@@ -197,9 +207,10 @@ class Passport:
                 if low:
                     hist.append((pd.Timestamp(d), max(low)))
             filters[w] = sorted(hist) or None
-        from atlas import passport_assess
+        from atlas import line_pressure, passport_assess
         return well_backtest.run(cards, works, bottoms, filters, self.object_pressure(), years, passport_assess.thresholds_of(self.settings),
-                                 passport_assess.weights_of(self.settings), keep, horizon)
+                                 passport_assess.weights_of(self.settings), keep, horizon,
+                                 line_pressure.daily(self.raw['gas_db'] if 'gas_db' in names else None, line))
 
     def build(self, well: str, sections: list[str], periods: dict[str, list[str]], comment: str, card: dict[str, Any] | None = None):
         from atlas.engine.core import reporting
@@ -367,7 +378,7 @@ def routes(projects: Projects) -> list[Route]:
             if not 1 <= len(years) <= 10 or any(not 2000 <= y <= 2100 for y in years):
                 raise ParamError('Автоперебор: годы от 2000 до 2100, не больше десяти.')
             job = SEARCH_JOBS[pid] = {'state': 'running', 'stage': 'Запуск', 'done': 0, 'total': 0, 'cancel': False}
-            threading.Thread(target=_search_job, args=(pid, Passport(projects, pid), years, job, _horizon(body)), daemon=True).start()
+            threading.Thread(target=_search_job, args=(pid, Passport(projects, pid), years, job, _horizon(body), body.get('line_series') or None, body.get('system', True) is not False), daemon=True).start()
         elif action == 'cancel' and job:
             job['cancel'] = True
         elif not job:
@@ -467,6 +478,12 @@ def routes(projects: Projects) -> list[Route]:
         saved = projects._commit(pid, cfg, body.get('revision'), 'Пороги улик паспорта (перебор на истории)')
         return projects.summary(saved)
 
+    def line_series(request, body):
+        """Какие ряды давления магистрали есть в «БД по учету газа» проекта (для выбора ряда в автопереборе) и какой по умолчанию."""
+        from atlas import line_pressure
+        rows = Passport(projects, request.path_params['pid']).line_options()
+        return {'options': [{'key': k, 'label': label} for k, label in rows], 'default': line_pressure.DEFAULT}
+
     def fund(request, body):
         """Сводка по фонду «кандидаты в КРС»: скважины по убыванию суммы улик с причинами и подсказкой операции."""
         from atlas import passport_blocks
@@ -541,6 +558,7 @@ def routes(projects: Projects) -> list[Route]:
         Route('/api/projects/{pid}/passport/assess', E(assess), methods=['POST']),
         Route('/api/projects/{pid}/passport/backtest', E(backtest), methods=['POST']),
         Route('/api/projects/{pid}/passport/search', E(search), methods=['POST']),
+        Route('/api/projects/{pid}/passport/line_series', E(line_series), methods=['POST']),
         Route('/api/projects/{pid}/passport/operations', E(operations), methods=['POST']),
         Route('/api/projects/{pid}/passport/summary_export', E(summary_export), methods=['POST']),
         Route('/api/projects/{pid}/passport/thresholds', E(thresholds), methods=['POST']),

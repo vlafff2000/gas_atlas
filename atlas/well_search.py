@@ -24,6 +24,8 @@ WEAK = (0.5, 1.0)                                  # во сколько бал�
 MULTS = ({}, {'bottom_fill': 0.0}, {'bottom_fill': 2.0}, {'sand': 0.0}, {'sand': 2.0}, {'gdi_old': 0.0}, {'gdi_old': 0.5}, {'gdi_old': 2.0})
 TARGET = (0.05, 0.10)                              # только справочно: доля срабатывания механизма, на порядок не влияет
 STABLE = 0.8                                       # перекрытие наборов отмеченных скважин при сдвиге порога на шаг, с которого набор считается устойчивым
+GAP_PP = 10.0                                      # падение «расхода на 1 % КРУ» должно быть хуже медианы группы не меньше чем на столько п.п., иначе это не скважина
+LINE_SHIFT = 2.0                                   # сдвиг среднего давления магистрали между сезонами, кгс/см², с которого падение относят к системе сбора
 MAX_WELLS = 400                                    # строк в таблице отмеченных скважин на вариант
 FIXED = ('bottom_fill', 'sand', 'gdi_old')          # механизмы, чьи улики берутся из проверки на истории как есть
 NAMES = passport_assess.MECHANISMS
@@ -52,8 +54,17 @@ def _dep_level(dep: dict[str, Any] | None, k: int, factor: float) -> int:
     return 2 if over >= k else 1 if over >= 1 or max(dep['deps'], default=0) >= 0.9 * lim else 0
 
 
-def _el_level(el: dict[str, Any] | None, share: float, drop: float) -> int:
-    return 2 if el and (el['high_share'] >= share or (el.get('eff_change') is not None and el['eff_change'] <= drop)) else 0
+def own_decline(el: dict[str, Any]) -> bool:
+    """Падение «расхода на 1 % КРУ» относится к скважине: она хуже медианы группы и давление магистрали между сезонами почти не менялось. Нет группы — не доказано."""
+    gap = el.get('eff_gap')
+    return gap is not None and gap <= -GAP_PP and (el.get('line_dp') is None or abs(el['line_dp']) < LINE_SHIFT)
+
+
+def _el_level(el: dict[str, Any] | None, share: float, drop: float, system: bool = False) -> int:
+    if not el:
+        return 0
+    eff = el.get('eff_change') is not None and el['eff_change'] <= drop and (not system or own_decline(el))
+    return 2 if el['high_share'] >= share or eff else 0
 
 
 def _year_metrics(scores: list[float], reps: list[bool]) -> tuple[float | None, float | None]:
@@ -93,7 +104,7 @@ def _row(v: dict[str, Any], r: dict[str, Any]) -> tuple[float, int | None, int |
         dl = _dep_level(r['dep'], v['dep_min_dates'], v['dep_factor'])
         s += (2.0 if dl == 2 else v['weak'] if dl == 1 else 0.0) * v['mults'].get('depression', 1.0)
     if v['el_on']:
-        el = _el_level(r['el'], v['elpro_high_share'], v['elpro_drop'])
+        el = _el_level(r['el'], v['elpro_high_share'], v['elpro_drop'], v.get('system', False))
         s += 2.0 * el / 2 * v['mults'].get('throttle', 1.0)
     return s, dl, el
 
@@ -126,12 +137,13 @@ def reasons(v: dict[str, Any], r: dict[str, Any]) -> list[str]:
             lim = r['dep']['limit'] * v['dep_factor']
             over = sum(d > lim for d in r['dep']['deps'])
             out.append(f'депрессия выше предела {lim:.1f} кгс/см² на {over} из {len(r["dep"]["deps"])} дат замера' if over else f'депрессия у предела {lim:.1f} кгс/см² (≥ 90 %)')
-    if v['el_on'] and v['mults'].get('throttle', 1.0) > 0 and _el_level(r['el'], v['elpro_high_share'], v['elpro_drop']):
+    if v['el_on'] and v['mults'].get('throttle', 1.0) > 0 and _el_level(r['el'], v['elpro_high_share'], v['elpro_drop'], v.get('system', False)):
         e = r['el']
         if e['high_share'] >= v['elpro_high_share']:
             out.append(f'КРУ ≥ 90 % в {e["high_share"]:.0f} % суток сезона')
-        if e.get('eff_change') is not None and e['eff_change'] <= v['elpro_drop']:
-            out.append(f'расход на 1 % КРУ {e["eff_change"]:.0f} % к прошлому сезону')
+        if e.get('eff_change') is not None and e['eff_change'] <= v['elpro_drop'] and (not v.get('system') or own_decline(e)):
+            tail = f'; хуже медианы группы на {-e["eff_gap"]:.0f} п.п.' + ('' if e.get('line_dp') is None else f', давление магистрали {e["line_dp"]:+.1f} кгс/см²') if v.get('system') else ''
+            out.append(f'расход на 1 % КРУ {e["eff_change"]:.0f} % к прошлому сезону{tail}')
     return out
 
 
@@ -205,13 +217,13 @@ def _mean(xs: list[float | None]) -> float | None:
 
 
 def search(prep: dict[int, list[dict[str, Any]]], current: dict[str, float], progress: Callable[[int, int], None] | None = None,
-           cancelled: Callable[[], bool] | None = None, top: int = 15) -> dict[str, Any]:
+           cancelled: Callable[[], bool] | None = None, top: int = 15, system: bool = True, line_label: str = '') -> dict[str, Any]:
     """Прогон всех вариантов. Подбор по всем годам, кроме последнего; последний — проверка (если лет хотя бы два)."""
     years = sorted(y for y in prep if prep[y])
     fit, test = (years[:-1], years[-1:]) if len(years) >= 2 else (years, [])
-    todo = variants()
+    todo = [{**v, 'system': system} for v in variants()]
     base = {'dep_on': True, 'dep_min_dates': current['dep_min_dates'], 'dep_factor': 1.0, 'el_on': True, 'elpro_high_share': current['elpro_high_share'],
-            'elpro_drop': current['elpro_drop'], 'weak': 1.0, 'mults': {}}
+            'elpro_drop': current['elpro_drop'], 'weak': 1.0, 'mults': {}, 'system': system}
     rows, canceled, masks = [], False, {}
     for i, v in enumerate(todo + [base]):
         if cancelled and cancelled():
@@ -248,6 +260,9 @@ def search(prep: dict[int, list[dict[str, Any]]], current: dict[str, float], pro
         r.pop('_key', None)
     return {'rows': best + cur, 'fit_years': fit, 'test_years': test, 'tried': len(rows), 'canceled': canceled,
             'notes': ['Подбор по годам ' + ', '.join(map(str, fit)) + ('; проверка по году ' + ', '.join(map(str, test)) + ', в подборе он не участвует.' if test else '; лет мало, проверки на отложенном годе нет.'),
+                      (f'Поправка на систему сбора включена: падение расхода на 1 % КРУ засчитывается скважине, только если она хуже медианы группы не менее чем на {GAP_PP:g} п.п. '
+                       f'(в группе от 3 скважин) и среднее давление магистрали ({line_label or "ряд не выбран"}) между сезонами сдвинулось меньше чем на {LINE_SHIFT:g} кгс/см²; иначе это система сбора, а не скважина.'
+                       if system else 'Поправка на систему сбора выключена: падение расхода на 1 % КРУ засчитывается скважине без сравнения с группой и магистралью.'),
                       'История КР — слабая проверка: план ремонтов ограничен ресурсами и не покрывает все проблемные скважины, поэтому отмеченная и не отремонтированная скважина не считается ошибкой. '
                       'Первыми идут устойчивые варианты: набор отмеченных скважин почти не меняется при сдвиге порога на шаг (перекрытие не ниже ' + f'{STABLE * 100:.0f} %' + '). Если «лучше случайного» в подборе сильно выше, чем в проверке, вариант подогнан под прошлые годы.',
                       'Для лучшего варианта и текущих критериев показаны причины отметки по скважинам, деление на ремонтировавшиеся и нет, и изменение среднего расхода сезона (падение — от ' + f'{-PERF_DROP:.0f} %' + ').',
