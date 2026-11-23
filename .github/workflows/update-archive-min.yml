@@ -1,0 +1,126 @@
+name: Сверхлёгкий архив обновления ПХГ
+# Сверхлёгкий архив: только код программ (Атлас, меню, остальные приложения и их собранный интерфейс), БЕЗ Python, БЕЗ библиотек, документации и примеров.
+# Распаковывается поверх PXG_Unified; библиотеки берутся из установленной папки python. Это вариант обновления по умолчанию.
+# Сверка: если поменялись Python или версии/набор библиотек (манифест последнего полного архива), сборка падает с сообщением
+# «Нужен лёгкий архив … или полный …»: тогда запустите «Архив обновления ПХГ» (лёгкий, с новыми библиотеками) или «Единый архив ПХГ».
+# Рядом с архивом кладётся .sha256, а размер и sha256 пишутся в сводку запуска.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/python-backend-ui-update-zdhgen]
+    paths: ['atlas/**', 'web/**', 'pxg_hub/**', 'tools/**', 'requirements-lock-py313.txt']
+  schedule:
+    - cron: '17 3 * * *'
+concurrency:
+  group: update-min-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  code-update-min:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: windows, os: windows-2022}
+          - {target: linux, os: ubuntu-22.04}
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gas_atlas
+      - uses: actions/checkout@v4
+        with:
+          repository: vlafff2000/all_scripts
+          path: all_scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gas_atlas/web/package-lock.json
+      - name: Собрать интерфейс (atlas/web/dist в git не хранится, сборка кладёт его в архив)
+        run: cd gas_atlas/web && npm ci && npm run build
+      - name: Собрать интерфейсы приложений all_scripts (web/dist там тоже не в git)
+        run: |
+          for app in gsp_maps pxg_base pxg_finder pxg_ocr schedule_pxg; do
+            (cd all_scripts/$app/web && npm ci && npm run build)
+          done
+      - name: Манифест последнего полного архива (что уже лежит в архиве у пользователя)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p base
+          run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow portable.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -n "$run" ]; then gh run download "$run" --repo "$GITHUB_REPOSITORY" -n Base_manifest_${{ matrix.target }} -D base; fi
+          ls base || true
+      - name: Build min update (code only, no libraries; fails with «Нужен лёгкий архив» when libraries changed)
+        run: cd gas_atlas && python tools/build_unified.py ${{ matrix.target }} --scripts ../all_scripts --code-only --no-libs --base-manifest ../base/base_manifest.json
+      - name: Пояснение при отказе
+        if: failure()
+        run: |
+          echo "### Сверхлёгкий архив не собран (${{ matrix.target }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "Если в логе есть «Нужен лёгкий архив» или «Нужен полный архив», сверхлёгкого недостаточно: запустите «Архив обновления ПХГ» или «Единый архив ПХГ»." >> "$GITHUB_STEP_SUMMARY"
+      - name: В сверхлёгком архиве только код (ни Python, ни библиотек, ни данных пользователя)
+        run: |
+          cd gas_atlas/dist
+          FILE=$(ls PXG_Unified_update_min_*)
+          python - "$FILE" <<'PYEOF'
+          import sys, zipfile, tarfile
+          path = sys.argv[1]
+          names = zipfile.ZipFile(path).namelist() if path.endswith('.zip') else tarfile.open(path).getnames()
+          bad = [n for n in names if n.split('/')[0] in ('python', 'docs', 'examples', 'Проект', 'storage', 'logs', '.pxg') or n.endswith(('history.sqlite', 'import_profiles.json', 'well_presets.json'))]
+          assert not bad, bad[:10]
+          for need in ('pxg_hub/hub.py', 'ОБНОВЛЕНИЕ.txt'):
+              assert need in names, need
+          assert 'LIBS_ADDED.txt' not in names
+          print(len(names), 'записей')
+          PYEOF
+      - name: В архиве тот интерфейс, который собран из этого коммита (сверка index.html и его файлов)
+        run: |
+          cd gas_atlas/dist
+          FILE=$(ls PXG_Unified_update_min_*)
+          python - "$FILE" ../atlas/web/dist/index.html <<'PYEOF'
+          import hashlib, re, sys, tarfile, zipfile
+          path, built = sys.argv[1], sys.argv[2]
+          if path.endswith('.zip'):
+              z = zipfile.ZipFile(path)
+              names = set(z.namelist())
+              read = z.read
+          else:
+              t = tarfile.open(path)
+              names = set(t.getnames())
+              read = lambda name: t.extractfile(name).read()
+          index = read('atlas/web/dist/index.html')
+          want = open(built, 'rb').read()
+          assert index == want, 'в архиве другой index.html, чем собранный из этого коммита'
+          for bundle in set(re.findall(rb'assets/[^"\']+\.js', index)):
+              assert 'atlas/web/dist/' + bundle.decode() in names, bundle
+          info = read('ВЕРСИЯ_СБОРКИ.txt').decode('utf-8')
+          print(info)
+          print('Интерфейс в архиве совпадает со сборкой:', hashlib.sha256(index).hexdigest())
+          PYEOF
+      - name: Целостность архива и контрольная сумма (sha256, в отдельный файл рядом)
+        run: |
+          cd gas_atlas/dist
+          for f in PXG_Unified_update_min_*; do
+            case "$f" in
+              *.tar.gz) gzip -t "$f" && tar -tzf "$f" > /dev/null ;;
+              *.zip) python -m zipfile -t "$f" > /dev/null ;;
+            esac
+            sha256sum "$f" > "$f.sha256"
+            echo "- \`$f\`: $(wc -c < "$f") байт, sha256 \`$(cut -d' ' -f1 "$f.sha256")\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PXG_Unified_update_min_${{ matrix.target }}
+          path: gas_atlas/dist/PXG_Unified_update_min_*${{ matrix.target == 'windows' && '.zip' || '.tar.gz' }}
+          compression-level: 0

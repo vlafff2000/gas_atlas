@@ -4,10 +4,14 @@
     python tools/build_unified.py linux   --scripts ../all_scripts  ->  dist/PXG_Unified_portable_linux_x64.tar.gz
     python tools/build_unified.py linux   --scripts ../all_scripts --code-only --base-manifest dist/base_manifest.json
                                                                     ->  dist/PXG_Unified_code_update_linux_x64.tar.gz
+    python tools/build_unified.py linux   --scripts ../all_scripts --code-only --no-libs --base-manifest dist/base_manifest.json
+                                                                    ->  dist/PXG_Unified_update_min_linux_x64.tar.gz
 
 Полная сборка пишет base_manifest.json (что уже лежит в архиве: Python и библиотеки с версиями).
 --code-only собирает лёгкий архив обновления: программы и только НОВЫЕ библиотеки (их версии закреплены по манифесту).
 Если поменялись Python или версия уже установленной библиотеки, лёгкий архив не собирается: нужен полный архив.
+--code-only --no-libs собирает сверхлёгкий архив: только код программ, без библиотек и без документации/примеров. Если нужна хоть одна
+библиотека, которой нет в полном архиве, он не собирается: «Нужен лёгкий или полный архив».
 
 Runtime, wheels and the application files of Gas Atlas come from tools/build_portable.py (same pins, glibc 2.17 / Windows 10+);
 the files and launchers of the other apps come from a checkout of the repository all_scripts. The separate archives of both
@@ -42,6 +46,9 @@ bp = load(HERE / 'build_portable.py', 'atlas_build_portable')
 NAME = 'PXG_Unified'
 BASE_MANIFEST = 'base_manifest.json'
 FULL_NEEDED = 'Нужен полный архив PXG_Unified_portable_*'
+LIGHT_NEEDED = 'Нужен лёгкий архив PXG_Unified_code_update_* или полный PXG_Unified_portable_*'
+# В сверхлёгкий архив не идут: документация, примеры, история изменений (программам не нужны).
+MIN_SKIP = ('docs', 'examples', 'CHANGES_v5.md', 'CHANGES_UI_update.md')
 SCRIPTS_INCLUDE = ['pxg_base', 'gsp_maps', 'pxg_finder', 'pxg_ocr', 'pxg_core', 'schedule_pxg', 'tnav_results', 'apps']
 HUB_WINDOWS = {'PXG_Hub.bat': 'rem Все приложения ПХГ: меню (окно или браузер).\r\n"%~dp0python\\python.exe" -s -X utf8 -m pxg_hub %*'}
 HUB_LINUX = {'pxg_hub.sh': '# Все приложения ПХГ: меню в браузере. На РЕД ОС: bash pxg_hub.sh в этой папке.\nexec "$PY" -s -X utf8 -m pxg_hub --browser "$@"'}
@@ -176,11 +183,33 @@ def write_fingerprint(folder, target, spec, libs):
     print('Отпечаток библиотек: ' + digest, flush=True)
 
 
-def write_update_note(folder, target):
+UPDATE_NOTE_MIN = """Обновление программ ПХГ (сверхлёгкое: только код, без библиотек)
+=================================================================
+
+1. Закройте меню ПХГ и все окна приложений.
+2. Распакуйте этот архив поверх папки PXG_Unified: программы заменятся.
+3. Библиотек в архиве нет: используются те, что уже стоят в папке python.
+
+Папки Проект и storage (проекты и настройки Атласа) и папка python не трогаются; в архиве их нет.
+Документации и примеров в этом архиве нет (они остаются прежними). Файлы, удалённые из программ, остаются.
+Если сборка сообщила «Нужен лёгкий архив» или «Нужен полный архив», этот архив недостаточен:
+скачайте PXG_Unified_code_update_* (новые библиотеки внутри) или PXG_Unified_portable_* (всё заново).
+"""
+
+
+def write_update_note(folder, target, minimal=False):
+    note = UPDATE_NOTE_MIN if minimal else UPDATE_NOTE
     if target == 'windows':
-        (folder / 'ОБНОВЛЕНИЕ.txt').write_bytes(UPDATE_NOTE.replace('\n', '\r\n').encode('utf-8-sig'))
+        (folder / 'ОБНОВЛЕНИЕ.txt').write_bytes(note.replace('\n', '\r\n').encode('utf-8-sig'))
     else:
-        (folder / 'ОБНОВЛЕНИЕ.txt').write_text(UPDATE_NOTE, encoding='utf-8')
+        (folder / 'ОБНОВЛЕНИЕ.txt').write_text(note, encoding='utf-8')
+
+
+def require_no_new_libs(libs, base):
+    """Сверхлёгкий архив не везёт библиотек: все нужные (с теми же версиями) уже должны быть в полном архиве."""
+    missing = sorted(line for line in libs if line not in set(base['requirements']))
+    if missing:
+        raise SystemExit(LIGHT_NEEDED + ': нужны библиотеки, которых нет в установленной базе: ' + ', '.join(missing[:10]))
 
 
 def git_head(repo):
@@ -335,12 +364,12 @@ def check_runtime(folder, target):
     print('Стандартная библиотека и pywin32 на месте', flush=True)
 
 
-def archive(target, folder, out, code_only=False):
+def archive(target, folder, out, code_only=False, minimal=False):
     bp.check_no_user_data(folder)
     out.mkdir(parents=True, exist_ok=True)
     # Архив обновления кладёт файлы в корень: распаковывается поверх папки PXG_Unified, а не рядом с ней.
     top = Path() if code_only else Path(NAME)
-    prefix = 'PXG_Unified_code_update' if code_only else 'PXG_Unified_portable'
+    prefix = ('PXG_Unified_update_min' if minimal else 'PXG_Unified_code_update') if code_only else 'PXG_Unified_portable'
     if target == 'windows':
         path = out / (prefix + '_windows_x64.zip')
         with zipfile.ZipFile(str(path), 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
@@ -385,11 +414,14 @@ def main(argv=None):
     parser.add_argument('--out', default=str(ROOT / 'dist'))
     parser.add_argument('--cache', default=str(ROOT / 'build' / 'cache'))
     parser.add_argument('--code-only', action='store_true', help='лёгкий архив обновления: программы и новые библиотеки')
+    parser.add_argument('--no-libs', action='store_true', help='сверхлёгкий архив (с --code-only): только код, без библиотек, документации и примеров')
     parser.add_argument('--with-ocr', help='папка ocr (tools/build_ocr_layer.py): кладётся в тот же единый архив (только полная сборка; для linux — папка от build_ocr_layer.py --target linux)')
     parser.add_argument('--base-manifest', help='base_manifest.json последнего полного архива (нужен для --code-only)')
     args = parser.parse_args(argv)
     if args.code_only and not args.base_manifest:
         parser.error('для --code-only нужен --base-manifest')
+    if args.no_libs and not args.code_only:
+        parser.error('--no-libs только вместе с --code-only')
     ocr_python = Path(args.with_ocr or '.') / 'python' / ('python.exe' if args.target == 'windows' else 'bin/python3.13')
     if args.with_ocr and (args.code_only or not ocr_python.is_file()):
         parser.error('--with-ocr: только полная сборка и готовая папка ocr своей ОС (tools/build_ocr_layer.py, для linux --target linux): нет %s' % ocr_python)
@@ -415,20 +447,24 @@ def main(argv=None):
     if args.code_only:
         base = load_base(Path(args.base_manifest), args.target, spec, full_libs)
         python_dir = folder / 'python'
-        with tempfile.TemporaryDirectory() as tmp:
-            added = add_new_libraries(spec, full_libs, base, python_dir / spec['site'], Path(tmp))
-        if not added:
-            shutil.rmtree(str(python_dir), ignore_errors=True)
-        write_added_note(folder, added)
+        if args.no_libs:
+            require_no_new_libs(full_libs, base)
+            bp.INCLUDE[:] = [name for name in bp.INCLUDE if name not in MIN_SKIP]
+        else:
+            with tempfile.TemporaryDirectory() as tmp:
+                added = add_new_libraries(spec, full_libs, base, python_dir / spec['site'], Path(tmp))
+            if not added:
+                shutil.rmtree(str(python_dir), ignore_errors=True)
+            write_added_note(folder, added)
         bp.copy_application(folder)
         copy_scripts(scripts, folder)
         write_launchers(args.target, folder, sp)
-        write_update_note(folder, args.target)
+        write_update_note(folder, args.target, args.no_libs)
         write_build_info(folder, scripts)
         compile_check(folder)
         for cache in folder.rglob('__pycache__'):
             shutil.rmtree(str(cache), ignore_errors=True)
-        archive(args.target, folder, Path(args.out), code_only=True)
+        archive(args.target, folder, Path(args.out), code_only=True, minimal=args.no_libs)
         shutil.rmtree(str(build), ignore_errors=True)
         return 0
 
