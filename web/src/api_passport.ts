@@ -118,6 +118,6 @@ export interface SweepRow { mechanism: string; label: string; params: Record<str
 export type Sweep = { depression?: SweepRow[]; throttle?: SweepRow[] }
 
 export interface SearchVariant { dep_on: boolean; dep_min_dates: number; dep_factor: number; el_on: boolean; elpro_high_share: number; elpro_drop: number; weak: number; mults: Record<string, number> }
-export interface SearchRow { variant: SearchVariant; text: string; current: boolean; fit_lift: number | null; test_lift: number | null; in_target: boolean }
+export interface SearchRow { variant: SearchVariant; text: string; current: boolean; fit_lift: number | null; test_lift: number | null; in_target: boolean; stability?: number | null; stable?: boolean }
 export interface SearchJob { state: 'idle' | 'running' | 'done' | 'canceled' | 'error'; stage?: string; done?: number; total?: number; error?: string
   result?: { rows: SearchRow[]; tables: Table[]; fit_years: number[]; test_years: number[]; tried: number; canceled: boolean; notes: string[] } }

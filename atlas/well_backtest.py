@@ -29,6 +29,39 @@ def repaired_wells(works: dict[str, list[dict[str, Any]]], year: int, horizon: i
             if r.get('year') is not None and year <= r['year'] < year + max(1, horizon) and 'ТР' not in str(r.get('type') or '').upper().split()}
 
 
+PERF_DROP = -10.0           # падение среднего расхода сезона отбора, %, начиная с которого продуктивность считается реально упавшей
+
+
+def _season_rate(card: dict[str, Any], pick) -> tuple[pd.Timestamp, float] | None:
+    rows = [(d, float(s['mean_rate'])) for s in card.get('seasons', []) if s.get('kind') == 'withdrawal' and s.get('mean_rate') is not None
+            for d in [_day(s.get('end'))] if d is not None]
+    rows = pick(sorted(rows))
+    return rows[0] if rows else None
+
+
+def perf_change(card: dict[str, Any], cut: pd.Timestamp) -> dict[str, float] | None:
+    """Реальное изменение продуктивности: средний расход первого сезона отбора после даты против последнего до неё, %.
+    Индикатор для проверки отметки (на расход влияют режим и давление), не замер продуктивности: решает инженер."""
+    prev = _season_rate(card, lambda r: [x for x in r if x[0] < cut][-1:])
+    nxt = _season_rate(card, lambda r: [x for x in r if cut <= x[0] < cut + pd.Timedelta(days=500)][:1])
+    if not prev or not nxt or prev[1] <= 0:
+        return None
+    return {'prev': prev[1], 'next': nxt[1], 'change': (nxt[1] / prev[1] - 1) * 100}
+
+
+def perf_last(card: dict[str, Any]) -> float | None:
+    """Изменение среднего расхода двух последних сезонов отбора, % (для сводки по фонду на сегодня)."""
+    rows = sorted((d, float(s['mean_rate'])) for s in card.get('seasons', []) if s.get('kind') == 'withdrawal' and s.get('mean_rate') is not None
+                  for d in [_day(s.get('end'))] if d is not None)
+    return (rows[-1][1] / rows[-2][1] - 1) * 100 if len(rows) >= 2 and rows[-2][1] > 0 else None
+
+
+def last_kr(card: dict[str, Any]) -> int | None:
+    """Год последнего капитального ремонта (текущий ремонт «ТР» не считается)."""
+    years = [w['year'] for w in (card.get('krs') or {}).get('works', []) if w.get('year') is not None and 'ТР' not in str(w.get('type') or '').upper().split()]
+    return max(years) if years else None
+
+
 def filter_at(value: Any, cut: pd.Timestamp) -> float | None:
     """Низ фильтра/перфорации на дату: число (одна конструкция) или список (дата, низ) — берётся последняя конструкция до даты."""
     if not isinstance(value, list):
@@ -129,7 +162,7 @@ def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]]
         for well, card in cards.items():
             if not any((_day(s.get('end')) or cut) < cut for s in card.get('seasons', [])):
                 continue          # до этой даты по скважине нет ни одного сезона
-            feats[year][well] = {}
+            feats[year][well] = {'perf': perf_change(card, cut)}
             evidence[year][well] = evidence_at(card, cut, works=works.get(well, []), bottoms=bottoms.get(well), filter_bottom_m=filter_at(filters.get(well), cut),
                                                pressure=pressure, limit=(card.get('depression') or {}).get('limit'), features=feats[year][well],
                                                dep_min_dates=th['dep_min_dates'])
@@ -208,7 +241,8 @@ def candidates(cards: dict[str, dict[str, Any]], weights: dict[str, float] | Non
     for well, card in cards.items():
         shown = card.get('assess') or []
         main = [r for r in shown if r['level'] in POINTS]
-        out.append({'well': well, 'group': card.get('group', ''), 'score': sum(_points(r['level'], weights) * r['weight'] * (weights or {}).get(r.get('mechanism'), 1.0) for r in main), 'manual': any(r['manual'] for r in shown),
+        kr, perf = last_kr(card), perf_last(card)
+        out.append({'well': well, 'group': card.get('group', ''), 'last_kr': kr, 'perf': perf, 'score': sum(_points(r['level'], weights) * r['weight'] * (weights or {}).get(r.get('mechanism'), 1.0) for r in main), 'manual': any(r['manual'] for r in shown),
                     'mechanisms': '; '.join(f"{r['name']} ({passport_assess.LEVEL_NAMES[r['level']]})" for r in main),
                     'recommendation': '; '.join(dict.fromkeys(r['recommendation'] for r in main if r['recommendation']))})
     return sorted(out, key=lambda r: (-r['score'], r['well']))

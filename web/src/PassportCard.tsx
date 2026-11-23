@@ -89,7 +89,7 @@ function AutoSearch({ project, revision, onProject }: { project: string; revisio
   return (
     <details className="note info wide-table">
       <summary>Автоперебор критериев вывода в КРС</summary>
-      <p>Один запуск прогоняет варианты порогов депрессии и ЭЛПРО, веса механизмов и слабых улик на истории КР 2022–2025. Подбор идёт по ранним годам, последний год служит проверкой от подгонки. Ничего не применяется само.</p>
+      <p>Один запуск прогоняет варианты порогов депрессии и ЭЛПРО, веса механизмов и слабых улик на истории КР 2022–2025. Первыми идут критерии, у которых набор отмеченных скважин устойчив к небольшому сдвигу порогов. История КР — слабая проверка (план ремонтов ограничен ресурсами и не покрывает все проблемные скважины); последний год служит проверкой от подгонки. Для лучшего варианта и текущих критериев ниже видны причины отметки, деление на ремонтировавшиеся и нет и изменение расхода. Ничего не применяется само.</p>
       {job.state === 'running'
         ? <p>{job.stage}{job.total ? `: ${job.done} из ${job.total}` : '…'} <button type="button" onClick={() => act('cancel')}>Прервать</button></p>
         : <><label>Ремонт в течение{' '}<select value={horizon} onChange={e => setHorizon(Number(e.target.value))}>{[1, 2, 3].map(h => <option key={h} value={h}>{h} {h === 1 ? 'года' : 'лет'}</option>)}</select></label>{' '}<button type="button" onClick={() => act('start')}>{job.state === 'idle' ? 'Запустить перебор' : 'Запустить заново'}</button></>}
@@ -104,7 +104,7 @@ function AutoSearch({ project, revision, onProject }: { project: string; revisio
           <div className="note info">
             <b>Применить вариант вручную</b>
             {res.rows.filter(r => !r.current).slice(0, 5).map(r => (
-              <p key={r.text}><button type="button" onClick={() => apply(r)}>Применить</button> {r.text} (подбор {r.fit_lift?.toFixed(1) ?? '–'}, проверка {r.test_lift?.toFixed(1) ?? '–'})</p>))}
+              <p key={r.text}><button type="button" onClick={() => apply(r)}>Применить</button> {r.text} (устойчивость {r.stability == null ? '–' : Math.round(r.stability * 100) + ' %'}; история КР: подбор {r.fit_lift?.toFixed(1) ?? '–'}, проверка {r.test_lift?.toFixed(1) ?? '–'})</p>))}
           </div>)}
       </>)}
     </details>

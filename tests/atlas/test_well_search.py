@@ -17,6 +17,10 @@ def synthetic(seed=1):
             deps = [random.uniform(1, 6 if rep else 3.5) for _ in range(4)]       # у ушедших в КР депрессия выше предела чаще
             rows.append({'rep': rep, 'lv': {'bottom_fill': 0, 'sand': 0, 'gdi_old': 0}, 'dep': {'limit': 4.1, 'deps': deps}, 'el': {'high_share': random.uniform(0, 10), 'eff_change': None}})
         prep[y] = rows
+    for y, rows in prep.items():
+        for i, r in enumerate(rows):
+            r['well'] = f'W{i}'
+            r['perf'] = {'prev': 10.0, 'next': 7.0, 'change': -30.0} if r['dep']['deps'][0] > 3.5 else {'prev': 10.0, 'next': 10.0, 'change': 0.0}
     return prep
 
 
@@ -37,7 +41,7 @@ def test_search_finds_planted_depression_signal_and_holds_out_last_year():
     best = res['rows'][0]
     assert best['variant']['dep_on'] and best['fit_lift'] > 1.5 and best['test_lift'] is not None
     assert any(r['current'] for r in res['rows']) and res['tried'] == len(ws.variants()) + 1
-    assert all(r['in_target'] for r in res['rows'][:3])       # целевая доля срабатывания идёт первой, если такие варианты есть
+    assert all(r['stable'] for r in res['rows'][:3])           # первыми идут устойчивые к сдвигу порога, а не «целевая доля 5–10 %»
 
 
 def test_search_can_be_cancelled_and_reports_progress():
@@ -92,3 +96,43 @@ def test_api_search_job_apply_variant_and_export(tmp_path):
     assert client.post(f'/api/projects/{pid}/passport/thresholds', json={'variant': {**variant, 'weak': 99}}).status_code == 400
     xl = client.post(f'/api/projects/{pid}/passport/summary_export', json={'kind': 'search', 'data': job['result'], 'id': 'passport-search', 'format': 'xlsx'})
     assert xl.status_code == 200 and xl.content[:2] == b'PK'
+
+
+def test_sorting_does_not_use_target_share_and_stability_is_reported():
+    res = ws.search(synthetic(), CUR)
+    rows = [r for r in res['rows'] if not r['current']]
+    assert all(r['stability'] is not None for r in res['rows'] if r['variant']['dep_on'] or r['variant']['el_on'])
+    stable_flags = [r['stable'] for r in rows]
+    assert stable_flags == sorted(stable_flags, reverse=True)            # устойчивые идут первыми
+    assert not all(r['in_target'] for r in rows[:3]) or any(not r['in_target'] for r in rows)
+    assert not any('5–10' in n for n in res['notes'])
+
+
+def test_review_has_reasons_split_by_repair_and_real_drop():
+    prep = synthetic()
+    v = {**ws.variants()[0], 'dep_on': True, 'dep_min_dates': 1, 'dep_factor': 0.8, 'el_on': False, 'weak': 1.0, 'mults': {}}
+    rv = ws.review(v, prep, [2024, 2025])
+    assert rv['flagged'] == rv['flagged_repaired'] + rv['flagged_not_repaired'] and rv['flagged_not_repaired'] > 0     # вторая группа — кандидаты вне плана КР
+    assert all('депрессия' in e['reasons'] for e in rv['entries'])
+    assert rv['perf_flagged_not_repaired']['n'] > 0 and rv['perf_flagged_not_repaired']['drop_share'] is not None
+    assert rv['persistence'] is not None and 0 <= rv['persistence'] <= 1
+
+
+def test_search_tables_show_reasons_and_split():
+    from atlas import passport_blocks
+    res = ws.search(synthetic(), CUR)
+    tables = passport_blocks.search_tables(res)
+    assert [t.id for t in tables] == ['passport-search', 'passport-search-wells']
+    assert 'ремонтировались / нет' in ' '.join(c.label for c in tables[0].columns)
+    assert set(tables[1].frame['kr']) <= {'ремонтировали', 'без КР'} and (tables[1].frame['reasons'] != '').all()
+
+
+def test_perf_change_and_last_kr_from_card():
+    import pandas as pd
+    from atlas import well_backtest as bt
+    card = {'seasons': [{'kind': 'withdrawal', 'end': '30.04.2023', 'mean_rate': 100.0}, {'kind': 'withdrawal', 'end': '30.04.2024', 'mean_rate': 80.0},
+                        {'kind': 'injection', 'end': '30.09.2023', 'mean_rate': 1.0}],
+            'krs': {'works': [{'year': 2020, 'type': 'КР'}, {'year': 2023, 'type': 'ТР'}]}}
+    got = bt.perf_change(card, pd.Timestamp(2024, 1, 1))
+    assert got and abs(got['change'] + 20.0) < 1e-9
+    assert bt.perf_change(card, pd.Timestamp(2020, 1, 1)) is None and abs(bt.perf_last(card) + 20.0) < 1e-9 and bt.last_kr(card) == 2020
