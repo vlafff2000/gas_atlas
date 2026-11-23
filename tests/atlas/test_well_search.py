@@ -157,7 +157,7 @@ def test_reset_repair_restarts_observation_window_incl_flush():
                         {'kind': 'withdrawal', 'period': '2023-2024', 'end': '30.04.2024', 'mean_rate': 60.0}]}
     filt, flush = [{'year': 2023, 'type': 'Замена фильтра'}], [{'year': 2023, 'type': 'Промывка колтюбингом'}]
     assert bt.reset_years(filt) == [2023] and bt.reset_years(flush) == [2023]          # промывка поднимает продуктивность: окно заново
-    assert bt.reset_years([{'year': 2023, 'type': 'Колтюбинг с СКО'}]) == []
+    assert bt.reset_years([{'year': 2023, 'type': 'Колтюбинг с СКО'}]) == [2023]     # СКО тоже поднимает продуктивность
     cut = pd.Timestamp(2023, 12, 1)
     assert bt.perf_change(card, cut, bt.reset_years(filt))['reset'] is True          # до и после замены фильтра вслепую не сравниваем
     assert bt.perf_change(card, cut, bt.reset_years(flush))['reset'] is True
