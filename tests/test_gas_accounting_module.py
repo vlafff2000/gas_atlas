@@ -81,3 +81,17 @@ def test_build_reads_canonical_column_names(tmp_path):
     assert list(out['kind']) == ['injection', 'withdrawal']
     assert list(out['gas']) == [50.0, 100.0]
     assert out['water'].iloc[1] == 10.0
+
+
+def test_build_reads_pipeline_pressures_merging_old_and_new_names(tmp_path):
+    rows = [{'Режим': 'отбор', 'Дата': '2020-10-01', W: 100.0, WATER: None, 'Давление газа (кг/см2) / ГИС Касимов': 4318.0,
+             'Давление газа на входе КЦ, кг/см2 / КЦ-1': 48.5, 'Среднее пластовое давление, кг/см2': 0.0, 'Р пл. среднее': 90.0},
+            {'Режим': 'отбор', 'Дата': '2024-10-01', W: 120.0, WATER: None, 'Давление газа / ГИС Касимов': 45.1,
+             'Давление газа на входе КЦ, кг/см2 / КЦ-1': 0.0}]
+    for r in rows:
+        r.setdefault(I, None)
+    out = g.build(_book(tmp_path / 'БД_по_учету_газа.xlsx', rows))
+    assert pd.isna(out['p_gis'].iloc[0]) and out['p_gis'].iloc[1] == 45.1       # опечатка 4318 — нет замера, старое и новое имя склеены
+    assert out['p_kc1_in'].iloc[0] == 48.5 and pd.isna(out['p_kc1_in'].iloc[1])  # ноль — нет замера
+    assert out['p_res_mean'].iloc[0] == 90.0                                    # ноль в первом столбце, значение во втором
+    assert 'p_pzrg1' not in out.columns                                         # нет столбца в файле — не ошибка
