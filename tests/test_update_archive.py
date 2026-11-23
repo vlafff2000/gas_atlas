@@ -91,3 +91,19 @@ def test_update_always_carries_ocr_libraries_even_if_base_has_them(tmp_path, mon
     assert 'pypdfium2' in seen['reqs'] and 'six' not in seen['reqs']
     assert seen['no_deps']  # баг Windows: cryptography тянет cffi>=2, а в базе закреплён cffi 1.17.1 (ResolutionImpossible)
     assert (tmp_path / 'out_site' / 'pypdfium2' / '__init__.py').is_file()
+
+
+def test_min_update_refuses_when_libs_missing_in_base(tmp_path):
+    manifest = write_manifest(tmp_path / 'base.json', ['six==1.17.0'])
+    base = bu.load_base(manifest, 'linux', PY, ['six==1.17.0', 'python-dateutil'])
+    with pytest.raises(SystemExit, match='Нужен лёгкий архив'):
+        bu.require_no_new_libs(['six==1.17.0', 'python-dateutil'], base)
+
+
+def test_min_update_accepts_known_libs(tmp_path):
+    base = bu.load_base(write_manifest(tmp_path / 'base.json', ['six==1.17.0']), 'linux', PY, ['six==1.17.0'])
+    bu.require_no_new_libs(['six==1.17.0'], base)
+
+
+def test_min_update_note_has_no_libs_and_says_which_archive_to_take():
+    assert 'Библиотек в архиве нет' in bu.UPDATE_NOTE_MIN and 'PXG_Unified_code_update_' in bu.UPDATE_NOTE_MIN

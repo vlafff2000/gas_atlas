@@ -41,3 +41,15 @@ Workflow запускает из распакованного архива Ат�
 ### Распознавание (OCR) в едином архиве
 
 Папка `ocr` (MinerU 4.1.7 + модели ~2 ГБ) кладётся в тот же архив: `python tools/build_ocr_layer.py --models C:\OCR\mineru-home --out build\ocr`, затем `build_unified.py windows --with-ocr build\ocr`. Для РЕД ОС: `build_ocr_layer.py --target linux ... --out build\ocr_linux` (запускать Python 3.13 из PXG_Unified), затем `build_unified.py linux --with-ocr build\ocr_linux`. Колёса берутся с тегами не выше `manylinux_2_28` (glibc 2.28), у основных пакетов теги ниже. Модели в облаке недоступны, поэтому Linux-архив с распознаванием собирают на ПК с моделями: на Windows без прав на симлинки сборщик запоминает симлинки Python (`.pxg_symlinks.json`) и возвращает их в tar вместе с битами исполнения (`build_portable.add_tree`). На Linux распознавание считает только на процессоре.
+
+## Архивы обновления (поверх установленного PXG_Unified)
+
+| Workflow | Файл | Что внутри | Когда |
+|---|---|---|---|
+| «Сверхлёгкий архив обновления ПХГ» (по умолчанию) | `PXG_Unified_update_min_{windows_x64.zip,linux_x64.tar.gz}` | только код программ и их интерфейс; без Python, библиотек, docs, examples | обычное обновление |
+| «Архив обновления ПХГ» | `PXG_Unified_code_update_*` | код и новые библиотеки | если сверхлёгкий отказал: «Нужен лёгкий архив» |
+| «Единый архив ПХГ» | `PXG_Unified_portable_*` | всё, с Python | если изменился Python или версии библиотек: «Нужен полный архив» |
+
+Оба обновления распаковываются поверх папки PXG_Unified (инструкция `ОБНОВЛЕНИЕ.txt` внутри). Сверка идёт с манифестом последнего полного архива
+(`base_manifest.json`, отпечаток — `VERSION_LIBS.txt`): сверхлёгкий архив собирается, только если все нужные библиотеки с теми же версиями уже там.
+Сборка: `python tools/build_unified.py linux --code-only --no-libs --base-manifest <base_manifest.json>`.
