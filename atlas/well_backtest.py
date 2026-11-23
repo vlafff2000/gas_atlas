@@ -39,14 +39,24 @@ def _season_rate(card: dict[str, Any], pick) -> tuple[pd.Timestamp, float] | Non
     return rows[0] if rows else None
 
 
-def perf_change(card: dict[str, Any], cut: pd.Timestamp) -> dict[str, float] | None:
+RESETS = ('фильтр', 'армиров.')      # ремонты, после которых признаки проблемы считаются заново (промывка и СКО не сбрасывают), как у приоритета по ревизиям КРУ
+
+
+def reset_years(works: list[dict[str, Any]]) -> list[int]:
+    """Годы ремонтов со сбросом признаков: замена фильтра, армирование ПЗП."""
+    from atlas.passport_tiles import short_type
+    return sorted({int(w['year']) for w in works if w.get('year') is not None and short_type(str(w.get('type') or '')) in RESETS})
+
+
+def perf_change(card: dict[str, Any], cut: pd.Timestamp, resets: list[int] | tuple[int, ...] = ()) -> dict[str, Any] | None:
     """Реальное изменение продуктивности: средний расход первого сезона отбора после даты против последнего до неё, %.
-    Индикатор для проверки отметки (на расход влияют режим и давление), не замер продуктивности: решает инженер."""
+    Индикатор для проверки отметки (на расход влияют режим и давление), не замер продуктивности: решает инженер.
+    ``reset`` — между двумя сезонами был ремонт со сбросом (замена фильтра, армирование): до и после ремонта вслепую не сравниваем."""
     prev = _season_rate(card, lambda r: [x for x in r if x[0] < cut][-1:])
     nxt = _season_rate(card, lambda r: [x for x in r if cut <= x[0] < cut + pd.Timedelta(days=500)][:1])
     if not prev or not nxt or prev[1] <= 0:
         return None
-    return {'prev': prev[1], 'next': nxt[1], 'change': (nxt[1] / prev[1] - 1) * 100}
+    return {'prev': prev[1], 'next': nxt[1], 'change': (nxt[1] / prev[1] - 1) * 100, 'reset': any(prev[0].year <= y <= nxt[0].year for y in resets)}
 
 
 def perf_last(card: dict[str, Any]) -> float | None:
@@ -77,12 +87,14 @@ def evidence_at(card: dict[str, Any], cut: pd.Timestamp, *, works: list[dict[str
 
     ``features`` (если дан) заполняется сырыми значениями для перебора порогов: депрессии на датах замеров Рпл последнего сезона с предельной
     депрессией скважины и показатели ЭЛПРО последнего сезона (доля суток с КРУ ≥ 90 %, изменение расхода на 1 % КРУ)."""
-    seasons = [s for s in card.get('seasons', []) if (_day(s.get('end')) or cut) < cut]
+    # после ремонта со сбросом окно наблюдения считается заново: сезоны, закончившиеся до конца года ремонта, и ГДИ до года ремонта не берутся
+    since = max((y for y in reset_years(works) if y < cut.year), default=None)
+    seasons = [s for s in card.get('seasons', []) if (_day(s.get('end')) or cut) < cut and (since is None or (_day(s.get('end')) or cut).year > since)]
     done = {str(s['period']) for s in seasons if s['kind'] == 'withdrawal'}
-    gdi = [g for g in card.get('gdi', []) if (_day(g.get('date')) or cut) < cut]
+    gdi = [g for g in card.get('gdi', []) if (_day(g.get('date')) or cut) < cut and (since is None or (_day(g.get('date')) or cut).year >= since)]
     elpro = [r for r in card.get('elpro', []) if str(r['period']) in done]
     daily = card.get('daily', {}).get('withdrawal') or {}
-    keep = [i for i, d in enumerate(daily.get('date', [])) if (_day(d) or cut) < cut]          # суточные расходы только до даты проверки
+    keep = [i for i, d in enumerate(daily.get('date', [])) if (_day(d) or cut) < cut and (since is None or (_day(d) or cut).year > since)]          # суточные расходы только до даты проверки
     dep = passport_depression.season_rows(seasons, gdi, pressure, limit, {k: [v[i] for i in keep] for k, v in daily.items()})
     if features is not None:
         last_dep = next((r for r in reversed(dep) if r.get('points')), None)
@@ -162,7 +174,7 @@ def run(cards: dict[str, dict[str, Any]], works: dict[str, list[dict[str, Any]]]
         for well, card in cards.items():
             if not any((_day(s.get('end')) or cut) < cut for s in card.get('seasons', [])):
                 continue          # до этой даты по скважине нет ни одного сезона
-            feats[year][well] = {'perf': perf_change(card, cut)}
+            feats[year][well] = {'perf': perf_change(card, cut, reset_years(works.get(well, [])))}
             evidence[year][well] = evidence_at(card, cut, works=works.get(well, []), bottoms=bottoms.get(well), filter_bottom_m=filter_at(filters.get(well), cut),
                                                pressure=pressure, limit=(card.get('depression') or {}).get('limit'), features=feats[year][well],
                                                dep_min_dates=th['dep_min_dates'])
