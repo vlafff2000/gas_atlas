@@ -238,7 +238,7 @@ def fund_tables(rows: list[dict[str, Any]]) -> list[Table]:
 
 
 def sweep_tables(sweep: dict[str, list[dict[str, Any]]]) -> list[Table]:
-    """Перебор порогов на истории: наборы, при которых механизм срабатывает у 5–10 % скважино-лет, и текущий набор (общая таблица ядра)."""
+    """Перебор порогов на истории: устойчивые наборы и текущий набор (общая таблица ядра)."""
     pct = lambda v: '' if v is None else f'{v * 100:.0f} %'
     out = []
     for key, title in (('depression', 'Перебор порогов: превышение предельной депрессии'), ('throttle', 'Перебор порогов: ограничение устья / КРУ')):
@@ -248,11 +248,11 @@ def sweep_tables(sweep: dict[str, list[dict[str, Any]]]) -> list[Table]:
         frame = pd.DataFrame({'label': [r['label'] + ('  ← сейчас' if r['current'] else '') for r in rows], 'n': [r['n'] for r in rows],
                               'all': [pct(r['share_all']) for r in rows], 'rep': [pct(r['share_repaired']) for r in rows], 'oth': [pct(r['share_other']) for r in rows],
                               'lift': ['' if r['lift'] is None else f"{r['lift']:.1f}" for r in rows], 'prec': [pct(r['precision']) for r in rows],
-                              'zone': ['5–10 %' if r['in_target'] else 'вне 5–10 %' for r in rows]})
+                              'stab': [pct(r.get('stability')) for r in rows]})
         out.append(Table(f'passport-sweep-{key}', title, frame, [
-            Column('label', 'Пороги'), Column('n', 'Скважино-лет с данными'), Column('all', 'Срабатывает у'), Column('zone', 'Доля срабатывания'),
+            Column('label', 'Пороги'), Column('n', 'Скважино-лет с данными'), Column('all', 'Срабатывает у'), Column('stab', 'Устойчивость к сдвигу порога'),
             Column('rep', 'У ушедших в КР'), Column('oth', 'У остальных'), Column('lift', 'Во сколько раз чаще у ушедших в КР'), Column('prec', 'Точность среди сработавших')],
-            note='Цель — механизм срабатывает у 5–10 % скважино-лет и заметно чаще у ушедших в КР. Показаны лучшие наборы по этому признаку и текущий. '
+            note='Первыми идут наборы, устойчивые к сдвигу порога на шаг, затем те, где механизм заметно чаще у ушедших в КР (история КР — слабая проверка: план ремонтов ограничен ресурсами). Показаны лучшие наборы и текущий. '
                  'Пороги применяются только вручную кнопкой под таблицами. Выборка мала: смотрите как подсказку.'))
     return out
 

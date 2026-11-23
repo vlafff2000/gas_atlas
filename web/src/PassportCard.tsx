@@ -64,7 +64,7 @@ function Backtest({ project, revision, onProject }: { project: string; revision?
         <div className="note info">
           <b>Применить пороги вручную</b>
           <p>Пороги сами не меняются. Кнопка записывает набор в проект; для порогов депрессии коэффициент пересчитывает сами пределы (их видно и можно поправить ниже).</p>
-          {(['depression', 'throttle'] as const).map(key => (result.sweep?.[key] ?? []).filter(r => r.in_target && !r.current).slice(0, 3).map(r => (
+          {(['depression', 'throttle'] as const).map(key => (result.sweep?.[key] ?? []).filter(r => r.stable && !r.current).slice(0, 3).map(r => (
             <p key={key + r.label}><button type="button" onClick={() => apply(key, r)}>Применить</button>{' '}
               {key === 'depression' ? 'Депрессия' : 'ЭЛПРО'}: {r.label} (срабатывает у {Math.round((r.share_all ?? 0) * 100)} %{r.lift ? `, у ушедших в КР чаще в ${r.lift.toFixed(1)} раза` : ''})</p>)))}
           <button type="button" onClick={() => passportApi.saveThresholds(project, { reset: true }, revision).then(onProject).catch(e => setError((e as Error).message))}>Сбросить пороги к умолчаниям</button>

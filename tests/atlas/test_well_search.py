@@ -136,3 +136,15 @@ def test_perf_change_and_last_kr_from_card():
     got = bt.perf_change(card, pd.Timestamp(2024, 1, 1))
     assert got and abs(got['change'] + 20.0) < 1e-9
     assert bt.perf_change(card, pd.Timestamp(2020, 1, 1)) is None and abs(bt.perf_last(card) + 20.0) < 1e-9 and bt.last_kr(card) == 2020
+
+
+def test_sweep_picks_stable_sets_not_target_share():
+    from atlas import well_backtest as bt
+    prep = synthetic()
+    feats = {y: {r['well']: {'dep': r['dep'], 'elpro': r['el']} for r in rows} for y, rows in prep.items()}
+    fact = {y: {r['well'] for r in rows if r['rep']} for y, rows in prep.items()}
+    res = bt.sweep(feats, fact, {'dep_min_dates': 2.0, 'elpro_high_share': 30.0, 'elpro_drop': -15.0})
+    rows = res['depression']
+    assert rows and all('stability' in r for r in rows) and any(r['current'] for r in rows)
+    flags = [bool(r.get('stable')) for r in rows if not r['current']]
+    assert flags == sorted(flags, reverse=True)
