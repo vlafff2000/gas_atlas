@@ -39,19 +39,20 @@ def _season_rate(card: dict[str, Any], pick) -> tuple[pd.Timestamp, float] | Non
     return rows[0] if rows else None
 
 
-RESETS = ('фильтр', 'армиров.')      # ремонты, после которых признаки проблемы считаются заново (промывка и СКО не сбрасывают), как у приоритета по ревизиям КРУ
+RESETS = ('фильтр', 'армиров.', 'колтюбинг', 'СКО')      # ремонты, после которых признаки продуктивности считаются заново: замена фильтра, армирование, промывка (колтюбинг без СКО вымывает пробку и поднимает продуктивность); СКО тоже сбрасывает
 
 
 def reset_years(works: list[dict[str, Any]]) -> list[int]:
-    """Годы ремонтов со сбросом признаков: замена фильтра, армирование ПЗП."""
+    """Годы ремонтов со сбросом признаков продуктивности: замена фильтра, армирование ПЗП, промывка, СКО. Приоритет по ревизиям КРУ считается отдельно (там промывка не сбрасывает)."""
     from atlas.passport_tiles import short_type
-    return sorted({int(w['year']) for w in works if w.get('year') is not None and short_type(str(w.get('type') or '')) in RESETS})
+    return sorted({int(w['year']) for w in works if w.get('year') is not None
+                   and (short_type(str(w.get('type') or '')) in RESETS or 'промыв' in str(w.get('type') or '').lower())})
 
 
 def perf_change(card: dict[str, Any], cut: pd.Timestamp, resets: list[int] | tuple[int, ...] = ()) -> dict[str, Any] | None:
     """Реальное изменение продуктивности: средний расход первого сезона отбора после даты против последнего до неё, %.
     Индикатор для проверки отметки (на расход влияют режим и давление), не замер продуктивности: решает инженер.
-    ``reset`` — между двумя сезонами был ремонт со сбросом (замена фильтра, армирование): до и после ремонта вслепую не сравниваем."""
+    ``reset`` — между двумя сезонами был ремонт со сбросом (замена фильтра, армирование, промывка): до и после ремонта вслепую не сравниваем."""
     prev = _season_rate(card, lambda r: [x for x in r if x[0] < cut][-1:])
     nxt = _season_rate(card, lambda r: [x for x in r if cut <= x[0] < cut + pd.Timedelta(days=500)][:1])
     if not prev or not nxt or prev[1] <= 0:

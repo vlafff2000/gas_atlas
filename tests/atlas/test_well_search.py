@@ -150,18 +150,19 @@ def test_sweep_picks_stable_sets_not_target_share():
     assert flags == sorted(flags, reverse=True)
 
 
-def test_reset_repair_restarts_observation_window_but_flush_does_not():
+def test_reset_repair_restarts_observation_window_incl_flush():
     import pandas as pd
     from atlas import well_backtest as bt
     card = {'seasons': [{'kind': 'withdrawal', 'period': '2022-2023', 'end': '30.04.2023', 'mean_rate': 100.0},
                         {'kind': 'withdrawal', 'period': '2023-2024', 'end': '30.04.2024', 'mean_rate': 60.0}]}
     filt, flush = [{'year': 2023, 'type': 'Замена фильтра'}], [{'year': 2023, 'type': 'Промывка колтюбингом'}]
-    assert bt.reset_years(filt) == [2023] and bt.reset_years(flush) == []
+    assert bt.reset_years(filt) == [2023] and bt.reset_years(flush) == [2023]          # промывка поднимает продуктивность: окно заново
+    assert bt.reset_years([{'year': 2023, 'type': 'Колтюбинг с СКО'}]) == [2023]     # СКО тоже поднимает продуктивность
     cut = pd.Timestamp(2023, 12, 1)
     assert bt.perf_change(card, cut, bt.reset_years(filt))['reset'] is True          # до и после замены фильтра вслепую не сравниваем
-    assert bt.perf_change(card, cut, bt.reset_years(flush))['reset'] is False        # промывка признаки не сбрасывает
+    assert bt.perf_change(card, cut, bt.reset_years(flush))['reset'] is True
     kw = dict(bottoms=None, filter_bottom_m=None, pressure=None, limit=None)
-    for works, expect in ((filt, 0), (flush, 1)):
+    for works, expect in ((filt, 0), (flush, 0), ([], 1)):
         f: dict = {}
         bt.evidence_at({**card, 'elpro': [{'period': '2022-2023', 'verdict': 'внимание', 'reason': 'x', 'high_share': 80.0, 'eff_change': None}]},
                        pd.Timestamp(2024, 1, 1), works=works, features=f, **kw)
