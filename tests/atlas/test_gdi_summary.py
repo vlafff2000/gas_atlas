@@ -483,3 +483,10 @@ def test_repair_group_main_kinds_and_other():
     assert repair_group('замена фильтра; восстановление герметичности ЦК / изоляция') == 'замена ППФ'
     assert repair_group('армирование ПЗП; ремонт колонны') == 'армирование ПЗП'
     assert repair_group('ремонт колонны; глушение скважины') == 'прочий ремонт'
+
+
+def test_with_group_is_group_at_study_date():
+    from atlas.modules._repairs import with_group
+    works = pd.DataFrame([dict(well='1', year=2025, work_type='Замена фильтра', detail='')])
+    studies = pd.DataFrame({'well': ['1', '1', '2'], 'date': pd.to_datetime(['2025-03-01', '2025-12-10', '2025-12-10'])})
+    assert with_group(studies, repairs(works, None)).tolist() == ['без КРС', 'замена ППФ', 'без КРС']

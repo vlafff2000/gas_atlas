@@ -17,6 +17,7 @@ from atlas.engine.modules import well_analysis as legacy
 
 from ..contract import Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source, Stat, Table
 from ..domain import UNITS, DatasetKind
+from ._repairs import repairs, with_group
 from .gdi import select, well_key
 
 GDI = DatasetKind.GDI
@@ -157,6 +158,7 @@ class GdiTrendModule(Module):
         group='Исследования скважин',
         description='Как менялись коэффициенты a и b и расход при одном ΔP² по годам; рейтинг скважин с ухудшением отдачи.',
         needs=(GDI,),
+        optional=(DatasetKind.KRS_WORKS, DatasetKind.KRS_PLAN),
         order=35,
         params=(
             Param('wells', 'Скважины', 'multi', default=[], source=Source(GDI, 'well'), section='Выбор данных', wells_picker=True),
@@ -198,6 +200,8 @@ class GdiTrendModule(Module):
             return Result(notes=notes + [Note('Под выбранные условия не попало ни одного исследования. Выберите скважины с данными ГДИ.',
                                               'warning')])
         table = rating(history, params['change'])
+        rep = repairs(data.get(DatasetKind.KRS_WORKS), data.get(DatasetKind.KRS_PLAN))
+        table['repair_group'] = with_group(table.assign(date=table['last']), rep)          # группа по ремонту на дату последнего исследования
         worse = int(table.verdict.eq(VERDICTS['down']).sum())
         result = Result(summary=[
             Stat('Скважин', str(history.well.nunique())), Stat('Исследований', str(len(history))),
@@ -209,7 +213,7 @@ class GdiTrendModule(Module):
                                      'если задать «Опорный ΔP²»; пока показано только изменение a и b. Давления и Рпл здесь не нужны.', 'info'))
         result.tables.append(Table('rating', 'Рейтинг скважин по изменению отдачи', table, [
             Column('rank', 'Место', kind='number', decimals=0), Column('well', 'Скважина'), Column('method', 'Метод'),
-            Column('first', 'Первое исследование', kind='date'), Column('last', 'Последнее исследование', kind='date'),
+            Column('first', 'Первое исследование', kind='date'), Column('last', 'Последнее исследование', kind='date'), Column('repair_group', 'Группа по ремонту'),
             Column('reliable', 'Надёжных исследований', kind='number', decimals=0),
             Column('dp2', 'Общий ΔP²', UNITS['dp2'], 0, 'number'),
             Column('q_first', 'Q было', UNITS['q_gdi'], 1, 'number'), Column('q_last', 'Q стало', UNITS['q_gdi'], 1, 'number'),
@@ -234,11 +238,12 @@ class GdiTrendModule(Module):
                                            labels=[f'№ {well} · {m or "метод не указан"}' for m in g.method.fillna('')]))
             if chart.series:
                 result.charts.append(chart)
-        studies = history[['well', 'date', 'method', 'study', 'a', 'b', 'r2', 'source', 'reliable', 'reference_dp2',
+        history = history.assign(repair_group=with_group(history, rep))                    # группа скважины при проведении каждого ГДИ
+        studies = history[['well', 'date', 'repair_group', 'method', 'study', 'a', 'b', 'r2', 'source', 'reliable', 'reference_dp2',
                            'q_reference', 'by_coef']].assign(reliable=lambda d: d.reliable.map({True: 'да', False: 'нет'}),
                                                               by_coef=lambda d: d.by_coef.map({True: 'да', False: ''}))
         result.tables.append(Table('studies', 'Все исследования', studies, [
-            Column('well', 'Скважина'), Column('date', 'Дата', kind='date'), Column('method', 'Метод'),
+            Column('well', 'Скважина'), Column('date', 'Дата', kind='date'), Column('repair_group', 'Группа по ремонту'), Column('method', 'Метод'),
             Column('study', 'Исследование'), Column('a', 'a', decimals=5, kind='number'), Column('b', 'b', decimals=5, kind='number'),
             Column('r2', 'R²', decimals=4, kind='number'), Column('source', 'Источник коэффициентов'),
             Column('reliable', 'Надёжное'), Column('by_coef', 'По коэффициентам (без замеров)'), Column('reference_dp2', 'Общий ΔP²', UNITS['dp2'], 0, 'number'),
