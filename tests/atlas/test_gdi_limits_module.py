@@ -45,3 +45,14 @@ def test_sand_in_kru_goes_to_note_and_auto_start():
     t = run({'limits': '1=2'}, prio).tables[0].frame.set_index('well')
     assert 'песок в ревизиях 2023-2024' in t.loc['1', 'note']
     assert auto_start(pd.Series([75.0, 77.0]), 10) == 80.0
+
+
+def test_sand_gdi_limit_beats_construction_but_not_manual_and_source_is_visible():
+    sand = pd.DataFrame([dict(well='1', date='2024-01-01', dp_annulus=0.9, q=300.0), dict(well='1', date='2025-02-03', dp_annulus=1.5, q=400.0)])
+    frames = {G: pd.DataFrame(study('1', '2025-12-10') + study('2', '2025-12-10')), DatasetKind.GDI_SAND: sand}
+    d = Data(frames)
+    t = GdiLimitsModule().run(d, PARAMS).tables[0].frame.set_index('well')
+    assert t.loc['1', 'dp'] == 1.5 and t.loc['1', 'source'] == 'ГДИ на вынос песка от 03.02.2025'      # свежее исследование
+    assert 'вынос песка: dP 1.5 (затруб) при Q 400' in t.loc['1', 'note'] and pd.isna(t.loc['2', 'dp'])
+    t = GdiLimitsModule().run(d, {**PARAMS, 'limits': '1=0,7'}).tables[0].frame.set_index('well')
+    assert t.loc['1', 'dp'] == 0.7 and t.loc['1', 'source'] == 'задан вручную'
