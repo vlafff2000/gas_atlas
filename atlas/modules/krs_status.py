@@ -26,7 +26,9 @@ WORKS_K, PRIORITY_K = DatasetKind.KRS_WORKS, DatasetKind.KRS_PRIORITY
 SECTION = 'Выбор данных'
 EMPTY_HINT = 'Данных КРС в проекте нет: импортируйте книгу КРС_для_Атласа.xlsx во вкладке «Импорт».'
 TYPE_COLORS = {'Замена фильтра': '#d9822b', 'Колтюбинг без СКО': '#3a9ad9', 'Колтюбинг с СКО / СКО': '#e0c341',
-               'Армирование ПЗП': '#2f4f9f', 'Тип не определён': '#999999'}
+               'Армирование ПЗП': '#2f4f9f', 'Восстановление герметичности ЦК / изоляция': '#9b6fd1', 'Ремонт колонны': '#6aa02f',
+               'Ликвидация пробки': '#8a8f98', 'Глушение скважины': '#d96fa0', 'Тип не определён': '#999999'}
+OTHER_COLOR = '#b5b5b5'          # вид, которого нет в списке: ремонт не пропадает с графика, а идёт отдельным рядом
 HINT_BOTH = 'Песок и ухудшение ГДИ: основание повысить приоритет'
 HINT_GDI = 'Только ГДИ: отдача упала, проверьте исследования; возможен ремонт'
 HINT_NONE = ''
@@ -81,9 +83,11 @@ def works_chart(works: pd.DataFrame) -> Chart | None:
     years = sorted(works['Год'].astype(int).unique())
     cats = [str(y) for y in years]
     chart = Chart('krs-works', 'Проведённые КР по годам и типам', Axis('Год', scale='category', categories=cats), Axis('КР', 'шт.', from_zero=True))
-    for kind in [k for k in TYPE_COLORS if k in set(works['Тип ремонта'])]:
+    works = works.assign(**{'Тип ремонта': works['Тип ремонта'].fillna('').astype(str).replace('', 'Тип не определён')})
+    present = set(works['Тип ремонта'])
+    for kind in [k for k in TYPE_COLORS if k in present] + sorted(present - set(TYPE_COLORS)):
         counts = [int(((works['Год'] == y) & (works['Тип ремонта'] == kind)).sum()) for y in years]
-        chart.series.append(Series(kind, cats, [float(c) for c in counts], 'bar', stack='works', color=TYPE_COLORS[kind],
+        chart.series.append(Series(kind, cats, [float(c) for c in counts], 'bar', stack='works', color=TYPE_COLORS.get(kind, OTHER_COLOR),
                                    segments=[str(c) if c else '' for c in counts], labels=[f'{c} шт.' for c in counts]))
     return chart
 
