@@ -32,8 +32,10 @@ def gdi(well, year, scale=1.0):
     return rows
 
 
-def data(with_gdi=True, kru=None):
+def data(with_gdi=True, kru=None, works=None):
     frames = {P: production()}
+    if works is not None:
+        frames[DatasetKind.KRS_WORKS] = works
     frames[DatasetKind.GDI] = pd.DataFrame(gdi('1', 2024) + gdi('2', 2018) + gdi('3', 2025)) if with_gdi else pd.DataFrame()
     if kru is not None:
         frames[DatasetKind.KRS_PRIORITY] = kru
@@ -290,3 +292,10 @@ def test_sensitivity_presets_replace_thresholds_unless_custom():
     normal = gdi_due.PRESETS['normal']
     spec = {p.name: p.default for p in gdi_due.GdiDueModule.spec.params}
     assert all(spec[k] == v for k, v in normal.items())            # «обычно» = значения по умолчанию модуля
+
+
+def test_repair_group_on_last_gdi_date():
+    """Группа по ремонту на дату последнего ГДИ: скв. 1 — ГДИ 10.12.2024 после замены фильтра 2024 (1 июля), скв. 2 — ремонта нет."""
+    works = pd.DataFrame([dict(well='1', year=2024, work_type='Замена фильтра', detail='')])
+    t = build(data(works=works), PARAMS).set_index('well')
+    assert t.at['1', 'repair_group'] == 'замена ППФ' and t.at['2', 'repair_group'] == 'без КРС'
