@@ -39,7 +39,7 @@ const DASH: Record<string, string | number[]> = {
 /** Единицы отображения оси: подписи делятся на 1000ⁿ, а единица в названии меняется (тыс. м³ → млн м³), без «×10ⁿ» (unitScale.ts). */
 const numeric = (a: Axis) => a.scale === 'value' || a.scale === 'log'
 const unitScale = (a: Axis) => a.style?.units && a.scale === 'value'
-  ? resolveUnits(a.unit, a.style.units, a.minimum ?? a.auto?.min ?? a.auto?.lo ?? 0, a.maximum ?? a.auto?.max ?? a.auto?.hi ?? 0)
+  ? resolveUnits(a.unit, a.style.units, a.minimum ?? a.auto?.min ?? a.auto?.lo ?? 0, a.maximum ?? a.auto?.max ?? a.auto?.hi ?? 0, !!a.style?.manual_title)
   : { divisor: 1, text: a.unit }
 const unitFactor = (a: Axis) => unitScale(a).divisor
 const shownUnit = (a: Axis) => unitScale(a).text

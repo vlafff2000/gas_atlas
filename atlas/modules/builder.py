@@ -842,13 +842,16 @@ def build(data: Data, layout: Any, well: str | None = None) -> Result:
         manual = labels['axes'].get(a, '')
         is_time = any(pd.api.types.is_datetime64_any_dtype(c.frame['y']) for c in on_axis)
         axes[place[a]] = Axis(manual or _join_labels([c.label for c in on_axis]) or 'Значение',
-                              '' if manual or len(units) != 1 else units.pop(), scale='time' if is_time else 'value')
+                              '' if manual or len(units) != 1 else units.pop(), scale='time' if is_time else 'value',
+                              style={'manual_title': True} if manual else {})
 
     cats = list(dict.fromkeys(str(v) for r, c in built if r.view == 'hist' for v in c.frame['x']))
     x_axis = Axis(labels['x_label'] or _join_labels(x_labels) or 'X', scale='time' if x_kind == 'date' else 'category' if x_kind == 'category' else 'value',
                   categories=cats if x_kind == 'category' else None)
     if labels['x_label'] or x_kind == 'date':
         x_axis.unit = ''
+    if labels['x_label']:
+        x_axis.style = {'manual_title': True}      # ручное название главнее автоприписок (unit_scale.resolve)
     values = {'x': [p.frame['x'] for _, p in built], **{a: [p.frame['y'] for r, p in built if r.axis == a] for a in used}}
     for name, spec in labels['axis_style'].items():
         if name == 'x' or name in place:

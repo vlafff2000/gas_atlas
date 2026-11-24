@@ -272,7 +272,7 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
         divisor, shown = 1.0, None
         if spec.get('units') and not date and spec.get('scale') != 'log':
             lo, hi = target.get_xlim() if horizontal else target.get_ylim()
-            divisor, shown = resolve(axis.label.get_text(), spec['units'], lo, hi)
+            divisor, shown = resolve(axis.label.get_text(), spec['units'], lo, hi, bool(spec.get('manual_title')))
         positive = bool(spec.get('positive')) and not date
         if ('decimals' in spec or divisor != 1.0) and not date and spec.get('scale') != 'log':
             axis.set_major_formatter(ru_format(int(spec['decimals']) if 'decimals' in spec else 0 if divisor == 1.0 else 1, divisor, positive))
