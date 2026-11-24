@@ -399,6 +399,9 @@ function TablesImport({ project, options, onProject }: { project: Project; optio
                             <option value="gis_filling">заполнение ствола</option>
                             <option value="gis_annotations">пометки отчётов</option>
                           </select></>}
+                          {r.base === 'gdi_sand' && <> <input disabled={busy} value={gisTable[r.token] ?? ''} size={10} placeholder="дата, напр. 03.11.2025"
+                            title="Дата исследования. Пусто — из имени файла; введённое вручную главнее"
+                            onChange={e => setGisTable({ ...gisTable, [r.token]: e.target.value })} /></>}
                           {r.base === 'gdi_program' && <> <input disabled={busy} value={gisTable[r.token] ?? ''} size={10} placeholder="сезон, напр. 2025-2026"
                             title="Сезон программы ГДИ. Пусто — из имени файла; введённое вручную главнее"
                             onChange={e => setGisTable({ ...gisTable, [r.token]: e.target.value })} /></>}

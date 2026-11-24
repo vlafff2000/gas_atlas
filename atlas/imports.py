@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from atlas.engine.core import elpro_import as elpro
-from atlas.engine.core import gas_db_import, gdi_program_import, gis_import, krs_import, krs_plan_file_import, krs_sprav_import, survey_import, water_monthly_import, well_geo_import
+from atlas.engine.core import gas_db_import, gdi_program_import, gdi_sand_import, gis_import, krs_import, krs_plan_file_import, krs_sprav_import, survey_import, water_monthly_import, well_geo_import
 from atlas.engine.core import ggh_import as ggh
 from atlas.engine.core import import_rules as rules
 from atlas.engine.core import pressure_import as pq
@@ -75,7 +75,7 @@ def looks_ggh(raw: Any) -> bool:
     return len(fields - {None, 'well', 'date'}) >= 2
 
 
-SPECIAL_KINDS = {'книга КРС': 'krs', 'БД давлений по замерам': 'survey', 'программа ГДИ': 'gdi_program', 'справка о выполнении плана КР': 'krs_sprav', 'план КР на год': 'krs_plan_file', 'база ЭЛПРО': 'elpro', '«БД по учету газа»': 'gas', 'газогидрохимия (ГГХ)': 'ggh'}
+SPECIAL_KINDS = {'книга КРС': 'krs', 'БД давлений по замерам': 'survey', 'программа ГДИ': 'gdi_program', 'ГДИ на вынос песка': 'gdi_sand', 'справка о выполнении плана КР': 'krs_sprav', 'план КР на год': 'krs_plan_file', 'база ЭЛПРО': 'elpro', '«БД по учету газа»': 'gas', 'газогидрохимия (ГГХ)': 'ggh'}
 
 
 def special_kind(tables: dict[str, pd.DataFrame], name: str = '') -> tuple[str, str]:
@@ -105,6 +105,8 @@ def base_book(tables: dict[str, pd.DataFrame], name: str = '') -> str:
         return 'таблица «База ГИС»'
     if gdi_program_import.looks_like(tables):
         return 'программа ГДИ'
+    if gdi_sand_import.looks_like(tables):
+        return 'ГДИ на вынос песка'
     if krs_plan_file_import.looks_like(tables):
         return 'план КР на год'
     if krs_sprav_import.looks_like(tables):
@@ -630,7 +632,7 @@ class Imports:
             kind_s = opts['special']
             try:
                 r = (self._pressure_dry(pid, item) if kind_s == 'pressure'
-                     else folder_check.KINDS[kind_s](item.name, item.content, opts['table']) if kind_s in ('gis', 'gdi_program')
+                     else folder_check.KINDS[kind_s](item.name, item.content, opts['table']) if kind_s in ('gis', 'gdi_program', 'gdi_sand')
                      else folder_check.KINDS[kind_s](item.name, item.content))
             except Exception as e:                    # файл отклонён целиком, остальные продолжают
                 issues.append({'Файл': item.name, 'Лист': '', 'Строка': 0, 'Уровень': 'ошибка', 'Причина': str(e)})
@@ -767,12 +769,13 @@ class Imports:
         notes = [out['message']] if out else []
         loaders = {'elpro': self.elpro_load, 'gas': self.gas_db_load, 'geo': self.geo_load, 'water': self.water_monthly_load,
                    'ggh': self.ggh_load, 'pressure': self.pressure_load, 'krs': self.krs_load,
-                   'survey': self.survey_load, 'gdi_program': self.gdi_program_load, 'krs_sprav': self.krs_sprav_load, 'krs_plan_file': self.krs_plan_file_load}
+                   'survey': self.survey_load, 'gdi_program': self.gdi_program_load, 'gdi_sand': self.gdi_sand_load, 'krs_sprav': self.krs_sprav_load, 'krs_plan_file': self.krs_plan_file_load}
         saved = None
         for sp in specials:                  # файлы со своим разбором: тот же шаг «Применить», отдельная запись в проект на файл
             try:
                 done = (self.gis_load(pid, sp['name'], sp['content'], policy, sp['table']) if sp['kind'] == 'gis'
                         else self.gdi_program_load(pid, sp['name'], sp['content'], policy, sp['table']) if sp['kind'] == 'gdi_program'
+                        else self.gdi_sand_load(pid, sp['name'], sp['content'], policy, sp['table']) if sp['kind'] == 'gdi_sand'
                         else loaders[sp['kind']](pid, sp['name'], sp['content'], policy))
             except (ParamError, Conflict) as e:
                 notes.append(f"«{sp['name']}» не загружен: {e}")
@@ -1376,6 +1379,26 @@ class Imports:
         saved = self._commit(pid, frames, m['revision'], 'Импорт программы ГДИ', details={'file': name, 'rows': len(new)})
         self._keep_originals(pid, [(name, content)])
         return {'message': f'Программа ГДИ «{name}»: ' + gdi_program_import.summary(new), 'warnings': warnings + notes,
+                'project': self.projects.summary(saved), 'undo': self._undo(pid)}
+
+    def gdi_sand_load(self, pid: str, name: str, content: bytes, policy: str, date: str = '') -> dict[str, Any]:
+        """Специальные ГДИ на вынос песка (Word/Excel/CSV, atlas/engine/core/gdi_sand_import.py) → ``gdi_sand``. Дата исследования: введённая вручную
+        главнее имени файла. Строки правятся вручную в общей таблице данных: решает инженер."""
+        if policy not in POLICIES:
+            raise ParamError('Неизвестное правило повторов')
+        try:
+            new, warnings = gdi_sand_import.read(name, content, date)
+        except (ValueError, OSError) as e:
+            raise ParamError(f'«{name}»: файл не прочитан ({e})') from e
+        if new.empty:
+            raise ParamError(f'«{name}»: в таблице нет скважин.')
+        m = self.projects.manifest(pid)
+        raw = self._raw_frames(pid, m)
+        frames = dict(raw)
+        frames[gdi_sand_import.KIND] = gdi_sand_import.merge(raw.get(gdi_sand_import.KIND), new, keep_old=policy == 'old')
+        saved = self._commit(pid, frames, m['revision'], 'Импорт ГДИ на вынос песка', details={'file': name, 'rows': len(new)})
+        self._keep_originals(pid, [(name, content)])
+        return {'message': f'ГДИ на вынос песка «{name}»: ' + gdi_sand_import.summary(new), 'warnings': warnings,
                 'project': self.projects.summary(saved), 'undo': self._undo(pid)}
 
     def survey_load(self, pid: str, name: str, content: bytes, policy: str) -> dict[str, Any]:

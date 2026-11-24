@@ -48,6 +48,7 @@ class DatasetKind(str, Enum):
     KRS_PRIORITY = 'krs_priority'        # КРС: приоритет КР по скважине (подсказка, 1 — срочно), одна строка на скважину
     KRS_PLAN = 'krs_plan'                # КРС: план капремонта по справке о выполнении (скважина × год: шифры, даты, состояние), одна строка на скважину и ремонт
     GDI_PROGRAM = 'gdi_program'          # программа ГДИ на сезон: скважина, этап, причина (в том числе КР в сезоне закачки), одна строка на скважину
+    GDI_SAND = 'gdi_sand'                # специальные ГДИ на вынос песка: предельная депрессия по затрубу, расход, КРУ; одна строка на скважину и исследование
     MODEL = 'model'                      # векторы скважин модели tNavigator (в проекте не хранится, читается из папок моделей)
     MODEL_OBJECT = 'model_object'        # показатели объекта по кубам модели (по датам рестарта); читаются по запросу
     MODEL_CELLS = 'model_cells'          # ячейки куба модели на выбранные даты (для кроссплотов); читаются по запросу
@@ -86,6 +87,7 @@ LABELS = {
     DatasetKind.KRS_PRIORITY: 'КРС: приоритет КР',
     DatasetKind.KRS_PLAN: 'КРС: план и выполнение КР',
     DatasetKind.GDI_PROGRAM: 'Программа ГДИ на сезон',
+    DatasetKind.GDI_SAND: 'ГДИ на вынос песка',
     DatasetKind.MODEL: 'Модель ГДМ',
     DatasetKind.MODEL_OBJECT: 'Модель ГДМ: кубы',
     DatasetKind.MODEL_CELLS: 'Модель ГДМ: ячейки',
@@ -120,6 +122,7 @@ REQUIRED_COLUMNS: dict[DatasetKind, tuple[str, ...]] = {
     DatasetKind.KRS_PRIORITY: ('well',),
     DatasetKind.KRS_PLAN: ('well', 'year'),
     DatasetKind.GDI_PROGRAM: ('well', 'season'),
+    DatasetKind.GDI_SAND: ('well', 'dp_annulus', 'q'),
     DatasetKind.MODEL: ('well', 'date', 'model'),
     DatasetKind.MODEL_OBJECT: ('date', 'model'),
     DatasetKind.MODEL_CELLS: ('date', 'model', 'k'),
