@@ -50,10 +50,14 @@ def parse_limits(text: Any) -> dict[str, float]:
     return out
 
 
-def pick_limit(well: str, manual: dict[str, float], by_type: float | None, type_name: str = '') -> tuple[float | None, str]:
-    """Предел депрессии и источник: ручной главнее, иначе по типу забоя (конструкции), иначе предела нет."""
+def pick_limit(well: str, manual: dict[str, float], by_type: float | None, type_name: str = '',
+               sand: tuple[float, str] | None = None) -> tuple[float | None, str]:
+    """Предел депрессии и источник: ручной главнее, затем спецГДИ на вынос песка (``sand`` = значение и подпись «от даты»),
+    затем по типу забоя (конструкции), иначе предела нет."""
     if well in manual:
         return manual[well], 'задан вручную'
+    if sand and sand[0] and sand[0] > 0:
+        return sand[0], f'ГДИ на вынос песка {sand[1]}'.strip()
     if by_type:
         return by_type, f'по конструкции: {type_name}' if type_name else 'по конструкции'
     return None, 'предел не задан'

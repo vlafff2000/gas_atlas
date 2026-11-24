@@ -20,7 +20,7 @@ from ..contract import CellStyle, Column, Data, Module, ModuleSpec, Note, Param,
 from ..domain import DatasetKind
 from .gdi import well_key
 
-GDI, CONSTRUCTION, PRIORITY = DatasetKind.GDI, DatasetKind.CONSTRUCTION, DatasetKind.KRS_PRIORITY
+GDI, CONSTRUCTION, PRIORITY, SAND = DatasetKind.GDI, DatasetKind.CONSTRUCTION, DatasetKind.KRS_PRIORITY, DatasetKind.GDI_SAND
 SECTION = 'Выбор данных'
 BAND = ('EAF1FB', 'FFFFFF')
 NOTE = ('Предельный расход — максимальный расход при депрессии не выше предела: Рпл² − (Рпл − dP)² = a·q + b·q², давления абсолютные. '
@@ -50,6 +50,22 @@ def sand_note(priority: pd.DataFrame | None, well: str) -> str:
     return f'КРУ: песок в ревизиях {", ".join(seasons)} — ограничить депрессию' if seasons else ''
 
 
+def sand_limits(sand: pd.DataFrame | None) -> dict[str, dict[str, Any]]:
+    """Предел по спецГДИ на вынос песка: по скважине берётся самое свежее исследование с депрессией (без даты — самое раннее).
+    Значение: dp (кгс/см², по затрубу), q, date, label «от ДД.ММ.ГГГГ» (или пусто)."""
+    if sand is None or sand.empty or not {'well', 'dp_annulus'} <= set(sand.columns):
+        return {}
+    d = sand.assign(well=sand.well.astype(str), dp=pd.to_numeric(sand.dp_annulus, errors='coerce'),
+                    when=pd.to_datetime(sand['date'], errors='coerce') if 'date' in sand else pd.NaT)
+    d = d[d.dp.gt(0)].sort_values('when', na_position='first', kind='stable')
+    out = {}
+    for w, g in d.groupby('well'):
+        r = g.iloc[-1]
+        out[w] = {'dp': float(r.dp), 'q': float(r['q']) if 'q' in g and pd.notna(r['q']) else None,
+                  'label': f'от {r.when:%d.%m.%Y}' if pd.notna(r.when) else ''}
+    return out
+
+
 def auto_start(p_res: pd.Series, step: float) -> float:
     """Верх сетки Рпл: медиана Рпл последних ГДИ, округлённая вверх до шага."""
     p = p_res.dropna()
@@ -57,13 +73,16 @@ def auto_start(p_res: pd.Series, step: float) -> float:
 
 
 def build_rows(studies: pd.DataFrame, wells: list[str], mapping: dict, limits: dict[str, float], types: list[dict], manual_type: dict,
-               kinds: dict[str, set], grid: list[float], priority: pd.DataFrame | None, today: pd.Timestamp, old_years: float) -> list[dict[str, Any]]:
+               kinds: dict[str, set], grid: list[float], priority: pd.DataFrame | None, today: pd.Timestamp, old_years: float,
+               sand: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     by_well = studies.set_index('well')
     rows = []
     for w in wells:
         key = passport_depression.well_type(kinds.get(w, set()), types, manual_type.get(w))
         t_name = next((t['name'] for t in types if t['key'] == key), '')
-        dp, source = lf.pick_limit(w, limits, next((t['limit'] for t in types if t['key'] == key), None), t_name)
+        sw = (sand or {}).get(w)
+        dp, source = lf.pick_limit(w, limits, next((t['limit'] for t in types if t['key'] == key), None), t_name,
+                                   (sw['dp'], sw['label']) if sw else None)
         row: dict[str, Any] = {'group': (mapping.get(w) or {}).get('group') or 'Без группы', 'well': w, 'type': t_name or '—', 'dp': dp, 'source': source,
                                'date': pd.NaT, 'p_gdi': None, 'q_gdi': None, 'q_obs': None, 'drop': None}
         notes = []
@@ -85,9 +104,11 @@ def build_rows(studies: pd.DataFrame, wells: list[str], mapping: dict, limits: d
                 notes.append(f'ГДИ старше {old_years:g} лет')
         else:
             notes.append('нет надёжного ГДИ')
-        sand = sand_note(priority, w)
-        if sand:
-            notes.insert(0, sand)
+        if sw and sw['q']:
+            notes.insert(0, f'вынос песка: dP {sw["dp"]:g} (затруб) при Q {sw["q"]:g}')
+        kru = sand_note(priority, w)
+        if kru:
+            notes.insert(0, kru)
         row['note'] = '; '.join(notes)
         rows.append(row)
     return rows
@@ -105,7 +126,7 @@ class GdiLimitsModule(Module):
         description='По каждой скважине и группе: предельная депрессия, максимальный расход по свежему ГДИ при этом пределе и как он падает '
                     'при снижении пластового давления; в примечаниях — песок и разрушения КРУ по ревизиям.',
         needs=(GDI,),
-        optional=(CONSTRUCTION, PRIORITY),
+        optional=(CONSTRUCTION, PRIORITY, SAND),
         order=37,
         params=(
             Param('threshold', 'Порог R²', 'number', default=0.95, minimum=0.0, maximum=1.0, step=0.01, setting='r2_threshold', section=SECTION,
@@ -116,8 +137,8 @@ class GdiLimitsModule(Module):
             Param('p_count', 'Число значений Рпл', 'number', default=6, minimum=1, maximum=15, step=1, section=SECTION,
                   help='Столбцов расхода: от верха сетки вниз с заданным шагом (сезон отбора — падение Рпл).'),
             Param('limits', 'Пределы вручную, кгс/см²', 'text', default='', section='Пределы депрессии',
-                  help='Строки «скважина=значение», например «523=0,73». Главнее авто-подсказки по конструкции '
-                       '(расширка и перфорация — пределы из паспорта скважины); например, из ГДИ на вынос песка.'),
+                  help='Строки «скважина=значение», например «523=0,73». Главнее остальных источников. Порядок: вручную → ГДИ на вынос песка (если загружены) → '
+                       'по конструкции (расширка и перфорация — пределы из паспорта скважины).'),
             Param('old_years', 'ГДИ старше, лет', 'number', default=3.0, minimum=0.5, maximum=30, step=0.5, section='Пределы депрессии',
                   help='В примечании отмечается, что ГДИ, по которому считан расход, давнее этого срока.'),
         ),
@@ -143,7 +164,8 @@ class GdiLimitsModule(Module):
         kinds = ({str(w): {classify(str(e)) for e in g.element} for w, g in cons.groupby('well')}
                  if cons is not None and not cons.empty else {})
         rows = build_rows(studies, wells, getattr(data, 'mapping', {}) or {}, lf.parse_limits(params['limits']), passport_depression.types_of(cfg),
-                          cfg.get('well_depression_type') or {}, kinds, grid, data.get(PRIORITY), pd.Timestamp.today().normalize(), float(params['old_years']))
+                          cfg.get('well_depression_type') or {}, kinds, grid, data.get(PRIORITY), pd.Timestamp.today().normalize(), float(params['old_years']),
+                          sand_limits(data.get(SAND)))
         rows.sort(key=lambda r: (natural_key(r['group']), well_key(r['well'])))
         frame = pd.DataFrame(rows)
         for p in grid:
