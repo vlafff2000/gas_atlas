@@ -41,6 +41,25 @@ CLASS_OF = {krs_kinds.FILTER: 'замена фильтра', krs_kinds.ARM: 'а�
             krs_kinds.KILL: 'глушение скважины'}
 
 
+def repair_classes(work_type, detail='') -> list[str]:
+    """ВСЕ виды работ ремонта (классы как у ``repair_class``): главный первым, остальные следом; «Виды работ» из книги ремонтов читаются из ``detail``."""
+    main = krs_kinds.of_text(work_type)
+    kinds = krs_kinds.all_of(detail, f'{work_type} {detail}', main if main != krs_kinds.OTHER else '')
+    return [CLASS_OF.get(k, 'прочее') for k in kinds]
+
+
+NO_REPAIR_GROUP = 'без КРС'
+
+
+def repair_group(kinds: str) -> str:
+    """Группа ремонта по видам работ: основные — замена ППФ, промывка / СКО, армирование ПЗП; остальное — прочий ремонт (в базе остаётся как есть)."""
+    have = set(str(kinds or '').split('; '))
+    for name, group in (('замена фильтра', 'замена ППФ'), ('промывка / СКО', 'промывка / СКО'), ('армирование ПЗП', 'армирование ПЗП')):
+        if name in have:
+            return group
+    return 'прочий ремонт'
+
+
 def repair_class(work_type, detail='') -> str:
     """Вид ремонта из строки справки (по названию и кодам работ): замена фильтра, армирование, промывка/СКО/колтюбинг, герметичность ЦК и изоляция,
     ремонт колонны, ликвидация пробки, глушение; неузнанное — «прочее» (строка не теряется, работы видны в таблице)."""
@@ -70,13 +89,14 @@ def parse_manual(text: str) -> dict[str, str]:
 def repairs(works: pd.DataFrame | None, plan: pd.DataFrame | None) -> pd.DataFrame:
     """Ремонты: well, year, kind (вид), work_type, date (по справке КРС «дата окончания»/«начала», иначе 1 июля года).
     Источники: таблица ремонтов ``krs_works`` и выполненные ремонты справки ``krs_plan`` (в справке есть ремонты, которых в таблице нет, и второй ремонт года)."""
-    cols = ['well', 'year', 'kind', 'work_type', 'date', 'dated']
+    cols = ['well', 'year', 'kind', 'kinds', 'group', 'work_type', 'date', 'dated']
     if works is not None and not works.empty and 'year' in works:
         w = works.dropna(subset=['year']).copy()
         w['well'], w['year'] = w.well.astype(str), w.year.astype(int)
         w['work_type'] = w.get('work_type', pd.Series('', index=w.index)).fillna('').astype(str)
         codes = w['detail'].fillna('').astype(str) if 'detail' in w else pd.Series('', index=w.index)
         w['kind'] = [repair_class(t, c) for t, c in zip(w.work_type, codes)]
+        w['kinds'] = ['; '.join(dict.fromkeys(repair_classes(t, c))) for t, c in zip(w.work_type, codes)]
         w['date'] = pd.to_datetime(w.year.astype(str) + '-07-01')
         w['dated'] = False
     else:
@@ -95,12 +115,13 @@ def repairs(works: pd.DataFrame | None, plan: pd.DataFrame | None) -> pd.DataFra
             if hit is not None and pd.notna(hit):
                 w.at[i, 'date'], w.at[i, 'dated'] = hit, True
         w = pd.concat([w, _plan_only(p, w)], ignore_index=True) if len(p) else w
+    w['group'] = [repair_group(k) for k in w.kinds]
     return w[cols].reset_index(drop=True)
 
 
 def _plan_only(plan: pd.DataFrame, have: pd.DataFrame) -> pd.DataFrame:
     """Выполненные ремонты справки, которых нет в таблице ремонтов: той же скважины и года нет ремонта того же вида. Дата — фактическая из справки."""
-    cols = ['well', 'year', 'kind', 'work_type', 'date', 'dated']
+    cols = ['well', 'year', 'kind', 'kinds', 'work_type', 'date', 'dated']
     state = plan['state'].fillna('') if 'state' in plan else pd.Series('', index=plan.index)
     table = plan['in_table'].fillna('') if 'in_table' in plan else pd.Series('', index=plan.index)
     d = plan[state.eq('Выполнено') & table.ne('Нет') & plan.year.notna() & plan.when.notna()]
@@ -109,11 +130,12 @@ def _plan_only(plan: pd.DataFrame, have: pd.DataFrame) -> pd.DataFrame:
     for r in d.itertuples():
         text = str(getattr(r, 'works', '') or '')
         kind = repair_class(text, f"{getattr(r, 'codes', '')} {text}")
+        kinds = '; '.join(dict.fromkeys(repair_classes(text, f"{getattr(r, 'codes', '')} {text}")))
         key = (r.well, int(r.year), kind)
         if key in known and kind != 'прочее':
             continue
         known.add(key)
-        rows.append({'well': r.well, 'year': int(r.year), 'kind': kind, 'work_type': text or str(getattr(r, 'codes', '') or ''), 'date': r.when, 'dated': True})
+        rows.append({'well': r.well, 'year': int(r.year), 'kind': kind, 'kinds': kinds, 'work_type': text or str(getattr(r, 'codes', '') or ''), 'date': r.when, 'dated': True})
     return pd.DataFrame(rows, columns=cols)
 
 
@@ -209,10 +231,12 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
         gap = (first_in - prev_any).days / 365.25 if pd.notna(prev_any) else np.nan
         last_date = mine.date.max()
         low = base.date if (base is not None and base.date < first_in) else (prev_any if pd.notna(prev_any) else first_in - pd.Timedelta(days=365))
+        done = rep[rep.well.eq(well) & rep.date.le(first_in + pd.Timedelta(days=1))] if not rep.empty else rep
+        group = done.sort_values('date').iloc[-1].group if len(done) else NO_REPAIR_GROUP      # группа скважины при проведении ГДИ: последний ремонт до даты исследования
         mine_rep = rep[rep.well.eq(well) & rep.date.gt(low) & rep.date.le(last_date + pd.Timedelta(days=1))] if not rep.empty else rep
         if len(mine_rep):
             latest = mine_rep.sort_values('date').iloc[-1]
-            auto = f'После КРС: {latest.kind}'
+            auto = f'После КРС: {latest.kinds or latest.kind}'
             reason = '; '.join(f'{r.work_type or "тип не указан"}, {r.year} г.' for r in mine_rep.itertuples())
             krs_year = int(latest.year)
         elif pd.notna(gap) and gap > years:
@@ -232,7 +256,7 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
                     'prev_date': base.date if base is not None else pd.NaT, 'last_date': last.date if last is not None else last_date,
                     'q_prev': base.q_ref if base is not None else np.nan, 'q_last': last.q_ref if last is not None else np.nan,
                     'auto': auto, 'category': manual.get(well, auto), 'edited': 'вручную' if well in manual else '',
-                    'krs_year': krs_year or np.nan, 'reason': reason})
+                    'krs_year': krs_year or np.nan, 'reason': reason, 'repair_group': group})
     return pd.DataFrame(out)
 
 
@@ -346,7 +370,7 @@ def repair_year_table(rows: pd.DataFrame, rep: pd.DataFrame, year, limit: float)
         else:
             verdict, change = verdict_of(b.q_ref, a.q_ref, limit)
             comment = ''
-        out.append({'well': r.well, 'kind': r.kind, 'work_type': r.work_type, 'repair_date': r.date,
+        out.append({'well': r.well, 'kind': r.kind, 'kinds': r.kinds, 'work_type': r.work_type, 'repair_date': r.date,
                     'date_note': '' if r.dated else 'только год (1 июля)', 'before': b.date if b is not None else pd.NaT,
                     'after': a.date if a is not None else pd.NaT, 'q_before': b.q_ref if b is not None else np.nan,
                     'q_after': a.q_ref if a is not None else np.nan, 'change': change, 'verdict': verdict, 'comment': comment})
@@ -955,12 +979,12 @@ class GdiSummaryModule(Module):
             result.charts.append(stacked('gdi-summary-krs-years', f'Итоги ГДИ после КРС по годам ремонта · {label} · {len(years_tab)} из {len(table)} скв.', ycats, yby,
                                          VERDICTS, VERDICT_COLORS, 'Год КРС', wells=members(years_tab, 'krs_label', ycats, VERDICTS)))
         result.tables.append(Table('gdi-summary-wells', 'Скважины сезона: итог ГДИ и категория', table[
-            ['well', 'verdict', 'change', 'prev_date', 'last_date', 'q_prev', 'q_last', 'slice', 'slice_edited', 'category', 'edited', 'reason']], [
+            ['well', 'verdict', 'change', 'prev_date', 'last_date', 'q_prev', 'q_last', 'slice', 'slice_edited', 'repair_group', 'category', 'edited', 'reason']], [
             Column('well', 'Скважина'), Column('verdict', 'Итог'), Column('change', 'Изменение Q', '%', 1, 'number'),
             Column('prev_date', 'ГДИ до (сравнение)', kind='date'), Column('last_date', 'ГДИ сезона', kind='date'),
             Column('q_prev', 'Q было', UNITS['q_gdi'], 1, 'number'), Column('q_last', 'Q стало', UNITS['q_gdi'], 1, 'number'),
             Column('slice', 'Период ГДИ'), Column('slice_edited', 'Период: правка'),
-            Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
+            Column('repair_group', 'Группа по ремонту'), Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
         self.repair_block(result, data, rows, rep, params, seasons, limit)
         program_block(result, rows, program, seasons, parse_manual(params.get('done_manual', '')))
         card_well = str(params.get('card_well') or '').strip().lstrip('№ ').strip()
@@ -1044,7 +1068,7 @@ class GdiSummaryModule(Module):
         result.summary += [Stat(f'Ремонтов КРС за {label}', str(len(table)), f'с надёжным ГДИ после: {done}'),
                            Stat('Без ГДИ после ремонта', str(int(table.verdict.eq(NO_AFTER).sum())), 'Кандидаты на исследование')]
         result.tables.append(Table('gdi-summary-repairs', f'Скважины с КРС за {label}: ГДИ до и после ремонта', table, [
-            Column('well', 'Скважина'), Column('kind', 'Вид ремонта'), Column('work_type', 'Работы по справке'),
+            Column('well', 'Скважина'), Column('kind', 'Вид ремонта'), Column('kinds', 'Все виды работ'), Column('work_type', 'Работы по справке'),
             Column('repair_date', 'Дата ремонта', kind='date'), Column('date_note', 'Дата'),
             Column('before', 'ГДИ до', kind='date'), Column('after', 'ГДИ после', kind='date'),
             Column('q_before', 'Q до', UNITS['q_gdi'], 1, 'number'), Column('q_after', 'Q после', UNITS['q_gdi'], 1, 'number'),

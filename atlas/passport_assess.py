@@ -80,10 +80,10 @@ def _last_kr_year(works: list[dict[str, Any]]) -> int | None:
 
 def sand_priority_at(sand_text: Any, works: list[dict[str, Any]], year: int) -> dict[str, Any] | None:
     """Приоритет КР по ревизиям КРУ на 1 января ``year`` (логика «Анализа ревизии КРУ»): число ревизий с песком после последнего ремонта,
-    который сбрасывает счёт (замена фильтра, армирование ПЗП); 1 ревизия → 3, 2 → 2, 3 и больше → 1. Ревизия сезона «2023-2024» известна с весны 2024.
+    который сбрасывает счёт (только замена фильтра ППФ, в том числе в составе ремонта с другими работами); 1 ревизия → 3, 2 → 2, 3 и больше → 1. Ревизия сезона «2023-2024» известна с весны 2024.
     Нет ни одной ревизии с песком — None."""
     from atlas.passport_tiles import sand_seasons, short_type
-    resets = [w['year'] for w in works if w.get('year') is not None and short_type(str(w.get('type') or '')) in ('фильтр', 'армиров.')]
+    resets = [w['year'] for w in works if w.get('year') is not None and (short_type(str(w.get('type') or '')) == 'фильтр' or 'Замена фильтра' in str(w.get('detail') or ''))]
     after = max([y for y in resets if y < year], default=None)
     seen = [s for s in sand_seasons(sand_text) if int(s[5:]) < year and (after is None or int(s[5:]) > after)]
     if not seen:

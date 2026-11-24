@@ -5,7 +5,7 @@ import pytest
 
 from atlas.contract import Data
 from atlas.domain import DatasetKind
-from atlas.modules.gdi_summary import (GdiSummaryModule, NO_AFTER, parse_manual, repair_class, repair_year_table, repairs,
+from atlas.modules.gdi_summary import (GdiSummaryModule, NO_AFTER, parse_manual, repair_class, repair_group, repair_year_table, repairs,
                                        season_table, study_rows)
 
 G, W = DatasetKind.GDI, DatasetKind.KRS_WORKS
@@ -74,6 +74,8 @@ def test_season_verdicts_and_categories():
     assert t.at['3', 'verdict'] == 'Без изменений' and t.at['3', 'category'] == 'ГДИ не делали более 5 лет'
     assert t.at['4', 'verdict'] == 'Недостаточно надёжных' and t.at['4', 'category'] == 'Первое ГДИ'      # пропуск, не нуль
     assert np.isnan(t.at['4', 'change'])
+    assert t.at['1', 'repair_group'] == 'замена ППФ' and t.at['2', 'repair_group'] == 'без КРС'      # группа — по ремонту до даты ГДИ
+    assert t.loc['6', 'repair_group'].tolist() == ['без КРС', 'промывка / СКО']                   # ГДИ до ремонта и после него: разные группы
 
 
 def test_manual_category_overrides_hint():
@@ -466,3 +468,18 @@ def test_id_charts_come_first_when_enabled():
     r = GdiSummaryModule().run(Data({G: g, W: works, DatasetKind.KRS_WORKS: works}), {**PARAMS, 'id_charts': 'yes', 'id_pairs': ''})
     ids = [i for i, c in enumerate(r.charts) if c.id.startswith('gdi-summary-id-')]
     assert ids and ids == list(range(len(ids)))
+
+
+def test_repairs_keep_all_kinds_of_one_repair():
+    """В одном ремонте несколько видов работ: «Все виды работ» хранит каждый, главный вид — для группировки графиков."""
+    works = pd.DataFrame([dict(well='1', year=2025, work_type='Замена фильтра',
+                               detail='Виды работ: Замена фильтра; Восстановление герметичности ЦК / изоляция; Колтюбинг с СКО / СКО; Описание работ: КР 1.094')])
+    r = repairs(works, None).iloc[0]
+    assert r.kind == 'замена фильтра'
+    assert r.kinds.split('; ') == ['замена фильтра', 'восстановление герметичности ЦК / изоляция', 'промывка / СКО']
+
+
+def test_repair_group_main_kinds_and_other():
+    assert repair_group('замена фильтра; восстановление герметичности ЦК / изоляция') == 'замена ППФ'
+    assert repair_group('армирование ПЗП; ремонт колонны') == 'армирование ПЗП'
+    assert repair_group('ремонт колонны; глушение скважины') == 'прочий ремонт'
