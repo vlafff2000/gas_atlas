@@ -36,7 +36,8 @@ export function autoSteps(text: string, lo: number, hi: number): number {
 }
 
 /** Делитель чисел и подпись для настройки оси; (1, подпись как есть), если масштабировать нельзя. */
-export function resolveUnits(text: string, units: string | undefined, lo: number, hi: number): { divisor: number; text: string } {
+export function resolveUnits(text: string, units: string | undefined, lo: number, hi: number, manual = false): { divisor: number; text: string } {
+  if (manual) return { divisor: 1000 ** (STEPS[units ?? ''] ?? 0), text }   // ручное название главнее автонадписей: не трогается
   const steps = units === 'auto' ? autoSteps(text, lo, hi) : STEPS[units ?? ''] ?? 0
   const shifted = steps ? shiftUnit(text, steps) : null
   return shifted === null ? { divisor: 1, text } : { divisor: 1000 ** steps, text: shifted }

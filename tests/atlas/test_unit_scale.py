@@ -15,3 +15,17 @@ def test_units_shift_label(c):
     assert (divisor, text) == (c['divisor'], c['out'])
     assert '×' not in text and '10' not in text
 
+
+
+def test_manual_axis_title_beats_unit_text():
+    """Ручное название оси остаётся как написано, даже если в нём есть единица; числа делятся только по явному выбору ступеней."""
+    assert resolve('Накоплено, тыс. м³', 'auto', 0, 5e6, manual=True) == (1.0, 'Накоплено, тыс. м³')
+    assert resolve('Накоплено, тыс. м³', 'thousands', 0, 5e6, manual=True) == (1000.0, 'Накоплено, тыс. м³')
+
+
+def test_any_chart_manual_label_marks_axis():
+    from atlas.contract import Axis, Chart
+    from atlas.export_any import prepared, settings_of
+    chart = Chart(id='t', title='T', series=[], x=Axis(label='X'), y=Axis(label='Объём', unit='тыс. м³', style={'units': 'millions'}))
+    out, _ = prepared(chart, settings_of({'labels': {'y': 'Мой объём'}}), with_doc=False)
+    assert (out.y.label, out.y.unit, out.y.style) == ('Мой объём', '', {'units': 'millions', 'manual_title': True})

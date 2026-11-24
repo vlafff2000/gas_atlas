@@ -138,7 +138,8 @@ def prepared(chart: Chart, s: Mapping[str, Any], with_doc: bool = True) -> tuple
     names = set(out.axis_names()) | {'x'}
     for name, label in s['labels'].items():
         if name in names:
-            axis = dataclasses.replace(out.x if name == 'x' else out.axis_at(name), label=label, unit='')
+            old = out.x if name == 'x' else out.axis_at(name)
+            axis = dataclasses.replace(old, label=label, unit='', style={**old.style, 'manual_title': True})      # ручное название главнее автонадписей
             out = dataclasses.replace(out, **{name: axis})
     return out, notes
 

@@ -89,6 +89,7 @@ export interface AxisStyle {
   ticks?: TickMark; minor_ticks?: TickMark; line?: boolean; line_color?: string; line_width?: number; label_rotate?: number
   units?: 'auto' | 'thousands' | 'millions' | 'billions'; title_place?: 'end' | 'middle'; minor_step?: number; cross?: number
   category_names?: Record<string, string>; category_wrap?: number   // подписи категорий оси X: «было → стало» и перенос по ширине (atlas/category_labels.py)
+  manual_title?: boolean                       // название оси задано вручную: главнее автоматических надписей (единиц)
   positive?: boolean                           // числа без минуса в подписях и подсказках
   fit?: 'auto' | 'zero' | 'data'               // подбор пределов: авто, авто от нуля, по данным (atlas/axis_fit.py)
   break_lo?: number; break_hi?: number         // разрыв оси: вырезаемый диапазон (мс у оси дат)

@@ -51,8 +51,13 @@ def auto_steps(text: str, lo: float, hi: float) -> int:
     return max(-here, min(len(ladder) - 1 - here, want))
 
 
-def resolve(text: str, units: str | None, lo: float, hi: float) -> tuple[float, str]:
-    """(делитель чисел, подпись) для настройки оси ``units``; (1, подпись как есть), если масштабировать нельзя."""
+def resolve(text: str, units: str | None, lo: float, hi: float, manual: bool = False) -> tuple[float, str]:
+    """(делитель чисел, подпись) для настройки оси ``units``; (1, подпись как есть), если масштабировать нельзя.
+
+    ``manual`` — название оси задано вручную: оно главнее любых автоматических надписей и остаётся как написано; числа делятся
+    только при явном выборе ступеней (автоматический режим единицу не видит и числа не трогает)."""
+    if manual:
+        return 1000.0 ** STEPS.get(units or '', 0), text
     steps = auto_steps(text, lo, hi) if units == AUTO else STEPS.get(units or '', 0)
     shifted = shift(text, steps) if steps else None
     return (1000.0 ** steps, shifted) if shifted is not None else (1.0, text)
