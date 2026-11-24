@@ -48,6 +48,18 @@ def repair_classes(work_type, detail='') -> list[str]:
     return [CLASS_OF.get(k, 'прочее') for k in kinds]
 
 
+NO_REPAIR_GROUP = 'без КРС'
+
+
+def repair_group(kinds: str) -> str:
+    """Группа ремонта по видам работ: основные — замена ППФ, промывка / СКО, армирование ПЗП; остальное — прочий ремонт (в базе остаётся как есть)."""
+    have = set(str(kinds or '').split('; '))
+    for name, group in (('замена фильтра', 'замена ППФ'), ('промывка / СКО', 'промывка / СКО'), ('армирование ПЗП', 'армирование ПЗП')):
+        if name in have:
+            return group
+    return 'прочий ремонт'
+
+
 def repair_class(work_type, detail='') -> str:
     """Вид ремонта из строки справки (по названию и кодам работ): замена фильтра, армирование, промывка/СКО/колтюбинг, герметичность ЦК и изоляция,
     ремонт колонны, ликвидация пробки, глушение; неузнанное — «прочее» (строка не теряется, работы видны в таблице)."""
@@ -77,7 +89,7 @@ def parse_manual(text: str) -> dict[str, str]:
 def repairs(works: pd.DataFrame | None, plan: pd.DataFrame | None) -> pd.DataFrame:
     """Ремонты: well, year, kind (вид), work_type, date (по справке КРС «дата окончания»/«начала», иначе 1 июля года).
     Источники: таблица ремонтов ``krs_works`` и выполненные ремонты справки ``krs_plan`` (в справке есть ремонты, которых в таблице нет, и второй ремонт года)."""
-    cols = ['well', 'year', 'kind', 'kinds', 'work_type', 'date', 'dated']
+    cols = ['well', 'year', 'kind', 'kinds', 'group', 'work_type', 'date', 'dated']
     if works is not None and not works.empty and 'year' in works:
         w = works.dropna(subset=['year']).copy()
         w['well'], w['year'] = w.well.astype(str), w.year.astype(int)
@@ -103,6 +115,7 @@ def repairs(works: pd.DataFrame | None, plan: pd.DataFrame | None) -> pd.DataFra
             if hit is not None and pd.notna(hit):
                 w.at[i, 'date'], w.at[i, 'dated'] = hit, True
         w = pd.concat([w, _plan_only(p, w)], ignore_index=True) if len(p) else w
+    w['group'] = [repair_group(k) for k in w.kinds]
     return w[cols].reset_index(drop=True)
 
 
@@ -218,6 +231,8 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
         gap = (first_in - prev_any).days / 365.25 if pd.notna(prev_any) else np.nan
         last_date = mine.date.max()
         low = base.date if (base is not None and base.date < first_in) else (prev_any if pd.notna(prev_any) else first_in - pd.Timedelta(days=365))
+        done = rep[rep.well.eq(well) & rep.date.le(first_in + pd.Timedelta(days=1))] if not rep.empty else rep
+        group = done.sort_values('date').iloc[-1].group if len(done) else NO_REPAIR_GROUP      # группа скважины при проведении ГДИ: последний ремонт до даты исследования
         mine_rep = rep[rep.well.eq(well) & rep.date.gt(low) & rep.date.le(last_date + pd.Timedelta(days=1))] if not rep.empty else rep
         if len(mine_rep):
             latest = mine_rep.sort_values('date').iloc[-1]
@@ -241,7 +256,7 @@ def season_table(rows: pd.DataFrame, seasons: list[str], limit: float, years: fl
                     'prev_date': base.date if base is not None else pd.NaT, 'last_date': last.date if last is not None else last_date,
                     'q_prev': base.q_ref if base is not None else np.nan, 'q_last': last.q_ref if last is not None else np.nan,
                     'auto': auto, 'category': manual.get(well, auto), 'edited': 'вручную' if well in manual else '',
-                    'krs_year': krs_year or np.nan, 'reason': reason})
+                    'krs_year': krs_year or np.nan, 'reason': reason, 'repair_group': group})
     return pd.DataFrame(out)
 
 
@@ -964,12 +979,12 @@ class GdiSummaryModule(Module):
             result.charts.append(stacked('gdi-summary-krs-years', f'Итоги ГДИ после КРС по годам ремонта · {label} · {len(years_tab)} из {len(table)} скв.', ycats, yby,
                                          VERDICTS, VERDICT_COLORS, 'Год КРС', wells=members(years_tab, 'krs_label', ycats, VERDICTS)))
         result.tables.append(Table('gdi-summary-wells', 'Скважины сезона: итог ГДИ и категория', table[
-            ['well', 'verdict', 'change', 'prev_date', 'last_date', 'q_prev', 'q_last', 'slice', 'slice_edited', 'category', 'edited', 'reason']], [
+            ['well', 'verdict', 'change', 'prev_date', 'last_date', 'q_prev', 'q_last', 'slice', 'slice_edited', 'repair_group', 'category', 'edited', 'reason']], [
             Column('well', 'Скважина'), Column('verdict', 'Итог'), Column('change', 'Изменение Q', '%', 1, 'number'),
             Column('prev_date', 'ГДИ до (сравнение)', kind='date'), Column('last_date', 'ГДИ сезона', kind='date'),
             Column('q_prev', 'Q было', UNITS['q_gdi'], 1, 'number'), Column('q_last', 'Q стало', UNITS['q_gdi'], 1, 'number'),
             Column('slice', 'Период ГДИ'), Column('slice_edited', 'Период: правка'),
-            Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
+            Column('repair_group', 'Группа по ремонту'), Column('category', 'Категория'), Column('edited', 'Правка'), Column('reason', 'Основание категории')]))
         self.repair_block(result, data, rows, rep, params, seasons, limit)
         program_block(result, rows, program, seasons, parse_manual(params.get('done_manual', '')))
         card_well = str(params.get('card_well') or '').strip().lstrip('№ ').strip()
