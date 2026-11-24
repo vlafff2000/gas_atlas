@@ -7,6 +7,7 @@ import { AxisPointerComponent, DataZoomComponent, GridComponent, LegendComponent
 import { AxisBreak } from 'echarts/features'
 import { CanvasRenderer, SVGRenderer } from 'echarts/renderers'
 import type { ChartExportView, ChartStyle, Axis, Chart, ChartEvent, Series, WindowReply } from './api'
+import { resolveUnits } from './unitScale'
 import { axisTitle, escapeHtml, formatDate, formatNumber, formatNumberUpTo } from './format'
 import { echartsRich, plainRich, richHtml } from './richText'
 import { RichText } from './RichField'
@@ -35,11 +36,13 @@ const SYMBOL = { circle: 'circle', square: 'rect', diamond: 'diamond', triangle:
 const DASH: Record<string, string | number[]> = {
   solid: 'solid', dash: [6, 4], dot: [1.5, 3.5], dashdot: [8, 3, 2, 3], longdash: [12, 4],
 }
-/** Единицы отображения оси (как в Excel): подписи делятся на множитель, к единице добавляется ×10ⁿ. */
-const UNIT_FACTOR = { thousands: [1e3, '×10³'], millions: [1e6, '×10⁶'], billions: [1e9, '×10⁹'] } as const
+/** Единицы отображения оси: подписи делятся на 1000ⁿ, а единица в названии меняется (тыс. м³ → млн м³), без «×10ⁿ» (unitScale.ts). */
 const numeric = (a: Axis) => a.scale === 'value' || a.scale === 'log'
-const unitFactor = (a: Axis) => (a.style?.units && numeric(a) ? UNIT_FACTOR[a.style.units][0] : 1)
-const shownUnit = (a: Axis) => (a.style?.units && numeric(a) ? [UNIT_FACTOR[a.style.units][1], a.unit].filter(Boolean).join(' ') : a.unit)
+const unitScale = (a: Axis) => a.style?.units && a.scale === 'value'
+  ? resolveUnits(a.unit, a.style.units, a.minimum ?? a.auto?.min ?? a.auto?.lo ?? 0, a.maximum ?? a.auto?.max ?? a.auto?.hi ?? 0)
+  : { divisor: 1, text: a.unit }
+const unitFactor = (a: Axis) => unitScale(a).divisor
+const shownUnit = (a: Axis) => unitScale(a).text
 /** Деления оси: наружу, внутрь, через ось (ECharts рисует наружу и длиннее), нет. */
 const tickOpt = (mark: string | undefined, color: string, fallback: boolean, length: number) => mark
   ? { show: mark !== 'none', inside: mark === 'in', length: mark === 'cross' ? length * 1.6 : length, lineStyle: { color } }

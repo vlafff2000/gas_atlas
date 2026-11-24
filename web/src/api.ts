@@ -87,7 +87,7 @@ export interface AxisStyle {
   title_bold?: boolean; title_italic?: boolean; tick_bold?: boolean; tick_italic?: boolean
   // модель v2 (atlas/chart_style.py): деления, линия оси, поворот подписей, единицы отображения, положение названия, доп. шаг, пересечение
   ticks?: TickMark; minor_ticks?: TickMark; line?: boolean; line_color?: string; line_width?: number; label_rotate?: number
-  units?: 'thousands' | 'millions' | 'billions'; title_place?: 'end' | 'middle'; minor_step?: number; cross?: number
+  units?: 'auto' | 'thousands' | 'millions' | 'billions'; title_place?: 'end' | 'middle'; minor_step?: number; cross?: number
   category_names?: Record<string, string>; category_wrap?: number   // подписи категорий оси X: «было → стало» и перенос по ширине (atlas/category_labels.py)
   positive?: boolean                           // числа без минуса в подписях и подсказках
   fit?: 'auto' | 'zero' | 'data'               // подбор пределов: авто, авто от нуля, по данным (atlas/axis_fit.py)

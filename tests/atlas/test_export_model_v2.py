@@ -11,7 +11,7 @@ from atlas.render import to_plotly
 def figure(style=None, legend=None):
     f = go.Figure([go.Scatter(x=[0, 1, 2, 3], y=[0, 2, 1, 3], mode='lines', name='a'),
                    go.Scatter(x=[0, 1, 2, 3], y=[3, 1, 2, 0], mode='lines', name='b')])
-    f.update_layout(xaxis_title='X', yaxis_title='Y', yaxis=dict(range=[0, 4]), title='График')
+    f.update_layout(xaxis_title='X', yaxis_title='Y, т', yaxis=dict(range=[0, 4]), title='График')
     meta = {}
     if style:
         meta['style'] = style
