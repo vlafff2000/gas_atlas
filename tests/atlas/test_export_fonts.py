@@ -52,3 +52,32 @@ def test_size_changes_output_and_validates():
 def chart_to_fig():
     from atlas.render import to_plotly
     return to_plotly(chart())
+
+
+def test_narrow_font_has_even_metrics():
+    """Баг «буквы прыгают»: составные знаки (кириллические а, е, о…) сжимались дважды, а левый отступ не совпадал с xMin."""
+    from fontTools.ttLib import TTFont
+    font = TTFont(str(fonts.FONT_DIR / 'AtlasSansNarrow-Regular.ttf'))
+    glyf, hmtx = font['glyf'], font['hmtx']
+    for name in font.getGlyphOrder():
+        glyph = glyf[name]
+        if glyph.numberOfContours:
+            assert hmtx[name][1] == glyph.xMin, name
+    # кириллическая «а» должна быть такой же, как латинская a
+    assert (glyf['uni0430'].xMin, glyf['uni0430'].xMax) == (glyf['a'].xMin, glyf['a'].xMax)
+    assert hmtx['uni0430'] == hmtx['a']
+
+
+def test_narrow_bundled_first_except_svg():
+    fonts.register()
+    assert fonts.family_for('arial_narrow')[0] == 'Atlas Sans Narrow'
+    assert fonts.family_for('arial_narrow', 'png')[0] == 'Atlas Sans Narrow'
+    assert fonts.family_for('arial_narrow', 'svg')[0] in ('Arial Narrow', 'Atlas Sans Narrow')
+    assert fonts.family_for('times')[0] in ('Times New Roman', 'Liberation Serif')
+
+
+def test_fonts_served_to_screen():
+    from starlette.testclient import TestClient
+    from atlas.api import create_app
+    r = TestClient(create_app()).get('/fonts/AtlasSansNarrow-Regular.ttf')
+    assert r.status_code == 200 and len(r.content) > 10000

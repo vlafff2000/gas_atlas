@@ -41,13 +41,20 @@ def installed(family):
         return False
 
 
-def family_for(key):
-    """Имя семейства для ``font.family``: оригинал, если он установлен, иначе аналог; DejaVu — запасной для редких знаков."""
+# Шрифты, которые рисуются одним и тем же аналогом на любой машине: оригинал (Arial Narrow) на Windows с ClearType даёт другой
+# межбуквенный ритм, чем на РЕД ОС, а на экране приложения тот же аналог подключён через @font-face — файл совпадает с экраном.
+BUNDLED_FIRST = {'arial_narrow'}
+
+
+def family_for(key, fmt=None):
+    """Имя семейства для ``font.family``: для узкого шрифта — всегда встроенный аналог (как на экране), для остальных оригинал,
+    если он установлен, иначе аналог; DejaVu — запасной для редких знаков. SVG оставляет оригинал: его откроет Word с настоящим шрифтом."""
     if key not in FONTS:
         raise ValueError('Шрифт: ' + ', '.join(FONTS))
     register()
     _, original, analog = FONTS[key]
-    for name in (original, analog):
+    order = (analog, original) if key in BUNDLED_FIRST and fmt != 'svg' else (original, analog)
+    for name in order:
         if name and installed(name):
             return [name, 'DejaVu Sans']
     return ['DejaVu Sans']
