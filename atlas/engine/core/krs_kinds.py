@@ -17,8 +17,8 @@ CODE_KINDS = {'1.094': FILTER, '2.013': ARM, '4.033': CTS, '2.022': PLUG, '7.02'
 CODE = re.compile(r'(?:КР|ИС)\s*(\d+(?:\.\d+)?)')
 
 
-def of_text(text) -> str:
-    """Вид по названию работ; не узнан — ``OTHER``."""
+def in_text(text) -> set:
+    """Все виды работ в названии."""
     low = ' '.join(str(text or '').lower().split())
     found = set()
     if 'фильтр' in low and ('замен' in low or 'установ' in low):
@@ -39,6 +39,12 @@ def of_text(text) -> str:
         found.add(PLUG)
     if 'глушен' in low:
         found.add(KILL)
+    return found
+
+
+def of_text(text) -> str:
+    """Главный вид по названию работ; не узнан — ``OTHER``."""
+    found = in_text(text)
     return next((k for k in ORDER if k in found), OTHER)
 
 
@@ -49,3 +55,12 @@ def of_codes(codes, text='') -> str:
     if by_text != OTHER:
         found.add(by_text)
     return next((k for k in ORDER if k in found), OTHER)
+
+
+def all_of(codes, text='', main='') -> list[str]:
+    """ВСЕ виды работ ремонта (не только главный), по порядку важности; ничего не узнано — ``[OTHER]``. ``main`` — вид, записанный в таблице ремонтов."""
+    found = {CODE_KINDS[n] for n in CODE.findall(str(codes or '')) if n in CODE_KINDS} | in_text(text)
+    found |= {k for k in in_text(codes)}
+    if main in ORDER:
+        found.add(main)
+    return [k for k in ORDER if k in found] or [OTHER]

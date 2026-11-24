@@ -466,3 +466,12 @@ def test_id_charts_come_first_when_enabled():
     r = GdiSummaryModule().run(Data({G: g, W: works, DatasetKind.KRS_WORKS: works}), {**PARAMS, 'id_charts': 'yes', 'id_pairs': ''})
     ids = [i for i, c in enumerate(r.charts) if c.id.startswith('gdi-summary-id-')]
     assert ids and ids == list(range(len(ids)))
+
+
+def test_repairs_keep_all_kinds_of_one_repair():
+    """В одном ремонте несколько видов работ: «Все виды работ» хранит каждый, главный вид — для группировки графиков."""
+    works = pd.DataFrame([dict(well='1', year=2025, work_type='Замена фильтра',
+                               detail='Виды работ: Замена фильтра; Восстановление герметичности ЦК / изоляция; Колтюбинг с СКО / СКО; Описание работ: КР 1.094')])
+    r = repairs(works, None).iloc[0]
+    assert r.kind == 'замена фильтра'
+    assert r.kinds.split('; ') == ['замена фильтра', 'восстановление герметичности ЦК / изоляция', 'промывка / СКО']
