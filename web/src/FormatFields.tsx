@@ -96,7 +96,7 @@ export const GRIDS: Opt<NonNullable<ChartStyle['grid']>> = [
   { value: 'v', label: 'Только вертикальная' }, { value: 'none', label: 'Без сетки' }]
 const ALIGNS: Opt<NonNullable<ChartStyle['title_align']>> = [{ value: 'left', label: 'Слева' }, { value: 'center', label: 'По центру' }, { value: 'right', label: 'Справа' }]
 const TICKS: Opt<NonNullable<AxisStyle['ticks']>> = [{ value: 'out', label: 'Наружу' }, { value: 'in', label: 'Внутрь' }, { value: 'cross', label: 'Через ось' }, { value: 'none', label: 'Нет' }]
-const UNITS: Opt<NonNullable<AxisStyle['units']>> = [{ value: 'thousands', label: 'Тысячи (×10³)' }, { value: 'millions', label: 'Миллионы (×10⁶)' }, { value: 'billions', label: 'Миллиарды (×10⁹)' }]
+const UNITS: Opt<NonNullable<AxisStyle['units']>> = [{ value: 'auto', label: 'Автоматически по данным' }, { value: 'thousands', label: 'Крупнее в 1 000 раз (тыс. м³ → млн м³)' }, { value: 'millions', label: 'Крупнее в 10⁶ раз' }, { value: 'billions', label: 'Крупнее в 10⁹ раз' }]
 const PLACES: Opt<NonNullable<AxisStyle['title_place']>> = [{ value: 'end', label: 'У конца оси' }, { value: 'middle', label: 'Вдоль оси' }]
 const LABEL_PLACES: Opt<NonNullable<Look['label_position']>> = [
   { value: 'top', label: 'Сверху' }, { value: 'bottom', label: 'Снизу' }, { value: 'left', label: 'Слева' }, { value: 'right', label: 'Справа' },

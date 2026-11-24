@@ -16,10 +16,9 @@ from typing import Any, Mapping
 import pandas as pd
 
 from ...rich_text import mpl_text
+from ...unit_scale import resolve
 
 LINESTYLES = {'solid': '-', 'dash': '--', 'dot': ':', 'dashdot': '-.', 'longdash': (0, (8, 3))}
-UNIT_DIVISOR = {'thousands': 1e3, 'millions': 1e6, 'billions': 1e9}
-UNIT_MARK = {'thousands': '×10³', 'millions': '×10⁶', 'billions': '×10⁹'}
 DATE_FORMATS = {'dd.MM.yyyy': '%d.%m.%Y', 'MM.yyyy': '%m.%Y', 'yyyy': '%Y', 'dd.MM': '%d.%m'}
 
 
@@ -270,7 +269,10 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
             if (hi - lo) / step <= 150:
                 low = spec.get('min')       # деления идут от заданного минимума, как на экране (37, 47, 57…), без минимума — кратны шагу
                 axis.set_major_locator(MultipleLocator(step, offset=math.fmod(low, step) if low is not None else 0.0))
-        divisor = UNIT_DIVISOR.get(spec.get('units'), 1.0) if not date else 1.0
+        divisor, shown = 1.0, None
+        if spec.get('units') and not date and spec.get('scale') != 'log':
+            lo, hi = target.get_xlim() if horizontal else target.get_ylim()
+            divisor, shown = resolve(axis.label.get_text(), spec['units'], lo, hi)
         positive = bool(spec.get('positive')) and not date
         if ('decimals' in spec or divisor != 1.0) and not date and spec.get('scale') != 'log':
             axis.set_major_formatter(ru_format(int(spec['decimals']) if 'decimals' in spec else 0 if divisor == 1.0 else 1, divisor, positive))
@@ -278,9 +280,8 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
             from matplotlib.ticker import FuncFormatter
             current = axis.get_major_formatter()
             axis.set_major_formatter(FuncFormatter(lambda v, pos, f=current: f(abs(v), pos).lstrip('-−')))
-        if divisor != 1.0:                      # единицы отображения: к названию оси добавляется ×10ⁿ
-            label = axis.label.get_text()
-            axis.label.set_text((label + ', ' if label else '') + UNIT_MARK[spec['units']])
+        if divisor != 1.0:                      # единицы отображения: меняется единица в названии оси (тыс. м³ → млн м³), без «×10ⁿ»
+            axis.label.set_text(shown)
         minor_step = spec.get('minor_step')
         if minor_step and not date and spec.get('scale') != 'log':
             lo, hi = sorted(target.get_xlim() if horizontal else target.get_ylim())
