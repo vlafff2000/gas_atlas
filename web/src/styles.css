@@ -524,3 +524,9 @@ table.frozen tbody tr.is-synced td:first-child { background: var(--accent-soft);
 /* График на всю ширину рабочего окна, под сеткой остальных графиков (суточные расходы в паспорте) */
 .chart-wide { margin-top: 16px; width: 100%; }
 .chart-wide > * { width: 100%; }
+
+/* Узкий аналог Arial Narrow (Liberation Sans, сжатый до 82 %; atlas/fonts, SIL OFL 1.1): один вид на экране и в файлах на любой машине. */
+@font-face { font-family: 'Atlas Sans Narrow'; src: url('/fonts/AtlasSansNarrow-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Atlas Sans Narrow'; src: url('/fonts/AtlasSansNarrow-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Atlas Sans Narrow'; src: url('/fonts/AtlasSansNarrow-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Atlas Sans Narrow'; src: url('/fonts/AtlasSansNarrow-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }

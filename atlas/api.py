@@ -424,6 +424,7 @@ def create_app(projects: Projects | None = None) -> Starlette:
         Route('/api/{rest:path}', api_not_found, methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
         Route('/', index),
     ]
+    routes.append(Mount('/fonts', StaticFiles(directory=__import__('atlas.engine.core.fonts', fromlist=['FONT_DIR']).FONT_DIR), name='fonts'))   # встроенные шрифты: узкий аналог Arial Narrow для экрана
     if (DIST / 'assets').exists():
         routes.append(Mount('/assets', StaticFiles(directory=DIST / 'assets'), name='assets'))
     return Starlette(routes=routes, middleware=[Middleware(__import__('atlas.runlog', fromlist=['RequestLog']).RequestLog), Middleware(GZipMiddleware, minimum_size=1024)])

@@ -301,7 +301,7 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
     elif is_gdi:height_mm=width_mm*.72+max(0,legend_rows-1)*5*k
     else:height_mm=width_mm*.68+max(0,legend_rows-2)*(9 if longest>=wrap_at else 5)*k
     if fmt=='png' and width_mm*height_mm*(dpi/25.4)**2>90_000_000:raise ValueError('Слишком большой PNG. Уменьшите ширину или DPI.')
-    with LOCK,plt.rc_context({'font.family':family_for(font),'font.size':base,'svg.fonttype':'none','pdf.fonttype':42}):
+    with LOCK,plt.rc_context({'font.family':family_for(font,fmt),'font.size':base,'svg.fonttype':'none','pdf.fonttype':42}):
         f,ax=plt.subplots(figsize=(width_mm/25.4,height_mm/25.4),layout='constrained')
         try:
             # правые шкалы по порядку: y2 у графика, y3 — снаружи от неё (1,12), дальше по 0,12

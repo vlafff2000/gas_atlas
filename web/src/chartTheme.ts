@@ -55,7 +55,7 @@ export const FONT = "'PT Sans', 'Segoe UI', system-ui, sans-serif"
 export const FONT_CHOICES: { value: string; label: string; css: string }[] = [
   { value: 'default', label: 'Стандартный', css: "'DejaVu Sans', 'Segoe UI', system-ui, sans-serif" },
   { value: 'times', label: 'Times New Roman', css: "'Times New Roman', 'Liberation Serif', Times, serif" },
-  { value: 'arial_narrow', label: 'Arial Narrow', css: "'Arial Narrow', 'Liberation Sans Narrow', 'Atlas Sans Narrow', Arial, sans-serif" },
+  { value: 'arial_narrow', label: 'Arial Narrow', css: "'Atlas Sans Narrow', 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif" },
   { value: 'calibri', label: 'Calibri', css: "Calibri, Carlito, 'Segoe UI', sans-serif" },
 ]
 /** Семейство CSS по ключу шрифта; без ключа — шрифт приложения. */

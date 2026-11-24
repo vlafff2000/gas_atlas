@@ -16,6 +16,10 @@ import { App } from './App'
 import { mountLogButton } from './LogButton'
 import { mountBusyBar } from './BusyBar'
 
-createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)
+// холст ECharts не перерисуется сам, когда шрифт догрузится, поэтому узкий шрифт ждём до первой отрисовки (не дольше 1,5 с)
+const narrow = Promise.all(['400', '700'].map(w => document.fonts.load(`${w} 14px 'Atlas Sans Narrow'`))).catch(() => undefined)
+Promise.race([narrow, new Promise(r => setTimeout(r, 1500))]).then(() => {
+  createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)
+})
 mountLogButton()
 mountBusyBar()

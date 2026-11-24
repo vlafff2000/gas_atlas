@@ -12,6 +12,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.pens.transformPen import TransformPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
@@ -27,16 +28,23 @@ def narrow(src: Path, style: str) -> None:
     glyphs = font.getGlyphSet()
     new = {}
     for name in font.getGlyphOrder():
-        pen = TTGlyphPen(glyphs)
-        glyphs[name].draw(TransformPen(pen, (SCALE, 0, 0, 1, 0, 0)))
+        # составные знаки (кириллические а, е, о, р, с, х, у… ссылаются на латинские) надо раскрыть, иначе ссылка
+        # на уже сжатый знак сжимается второй раз и буквы «прыгают»
+        flat = DecomposingRecordingPen(glyphs)
+        glyphs[name].draw(flat)
+        pen = TTGlyphPen(None)
+        flat.replay(TransformPen(pen, (SCALE, 0, 0, 1, 0, 0)))
         new[name] = pen.glyph()
     glyf = font['glyf']
     for name, glyph in new.items():
         glyf[name] = glyph
     hmtx = font['hmtx']
     for name in font.getGlyphOrder():
-        advance, lsb = hmtx[name]
-        hmtx[name] = (round(advance * SCALE), round(lsb * SCALE))
+        advance, _ = hmtx[name]
+        glyph = glyf[name]
+        glyph.recalcBounds(glyf)
+        # левый отступ обязан совпадать с xMin знака, иначе FreeType сдвинет его
+        hmtx[name] = (round(advance * SCALE), glyph.xMin if glyph.numberOfContours else 0)
     for tag in ('GPOS', 'kern', 'hdmx', 'LTSH', 'VDMX', 'fpgm', 'prep', 'cvt ', 'gasp', 'DSIG', 'GDEF'):
         if tag in font:
             del font[tag]
