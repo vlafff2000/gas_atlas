@@ -19,6 +19,7 @@ import { positiveNumber, STEP_UNITS, MAX_TICKS, calendarTicks, parseStep, stepTe
 import { seriesLooks, projectFormats, chartFont, formatScope, hiddenEvents, smoothLines, thinCharts, pinSync, pinSyncKind, crosshairSync, tooltipsOn, savedRanges, savedSteps, setHoverMode, sharedRange, zoomSync, useAppliedTheme, useHoverMode, usePref } from './chartPrefs'
 import { looksOf, markerSymbol, seriesLookKey, yearOfKey, type Look } from './chartStyle'
 import { categoryLabel, tableCells } from './categoryLabel'
+import { fitChart, unfitted } from './axisFit'
 import { applyFormat, chartKey, mergeFormats, type ChartFormat } from './chartFormat'
 import { FormatPane, type FormatElement } from './FormatPane'
 import { compact as clean } from './FormatFields'
@@ -229,7 +230,7 @@ const hasBars = (chart: Chart, key: YName) => chart.series.some(s => (s.kind ===
 
 function alignedYAxes(chart: Chart, base: Chart): Record<YName, { min: number; max: number; step: number }> | null {
   const names = Y_NAMES.slice(0, yCount(chart))
-  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value' || (chart.id.startsWith('builder') && yAxisAt(chart, i).step))) return null      // в конструкторе заданный вручную шаг важнее общей сетки
+  if (!chart.y2 || names.some((_n, i) => yAxisAt(chart, i).scale !== 'value')) return null      // в конструкторе заданный вручную шаг важнее общей сетки
   const out = {} as Record<YName, { min: number; max: number; step: number }>
   const hasData = base.series.some(s => s.kind !== 'box' && s.y.some(v => typeof v === 'number' && Number.isFinite(v)))
   if (!hasData) return null
@@ -300,34 +301,30 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const navigator = !compact && hasNavigator(base)      // по полному графику: подгрузка окна не должна убирать навигатор
 
   // две оси Y: одинаковое число делений строго друг напротив друга — одна основная сетка на обе
-  const dual = alignedYAxes(chart, base)
+  const fitted = fitChart(Y_NAMES.slice(0, yCount(chart)).reduce((current, name) => {
+    const limits = manual[name] ?? pin?.[name], step = steps[name]
+    if (!limits && step?.unit !== 'num') return current
+    const axis = unfitted(current[name] as Axis)
+    return { ...current, [name]: { ...axis, ...(limits ? { minimum: limits[0], maximum: limits[1] } : {}),
+      ...(step?.unit === 'num' ? { step: step.n } : {}), auto: axis.auto ? { ...axis.auto, min: undefined, max: undefined, step: undefined } : null } }
+  }, chart))
+  const dual = alignedYAxes(fitted, base)
   const twin = yCount(chart) > 1 && Y_NAMES.slice(0, yCount(chart)).every((_, i) => yAxisAt(chart, i).scale === 'value')      // ручные границы тоже делятся на 5
   const manyRight = rightAxes(chart).length > 1
   const rightNames = yAxesOf(chart).map(a => fitAxisName(plainRich(a.label), shownUnit(a), Y_BAND - 8, a.style?.title_size ?? SIZE.title))
   const nameLines = manyRight ? Math.max(...rightNames.slice(1).map(n => n.lines)) : 1
   const axis = (a: Axis, position: 'x' | YName) => {
-    const plain = axisBase(a, position), fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position], grid = position !== 'x' ? dual?.[position] : undefined
+    const plain = axisBase(a, position)
+    const fixed = (position === 'x' ? null : manual[position]) ?? pin?.[position]
+    const grid = position !== 'x' ? dual?.[position] : undefined
+    if (grid) return { ...plain, min: grid.min, max: grid.max, interval: grid.step }
     const st = steps[position]
-    if (fixed) return withStep({ ...plain, min: fixed[0], max: fixed[1], ...(twin ? { interval: (fixed[1] - fixed[0]) / gridIntervals(chart) } : {}) }, a, st)
-    return withStep(grid ? { ...plain, min: grid.min, max: grid.max, interval: grid.step } : plain, a, st)
-  }
-  /** Ручной основной интервал: у числовой оси — interval, у оси дат — календарные деления по всему размаху рядов. */
-  const withStep = <T extends object>(opt: T, a: Axis, st: AxisStep | undefined): T => {
-    if (!st) return opt
-    if (a.scale === 'value' && st.unit === 'num') {
-      const o = opt as { min?: number; max?: number }
-      const lo = typeof o.min === 'number' ? o.min : null, hi = typeof o.max === 'number' ? o.max : null
-      return lo !== null && hi !== null && (hi - lo) / st.n > MAX_TICKS ? opt : { ...opt, interval: st.n }
-    }
-    if (a.scale === 'time' && st.unit !== 'num') {
-      let lo = Infinity, hi = -Infinity
-      for (const s of base.series) for (const v of [s.x[0], s.x[s.x.length - 1]]) { const n = toNumber(v ?? null, 'time'); if (Number.isFinite(n)) { lo = Math.min(lo, n); hi = Math.max(hi, n) } }
-      const ticks = calendarTicks(lo, hi, st)
-      if (!ticks.length || ticks.length > MAX_TICKS) return opt
-      const o = opt as { axisLabel?: object; splitLine?: object }
-      return { ...opt, axisLabel: { ...o.axisLabel, customValues: ticks }, splitLine: { ...o.splitLine, customValues: ticks } }
-    }
-    return opt
+    const lo = fixed?.[0] ?? plain.min, hi = fixed?.[1] ?? plain.max
+    const bounded = lo == null || hi == null || st?.unit !== 'num' || (hi - lo) / st.n <= MAX_TICKS
+    const interval = bounded && st?.unit === 'num' && a.scale === 'value' ? st.n
+      : position !== 'x' ? (fitted[position] as Axis).step ?? plain.interval : plain.interval
+    return { ...plain, ...(fixed ? { min: fixed[0], max: fixed[1],
+      interval: twin ? (fixed[1] - fixed[0]) / gridIntervals(fitted) : interval } : { interval }) }
   }
   const axisBase = (a: Axis, position: 'x' | YName) => {
     const y = position !== 'x'
@@ -345,7 +342,7 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     const along = as.title_place === 'middle'                // название вдоль оси: Y — повернуто, по середине; X — по середине
     const atEnd = !y && as.title_place === 'end'
     const lineColor = as.line_color || a.color || tk.axis
-    const minorBy = as.minor_step && a.step ? Math.max(1, Math.round(a.step / as.minor_step)) : undefined
+    const minorBy = as.minor_step && a.step ? Math.min(600, Math.max(1, Math.round(a.step / as.minor_step))) : 5
     const minorGrid = cs.minor_grid === 'show' && (position === 'y' || position === 'x') && numeric(a)
     return {
       type: a.scale, inverse: a.inverse, scale: !zero,
@@ -353,9 +350,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       max: a.scale === 'category' ? undefined : a.maximum ?? undefined,
       // подобранный шаг оси X — не жёсткий interval: при увеличении делений стало бы 0–1. Число делений и предел шага дают
       // тот же шаг на полном виде (как в файле) и более мелкий при увеличении
-      ...(!y && a.scale === 'value' && a.step && a.auto?.step === a.step
-        ? { splitNumber: a.auto.n ?? 5, maxInterval: a.step }
-        : { interval: a.step && a.scale === 'value' ? a.step : undefined }),
+      splitNumber: !y && a.auto?.step === a.step ? a.auto?.n ?? undefined : undefined,
+      maxInterval: !y && a.auto?.step === a.step ? a.step ?? undefined : undefined,
+      interval: a.step && a.scale === 'value' && (y || a.auto?.step !== a.step || as.minor_step) ? a.step : undefined,
       ...(as.break_lo !== undefined && as.break_hi !== undefined && (a.scale === 'value' || a.scale === 'time') ? { breaks: [{ start: as.break_lo, end: as.break_hi, gap: 8 }] } : {}),
       minInterval: (a.unit === 'скв.' || a.unit === 'ед.') && a.scale === 'value' ? 1 : undefined,      // скважин — целое число, делений по 0,5 не бывает
       data: a.scale === 'category' ? a.categories ?? [] : undefined,
@@ -367,9 +364,9 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       nameTextStyle: y && !along
         ? { color: ink, fontSize: as.title_size ?? SIZE.title, fontFamily: family, ...titleFont, align: position === 'y' ? 'left' : 'right', ...(narrow ? { verticalAlign: 'bottom', lineHeight: 20 } : {}), padding: position === 'y' ? [0, 0, 0, -58] : [0, -8 - rightOffset(Y_NAMES.indexOf(position as YName)), 0, 0], rich: nameRich.rich }
         : { color: ink, fontSize: as.title_size ?? SIZE.title, fontFamily: family, ...titleFont, rich: nameRich.rich },
-      axisLine: { show: as.line ?? (!y || Y_NAMES.indexOf(position as YName) >= 2 || !!a.color || !!as.line_color), lineStyle: { color: lineColor, width: as.line_width ?? 1 } },
+      axisLine: { onZero: false, show: as.line ?? true, lineStyle: { color: lineColor, width: as.line_width ?? 1 } },
       ...(y && rightOffset(Y_NAMES.indexOf(position as YName)) ? { offset: rightOffset(Y_NAMES.indexOf(position as YName)) } : {}),
-      axisTick: { ...tickOpt(as.ticks, lineColor, false, 5), },   // засечка категории — посередине столбца, как в файле
+      axisTick: { ...tickOpt(as.ticks ?? (y ? 'out' : undefined), lineColor, false, 5), },   // засечка категории — посередине столбца, как в файле
       ...(as.minor_ticks || minorGrid ? { minorTick: { ...tickOpt(as.minor_ticks ?? 'none', lineColor, false, 3), ...(minorBy ? { splitNumber: minorBy } : {}) } } : {}),
       ...(minorGrid ? { minorSplitLine: { show: true, lineStyle: { color: cs.minor_grid_color || tk.grid, width: cs.minor_grid_width ?? 0.5, type: DASH[cs.minor_grid_dash ?? 'dot'], opacity: 0.6 } } } : {}),
       axisLabel: {
@@ -385,6 +382,57 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     }
   }
 
+  const xMain = axis(chart.x, 'x')
+  const xSpec = chart.x.style
+  const timeStep = steps.x?.unit !== 'num' ? steps.x ?? xSpec?.calendar_step : xSpec?.calendar_step
+  const timeMinor = xSpec?.calendar_minor_step
+  const dateEnds = [Infinity, -Infinity]
+  if (time && (timeStep || timeMinor)) {
+    for (const s of base.series) for (const v of s.x) {
+      const n = toNumber(v, 'time')
+      if (Number.isFinite(n)) { dateEnds[0] = Math.min(dateEnds[0], n); dateEnds[1] = Math.max(dateEnds[1], n) }
+    }
+  }
+  const dateLo = xMain.min ?? dateEnds[0], dateHi = xMain.max ?? dateEnds[1]
+  const accepted = (points: number[]) => points.length && points.length <= MAX_TICKS ? points : undefined
+  const majorDates = timeStep ? accepted(calendarTicks(dateLo, dateHi, timeStep)) : undefined
+  const minorDates = timeMinor ? accepted(calendarTicks(dateLo, dateHi, timeMinor)) : undefined
+  // Дополнительная ось без подписей использует тот же масштаб и окно. У ECharts для оси времени нет minorTick.
+  const minorAxis = (primary: ReturnType<typeof axis>, positions: number[], spec: Axis['style'], main?: number[]) => {
+    const ticks = positions.filter(v => !main?.includes(v))
+    const cs = chart.style
+    return { ...primary, name: '', axisLabel: { show: false }, axisLine: { ...primary.axisLine, show: false },
+      axisTick: { ...tickOpt(spec?.minor_ticks ?? 'out', spec?.line_color || tk.axis, false, 3), customValues: ticks },
+      minorTick: { show: false }, minorSplitLine: undefined, axisPointer: { show: false },
+      splitLine: { show: cs?.minor_grid === 'show', customValues: ticks,
+        lineStyle: { color: cs?.minor_grid_color || tk.grid, width: cs?.minor_grid_width ?? 0.5, type: DASH[cs?.minor_grid_dash ?? 'dot'] } } }
+  }
+  const numericMinor = (primary: ReturnType<typeof axis>, step: number | undefined) => {
+    const { min, max } = primary
+    if (primary.type !== 'value' || !step || min == null || max == null || (max - min) / step > 600) return undefined
+    const start = primary.inverse ? max : min
+    const sign = primary.inverse ? -1 : 1
+    const major = primary.interval
+    return Array.from({ length: Math.floor((max - min) / step + 1e-9) + 1 }, (_, i) => i)
+      .filter(i => i !== 0 && (!major || Math.abs(i * step / major - Math.round(i * step / major)) > 1e-8))
+      .map(i => start + sign * i * step)
+  }
+  const xMinor = minorDates ?? numericMinor(xMain, xSpec?.minor_step)
+  const xConfigured = { ...xMain, ...(minorDates ? { min: dateLo, max: dateHi } : {}),
+    ...(majorDates ? { axisLabel: { ...xMain.axisLabel, customValues: majorDates,
+      formatter: xSpec?.date_format ? xMain.axisLabel.formatter : timeStep?.unit === 'year' ? '{yyyy}' : timeStep?.unit === 'month' ? '{MM}.{yyyy}' : '{dd}.{MM}.{yyyy}' }, axisTick: { ...xMain.axisTick, customValues: majorDates },
+      splitLine: { ...xMain.splitLine, customValues: majorDates } } : {}),
+    ...(xMinor ? { minorTick: { show: false }, minorSplitLine: undefined } : {}) }
+  const yMain = yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i]))
+  const yExtra = yMain.flatMap((a, i) => {
+    const spec = yAxisAt(chart, i).style
+    const ticks = numericMinor(a, spec?.minor_step)
+    if (!ticks) return []
+    yMain[i] = { ...a, minorTick: { show: false }, minorSplitLine: undefined }
+    return [{ ...minorAxis(a, ticks, spec), position: i === 0 ? 'left' : 'right' }]
+  })
+  const yZoom = Array.from({ length: yMain.length + yExtra.length }, (_, i) => i)
+  const xZoom = xMinor ? [0, 1] : 0
   const category = chart.x.scale === 'category'
   let lo = 0, hi = 0
   if (category) for (const s of chart.series) for (const v of s.y) if (typeof v === 'number') { lo = Math.min(lo, v); hi = Math.max(hi, v) }
@@ -408,8 +456,8 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
       ...(chart.style?.plot_background || chart.style?.plot_border_color || chart.style?.plot_border_width ? { show: true,
         backgroundColor: chart.style.plot_background || 'transparent', borderColor: chart.style.plot_border_color || tk.axis,
         borderWidth: chart.style.plot_border_color || chart.style.plot_border_width ? chart.style.plot_border_width ?? 1 : 0 } : {}) },
-    xAxis: axis(chart.x, 'x'),
-    yAxis: rightAxes(chart).length ? yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i])) : axis(chart.y, 'y'),
+    xAxis: xMinor ? [xConfigured, { ...minorAxis(xConfigured, xMinor, xSpec, majorDates), position: 'bottom' }] : xConfigured,
+    yAxis: [...yMain, ...yExtra],
     // легенда — своя, под графиком (ChartLegend); компонент ECharts скрыт и только хранит, какие серии видны
     legend: { show: false, data: legend },
     tooltip: custom || !tooltipsOn.get() ? { show: false } : {
@@ -434,14 +482,14 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
     },
     dataZoom: category ? [
       // категории по X: масштаб только по шкалам Y (Ctrl + колесо), как у остальных графиков
-      { type: 'inside', yAxisIndex: yCount(chart) > 1 ? Array.from({ length: yCount(chart) }, (_, i) => i) : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false },
+      { type: 'inside', yAxisIndex: yZoom, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false },
     ] : [
       // Ctrl + колесо — масштаб; сдвиг полем (ЛКМ) — свой обработчик ниже, одинаковый по X и Y для любых графиков; страница при этом прокручивается колесом как обычно
-      { type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false },
-      ...(time ? [] : [{ type: 'inside', yAxisIndex: yCount(chart) > 1 ? Array.from({ length: yCount(chart) }, (_, i) => i) : 0, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false }]),
+      { type: 'inside', xAxisIndex: xZoom, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false },
+      ...(time ? [] : [{ type: 'inside', yAxisIndex: yZoom, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: false, preventDefaultMouseMove: false }]),
       // навигатор: весь период тенью и выбранное окно, его края и середину можно тянуть
       ...(navigator ? [{
-        type: 'slider', xAxisIndex: 0, filterMode: 'none', height: 22, bottom: 8, left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20,
+        type: 'slider', xAxisIndex: xZoom, filterMode: 'none', height: 22, bottom: 8, left: 64, right: yCount(chart) > 1 ? Y_BAND * (yCount(chart) - 1) : 20,
         brushSelect: false, showDataShadow: true, showDetail: false, borderColor: tk.axis, backgroundColor: 'transparent', borderRadius: 4,
         fillerColor: alpha(tk.accent, 0.12),
         dataBackground: { lineStyle: { color: tk.faint, width: 1 }, areaStyle: { color: alpha(tk.faint, 0.18) } },

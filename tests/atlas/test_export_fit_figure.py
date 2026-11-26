@@ -101,3 +101,43 @@ def test_numeric_x_axis_is_fitted_too():
     dated = go.Figure(go.Scatter(x=['2024-01-01', '2024-02-01'], y=[1.0, 2.0]))
     dated.update_xaxes(type='date')
     assert fit_figure(dated).layout.xaxis.range is None
+
+
+def test_branch_format_shared_grid_preserves_manual_bounds_on_three_axes():
+    from atlas.export_chart import apply_branch_format
+
+    fig = _figure()
+    fig.add_trace(go.Scatter(x=[1, 2, 3, 4], y=[19, 27, 32, 39], mode='lines', yaxis='y3'))
+    fig.update_layout(yaxis3={'overlaying': 'y', 'side': 'right', 'autorange': 'reversed'})
+    doc = {'chart': {'y_intervals': 6}, 'axes': {'y': {'min': '550', 'max': '1150', 'step': '100'},
+                                                'y2': {'min': '0.2', 'max': '1.4'}}}
+    result = fit_figure(apply_branch_format(fig, doc))
+    for axis in (result.layout.yaxis, result.layout.yaxis2, result.layout.yaxis3):
+        lo, hi = sorted(axis.range)
+        assert abs((hi - lo) / axis.dtick - 6) < 1e-8
+        assert axis.tick0 == lo
+    assert tuple(result.layout.yaxis.range) == (550, 1150)
+    assert tuple(result.layout.yaxis2.range) == (0.2, 1.4)
+    assert result.layout.yaxis3.range[0] > result.layout.yaxis3.range[1]
+
+
+def test_calendar_steps_reach_export_renderer():
+    from matplotlib.dates import date2num
+    from matplotlib.figure import Figure
+    from datetime import date
+
+    from atlas.chart_style import clean_format
+    from atlas.engine.core.export_style import apply_style
+    from atlas.export_chart import apply_branch_format
+
+    source = go.Figure(go.Scatter(x=['2024-01-15', '2024-08-25'], y=[1, 2]))
+    source.update_xaxes(type='date')
+    doc = clean_format({'axes': {'x': {'calendar_step_n': '2', 'step_unit': 'month',
+                                       'calendar_minor_step_n': '1', 'minor_step_unit': 'month'}}})
+    fig = apply_branch_format(source, doc)
+    paper = Figure()
+    ax = paper.subplots()
+    ax.set_xlim(date2num(date(2024, 1, 15)), date2num(date(2024, 8, 25)))
+    apply_style(paper, ax, {}, fig.layout.meta['style'], '', 1, 12, True)
+    assert list(ax.get_xticks()) == [date2num(date(2024, m, 1)) for m in (3, 5, 7)]
+    assert list(ax.get_xticks(minor=True)) == [date2num(date(2024, m, 1)) for m in (2, 4, 6, 8)]

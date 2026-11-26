@@ -148,23 +148,22 @@ export function parseStep(text: string, unit: StepUnit): AxisStep | null | 'bad'
   const s = text.trim()
   if (!s) return null
   const n = Number(s.replace(/\s/g, '').replace(',', '.'))
-  if (!Number.isFinite(n) || n <= 0 || (unit !== 'num' && !Number.isInteger(n))) return 'bad'
+  if (!Number.isFinite(n) || n <= 0 || (unit !== 'num' && (!Number.isInteger(n) || n > 10000))) return 'bad'
   return { n, unit }
 }
 
 /** Деления оси дат (мс, UTC) в [lo, hi]: годы — с 1 января, месяцы — с 1-го числа, недели — с понедельника, дни — с полуночи. */
 export function calendarTicks(lo: number, hi: number, step: AxisStep): number[] {
   if (step.unit === 'num' || !(hi >= lo)) return []
-  const d = new Date(lo)
-  let cur: number
-  const at = (k: number) => step.unit === 'year' ? Date.UTC(d.getUTCFullYear() + k * step.n, 0, 1)
-    : step.unit === 'month' ? Date.UTC(d.getUTCFullYear(), k * step.n, 1) : 0
   const out: number[] = []
   if (step.unit === 'year' || step.unit === 'month') {
-    for (let k = 0; out.length <= MAX_TICKS; k++) {
-      cur = at(k)
-      if (cur > hi) break
-      if (cur >= lo) out.push(cur)
+    const d = new Date(lo)
+    const months = step.n * (step.unit === 'year' ? 12 : 1)
+    const firstMonth = (d.getUTCFullYear() - 1970) * 12 + d.getUTCMonth()
+    for (let m = Math.floor(firstMonth / months) * months; out.length <= MAX_TICKS; m += months) {
+      const tick = Date.UTC(1970, m, 1)
+      if (!Number.isFinite(tick) || tick > hi) break
+      if (tick >= lo) out.push(tick)
     }
     return out
   }

@@ -149,6 +149,8 @@ function stepped(need: Need): Fit | null {
   let low = need.minimum != null ? need.minimum : Math.floor(a / step + EPS) * step
   let high = need.maximum != null ? need.maximum : Math.ceil(b / step - EPS) * step
   if (need.minimum == null && Math.min(need.lo, need.hi) >= 0) low = Math.max(low, 0)
+  if (need.minimum != null && need.maximum == null) high = low + Math.max(1, Math.ceil((b - low) / step - EPS)) * step
+  else if (need.maximum != null && need.minimum == null) low = high - Math.max(1, Math.ceil((high - a) / step - EPS)) * step
   if (!(high > low)) high = low + step
   if ((high - low) / step > MAX_INTERVALS) return null
   return { minimum: clean(low), maximum: clean(high), step, n: null, zero: low <= 0 && 0 <= high, why: 'step' }
@@ -195,7 +197,22 @@ function zeroIndex(cands: Map<number, Cand>, needs: (Need | null)[], kinds: Kind
 /** Границы и шаг всех шкал значений одного графика; null — шкала не подбирается. */
 export function fitAxes(needs: (Need | null)[], nMin = N_MIN, nMax = N_MAX, prefer = N_PREFERRED): (Fit | null)[] {
   const count = needs.filter(n => n !== null).length
-  const kinds = needs.map(n => kindOf(n, count))
+  const shared = count > 1 || nMin === nMax
+  const manual = new Map<number, [number, Fit]>()
+  if (shared) {
+    needs.forEach((need, i) => {
+      if (!need?.step || need.step <= 0 || !Number.isFinite(need.step)) return
+      const fit: Fit | null = need.minimum != null && need.maximum != null && need.minimum < need.maximum
+        ? { minimum: need.minimum, maximum: need.maximum, step: need.step, n: null, zero: need.minimum <= 0 && need.maximum >= 0, why: 'step' }
+        : stepped(need)
+      if (!fit) return
+      const n = (fit.maximum - fit.minimum) / fit.step, rounded = Math.round(n)
+      if (rounded >= 1 && rounded <= MAX_INTERVALS && Math.abs(n - rounded) < 1e-6) manual.set(i, [rounded, fit])
+    })
+    if (nMin !== nMax && manual.size) nMin = nMax = Math.max(...[...manual.values()].map(([n]) => n))
+    needs = needs.map(need => need?.step != null ? { ...need, step: null } : need)
+  }
+  const kinds = needs.map(n => kindOf(n, shared ? Math.max(2, count) : count))
   const out: (Fit | null)[] = needs.map((need, i) => kinds[i] === 'stepped' ? stepped(need!) : null)
   const grid = kinds.map((k, i) => (k === 'free' || k === 'half' || k === 'fixed' || k === 'empty' ? i : -1)).filter(i => i >= 0)
   if (!grid.length) return out
@@ -221,7 +238,10 @@ export function fitAxes(needs: (Need | null)[], nMin = N_MIN, nMax = N_MAX, pref
   }
   if (!best) return out
   const [, n, cands] = best
-  for (const [i, [low, high, step, , zero, why]] of cands) out[i] = { minimum: clean(low), maximum: clean(high), step: clean(step), n, zero, why }
+  for (const [i, [low, high, step, , zero, why]] of cands) {
+    const own = manual.get(i)
+    out[i] = own?.[0] === n ? { ...own[1], n } : { minimum: clean(low), maximum: clean(high), step: clean(step), n, zero, why }
+  }
   return out
 }
 
@@ -266,11 +286,11 @@ export function extentOf(chart: Chart, name: string): { lo: number | null; hi: n
 
 /** Границы и шаг, заданные вручную или модулем: не равные тому, что подобрал автомат. */
 function manualOf(axis: Axis): { minimum: number | null; maximum: number | null; step: number | null } {
-  const auto = axis.auto as Record<string, unknown> | null | undefined
+  const auto = axis.auto
   const out = { minimum: null as number | null, maximum: null as number | null, step: null as number | null }
   for (const [attr, key] of FIELDS) {
     const value = attr === 'step' ? axis.step || null : axis[attr]
-    out[attr] = value == null || (auto && key in auto && auto[key] === value) ? null : value
+    out[attr] = auto && auto[key] === value ? (attr === 'step' ? auto.requested_step ?? null : null) : value ?? null
   }
   return out
 }
@@ -319,7 +339,8 @@ export function fitChart(chart: Chart): Chart {
     return { lo, hi, anchor: found.anchor, mode: fitModeOf(axis), inverse: !!axis.inverse, ...(name === 'x' ? { margin: 0 } : {}), ...manualOf(axis) }
   })
   if (needs.every(n => !n || n.lo == null) && !names.some(name => (chart[name] as Axis).auto)) return chart
-  const fits = [...fitAxes(needs.slice(0, -1)), ...fitAxes(needs.slice(-1))]
+  const count = chart.style?.y_intervals
+  const fits = [...fitAxes(needs.slice(0, -1), count, count), ...fitAxes(needs.slice(-1))]
   let out = chart
   names.forEach((name, i) => {
     const need = needs[i], axis = chart[name] as Axis
@@ -332,7 +353,10 @@ export function fitChart(chart: Chart): Chart {
       const auto = { n: fit.n, zero: fit.zero, why: fit.why, lo: need.lo ?? null, hi: need.hi ?? null, anchor: !!need.anchor } as NonNullable<Axis['auto']>
       if (manual.minimum === null) auto.min = fit.minimum
       if (manual.maximum === null) auto.max = fit.maximum
-      if (manual.step === null) auto.step = fit.step
+      if (manual.step !== fit.step) {
+        auto.step = fit.step
+        if (manual.step !== null) auto.requested_step = manual.step
+      }
       if (axis.auto?.hints) auto.hints = axis.auto.hints
       fresh = { ...axis, minimum: fit.minimum, maximum: fit.maximum, step: fit.step, auto }
     }

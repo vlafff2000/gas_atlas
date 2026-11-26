@@ -401,7 +401,7 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                 twin.grid(False);twin.spines['top'].set_visible(False)
             if not date_axis and isinstance(fig.layout.xaxis.dtick,(int,float)) and fig.layout.xaxis.dtick>0:
                 lo,hi=ax.get_xlim();step=fig.layout.xaxis.dtick
-                if (hi-lo)/step<=150:ax.xaxis.set_major_locator(MultipleLocator(step))
+                if (hi-lo)/step<=150:ax.xaxis.set_major_locator(MultipleLocator(step, offset=(fig.layout.xaxis.tick0 or 0) % step))
                 ax.xaxis.set_major_formatter(ru_tick('.0f' if step>=1 and float(step).is_integer() else '.10g'))      # дробный шаг (2,5; 0,25) — со своими знаками, как на экране
             if isinstance(fig.layout.yaxis.dtick,(int,float)) and fig.layout.yaxis.dtick>0:
                 lo,hi=ax.get_ylim();step=fig.layout.yaxis.dtick
@@ -439,8 +439,10 @@ def _figure_bytes(fig,fmt='png',dpi=300,width_mm=220,height_mm=None,compact=Fals
                     f.legend(handles,labels,loc=where,ncol=1 if where.endswith(('right','left')) else int(columns) if columns else ncols,fontsize=(9 if excel else 6.5 if compact else 7)*k,frameon=False,columnspacing=1.2,handlelength=1.6,labelcolor=XL_TEXT if excel else None)
             if compact:
                 from matplotlib.ticker import MaxNLocator
-                for axis in (ax.xaxis,ax.yaxis)+tuple(twin.yaxis for twin in rights.values()):
-                    if axis is ax.xaxis and date_axis:continue
+                for name,target in (('x',ax),('y',ax),*rights.items()):
+                    axis=target.xaxis if name=='x' else target.yaxis
+                    layout=getattr(fig.layout,'xaxis' if name=='x' else 'yaxis'+name[1:])
+                    if (name=='x' and date_axis) or (layout.range is not None and layout.dtick and layout.tick0 is not None):continue
                     axis.set_major_locator(MaxNLocator(nbins=6 if width_mm>=120 else 5,steps=[1,2,2.5,5,10]));axis.set_major_formatter(ru_tick('.10g'))
                 if not excel:ax.grid(True,color='#c9ced6',linewidth=.5,linestyle='--');ax.tick_params(length=2.5,pad=2)
             if date_axis:

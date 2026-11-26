@@ -39,7 +39,7 @@ def format_figure(frame: pd.DataFrame, well: str, style: dict):
     import plotly.graph_objects as go
 
     from .chart_format import apply
-    from .export_chart import apply_branch_format
+    from .export_chart import apply_branch_format, fit_figure
 
     frame = frame.sort_values('date').reset_index(drop=True)
     names = style.get('labels') or {}
@@ -65,7 +65,7 @@ def format_figure(frame: pd.DataFrame, well: str, style: dict):
                                  yaxis='y2' if right else 'y', line={'color': color},
                                  marker={'symbol': symbols[MARKERS[key]], 'size': 2 * SIZES[key], 'color': color}))
     figure = apply(fig, style)
-    return apply_branch_format(figure, style['doc']) if style.get('doc') else figure
+    return fit_figure(apply_branch_format(figure, style['doc'])) if style.get('doc') else figure
 
 
 def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'times', style: dict | None = None) -> bytes:

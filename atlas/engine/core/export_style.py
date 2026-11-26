@@ -233,6 +233,50 @@ def draw_annotations(ax, items, date_axis: bool, family) -> None:
                 mark(ax.annotate(text, (x, y), ha='center', va='center', fontsize=size, color=color, fontfamily=family, zorder=4), note)
 
 
+def calendar_locator(spec: Mapping[str, Any]):
+    """Календарь UTC с теми же границами недель, месяцев и лет, что у chartAxes.ts."""
+    from datetime import date, timedelta
+
+    from matplotlib.dates import date2num, num2date
+    from matplotlib.ticker import Locator
+
+    class CalendarLocator(Locator):
+        def __call__(self):
+            lo, hi = sorted(self.axis.get_view_interval())
+            first = num2date(lo).date()
+            unit, n = spec['unit'], spec['n']
+            if unit in ('month', 'year'):
+                period = n * (12 if unit == 'year' else 1)
+                index = (first.year - 1970) * 12 + first.month - 1
+                def dates():
+                    for i in range(1501):
+                        month = index // period * period + i * period
+                        year, offset = divmod(month, 12)
+                        if not 1 <= 1970 + year <= 9999:
+                            break
+                        yield date(1970 + year, offset + 1, 1)
+            else:
+                origin = date(1970, 1, 5 if unit == 'week' else 1)
+                days = n * (7 if unit == 'week' else 1)
+                offset = (first - origin).days // days * days
+                def dates():
+                    for i in range(1501):
+                        delta = offset + i * days
+                        if delta > (date.max - origin).days:
+                            break
+                        yield origin + timedelta(days=delta)
+            ticks = []
+            for day in dates():
+                value = date2num(day)
+                if value > hi:
+                    break
+                if value >= lo:
+                    ticks.append(value)
+            return ticks if len(ticks) <= 1500 else []
+
+    return CalendarLocator()
+
+
 def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], title: str, k: float, base: float, date_axis: bool) -> None:
     from matplotlib.dates import DateFormatter
     from matplotlib.ticker import AutoMinorLocator, MultipleLocator, NullLocator
@@ -272,8 +316,8 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
         if step and not date and spec.get('scale') != 'log':
             lo, hi = sorted(target.get_xlim() if horizontal else target.get_ylim())
             if (hi - lo) / step <= 150:
-                low = spec.get('min')       # деления идут от заданного минимума, как на экране (37, 47, 57…), без минимума — кратны шагу
-                axis.set_major_locator(MultipleLocator(step, offset=math.fmod(low, step) if low is not None else 0.0))
+                start = hi if axis.get_inverted() else lo
+                axis.set_major_locator(MultipleLocator(step, offset=math.fmod(start, step)))
         divisor, shown = 1.0, None
         if spec.get('units') and not date and spec.get('scale') != 'log':
             lo, hi = target.get_xlim() if horizontal else target.get_ylim()
@@ -291,10 +335,18 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
         if minor_step and not date and spec.get('scale') != 'log':
             lo, hi = sorted(target.get_xlim() if horizontal else target.get_ylim())
             if (hi - lo) / minor_step <= 600:
-                axis.set_minor_locator(MultipleLocator(minor_step))
+                start = hi if axis.get_inverted() else lo
+                axis.set_minor_locator(MultipleLocator(minor_step, offset=math.fmod(start, minor_step)))
         side = 'bottom' if horizontal else 'right' if name != 'y' else 'left'
         if spec.get('cross') is not None and not date and spec.get('scale') != 'log':      # ось пересекает соседнюю в этом значении
             target.spines[side if horizontal or name == 'y' else 'right'].set_position(('data', spec['cross']))
+        if date and spec.get('calendar_step'):
+            calendar = spec['calendar_step']
+            axis.set_major_locator(calendar_locator(calendar))
+            if not spec.get('date_format'):
+                axis.set_major_formatter(DateFormatter({'year': '%Y', 'month': '%m.%Y', 'week': '%d.%m.%Y', 'day': '%d.%m.%Y'}[calendar['unit']]))
+        if date and spec.get('calendar_minor_step'):
+            axis.set_minor_locator(calendar_locator(spec['calendar_minor_step']))
         if date and spec.get('date_format') in DATE_FORMATS:
             axis.set_major_formatter(DateFormatter(DATE_FORMATS[spec['date_format']]))
         font = _family(spec.get('font')) or general
@@ -310,11 +362,13 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
         if spec.get('color'):
             params['color'] = spec['color']
             target.spines[side].set_color(spec['color'])
+        if spec.get('calendar_minor_step') or spec.get('minor_step'):
+            axis.set_tick_params(which='minor', **TICK_DIRECTION['out'])
         for key, which in (('ticks', 'major'), ('minor_ticks', 'minor')):      # деления: наружу, внутрь, через ось, нет
             mark = spec.get(key)
             if mark:
                 if which == 'minor' and mark != 'none' and isinstance(axis.get_minor_locator(), NullLocator) and axis.get_scale() == 'linear' and not date:
-                    axis.set_minor_locator(AutoMinorLocator())      # дополнительных делений нет, пока ось их не получила
+                    axis.set_minor_locator(AutoMinorLocator(5))      # дополнительных делений нет, пока ось их не получила
                 axis.set_tick_params(which=which, **TICK_DIRECTION[mark])
         if spec.get('line') is not None:
             target.spines[side].set_visible(bool(spec['line']))
@@ -362,7 +416,7 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
     elif minor == 'show' or tuned:
         for axis, on in ((ax.xaxis, mode in ('', 'both', 'v')), (ax.yaxis, mode in ('', 'both', 'h'))):
             if minor == 'show' and isinstance(axis.get_minor_locator(), NullLocator) and axis.get_scale() == 'linear' and not (axis is ax.xaxis and date_axis):
-                axis.set_minor_locator(AutoMinorLocator())
+                axis.set_minor_locator(AutoMinorLocator(5))
             axis.grid(on, which='minor', color=chart.get('minor_grid_color') or '#f0f2f5', linewidth=chart.get('minor_grid_width', .5),
                       linestyle=LINESTYLES.get(chart.get('minor_grid_dash'), '-'))
     if chart.get('background'):
