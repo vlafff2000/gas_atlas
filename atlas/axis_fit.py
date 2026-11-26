@@ -29,7 +29,8 @@ from typing import Sequence
 MULTS = (1.0, 2.0, 2.5, 5.0)
 N_MIN, N_MAX, N_PREFERRED = 4, 8, 5
 ZERO_SHARE = 0.25            # нуль добавляется линиям и точкам, если отнимает не больше этой доли высоты поля
-MODES = ('auto', 'zero', 'data')
+DATA_LIMIT_MODES = ('data-zero', 'data-exact')
+MODES = ('auto', 'zero', 'data', *DATA_LIMIT_MODES)
 MAX_INTERVALS = 150          # предохранитель для заданного вручную слишком мелкого шага
 N_PENALTY = 0.03             # цена отхода числа делений от привычных пяти (в долях заполнения поля)
 ODD_PENALTY = 0.02           # цена шага 2,5 · 10^k: деления 1, 2, 5 привычнее
@@ -45,6 +46,8 @@ WHY = {
     'mixed': 'значения разных знаков — нуль внутри шкалы',
     'mode-zero': 'режим «авто от нуля»',
     'mode-data': 'режим «по данным»',
+    'data-zero': 'пределы по данным с включением нуля',
+    'data-exact': 'пределы по минимуму и максимуму данных',
     'flat': 'все значения равны — шкала вокруг значения',
     'manual': 'границы заданы вручную',
     'step': 'шаг задан вручную — границы кратны шагу',
@@ -272,10 +275,23 @@ def _zero_index(cands: dict, needs: Sequence[Need | None], kinds: Sequence[str],
         cands.update(best[1])
 
 
+def _data_limits(need: Need | None) -> Need | None:
+    if need is None or need.mode not in DATA_LIMIT_MODES or need.lo is None or need.hi is None:
+        return None
+    if not math.isfinite(need.lo) or not math.isfinite(need.hi):
+        return None
+    low, high, *_ = _target(dataclasses.replace(need, mode='zero' if need.mode == 'data-zero' else 'data'))
+    low = low if need.minimum is None else need.minimum
+    high = high if need.maximum is None else need.maximum
+    return dataclasses.replace(need, minimum=low, maximum=high) if low < high else None
+
+
 def fit_axes(needs: Sequence[Need | None], n_min: int = N_MIN, n_max: int = N_MAX, prefer: int = N_PREFERRED) -> list[Fit | None]:
     """Границы и шаг всех шкал значений одного графика; ``None`` — шкала не подбирается (нет данных и задана вручную, ошибка в границах)."""
+    exact = {i: bounds for i, need in enumerate(needs) if (bounds := _data_limits(need)) is not None}
+    needs = [exact.get(i, need) for i, need in enumerate(needs)]
     count = sum(need is not None for need in needs)
-    shared = count > 1 or n_min == n_max
+    shared = count > 1 or n_min == n_max or bool(exact)
     stepped = {}
     if shared:
         for i, need in enumerate(needs):
@@ -319,7 +335,9 @@ def fit_axes(needs: Sequence[Need | None], n_min: int = N_MIN, n_max: int = N_MA
         return out
     _score, n, cands = best
     for i, (low, high, step, _cover, zero, why) in cands.items():
-        if i in stepped and stepped[i][0] == n:
+        if i in exact:
+            out[i] = Fit(low, high, clean(step), n, zero, exact[i].mode)
+        elif i in stepped and stepped[i][0] == n:
             out[i] = dataclasses.replace(stepped[i][1], n=n)
         else:
             out[i] = Fit(clean(low), clean(high), clean(step), n, zero, why)

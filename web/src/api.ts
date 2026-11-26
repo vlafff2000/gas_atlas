@@ -93,7 +93,7 @@ export interface AxisStyle {
   category_names?: Record<string, string>; category_wrap?: number   // подписи категорий оси X: «было → стало» и перенос по ширине (atlas/category_labels.py)
   manual_title?: boolean                       // название оси задано вручную: главнее автоматических надписей (единиц)
   positive?: boolean                           // числа без минуса в подписях и подсказках
-  fit?: 'auto' | 'zero' | 'data'               // подбор пределов: авто, авто от нуля, по данным (atlas/axis_fit.py)
+  fit?: 'auto' | 'zero' | 'data' | 'data-zero' | 'data-exact'               // подбор пределов: авто, авто от нуля, по данным (atlas/axis_fit.py)
   break_lo?: number; break_hi?: number         // разрыв оси: вырезаемый диапазон (мс у оси дат)
 }
 /** Ручное оформление графика: заголовок, шрифты, легенда, сетка, фон (atlas/chart_style.py). */
@@ -131,7 +131,7 @@ export interface Axis {
   step: number | null; categories: string[] | null; minimum: number | null; maximum: number | null
   /** Что подобрал общий автоподбор шкал (atlas/axis_auto.py): значения, число делений общей сетки, код причины, размах данных. */
   auto?: {
-    min?: number; max?: number; step?: number; requested_step?: number; n: number | null; zero: boolean; why: string; lo: number | null; hi: number | null; anchor: boolean
+    min?: number; max?: number; step?: number; requested_step?: number; data_hi?: number; n: number | null; zero: boolean; why: string; lo: number | null; hi: number | null; anchor: boolean
     /** Подсказки подбора: выброс, сжимающий остальные данные, с предлагаемыми пределами (решает инженер). */
     hints?: { kind: 'outlier'; count: number; values: number[]; share: number; min: number; max: number }[]
   } | null

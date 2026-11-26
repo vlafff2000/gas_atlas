@@ -4,7 +4,9 @@
 
 import type { Axis, Chart } from './api'
 
-export type FitMode = 'auto' | 'zero' | 'data'
+const DATA_LIMIT_MODES = ['data-zero', 'data-exact'] as const
+export type FitMode = 'auto' | 'zero' | 'data' | typeof DATA_LIMIT_MODES[number]
+export const usesDataLimits = (mode: FitMode | undefined) => mode === 'data-zero' || mode === 'data-exact'
 export interface Need {
   lo?: number | null; hi?: number | null; anchor?: boolean; mode?: FitMode
   minimum?: number | null; maximum?: number | null; step?: number | null; inverse?: boolean
@@ -32,6 +34,8 @@ export const WHY: Record<string, string> = {
   mixed: 'значения разных знаков — нуль внутри шкалы',
   'mode-zero': 'режим «авто от нуля»',
   'mode-data': 'режим «по данным»',
+  'data-zero': 'пределы по данным с включением нуля',
+  'data-exact': 'пределы по минимуму и максимуму данных',
   flat: 'все значения равны — шкала вокруг значения',
   manual: 'границы заданы вручную',
   step: 'шаг задан вручную — границы кратны шагу',
@@ -196,8 +200,18 @@ function zeroIndex(cands: Map<number, Cand>, needs: (Need | null)[], kinds: Kind
 
 /** Границы и шаг всех шкал значений одного графика; null — шкала не подбирается. */
 export function fitAxes(needs: (Need | null)[], nMin = N_MIN, nMax = N_MAX, prefer = N_PREFERRED): (Fit | null)[] {
+  const exact = new Map<number, FitMode>()
+  needs = needs.map((need, i) => {
+    if (!need?.mode || !usesDataLimits(need.mode) || need.lo == null || need.hi == null ||
+        !Number.isFinite(need.lo) || !Number.isFinite(need.hi)) return need
+    const [low, high] = target({ ...need, mode: need.mode === 'data-zero' ? 'zero' : 'data' })
+    const minimum = need.minimum ?? low, maximum = need.maximum ?? high
+    if (!(minimum < maximum)) return need
+    exact.set(i, need.mode)
+    return { ...need, minimum, maximum }
+  })
   const count = needs.filter(n => n !== null).length
-  const shared = count > 1 || nMin === nMax
+  const shared = count > 1 || nMin === nMax || exact.size > 0
   const manual = new Map<number, [number, Fit]>()
   if (shared) {
     needs.forEach((need, i) => {
@@ -240,7 +254,8 @@ export function fitAxes(needs: (Need | null)[], nMin = N_MIN, nMax = N_MAX, pref
   const [, n, cands] = best
   for (const [i, [low, high, step, , zero, why]] of cands) {
     const own = manual.get(i)
-    out[i] = own?.[0] === n ? { ...own[1], n } : { minimum: clean(low), maximum: clean(high), step: clean(step), n, zero, why }
+    const exactMode = exact.get(i)
+    out[i] = exactMode ? { minimum: low, maximum: high, step: clean(step), n, zero, why: exactMode } : own?.[0] === n ? { ...own[1], n } : { minimum: clean(low), maximum: clean(high), step: clean(step), n, zero, why }
   }
   return out
 }
@@ -251,7 +266,7 @@ export function fitAxes(needs: (Need | null)[], nMin = N_MIN, nMax = N_MAX, pref
 const Y_AXES = ['y', 'y2', 'y3', 'y4', 'y5'] as const
 type YKey = typeof Y_AXES[number]
 const FIELDS = [['minimum', 'min'], ['maximum', 'max'], ['step', 'step']] as const
-const MODES: readonly string[] = ['auto', 'zero', 'data']
+const MODES: readonly string[] = ['auto', 'zero', 'data', ...DATA_LIMIT_MODES]
 
 /** Шкалы Y графика по порядку: 'y' и правые подряд, без пропусков. */
 function yNames(chart: Chart): YKey[] {
@@ -261,12 +276,20 @@ function yNames(chart: Chart): YKey[] {
 }
 
 /** Размах значений шкалы (стопки — суммы) и «нуль обязателен» (столбцы, области, стопки); null — на шкале ящики. */
-export function extentOf(chart: Chart, name: string): { lo: number | null; hi: number | null; anchor: boolean } | null {
+export function extentOf(chart: Chart, name: string, includeBoxes = false): { lo: number | null; hi: number | null; anchor: boolean } | null {
   let lo = Infinity, hi = -Infinity, anchor = false
   const stacks = new Map<string, number[]>()
   for (const s of chart.series) {
     if ((s.axis ?? 'y') !== name) continue
-    if (s.kind === 'box') return null
+    if (s.kind === 'box') {
+      if (!includeBoxes) return null
+      for (const row of s.y) if (Array.isArray(row)) {
+        for (const v of row) if (typeof v === 'number' && Number.isFinite(v)) {
+          lo = Math.min(lo, v); hi = Math.max(hi, v)
+        }
+      }
+      continue
+    }
     anchor = anchor || s.kind === 'bar' || !!s.fill || !!s.stack
     s.y.forEach((v, i) => {
       if (typeof v !== 'number' || !Number.isFinite(v)) return
@@ -331,12 +354,14 @@ export function fitChart(chart: Chart): Chart {
     const axis = chart[name] as Axis
     const raw = axis.style as Record<string, unknown> | undefined
     if (axis.scale !== 'value' || raw?.min != null || raw?.max != null) return null
-    const found = name === 'x' ? xExtentOf(chart) : extentOf(chart, name)
+    const mode = fitModeOf(axis), exact = usesDataLimits(mode)
+    const found = name === 'x' ? xExtentOf(chart) : extentOf(chart, name, exact)
     if (!found) return null
     const known = axis.auto
     const lo = found.lo === null ? known?.lo ?? null : known?.lo != null ? Math.min(found.lo, known.lo) : found.lo
-    const hi = found.hi === null ? known?.hi ?? null : known?.hi != null ? Math.max(found.hi, known.hi) : found.hi
-    return { lo, hi, anchor: found.anchor, mode: fitModeOf(axis), inverse: !!axis.inverse, ...(name === 'x' ? { margin: 0 } : {}), ...manualOf(axis) }
+    const retainedHigh = exact ? known?.data_hi ?? known?.hi : known?.hi
+    const hi = found.hi === null ? retainedHigh ?? null : retainedHigh != null ? Math.max(found.hi, retainedHigh) : found.hi
+    return { lo, hi, anchor: found.anchor, mode, inverse: !!axis.inverse, ...(name === 'x' ? { margin: 0 } : {}), ...manualOf(axis) }
   })
   if (needs.every(n => !n || n.lo == null) && !names.some(name => (chart[name] as Axis).auto)) return chart
   const count = chart.style?.y_intervals
@@ -357,6 +382,7 @@ export function fitChart(chart: Chart): Chart {
         auto.step = fit.step
         if (manual.step !== null) auto.requested_step = manual.step
       }
+      if (axis.auto?.data_hi != null) auto.data_hi = axis.auto.data_hi
       if (axis.auto?.hints) auto.hints = axis.auto.hints
       fresh = { ...axis, minimum: fit.minimum, maximum: fit.maximum, step: fit.step, auto }
     }

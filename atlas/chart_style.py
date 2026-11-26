@@ -21,6 +21,7 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
+from .axis_fit import DATA_LIMIT_MODES, MODES as FITS
 from .contract import Axis, Chart, Note, ParamError, Series
 
 FONTS = ('default', 'times', 'arial_narrow', 'calibri')
@@ -42,7 +43,6 @@ DATE_FORMATS = ('dd.MM.yyyy', 'MM.yyyy', 'yyyy', 'dd.MM')
 TICKS = ('out', 'in', 'cross', 'none')                       # деления оси: наружу, внутрь, пересекают, нет (как в Excel)
 MAX_PICK = 5000                                          # точек с подписью, выбранных вручную (label_pick), не больше
 UNITS = ('auto', 'thousands', 'millions', 'billions')       # единицы отображения: авто по размаху данных или на 1, 2, 3 ступени (тыс. м³ → млн м³ …), см. unit_scale.py
-FITS = ('auto', 'zero', 'data')                              # подбор пределов шкалы: авто, авто от нуля, по данным (atlas/axis_fit.py)
 TITLE_PLACES = ('end', 'middle')                            # название оси Y: над осью или вдоль оси
 ERROR_MODES = ('percent', 'abs')                  # погрешность: в процентах от значения или абсолютная
 ERROR_STYLES = ('bars', 'band')                   # усы у каждой точки или две граничные линии
@@ -301,6 +301,8 @@ def style_axis(axis: Axis, spec: Mapping[str, Any], title: str, values: Iterable
         else:
             axis.scale = 'log'
     axis.minimum, axis.maximum = low, high
+    if spec.get('fit') in DATA_LIMIT_MODES:
+        axis.step = None
     if time:
         for src, dest, unit in (('calendar_step_n', 'calendar_step', 'step_unit'),
                                 ('calendar_minor_step_n', 'calendar_minor_step', 'minor_step_unit')):
@@ -311,7 +313,10 @@ def style_axis(axis: Axis, spec: Mapping[str, Any], title: str, values: Iterable
                 raise ParamError(f'Ось {title}, шаг делений: целое число')
             axis.style[dest] = {'n': int(value), 'unit': spec.get(unit, 'month')}
     for key, what in (('step', 'шаг'), ('minor_step', 'доп. шаг')):
-        if key not in spec or axis.scale not in ('value', 'log'):
+        if key not in spec:
+            continue
+        if axis.scale not in ('value', 'log'):
+            notes.append(Note(f'Ось {title}: {what} задаётся для чисел; у дат деления подбираются сами, если не задан календарный шаг.'))
             continue
         value = bound(spec[key], f'Ось {title}, {what}', False)
         if value <= 0:

@@ -111,6 +111,9 @@ def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False, fo
             values = pd.to_numeric(pd.Series(ys), errors='coerce').dropna()
             xs = [xs[0] if xs else t.name or '']
             ys = [np.percentile(values, [0, 25, 50, 75, 100]).tolist() if len(values) else None]
+        stack = meta.get('cat_stack') or meta.get('stack') or getattr(t, 'stackgroup', None)
+        if not stack and kind == 'Bar' and layout.barmode in ('stack', 'relative'):
+            stack = t.yaxis or 'y'
         series.append(Series(
             name=t.name or '', x=xs, y=ys, kind=mark, group=t.name or '',
             dash=_DASH.get(line.dash if line is not None and line.dash else 'solid', 'solid') if mark == 'line' else '',
@@ -118,7 +121,7 @@ def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False, fo
             legend=t.showlegend is not False, color=color, opacity=float(t.opacity if t.opacity is not None else 1.0),
             symbol=_SYMBOL.get(symbol.replace('-open', ''), 'circle'), hollow='open' in symbol,
             markers=mark == 'line' and 'markers' in (t.mode or ''), axis=t.yaxis if t.yaxis in right else 'y',
-            ids=ids, dataset=dataset, format_label=format_series_label(t) if format_keys else ''))
+            stack=str(stack or ''), fill=bool(meta.get('fill')), ids=ids, dataset=dataset, format_label=format_series_label(t) if format_keys else ''))
     return Chart(id=chart_id, title=_text(layout.title), x=x, y=y, y2=y2, y3=y3, y4=y4, y5=y5, series=series)
 
 
@@ -248,6 +251,7 @@ def fit_figure(fig):
     График, размах которого по рядам оценить нельзя (ящики, планки погрешностей, стопки), и шкала, за пределы которой
     вышла бы линия уровня или подпись, не трогаются — рисуются, как раньше. Меняет и возвращает ту же фигуру."""
     from .axis_auto import auto_chart, axis_of
+    from .axis_fit import DATA_LIMIT_MODES
     from .render import align_y_axes
     meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
     formatting = meta.get('style') or {}
@@ -256,15 +260,17 @@ def fit_figure(fig):
     drawn = [t for t in fig.data if t.visible not in (False, 'legendonly')]
     if not drawn:
         return fig
-    if fig.layout.barmode in ('stack', 'relative'):
-        return _keep_hand_ranges(fig)
+    requested = any(spec.get('fit') in DATA_LIMIT_MODES for name, spec in styles.items() if name != 'x')
+    special = fig.layout.barmode in ('stack', 'relative')
     for t in drawn:
         meta = t.meta if isinstance(t.meta, dict) else {}
         plain = type(t).__name__ in ('Scatter', 'Bar') and not getattr(t, 'stackgroup', None) and getattr(t, 'base', None) is None
         bars = getattr(t, 'error_y', None)
         if not plain or meta.get('cat_stack') or meta.get('fill') or (bars is not None and (bars.array is not None or bars.value is not None)):
-            return _keep_hand_ranges(fig)
-    chart = to_chart(fig, drawn_only=True)
+            special = True
+    if special and not requested:
+        return _keep_hand_ranges(fig)
+    chart = to_chart(fig, drawn_only=True, format_keys=requested and special)
     chart.style.update(chart_style)
     names = [*chart.axis_names(), 'x']
     manual = {name: _manual(fig, name) for name in names}
@@ -280,7 +286,7 @@ def fit_figure(fig):
         if spec.get('scale') == 'log':
             axis.scale = 'log'
         automatic_bounds = not manual[name] and any(k in spec for k in ('fit', 'from_zero'))
-        if automatic_bounds:
+        if automatic_bounds or spec.get('fit') in DATA_LIMIT_MODES:
             axis.minimum = axis.maximum = axis.step = None
         for field, value in manual[name].items():
             setattr(axis, field, value)
@@ -288,17 +294,18 @@ def fit_figure(fig):
     shared = len(chart.axis_names()) > 1 or bool(chart_style.get('y_intervals'))
     for name in names:
         axis = axis_of(chart, name)
-        format_grid = name in styles and axis.auto and (name == 'x' and axis.step or shared and axis.auto.get('n'))
+        exact = (styles.get(name) or {}).get('fit') in DATA_LIMIT_MODES
+        format_grid = name in styles and axis.auto and (name == 'x' and axis.step or (shared or exact) and axis.auto.get('n'))
         if format_grid:
             spec = styles[name]
             spec.update(min=axis.minimum, max=axis.maximum, step=axis.step)
         outside = axis.minimum is not None and axis.maximum is not None and any(not axis.minimum <= v <= axis.maximum for v in _levels(fig, name))
         sync = format_grid or (shared and name != 'x' and axis.auto and axis.auto.get('n') and not manual[name])
-        if not axis.auto or (manual[name] and not sync) or outside:
+        if not axis.auto or (manual[name] and not sync) or (outside and not exact):
             axis.step = None        # такая шкала остаётся как была
     align_y_axes(fig, chart)
     x = chart.x
-    if x.step and x.minimum is not None and x.maximum is not None:
+    if not special and x.step and x.minimum is not None and x.maximum is not None:
         count = (x.maximum - x.minimum) / x.step
         if 1 <= count <= 150 and abs(count - round(count)) < 1e-6:
             fig.layout.xaxis.range = [x.maximum, x.minimum] if x.inverse else [x.minimum, x.maximum]

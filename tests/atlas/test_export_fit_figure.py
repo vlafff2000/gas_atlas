@@ -141,3 +141,22 @@ def test_calendar_steps_reach_export_renderer():
     apply_style(paper, ax, {}, fig.layout.meta['style'], '', 1, 12, True)
     assert list(ax.get_xticks()) == [date2num(date(2024, m, 1)) for m in (3, 5, 7)]
     assert list(ax.get_xticks(minor=True)) == [date2num(date(2024, m, 1)) for m in (2, 4, 6, 8)]
+
+
+def test_export_branch_data_limits_are_calculated_for_each_chart():
+    def build(points):
+        fig = go.Figure(go.Scatter(x=[1, 2], y=points, mode='lines'))
+        fig.update_yaxes(range=[0, 200], dtick=20)
+        return fig
+
+    values = [[44.3, 87.2], [18.75, 23.125]]
+    plan = ReportPlan([FigureJob(str(i), lambda points=points: build(points), {}, 'response')
+                       for i, points in enumerate(values)], {})
+    for mode, expected in [('data-exact', values), ('data-zero', [[0, 87.2], [0, 23.125]])]:
+        form = {'fmt_response_doc': {'axes': {'y': {'fit': mode}}}}
+        own = chart_labels.labelled(plan, form)
+        for job, limits in zip(own.jobs, expected):
+            rendered = job.render()
+            assert list(rendered.layout.yaxis.range) == limits
+            assert rendered.layout.yaxis.tick0 == limits[0]
+            assert rendered.layout.meta['style']['axes']['y']['max'] == limits[1]

@@ -273,8 +273,18 @@ export function ChartStyleFields({ value: st, set, title, fresh, heat, strips, s
 export const FITS: Opt<NonNullable<AxisFormat['fit']>> = [
   { value: 'auto', label: 'Авто' }, { value: 'zero', label: 'Авто от нуля' }, { value: 'data', label: 'По данным (без нуля)' }]
 /** Выбор режима подбора — один для панели «Формат», конструктора и «Любого графика»; старый флажок «с нуля» читается как «от нуля». */
-export function FitChoice({ value, fromZero, onChange }: { value: AxisFormat['fit']; fromZero?: boolean; onChange: (v: AxisFormat['fit']) => void }) {
-  return <Choice label="Подбор пределов" value={value ?? (fromZero ? 'zero' : undefined)} options={FITS} auto="как в разделе" onChange={onChange} />
+const DATA_FITS: typeof FITS = [
+  { value: 'auto', label: 'Авто (круглые пределы)' },
+  { value: 'data-zero', label: 'По реальным данным от нуля' },
+  { value: 'data-exact', label: 'По реальным данным' },
+]
+
+export function FitChoice({ value, fromZero, across, onChange }: {
+  value: AxisFormat['fit']; fromZero?: boolean; across?: boolean; onChange: (v: AxisFormat['fit']) => void
+}) {
+  const selected = value ?? (fromZero ? 'zero' : undefined)
+  const options = across ? FITS : [...DATA_FITS, ...FITS.filter(item => item.value !== 'auto' && item.value === selected)]
+  return <Choice label="Подбор пределов" value={selected} options={options} auto="как в разделе" onChange={onChange} />
 }
 
 /** Шкала оси: границы, шаг, режим подбора, логарифм, обратное направление. Общее поле «Формат» и окна оси конструктора; пусто — авто.
@@ -323,7 +333,7 @@ export function AxisScaleFields({ id, value: f, set, time, inverseBase, axis }: 
         : <>
           <Commit key={id + 'step'} label="Шаг основных делений" value={f.step} placeholder="авто" onChange={v => set({ step: v })} />
           <Commit key={id + 'minor'} label="Шаг дополнительных делений" value={f.minor_step} placeholder="авто" onChange={v => set({ minor_step: v })} />
-          <FitChoice value={f.fit} fromZero={f.from_zero} onChange={v => set({ fit: v, from_zero: undefined })} />
+          <FitChoice across={id === 'x'} value={f.fit} fromZero={f.from_zero} onChange={v => set({ fit: v, from_zero: undefined })} />
           {hint && <p className="cs-hint" data-fit-hint>{hint}</p>}
           {outlier && <p className="cs-hint" data-fit-outlier>
             {outlierText(outlier)}{' '}
