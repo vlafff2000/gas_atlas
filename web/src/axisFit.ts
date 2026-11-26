@@ -12,6 +12,7 @@ export interface Need {
   minimum?: number | null; maximum?: number | null; step?: number | null; inverse?: boolean
   /** запас срезанной шкалы со стороны нуля, в долях размаха; у оси X — 0 */
   margin?: number
+  integer_ticks?: boolean
 }
 export interface Fit { minimum: number; maximum: number; step: number; n: number | null; zero: boolean; why: string }
 
@@ -36,6 +37,8 @@ export const WHY: Record<string, string> = {
   'mode-data': 'режим «по данным»',
   'data-zero': 'пределы по данным с включением нуля',
   'data-exact': 'пределы по минимуму и максимуму данных',
+  'integer-data': 'границы охватывают данные, основные деления целые',
+  'integer-zero': 'границы охватывают данные и ноль, основные деления целые',
   flat: 'все значения равны — шкала вокруг значения',
   manual: 'границы заданы вручную',
   step: 'шаг задан вручную — границы кратны шагу',
@@ -56,12 +59,13 @@ function exponent(value: number): number {
 /** Число без двоичного хвоста: 98.60000000000001 → 98.6. */
 export const clean = (value: number) => Number(value.toPrecision(12))
 
-function steps(raw: number): [number, boolean][] {
+function steps(raw: number, integer = false): [number, boolean][] {
+  if (integer) raw = Math.max(raw, 1)
   const e = exponent(raw)
   const out: [number, boolean][] = []
   for (const k of [e, e + 1, e + 2]) for (const m of MULTS) {
     const s = m * pow10(k)
-    if (s >= raw * (1 - EPS)) out.push([s, m === 2.5])
+    if (s >= raw * (1 - EPS) && (!integer || Number.isInteger(s))) out.push([s, m === 2.5])
   }
   return out
 }
@@ -81,8 +85,8 @@ function target(need: Need): [a: number, b: number, zero: boolean, loose: boolea
   if (lo > hi) [lo, hi] = [hi, lo]
   const flat = hi === lo, span = hi - lo, mode = need.mode ?? 'auto'
   let zero: boolean, why: string
-  if (mode === 'zero') { zero = true; why = 'mode-zero' }
-  else if (mode === 'data') { zero = lo <= 0 && 0 <= hi; why = 'mode-data' }
+  if (mode === 'zero' || mode === 'data-zero') { zero = true; why = mode === 'zero' ? 'mode-zero' : 'integer-zero' }
+  else if (mode === 'data' || mode === 'data-exact') { zero = lo <= 0 && 0 <= hi; why = mode === 'data' ? 'mode-data' : 'integer-data' }
   else if (need.anchor) { zero = true; why = 'anchor' }
   else if (lo < 0 && 0 < hi) { zero = true; why = 'mixed' }
   else {
@@ -102,10 +106,14 @@ function target(need: Need): [a: number, b: number, zero: boolean, loose: boolea
 function free(need: Need, n: number): Cand | null {
   const [a, b, zero, loose, why] = target(need)
   const lo = Math.min(need.lo as number, need.hi as number), hi = Math.max(need.lo as number, need.hi as number)
-  const pad = loose || zero ? 0 : (b - a) * (need.margin ?? MARGIN)
+  const pad = loose || zero || usesDataLimits(need.mode) ? 0 : (b - a) * (need.margin ?? MARGIN)
   const low = a > 0 ? Math.max(a - pad, 0) : a
   const high = b < 0 ? Math.min(b + pad, 0) : b
-  for (const [step, odd] of steps((b - a) / n)) {
+  if (need.integer_ticks && n === 1 && low < 0 && high > 0) {
+    const start = Math.floor(low), [step] = steps(high - start, true)[0]
+    return [start, start + step, step, (b - a) / step, zero, why]
+  }
+  for (const [step, odd] of steps((b - a) / n, need.integer_ticks)) {
     let first = Math.ceil((high - n * step) / step - EPS)
     let last = Math.floor(low / step + EPS)
     if (lo >= 0) first = Math.max(first, 0)
@@ -125,12 +133,12 @@ function half(need: Need, n: number): Cand {
   if (need.minimum != null) {
     const start = need.minimum, top = Math.max(b, start)
     width = top > start ? top - start : Math.max(Math.abs(start) * 0.1, 1)
-    ;[step, odd] = steps(width / n)[0]
+    ;[step, odd] = steps(width / n, need.integer_ticks && Number.isInteger(start))[0]
     low = start; high = start + n * step
   } else {
     const end = need.maximum as number, bottom = Math.min(a, end)
     width = end > bottom ? end - bottom : Math.max(Math.abs(end) * 0.1, 1)
-    ;[step, odd] = steps(width / n)[0]
+    ;[step, odd] = steps(width / n, need.integer_ticks && Number.isInteger(end))[0]
     low = end - n * step; high = end
   }
   return [low, high, step, width / (n * step) - (odd ? ODD_PENALTY : 0), low <= 0 && 0 <= high, 'manual']
@@ -141,8 +149,8 @@ function fixed(need: Need, n: number): Cand {
   return [low, high, step, isNice(step) ? 1 : ROUGH_FIXED, low <= 0 && 0 <= high, 'manual']
 }
 
-function empty(n: number): Cand {
-  const step = niceStep(1 / n)
+function empty(n: number, integerTicks?: boolean): Cand {
+  const step = integerTicks ? 1 : niceStep(1 / n)
   return [0, n * step, step, 1, true, 'empty']
 }
 
@@ -174,7 +182,7 @@ function kindOf(need: Need | null, count: number): Kind {
 }
 
 function zeroIndex(cands: Map<number, Cand>, needs: (Need | null)[], kinds: Kind[], n: number): void {
-  const group = [...cands.keys()].filter(i => kinds[i] === 'free' && cands.get(i)![4] && (needs[i]!.mode ?? 'auto') !== 'data')
+  const group = [...cands.keys()].filter(i => kinds[i] === 'free' && cands.get(i)![4] && needs[i]!.mode !== 'data' && needs[i]!.mode !== 'data-exact')
   if (group.length < 2 || !group.some(i => cands.get(i)![0] < 0 && 0 < cands.get(i)![1])) return
   let best: [number, Map<number, Cand>] | null = null
   for (let k = 0; k <= n; k++) {
@@ -186,7 +194,7 @@ function zeroIndex(cands: Map<number, Cand>, needs: (Need | null)[], kinds: Kind
       const below = need.inverse ? n - k : k
       if ((a < 0 && below === 0) || (b > 0 && below === n)) { ok = false; break }
       const raw = Math.max(below ? -a / below : 0, below < n ? b / (n - below) : 0)
-      const [step, odd] = steps(raw)[0]
+      const [step, odd] = steps(raw, need.integer_ticks)[0]
       trial.set(i, [-below * step, (n - below) * step, step, (b - a) / (n * step) - (odd ? ODD_PENALTY : 0), true, why])
     }
     if (!ok) continue
@@ -202,7 +210,7 @@ function zeroIndex(cands: Map<number, Cand>, needs: (Need | null)[], kinds: Kind
 export function fitAxes(needs: (Need | null)[], nMin = N_MIN, nMax = N_MAX, prefer = N_PREFERRED): (Fit | null)[] {
   const exact = new Map<number, FitMode>()
   needs = needs.map((need, i) => {
-    if (!need?.mode || !usesDataLimits(need.mode) || need.lo == null || need.hi == null ||
+    if (!need?.mode || need.integer_ticks || !usesDataLimits(need.mode) || need.lo == null || need.hi == null ||
         !Number.isFinite(need.lo) || !Number.isFinite(need.hi)) return need
     const [low, high] = target({ ...need, mode: need.mode === 'data-zero' ? 'zero' : 'data' })
     const minimum = need.minimum ?? low, maximum = need.maximum ?? high
@@ -240,7 +248,7 @@ export function fitAxes(needs: (Need | null)[], nMin = N_MIN, nMax = N_MAX, pref
     let ok = true
     for (const i of grid) {
       const need = needs[i]!, kind = kinds[i]
-      const cand = kind === 'free' ? free(need, n) : kind === 'half' ? half(need, n) : kind === 'fixed' ? fixed(need, n) : empty(n)
+      const cand = kind === 'free' ? free(need, n) : kind === 'half' ? half(need, n) : kind === 'fixed' ? fixed(need, n) : empty(n, need.integer_ticks)
       if (!cand) { ok = false; break }
       cands.set(i, cand)
     }
@@ -361,7 +369,7 @@ export function fitChart(chart: Chart): Chart {
     const lo = found.lo === null ? known?.lo ?? null : known?.lo != null ? Math.min(found.lo, known.lo) : found.lo
     const retainedHigh = exact ? known?.data_hi ?? known?.hi : known?.hi
     const hi = found.hi === null ? retainedHigh ?? null : retainedHigh != null ? Math.max(found.hi, retainedHigh) : found.hi
-    return { lo, hi, anchor: found.anchor, mode, inverse: !!axis.inverse, ...(name === 'x' ? { margin: 0 } : {}), ...manualOf(axis) }
+    return { lo, hi, anchor: found.anchor, mode, integer_ticks: name !== 'x' && chart.id === 'export-response', inverse: !!axis.inverse, ...(name === 'x' ? { margin: 0 } : {}), ...manualOf(axis) }
   })
   if (needs.every(n => !n || n.lo == null) && !names.some(name => (chart[name] as Axis).auto)) return chart
   const count = chart.style?.y_intervals

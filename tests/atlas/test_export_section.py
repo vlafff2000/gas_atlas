@@ -761,7 +761,7 @@ def test_response_export_uses_filtered_series_and_fits_all_axes(env):
         return reply.json()
 
     # Прогреваем тот же график до исключения и используем тот же выбор после пересборки проекта.
-    assert chart(names[0])['y']['maximum'] == 234567
+    assert chart(names[0])['y']['maximum'] >= 234567
     raw = projects.data(pid).raw
     point = raw[DatasetKind.RESPONSE].loc[lambda d: d.pressure.eq(123456), '_point_id'].item()
     survey = raw[DatasetKind.PRESSURE_SURVEY].loc[lambda d: d.p_res.eq(234567), '_point_id'].item()
@@ -769,16 +769,23 @@ def test_response_export_uses_filtered_series_and_fits_all_axes(env):
         r = client.post(f'/api/projects/{pid}/exclusions', json={'dataset': kind, 'add': [identifier]})
         assert r.json()['added'] == 1, r.text
 
+    ranges_with_seven = []
     for exclusions in (True, False):
         selected = {**form, 'exclusions': exclusions}
+        ranges_with_seven = []
         for name, expected in zip(names, (((10, 17), (9, 29)), ((30, 44), (90, 120)))):
             shown = chart(name, selected)
+            ranges = []
             for side, limits in zip(('y', 'y2'), expected):
                 axis = shown[side]
-                assert (axis['minimum'], axis['maximum']) == limits
-                assert (limits[1] - limits[0]) / axis['step'] == pytest.approx(7)
+                bounds = (axis['minimum'], axis['maximum'])
+                assert bounds[0] <= limits[0] <= limits[1] <= bounds[1]
+                assert all(float(v).is_integer() for v in (*bounds, axis['step']))
+                assert (bounds[1] - bounds[0]) / axis['step'] == pytest.approx(7)
+                ranges.append(bounds)
                 samples = [v for s in shown['series'] if s['axis'] == side for v in s['y'] if v is not None]
                 assert (min(samples), max(samples)) == limits
+            ranges_with_seven.append(ranges)
             assert shown['y2']['inverse']
         series = chart(names[0], selected)['series']
         assert all(point + ':pressure' not in (s['ids'] or []) for s in series)
@@ -789,6 +796,13 @@ def test_response_export_uses_filtered_series_and_fits_all_axes(env):
     for name in ('y', 'y2'):
         axis = auto[name]
         assert (axis['maximum'] - axis['minimum']) / axis['step'] == pytest.approx(6)
+        assert all(float(axis[key]).is_integer() for key in ('minimum', 'maximum', 'step'))
+
+    four = chart(names[0], {**form, 'fmt_response_doc': {'chart': {'y_fit': 'data-exact', 'y_intervals': 4}}})
+    for name, step_7 in zip(('y', 'y2'), ((b-a)/7 for a,b in ranges_with_seven[0])):
+        axis = four[name]
+        assert (axis['maximum'] - axis['minimum']) / axis['step'] == pytest.approx(4)
+        assert float(axis['step']).is_integer() and axis['step'] != pytest.approx(step_7)
 
     download = client.post(url + '/archive', json={'form': {**form, 'exclusions': False}})
     assert download.status_code == 200, download.text
@@ -798,12 +812,13 @@ def test_response_export_uses_filtered_series_and_fits_all_axes(env):
         svgs = sorted(name for name in names if name.endswith('.svg'))
         assert len(svgs) == 2
         namespace = {'svg': 'http://www.w3.org/2000/svg'}
-        for path, expected in zip(svgs, (((10, 17), (9, 29)), ((30, 44), (90, 120)))):
+        for path, expected in zip(svgs, ranges_with_seven):
             root = ElementTree.fromstring(archive.read(path))
             for index, limits in enumerate(expected, start=2):
                 axis = root.find(f".//svg:g[@id='matplotlib.axis_{index}']", namespace)
                 ticks = [float(t.text.replace(',', '.')) for t in axis.findall('.//svg:text', namespace)[:-1]]
                 assert len(ticks) == 8
+                assert all(v.is_integer() for v in ticks)
                 assert (min(ticks), max(ticks)) == limits
         chart_data = [archive.read(name) for name in names if name.endswith('.csv')]
         assert chart_data and all(forbidden not in payload for payload in chart_data
