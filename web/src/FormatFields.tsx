@@ -8,7 +8,7 @@ import { HEX } from './ChartSettings'
 import { FONT_CHOICES } from './chartTheme'
 import { RichField } from './RichField'
 import { labelPicker, pointText, usePicking } from './labelPick'
-import { effectiveInverse } from './chartAxes'
+import { effectiveInverse, parseStep } from './chartAxes'
 
 // Общие поля настройки оформления: используются панелью «Формат» на графике (FormatPane) и окнами конструктора.
 // Всё необязательно: пустое поле — авто, в документе оформления его нет.
@@ -279,7 +279,30 @@ export function FitChoice({ value, fromZero, onChange }: { value: AxisFormat['fi
 
 /** Шкала оси: границы, шаг, режим подбора, логарифм, обратное направление. Общее поле «Формат» и окна оси конструктора; пусто — авто.
  *  ``axis`` — шкала показанного графика: под полями видно, какие пределы подобраны и почему, и подсказка о выбросе. */
-export type ScaleFormat = Pick<AxisFormat, 'min' | 'max' | 'step' | 'minor_step' | 'log' | 'inverse' | 'from_zero' | 'fit'>
+export type ScaleFormat = Pick<AxisFormat, 'min' | 'max' | 'step' | 'minor_step' | 'calendar_step_n' | 'calendar_minor_step_n' | 'step_unit' | 'minor_step_unit' | 'log' | 'inverse' | 'from_zero' | 'fit'>
+const CALENDAR_UNITS = [
+  ['day', 'день'], ['week', 'неделя'], ['month', 'месяц'], ['year', 'год'],
+] as const
+
+function CalendarStepField({ label, value, unit = 'month', onChange }: {
+  label: string; value?: string; unit?: AxisFormat['step_unit']; onChange: (value: string, unit: NonNullable<AxisFormat['step_unit']>) => void
+}) {
+  const [error, setError] = useState(false)
+  return <div className="cs-row">
+    <Commit label={label} value={value} placeholder="авто" onChange={v => {
+      const bad = parseStep(v, unit) === 'bad'
+      setError(bad)
+      if (!bad) onChange(v, unit)
+    }} />
+    <label>Единица
+      <select value={unit} aria-label={'Единица — ' + label} onChange={e => onChange(value ?? '', e.target.value as typeof unit)}>
+        {CALENDAR_UNITS.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
+      </select>
+    </label>
+    {error && <span role="alert">Введите целое число больше нуля.</span>}
+  </div>
+}
+
 export function AxisScaleFields({ id, value: f, set, time, inverseBase, axis }: { id: string; value: ScaleFormat; set: (patch: ScaleFormat) => void; time?: boolean; inverseBase?: boolean; axis?: Axis | null }) {
   const hint = time ? '' : fitHint(axis, id === 'x')
   const outlier = time ? undefined : axis?.auto?.hints?.find(h => h.kind === 'outlier')
@@ -291,10 +314,15 @@ export function AxisScaleFields({ id, value: f, set, time, inverseBase, axis }: 
         <Commit key={id + 'max'} label="Максимум" value={f.max} placeholder={time ? 'авто (дата)' : 'авто'} onChange={v => set({ max: v })} />
       </div>
       {time
-        ? <p className="cs-hint">Границы по датам: 31.12.2025 или 2025-12-31; применяются по Enter. Деления по времени подбираются сами.</p>
+        ? <>
+          <CalendarStepField key={id + 'date-step'} label="Шаг основных делений" value={f.calendar_step_n} unit={f.step_unit}
+            onChange={(calendar_step_n, step_unit) => set({ calendar_step_n, step_unit })} />
+          <CalendarStepField key={id + 'date-minor'} label="Шаг дополнительных делений" value={f.calendar_minor_step_n} unit={f.minor_step_unit}
+            onChange={(calendar_minor_step_n, minor_step_unit) => set({ calendar_minor_step_n, minor_step_unit })} />
+        </>
         : <>
-          <Commit key={id + 'step'} label="Шаг делений" value={f.step} placeholder="авто" onChange={v => set({ step: v })} />
-          <Commit key={id + 'minor'} label="Дополнительный шаг" value={f.minor_step} placeholder="нет" onChange={v => set({ minor_step: v })} />
+          <Commit key={id + 'step'} label="Шаг основных делений" value={f.step} placeholder="авто" onChange={v => set({ step: v })} />
+          <Commit key={id + 'minor'} label="Шаг дополнительных делений" value={f.minor_step} placeholder="авто" onChange={v => set({ minor_step: v })} />
           <FitChoice value={f.fit} fromZero={f.from_zero} onChange={v => set({ fit: v, from_zero: undefined })} />
           {hint && <p className="cs-hint" data-fit-hint>{hint}</p>}
           {outlier && <p className="cs-hint" data-fit-outlier>

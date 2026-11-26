@@ -88,6 +88,8 @@ export interface AxisStyle {
   // модель v2 (atlas/chart_style.py): деления, линия оси, поворот подписей, единицы отображения, положение названия, доп. шаг, пересечение
   ticks?: TickMark; minor_ticks?: TickMark; line?: boolean; line_color?: string; line_width?: number; label_rotate?: number
   units?: 'auto' | 'thousands' | 'millions' | 'billions'; title_place?: 'end' | 'middle'; minor_step?: number; cross?: number
+  calendar_step?: { unit: 'year' | 'month' | 'week' | 'day'; n: number }
+  calendar_minor_step?: AxisStyle['calendar_step']
   category_names?: Record<string, string>; category_wrap?: number   // подписи категорий оси X: «было → стало» и перенос по ширине (atlas/category_labels.py)
   manual_title?: boolean                       // название оси задано вручную: главнее автоматических надписей (единиц)
   positive?: boolean                           // числа без минуса в подписях и подсказках
@@ -102,6 +104,7 @@ export interface Annotation {
   color?: string; width?: number; dash?: string; size?: number
 }
 export interface ChartStyle {
+  y_intervals?: number
   title_font?: string; title_size?: number; title_bold?: boolean; title_color?: string; title_align?: 'left' | 'center' | 'right'
   font?: string; text_color?: string; legend?: 'bottom' | 'top' | 'right' | 'left' | 'hide'; legend_font?: string; legend_size?: number
   grid?: 'both' | 'h' | 'v' | 'none'; grid_color?: string; background?: string; plot_background?: string
@@ -128,7 +131,7 @@ export interface Axis {
   step: number | null; categories: string[] | null; minimum: number | null; maximum: number | null
   /** Что подобрал общий автоподбор шкал (atlas/axis_auto.py): значения, число делений общей сетки, код причины, размах данных. */
   auto?: {
-    min?: number; max?: number; step?: number; n: number | null; zero: boolean; why: string; lo: number | null; hi: number | null; anchor: boolean
+    min?: number; max?: number; step?: number; requested_step?: number; n: number | null; zero: boolean; why: string; lo: number | null; hi: number | null; anchor: boolean
     /** Подсказки подбора: выброс, сжимающий остальные данные, с предлагаемыми пределами (решает инженер). */
     hints?: { kind: 'outlier'; count: number; values: number[]; share: number; min: number; max: number }[]
   } | null

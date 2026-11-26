@@ -8,7 +8,7 @@ import { SeriesLookFields } from './ChartSettings'
 import { projectFormats, usePref } from './chartPrefs'
 import type { AxisFormat, AxisName, ChartFormat } from './chartFormat'
 import { seriesLookKey, type Look } from './chartStyle'
-import { AxisScaleFields, AxisStyleFields, ChartStyleFields, Commit, SeriesExtraFields, compact } from './FormatFields'
+import { AxisScaleFields, AxisStyleFields, ChartStyleFields, Commit, Num, SeriesExtraFields, compact } from './FormatFields'
 import { pointKeys } from './labelPick'
 import type { FormatScope } from './projectLooks'
 
@@ -164,6 +164,8 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           {kind === 'axis' && <>
             <h3>{AXIS_TITLE[axisName]}{axis?.label ? <small> {axis.label}</small> : null}</h3>
             {(axis?.scale === 'value' || axis?.scale === 'log' || axis?.scale === 'time') && <AxisScaleFields id={axisName} value={doc.axes?.[axisName] ?? {}} set={setAxis} time={axis.scale === 'time'} inverseBase={axis.inverse} axis={axis} />}
+            {axisName !== 'x' && axis?.scale === 'value' && <Num label="Число основных интервалов на всех осях Y"
+              value={doc.chart?.y_intervals} min={1} max={150} onChange={v => setChart({ y_intervals: v === undefined ? undefined : Math.round(v) })} />}
             <AxisStyleFields value={doc.axes?.[axisName] ?? {}} set={setAxis} time={axis?.scale === 'time'} categories={axisName === 'x' && axis?.scale === 'category' ? axis.categories ?? undefined : undefined} />
             {(axis?.scale === 'value' || axis?.scale === 'time') && <fieldset>
               <legend>Разрыв оси</legend>

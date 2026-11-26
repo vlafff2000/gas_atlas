@@ -107,7 +107,8 @@ def _manual(axis: Axis) -> dict[str, float | None]:
         value = getattr(axis, attr)
         if key == 'step' and not value:
             value = None
-        out[attr] = None if value is None or (key in auto and auto[key] == value) else float(value)
+        out[attr] = (auto.get('requested_step') if key == 'step' else None) if key in auto and auto[key] == value else (
+            None if value is None else float(value))
     return out
 
 
@@ -162,7 +163,9 @@ def auto_chart(chart: Chart) -> Chart:
     names = chart.axis_names()
     needs = [need_of(chart, name) for name in names]
     across = need_of(chart, 'x')
-    rows = list(zip(names, needs, fit_axes(needs))) + [('x', across, fit_axes([across])[0])]
+    count = chart.style.get('y_intervals')
+    opts = {'n_min': count, 'n_max': count} if count else {}
+    rows = list(zip(names, needs, fit_axes(needs, **opts))) + [('x', across, fit_axes([across])[0])]
     if all(n is None or n.lo is None for _name, n, _fit in rows) and not any(axis_of(chart, name).auto for name, _n, _fit in rows):      # нет чисел и нечего снимать
         return chart
     changes: dict[str, Axis] = {}
@@ -177,6 +180,8 @@ def auto_chart(chart: Chart) -> Chart:
             fresh = dataclasses.replace(axis, auto=None, **{attr: manual[attr] for attr, _key in FIELDS})
         else:
             auto: dict[str, Any] = {key: getattr(fit, attr) for attr, key in FIELDS if manual[attr] is None}
+            if manual['step'] is not None and manual['step'] != fit.step:
+                auto.update(step=fit.step, requested_step=manual['step'])
             auto.update(n=fit.n, zero=fit.zero, why=fit.why, lo=need.lo, hi=need.hi, anchor=need.anchor)      # type: ignore[union-attr]
             hint = outlier_hint(chart, name, need) if name != 'x' and all(v is None for v in manual.values()) else None      # type: ignore[arg-type]
             if hint:

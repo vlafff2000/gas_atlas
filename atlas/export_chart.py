@@ -250,7 +250,9 @@ def fit_figure(fig):
     from .axis_auto import auto_chart, axis_of
     from .render import align_y_axes
     meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
-    styles = (meta.get('style') or {}).get('axes') or {}
+    formatting = meta.get('style') or {}
+    styles = formatting.get('axes') or {}
+    chart_style = formatting.get('chart') or {}
     drawn = [t for t in fig.data if t.visible not in (False, 'legendonly')]
     if not drawn:
         return fig
@@ -263,6 +265,7 @@ def fit_figure(fig):
         if not plain or meta.get('cat_stack') or meta.get('fill') or (bars is not None and (bars.array is not None or bars.value is not None)):
             return _keep_hand_ranges(fig)
     chart = to_chart(fig, drawn_only=True)
+    chart.style.update(chart_style)
     names = [*chart.axis_names(), 'x']
     manual = {name: _manual(fig, name) for name in names}
     for name in names:
@@ -276,13 +279,22 @@ def fit_figure(fig):
             axis.from_zero = spec['from_zero']
         if spec.get('scale') == 'log':
             axis.scale = 'log'
+        automatic_bounds = not manual[name] and any(k in spec for k in ('fit', 'from_zero'))
+        if automatic_bounds:
+            axis.minimum = axis.maximum = axis.step = None
         for field, value in manual[name].items():
             setattr(axis, field, value)
     chart = auto_chart(chart)
+    shared = len(chart.axis_names()) > 1 or bool(chart_style.get('y_intervals'))
     for name in names:
         axis = axis_of(chart, name)
+        format_grid = name in styles and axis.auto and (name == 'x' and axis.step or shared and axis.auto.get('n'))
+        if format_grid:
+            spec = styles[name]
+            spec.update(min=axis.minimum, max=axis.maximum, step=axis.step)
         outside = axis.minimum is not None and axis.maximum is not None and any(not axis.minimum <= v <= axis.maximum for v in _levels(fig, name))
-        if manual[name] or not axis.auto or outside:
+        sync = format_grid or (shared and name != 'x' and axis.auto and axis.auto.get('n') and not manual[name])
+        if not axis.auto or (manual[name] and not sync) or outside:
             axis.step = None        # такая шкала остаётся как была
     align_y_axes(fig, chart)
     x = chart.x
@@ -290,5 +302,5 @@ def fit_figure(fig):
         count = (x.maximum - x.minimum) / x.step
         if 1 <= count <= 150 and abs(count - round(count)) < 1e-6:
             fig.layout.xaxis.range = [x.maximum, x.minimum] if x.inverse else [x.minimum, x.maximum]
-            fig.layout.xaxis.dtick = x.step
+            fig.layout.xaxis.tick0, fig.layout.xaxis.dtick = x.minimum, x.step
     return fig

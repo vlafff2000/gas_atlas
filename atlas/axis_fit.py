@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import math
+import dataclasses
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -216,6 +217,10 @@ def _stepped(need: Need) -> Fit | None:
     high = float(need.maximum) if need.maximum is not None else math.ceil(b / step - EPS) * step
     if need.minimum is None and min(float(need.lo), float(need.hi)) >= 0:
         low = max(low, 0.0)
+    if need.minimum is not None and need.maximum is None:
+        high = low + max(1, math.ceil((b - low) / step - EPS)) * step
+    elif need.maximum is not None and need.minimum is None:
+        low = high - max(1, math.ceil((high - a) / step - EPS)) * step
     if not high > low:
         high = low + step
     if (high - low) / step > MAX_INTERVALS:
@@ -269,8 +274,24 @@ def _zero_index(cands: dict, needs: Sequence[Need | None], kinds: Sequence[str],
 
 def fit_axes(needs: Sequence[Need | None], n_min: int = N_MIN, n_max: int = N_MAX, prefer: int = N_PREFERRED) -> list[Fit | None]:
     """Границы и шаг всех шкал значений одного графика; ``None`` — шкала не подбирается (нет данных и задана вручную, ошибка в границах)."""
-    count = sum(1 for need in needs if need is not None)
-    kinds = [_kind(need, count) for need in needs]
+    count = sum(need is not None for need in needs)
+    shared = count > 1 or n_min == n_max
+    stepped = {}
+    if shared:
+        for i, need in enumerate(needs):
+            if need is None or need.step is None or need.step <= 0 or not math.isfinite(need.step):
+                continue
+            fit = _stepped(need)
+            if need.minimum is not None and need.maximum is not None and need.minimum < need.maximum:
+                fit = Fit(need.minimum, need.maximum, need.step, None, need.minimum <= 0 <= need.maximum, 'step')
+            if fit:
+                n = (fit.maximum - fit.minimum) / fit.step
+                if 1 <= round(n) <= MAX_INTERVALS and abs(n - round(n)) < 1e-6:
+                    stepped[i] = (round(n), fit)
+        if n_min != n_max and stepped:
+            n_min = n_max = max(n for n, _ in stepped.values())
+        needs = [dataclasses.replace(need, step=None) if need and need.step is not None else need for need in needs]
+    kinds = [_kind(need, max(2, count) if shared else count) for need in needs]
     out: list[Fit | None] = [None] * len(needs)
     for i, kind in enumerate(kinds):
         if kind == 'stepped':
@@ -298,7 +319,10 @@ def fit_axes(needs: Sequence[Need | None], n_min: int = N_MIN, n_max: int = N_MA
         return out
     _score, n, cands = best
     for i, (low, high, step, _cover, zero, why) in cands.items():
-        out[i] = Fit(clean(low), clean(high), clean(step), n, zero, why)
+        if i in stepped and stepped[i][0] == n:
+            out[i] = dataclasses.replace(stepped[i][1], n=n)
+        else:
+            out[i] = Fit(clean(low), clean(high), clean(step), n, zero, why)
     return out
 
 

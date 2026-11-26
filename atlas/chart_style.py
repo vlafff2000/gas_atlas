@@ -167,8 +167,8 @@ AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FOR
             # подписи категорий оси X: переименование («было» -> «стало») и перенос по ширине в знаках (atlas/category_labels.py)
             'category_names': 'names', 'category_wrap': ('int', 0, 80)}
 AXIS_STYLE_KEYS = tuple(k for k in AXIS_FMT if k != 'color')     # что из настроек оси ложится в ``Axis.style`` (цвет — в ``Axis.color``)
-AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'cross', 'break_from', 'break_to')  # границы и деления: текст, проверяется по виду оси (``bound``)
-CHART_FMT = {'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,
+AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'calendar_step_n', 'calendar_minor_step_n', 'cross', 'break_from', 'break_to')  # границы и деления: текст, проверяется по виду оси (``bound``)
+CHART_FMT = {'y_intervals': ('int', 1, 150), 'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,
              'font': FONTS, 'text_color': 'color', 'legend': LEGENDS, 'legend_font': FONTS, 'legend_size': ('num', 5, 30),
              'grid': GRIDS, 'grid_color': 'color', 'grid_width': ('num', 0.2, 4), 'minor_grid': MINOR_GRIDS, 'minor_grid_color': 'color',
              'minor_grid_width': ('num', 0.2, 4), 'background': 'color', 'plot_background': 'color',
@@ -243,6 +243,9 @@ def clean_axis(raw: Any, name: str) -> dict[str, Any]:
     if ('break_from' in out) != ('break_to' in out):      # разрыв задан не до конца: пока не применяется, чтобы недописанное не мешало сохранению
         out.pop('break_from', None)
         out.pop('break_to', None)
+    for key in ('step_unit', 'minor_step_unit'):
+        if src.get(key) in ('day', 'week', 'month', 'year'):
+            out[key] = src[key]
     for key in ('log', 'inverse', 'from_zero'):
         if src.get(key) is True or str(src.get(key)).lower() in ('1', 'true'):
             out[key] = True
@@ -298,11 +301,17 @@ def style_axis(axis: Axis, spec: Mapping[str, Any], title: str, values: Iterable
         else:
             axis.scale = 'log'
     axis.minimum, axis.maximum = low, high
+    if time:
+        for src, dest, unit in (('calendar_step_n', 'calendar_step', 'step_unit'),
+                                ('calendar_minor_step_n', 'calendar_minor_step', 'minor_step_unit')):
+            if src not in spec:
+                continue
+            value = _number(spec[src], f'Ось {title}, шаг делений', 1, 10000)
+            if not value.is_integer():
+                raise ParamError(f'Ось {title}, шаг делений: целое число')
+            axis.style[dest] = {'n': int(value), 'unit': spec.get(unit, 'month')}
     for key, what in (('step', 'шаг'), ('minor_step', 'доп. шаг')):
-        if key not in spec:
-            continue
-        if axis.scale not in ('value', 'log'):
-            notes.append(Note(f'Ось {title}: {what} делений задаётся для чисел; у дат деления подбираются сами.'))
+        if key not in spec or axis.scale not in ('value', 'log'):
             continue
         value = bound(spec[key], f'Ось {title}, {what}', False)
         if value <= 0:

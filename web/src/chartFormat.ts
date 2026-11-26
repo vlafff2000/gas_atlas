@@ -2,6 +2,7 @@
 // Уровни (тема проекта → тип графика → график) складываются mergeFormats: поле более позднего уровня главнее.
 import { errorSeries, trendSeries } from './trend'
 import type { Axis, AxisStyle, Chart, ChartStyle } from './api'
+import { parseStep } from './chartAxes'
 import { fitChart, unfitted } from './axisFit'
 import { applyLooks, withFreshColors, type Look } from './chartStyle'
 
@@ -9,6 +10,8 @@ export type AxisName = 'x' | 'y' | 'y2' | 'y3' | 'y4' | 'y5'
 /** Настройки оси: оформление (AxisStyle) + цвет, границы и деления текстом (проверяются на сервере). */
 export type AxisFormat = Omit<AxisStyle, 'minor_step' | 'cross'> & {
   color?: string; min?: string; max?: string; step?: string; minor_step?: string; cross?: string
+  calendar_step_n?: string; calendar_minor_step_n?: string
+  step_unit?: NonNullable<AxisStyle['calendar_step']>['unit']; minor_step_unit?: AxisFormat['step_unit']
   break_from?: string; break_to?: string     // разрыв оси: от и до (число или дата дд.мм.гггг)
   log?: boolean; inverse?: boolean; from_zero?: boolean
 }
@@ -78,6 +81,12 @@ export function formatAxis(axis: Axis, spec: AxisFormat, values: number[]): Axis
     if (high !== null) out.maximum = high
   }
   if (spec.log && !time && values.every(v => v > 0) && (out.minimum === null || out.minimum > 0)) out.scale = 'log'
+  if (time) {
+    for (const [raw, unit, key] of [[spec.calendar_step_n, spec.step_unit, 'calendar_step'], [spec.calendar_minor_step_n, spec.minor_step_unit, 'calendar_minor_step']] as const) {
+      const step = parseStep(raw ?? '', unit ?? 'month')
+      if (step && step !== 'bad' && step.unit !== 'num') out.style![key] = { unit: step.unit, n: step.n }
+    }
+  }
   if (out.scale === 'value' || out.scale === 'log') {
     const step = parseBound(spec.step, false), minor = parseBound(spec.minor_step, false)
     if (step !== null && step > 0) out.step = step
