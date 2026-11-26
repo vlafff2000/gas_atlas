@@ -67,7 +67,7 @@ interface Props {
   chart: Chart
   /** Оформление одного графика (страница выгрузки): вместо оформления проекта на график ложится этот документ, панель «Формат» правит его.
    *  Оформление проекта на графике уже есть (его наложил сервер). */
-  format?: { doc: ChartFormat; onDoc: (doc: ChartFormat) => void; label: string; seriesScopeHint?: string; labels?: React.ReactNode }
+  format?: { doc: ChartFormat; onDoc: (doc: ChartFormat) => void; label: string; seriesScopeHint?: string; labels?: React.ReactNode; allYFit?: boolean }
   /** Тип графика — id модуля: оформление проекта для этого типа (settings.chart_formats.types) ложится поверх темы. */
   module?: string
   /** Мини-вариант (подсказка на карте, карточка): без заголовка, кнопок, легенды и навигатора; высота — переменная --chart-h (104px по умолчанию). Подсказка, перекрестие и зум остаются теми же. */
@@ -1769,7 +1769,7 @@ export function ChartView({ chart: given, module, format, compact, excludeMode, 
         </span>
       </figcaption>
       {settings && createPortal(format ? (
-        <FormatPane chart={chart} element={element} onElement={setElement} scope="project" onScope={() => {}} scopeLabel={format.label} seriesScopeHint={format.seriesScopeHint} labels={format.labels}
+        <FormatPane chart={chart} element={element} onElement={setElement} scope="project" onScope={() => {}} scopeLabel={format.label} seriesScopeHint={format.seriesScopeHint} labels={format.labels} allYFit={format.allYFit}
           doc={format.doc} onDoc={format.onDoc} colorOf={colorOf(chart)} looks={format.doc.series ?? {}}
           onLooks={series => format.onDoc({ ...format.doc, series: Object.keys(series).length ? series : undefined })}
           onReplace={d => format.onDoc({ ...d, elements: format.doc.elements, checks: format.doc.checks })} onClose={() => setSettings(false)} />

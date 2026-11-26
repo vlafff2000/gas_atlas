@@ -104,6 +104,7 @@ export interface Annotation {
   color?: string; width?: number; dash?: string; size?: number
 }
 export interface ChartStyle {
+  y_fit?: AxisStyle['fit']
   y_intervals?: number
   title_font?: string; title_size?: number; title_bold?: boolean; title_color?: string; title_align?: 'left' | 'center' | 'right'
   font?: string; text_color?: string; legend?: 'bottom' | 'top' | 'right' | 'left' | 'hide'; legend_font?: string; legend_size?: number

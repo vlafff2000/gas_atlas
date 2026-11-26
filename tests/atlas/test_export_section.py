@@ -726,3 +726,85 @@ def test_branch_format_applies_to_multiple_wells_and_saved_files(env):
     assert formatted == len(studies)
     assert response_levels == sum(c['module'] == 'response' and c['name'].endswith(' · уровень') for c in plan['charts'])
     assert response_levels > 1 and unformatted
+
+
+def test_response_export_uses_filtered_series_and_fits_all_axes(env):
+    from xml.etree import ElementTree
+
+    from atlas.domain import DatasetKind
+
+    client, pid, projects, store = env
+    dates = pd.date_range('2025-01-01', periods=6, freq='MS')
+    frames = {
+        'response': pd.DataFrame({
+            'well': ['31'] * 3 + ['45'] * 3, 'horizon': ['А'] * 6, 'date': dates,
+            'pressure': [10, 123456, 17, 30, 32, 36], 'level': [9, 19, 29, 90, 110, 120],
+        }),
+        'pressure_survey': pd.DataFrame({
+            'well': '47', 'group': 'ГСП-1', 'date': dates, 'p_res': [14, 234567, 16, 39, 42, 44],
+        }),
+        'object_pressure': pd.DataFrame({'date': dates, 'pressure': 345678}),
+    }
+    settings = store.manifest(pid)['settings']
+    store.commit(pid, frames=frames, settings=settings)
+    url = f'/api/projects/{pid}/export'
+    form = {'modules': ['response'], 'response_split': 'well', 'response_view': 'combined',
+            'formats': ['svg', 'csv'], 'dpi': 300,
+            'fmt_response_doc': {'chart': {'y_fit': 'data-exact', 'y_intervals': 7}},
+            'fmt_response_axes': {'y': {'min': 0, 'max': 999}, 'y2': {'min': 0, 'max': 999}}}
+    names = [row['name'] for row in client.post(url + '/plan', json={'form': form}).json()['charts']]
+    assert names == ['31 · уровень и давление', '45 · уровень и давление']
+
+    def chart(name, values=form):
+        reply = client.post(url + '/chart', json={'form': values, 'chart': name})
+        assert reply.status_code == 200, reply.text
+        return reply.json()
+
+    # Прогреваем тот же график до исключения и используем тот же выбор после пересборки проекта.
+    assert chart(names[0])['y']['maximum'] == 234567
+    raw = projects.data(pid).raw
+    point = raw[DatasetKind.RESPONSE].loc[lambda d: d.pressure.eq(123456), '_point_id'].item()
+    survey = raw[DatasetKind.PRESSURE_SURVEY].loc[lambda d: d.p_res.eq(234567), '_point_id'].item()
+    for kind, identifier in [('response', point + ':pressure'), ('pressure_survey', survey)]:
+        r = client.post(f'/api/projects/{pid}/exclusions', json={'dataset': kind, 'add': [identifier]})
+        assert r.json()['added'] == 1, r.text
+
+    for exclusions in (True, False):
+        selected = {**form, 'exclusions': exclusions}
+        for name, expected in zip(names, (((10, 17), (9, 29)), ((30, 44), (90, 120)))):
+            shown = chart(name, selected)
+            for side, limits in zip(('y', 'y2'), expected):
+                axis = shown[side]
+                assert (axis['minimum'], axis['maximum']) == limits
+                assert (limits[1] - limits[0]) / axis['step'] == pytest.approx(7)
+                samples = [v for s in shown['series'] if s['axis'] == side for v in s['y'] if v is not None]
+                assert (min(samples), max(samples)) == limits
+            assert shown['y2']['inverse']
+        series = chart(names[0], selected)['series']
+        assert all(point + ':pressure' not in (s['ids'] or []) for s in series)
+        assert any(point + ':level' in (s['ids'] or []) and 19 in s['y'] for s in series)
+        assert next(s['y'] for s in series if s['name'] == 'Пластовое давление объекта') == [14, 16]
+
+    auto = chart(names[0], {**form, 'fmt_response_doc': {'chart': {'y_fit': 'auto', 'y_intervals': 6}}})
+    for name in ('y', 'y2'):
+        axis = auto[name]
+        assert (axis['maximum'] - axis['minimum']) / axis['step'] == pytest.approx(6)
+
+    download = client.post(url + '/archive', json={'form': {**form, 'exclusions': False}})
+    assert download.status_code == 200, download.text
+    assert not download.json()['errors']
+    with zipfile.ZipFile(store.path(pid) / 'exports' / download.json()['files'][0]) as archive:
+        names = archive.namelist()
+        svgs = sorted(name for name in names if name.endswith('.svg'))
+        assert len(svgs) == 2
+        namespace = {'svg': 'http://www.w3.org/2000/svg'}
+        for path, expected in zip(svgs, (((10, 17), (9, 29)), ((30, 44), (90, 120)))):
+            root = ElementTree.fromstring(archive.read(path))
+            for index, limits in enumerate(expected, start=2):
+                axis = root.find(f".//svg:g[@id='matplotlib.axis_{index}']", namespace)
+                ticks = [float(t.text.replace(',', '.')) for t in axis.findall('.//svg:text', namespace)[:-1]]
+                assert len(ticks) == 8
+                assert (min(ticks), max(ticks)) == limits
+        chart_data = [archive.read(name) for name in names if name.endswith('.csv')]
+        assert chart_data and all(forbidden not in payload for payload in chart_data
+                                  for forbidden in (b'123456', b'234567', b'345678'))

@@ -14,6 +14,7 @@ import pandas as pd
 
 from .contract import Axis, Chart, Series
 from .domain import DatasetKind
+from .engine.core.export import decode_arrays
 
 _DASH = {'solid': 'solid', 'dash': 'dash', 'dot': 'dot', 'dashdot': 'dashdot', 'longdash': 'longdash'}
 _SYMBOL = {'circle': 'circle', 'square': 'square', 'diamond': 'diamond', 'triangle-up': 'triangle'}
@@ -67,7 +68,7 @@ def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False, fo
     layout = fig.layout
     x, y = _axis(layout.xaxis), _axis(layout.yaxis)
     if layout.xaxis.type is None and any(
-        isinstance(next(iter(t.x), None), (dt.date, np.datetime64))
+        isinstance(next(iter(decode_arrays(t.x)), None), (dt.date, np.datetime64))
         for t in fig.data if getattr(t, 'x', None) is not None
     ):
         x.scale = 'time'
@@ -103,10 +104,12 @@ def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False, fo
             mark = 'line'
         ids = dataset = None
         if meta.get('selectable') and t.customdata is not None and meta.get('module') in {d.value for d in DatasetKind}:
-            ids = [str(row[0]) if hasattr(row, '__len__') and not isinstance(row, str) else str(row) for row in t.customdata]
+            ids = [str(row[0]) if hasattr(row, '__len__') and not isinstance(row, str) else str(row) for row in decode_arrays(t.customdata)]
             dataset = DatasetKind(meta['module'])
-        xs = _values(t.x, x.scale)
-        ys = list(t.y) if t.y is not None else []
+        # Plotly 6 кодирует numpy-массивы при копировании фигуры для оформления.
+        # Считать размах нужно по числам, а не по ключам словаря dtype/bdata.
+        xs = _values(decode_arrays(t.x), x.scale)
+        ys = list(decode_arrays(t.y)) if t.y is not None else []
         if mark == 'box':
             values = pd.to_numeric(pd.Series(ys), errors='coerce').dropna()
             xs = [xs[0] if xs else t.name or '']
@@ -199,10 +202,10 @@ def apply_branch_format(figure, doc):
     return fig
 
 
-def _manual(fig, name: str) -> dict[str, Any]:
+def _manual(fig, name: str, *, include_legacy=True) -> dict[str, Any]:
     """Границы и шаг шкалы, заданные инженером в оформлении выгрузки (``meta.format`` — поля формы, ``meta.style`` — модель оформления)."""
     meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
-    form = ((meta.get('format') or {}).get('axes') or {}).get(name) or {}
+    form = (((meta.get('format') or {}).get('axes') or {}).get(name) or {}) if include_legacy else {}
     style = ((meta.get('style') or {}).get('axes') or {}).get(name) or {}
     out = {}
     for field, keys in (('minimum', ('min',)), ('maximum', ('max',)), ('step', ('step', 'major'))):
@@ -260,7 +263,8 @@ def fit_figure(fig):
     drawn = [t for t in fig.data if t.visible not in (False, 'legendonly')]
     if not drawn:
         return fig
-    requested = any(spec.get('fit') in DATA_LIMIT_MODES for name, spec in styles.items() if name != 'x')
+    branch_fit = chart_style.get('y_fit')
+    requested = branch_fit in DATA_LIMIT_MODES or any(spec.get('fit') in DATA_LIMIT_MODES for name, spec in styles.items() if name != 'x')
     special = fig.layout.barmode in ('stack', 'relative')
     for t in drawn:
         meta = t.meta if isinstance(t.meta, dict) else {}
@@ -273,12 +277,13 @@ def fit_figure(fig):
     chart = to_chart(fig, drawn_only=True, format_keys=requested and special)
     chart.style.update(chart_style)
     names = [*chart.axis_names(), 'x']
-    manual = {name: _manual(fig, name) for name in names}
+    manual = {name: _manual(fig, name, include_legacy=not branch_fit or name == 'x') for name in names}
     for name in names:
         axis = axis_of(chart, name)
         spec = styles.get(name) or {}
-        if 'fit' in spec:
-            axis.style['fit'] = spec['fit']
+        mode = spec.get('fit') or (branch_fit if name != 'x' else None)
+        if mode:
+            axis.style['fit'] = mode
         if 'inverse' in spec:
             axis.inverse = spec['inverse']
         if 'from_zero' in spec:
@@ -286,7 +291,7 @@ def fit_figure(fig):
         if spec.get('scale') == 'log':
             axis.scale = 'log'
         automatic_bounds = not manual[name] and any(k in spec for k in ('fit', 'from_zero'))
-        if automatic_bounds or spec.get('fit') in DATA_LIMIT_MODES:
+        if automatic_bounds or mode in DATA_LIMIT_MODES or (branch_fit and name != 'x'):
             axis.minimum = axis.maximum = axis.step = None
         for field, value in manual[name].items():
             setattr(axis, field, value)
@@ -294,10 +299,12 @@ def fit_figure(fig):
     shared = len(chart.axis_names()) > 1 or bool(chart_style.get('y_intervals'))
     for name in names:
         axis = axis_of(chart, name)
-        exact = (styles.get(name) or {}).get('fit') in DATA_LIMIT_MODES
-        format_grid = name in styles and axis.auto and (name == 'x' and axis.step or (shared or exact) and axis.auto.get('n'))
+        exact = axis.style.get('fit') in DATA_LIMIT_MODES
+        branch_axis = bool(branch_fit and name != 'x' and axis.scale == 'value')
+        format_grid = (name in styles or branch_axis) and axis.auto and (
+            name == 'x' and axis.step or (shared or exact or branch_axis) and axis.auto.get('n'))
         if format_grid:
-            spec = styles[name]
+            spec = formatting.setdefault('axes', {}).setdefault(name, {})
             spec.update(min=axis.minimum, max=axis.maximum, step=axis.step)
         outside = axis.minimum is not None and axis.maximum is not None and any(not axis.minimum <= v <= axis.maximum for v in _levels(fig, name))
         sync = format_grid or (shared and name != 'x' and axis.auto and axis.auto.get('n') and not manual[name])
