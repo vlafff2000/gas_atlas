@@ -95,6 +95,7 @@ interface Props {
   /** Оформление одного графика (страница выгрузки): вместо выбора уровня показывается подпись. */
   scopeLabel?: string
   allYFit?: boolean
+  additionalSeries?: readonly Series[]
   seriesScopeHint?: string
   labels?: ReactNode
   /** Тепловая карта, матрица, столбцы с подписями (рисуются в файле): оси не настраиваются, остальное — те же поля. */
@@ -114,11 +115,14 @@ function Brush({ kind, value, paste }: { kind: 'chart' | 'axis' | 'series'; valu
   </>
 }
 
-export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, onReplace, scopeLabel, seriesScopeHint, labels, plain, withAxes, allYFit }: Props) {
+export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, onReplace, scopeLabel, seriesScopeHint, labels, plain, withAxes, allYFit, additionalSeries }: Props) {
   const axes = plain && !withAxes ? [] : AXES.filter(n => n === 'x' || n === 'y' || chart[n])
   const [kind, id] = plain && !withAxes && element.startsWith('axis') ? ['chart', ''] : element.split(':')
   const axisName = (kind === 'axis' && axes.includes(id as AxisName) ? id : 'x') as AxisName
-  const s = kind === 'series' ? chart.series[Math.min(Number(id) || 0, chart.series.length - 1)] : undefined
+  const available = additionalSeries && new Set(chart.series.map(item => item.format_label || item.name))
+  const series = additionalSeries && available
+    ? [...chart.series, ...additionalSeries.filter(item => !available.has(item.format_label || item.name))] : chart.series
+  const s = kind === 'series' ? series[Math.min(Number(id) || 0, series.length - 1)] : undefined
   const setChart = (patch: object) => onDoc({ ...doc, chart: compact({ ...doc.chart, ...patch }) })
   const setAxis = (patch: Partial<AxisFormat>) => onDoc({ ...doc, axes: { ...doc.axes, [axisName]: compact({ ...doc.axes?.[axisName], ...patch }) } })
   const setLook = (patch: Partial<Look>) => { if (s) { const k = seriesLookKey(s); onLooks({ ...looks, [k]: compact({ ...looks[k], ...patch }) }) } }
@@ -144,7 +148,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           {axes.map(n => (
             <li key={n}><button type="button" aria-pressed={kind === 'axis' && axisName === n} onClick={() => onElement('axis:' + n)}>
               <i style={{ background: chart[n]?.color ?? 'var(--line)' }} /><span>{AXIS_TITLE[n]}</span></button></li>))}
-          {chart.series.map((item, i) => {
+          {series.map((item, i) => {
             const key = seriesLookKey(item)
             if (item.format_label && formatKeys.has(key)) return null
             formatKeys.add(key)
@@ -193,6 +197,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           </>}
           {s && <>
             <h3>{s.format_label || s.name} <small>{KIND[s.kind]}</small></h3>
+            {additionalSeries?.includes(s) && <p className="cs-hint">На текущем графике этого ряда нет.</p>}
             <SeriesLookFields s={s} color={colorOf(s)} look={look} onChange={setLook} />
             <SeriesExtraFields value={look} set={setLook} marker={s.kind === 'points' || (s.kind === 'line' && !s.fill)} labels={s.kind !== 'box'} trend={s.kind === 'points' || s.kind === 'line'} hatch={s.kind === 'bar'} points={pointKeys(s)} />
             <p className="cs-hint">{seriesScopeHint ?? 'Вид ряда общий для проекта: тот же год, сезон или группа выглядит так же на всех графиках.'}</p>

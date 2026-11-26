@@ -53,7 +53,7 @@ def format_series_label(trace) -> str:
     if meta.get('export_format_series'):
         return meta['export_format_series']
     if meta.get('module') == 'response':
-        return 'Уровень жидкости' if meta.get('metric') == 'level' else 'Пластовое давление'
+        return meta.get('response_format_label') or ('Уровень жидкости' if meta.get('metric') == 'level' else 'Пластовое давление')
     if meta.get('module') == 'gdi' and trace.legendgroup:
         role = {'расчет': 'Расчётная кривая', 'БД': 'Кривая БД', 'по коэффициентам': 'Кривая по коэффициентам'}
         group = trace.legendgroup
