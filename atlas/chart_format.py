@@ -292,6 +292,13 @@ def configs(form: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
     return found
 
 
+def branch_formats(form: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Документы «Формата» по веткам экспорта."""
+    from .chart_style import clean_format
+    return {key[4:-4]: clean_format(value) for key, value in form.items()
+            if key.startswith('fmt_') and key.endswith('_doc') and len(key) > 8}
+
+
 def for_module(found: Mapping[str, Dict[str, Any]], module: str) -> Dict[str, Any]:
     return dict(found.get(module) or found.get('*') or {})
 

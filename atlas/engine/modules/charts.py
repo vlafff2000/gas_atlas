@@ -69,6 +69,7 @@ def production_curve(df,kind,ps,wells,xmode='cumulative',title=None,interactive=
             meta={'module':'production','selectable':True},customdata=custom,connectgaps=False,
             hovertemplate=f'<b>Скважина {well} · {p}</b><br>Дата: %{{customdata[1]}}<br>Суточный расход: %{{y:.2f}} тыс. м³/сут<br>Накопленный: %{{customdata[2]:.2f}} млн м³<br>%{{customdata[3]}}<br>%{{customdata[4]}} / %{{customdata[5]}} / строка %{{customdata[6]}}<extra></extra>'))
     fig.update_yaxes(rangemode='tozero')
+    if xmode!='cumulative':fig.update_xaxes(type='date')
     if xmode=='cumulative':
         maximum=float(d.cumulative.max())
         step=1000 if maximum>=1000 else 100 if maximum>=300 else 50 if maximum>=150 else 20 if maximum>=60 else 10 if maximum>=30 else 5 if maximum>=15 else 1 if maximum>=3 else None

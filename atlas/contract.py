@@ -368,6 +368,7 @@ class Series:
     values_label: str = ''           # подпись третьего значения для шкалы цвета и подсказки: «Газонасыщенность, д.ед.»
     age: int | None = None           # свежесть кривой: 0 — самая свежая (замер, дата), 1 — вторая и т. д.; по ней действует палитра «по свежести» (``style.fresh_colors``)
     segments: Sequence[str] | None = None   # подпись внутри каждого сегмента столбца (число скважин); узкий сегмент — выноска или точка, см. ``Chart.callouts``
+    format_label: str = ''           # роль ряда в оформлении ветки пакетной выгрузки
 
 
 @dataclass
@@ -679,6 +680,8 @@ def _table_json(t: Table, defer: bool = False) -> dict[str, Any]:
 def _series_json(s: Series, keep: Any = None) -> dict[str, Any]:
     """``keep`` — индексы точек, которые уходят на экран (None — все). ``total`` — сколько точек в серии на самом деле."""
     out = {f.name: getattr(s, f.name) for f in fields(s) if f.name not in ('x', 'y', 'ids', 'dataset', 'labels', 'values')}
+    if not s.format_label:
+        out.pop('format_label')
     full = len(s.x)
     out['total'] = max(s.total, full)
 

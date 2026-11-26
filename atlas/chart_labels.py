@@ -108,8 +108,11 @@ def apply(figure, cfg: Mapping[str, str]):
         fig.layout.yaxis2.title.text = cfg['y2']
     rules = parse_rules(cfg.get('legend', ''))
     if rules or cfg.get('template'):
+        from .export_chart import format_series_label
         names: Dict[str, Optional[str]] = {}
         for trace in fig.data:
+            meta = dict(trace.meta) if isinstance(trace.meta, dict) else {}
+            trace.meta = {**meta, 'export_format_series': format_series_label(trace)}
             for attr in ('name', 'legendgroup'):
                 old = getattr(trace, attr, None)
                 if not old:
@@ -128,8 +131,8 @@ def apply(figure, cfg: Mapping[str, str]):
 class LabelledJob:
     """Задание на график с подписями: всё остальное (имя, модуль) берётся у исходного."""
 
-    def __init__(self, job, cfg: Mapping[str, str], format: Optional[Mapping[str, Any]] = None):
-        self._job, self._cfg, self._format = job, cfg, format
+    def __init__(self, job, cfg: Mapping[str, str], format: Optional[Mapping[str, Any]] = None, branch: Optional[Mapping[str, Any]] = None):
+        self._job, self._cfg, self._format, self._branch = job, cfg, format, branch
 
     def __getattr__(self, name):
         if name.startswith('_'):        # до разбора при передаче процессу ``_job`` ещё нет: без этой проверки — бесконечная рекурсия
@@ -142,6 +145,9 @@ class LabelledJob:
         if self._format:
             figure = chart_format.apply(figure, self._format)
         figure = apply(figure, self._cfg) if self._cfg else figure
+        if self._branch:
+            from .export_chart import apply_branch_format
+            figure = apply_branch_format(figure, self._branch)
         return fit_figure(figure) if fit else figure      # шкалы — после оформления: ручное сильнее подбора
 
 
@@ -150,11 +156,12 @@ def labelled(plan, form: Mapping[str, Any]):
     from dataclasses import replace
     cfgs, formats = configs(form), chart_format.configs(form)
     own = chart_format.parse_overrides(form.get('fmt_overrides'))
+    documents = chart_format.branch_formats(form)
     jobs = []
     for job in plan.jobs:
         module = getattr(job, 'module', '') or ''
         look = chart_format.for_module(formats, module)
         if getattr(job, 'name', None) in own:
             look = chart_format.merge(look or chart_format.common(form), own[job.name])
-        jobs.append(LabelledJob(job, cfgs.get(module, {}), look))      # и без подписей: шкалы подбираются общей функцией (fit_figure)
+        jobs.append(LabelledJob(job, cfgs.get(module, {}), look, documents.get(module)))      # и без подписей: шкалы подбираются общей функцией (fit_figure)
     return replace(plan, jobs=jobs)

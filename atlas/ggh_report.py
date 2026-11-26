@@ -34,11 +34,51 @@ SPLIT_AFTER = 28               # больше дат — таблица в дв�
 FIRST_COLUMN_CM = 3.2
 
 
+def format_figure(frame: pd.DataFrame, well: str, style: dict):
+    """Данные ГГХ для общей панели «Формат» и её предварительного просмотра."""
+    import plotly.graph_objects as go
+
+    from .chart_format import apply
+    from .export_chart import apply_branch_format
+
+    frame = frame.sort_values('date').reset_index(drop=True)
+    names = style.get('labels') or {}
+    title = (names.get('title') or 'Скважина №{скважина}').replace('{скважина}', well)
+    fig = go.Figure()
+    fig.update_layout(title=title, meta={'module': 'ggh', 'wells': [well]})
+    fig.update_xaxes(type='date', title=names.get('x') or 'Год', range=[
+        frame.date.iloc[0] - pd.Timedelta(days=180), frame.date.iloc[-1] + pd.Timedelta(days=180)])
+    fig.update_yaxes(title=names.get('y') or 'Содержание, %', range=[0, 100], tick0=0, dtick=100 / (TICKS - 1))
+    symbols = {'o': 'circle', 's': 'square', '^': 'triangle-up', 'v': 'triangle-down', 'd': 'diamond', 'p': 'pentagon', '*': 'star'}
+    for key, (label, color, _) in {**PARAMS, GAS[0]: (GAS[1], GAS[2], '')}.items():
+        if key not in frame:
+            continue
+        values = pd.to_numeric(frame[key], errors='coerce').dropna()
+        if values.empty:
+            continue
+        right = key == GAS[0]
+        if right:
+            low, high = gas_axis(values)
+            fig.update_layout(yaxis2={'title': names.get('y2') or 'Газонасыщенность, см³/л', 'overlaying': 'y',
+                                     'side': 'right', 'range': [low, high], 'tick0': low, 'dtick': (high - low) / (TICKS - 1)})
+        fig.add_trace(go.Scatter(x=frame.loc[values.index, 'date'], y=values, name=label, mode='lines+markers',
+                                 yaxis='y2' if right else 'y', line={'color': color},
+                                 marker={'symbol': symbols[MARKERS[key]], 'size': 2 * SIZES[key], 'color': color}))
+    figure = apply(fig, style)
+    return apply_branch_format(figure, style['doc']) if style.get('doc') else figure
+
+
 def figure_png(frame: pd.DataFrame, well: str, dpi: int = 200, font: str = 'times', style: dict | None = None) -> bytes:
     """График скважины как в скрипте: слева содержание, %, справа газонасыщенность, по 11 меток на каждой оси.
     ``style`` — настройки выгрузки: ``font_size`` (пт, база 12), ``look`` (``excel`` — палитра Office), общие ``title`` / ``angle`` и
     правила наборов данных ``series`` и ручные ``axes`` (``atlas/chart_format.py``): набор — параметр ГГХ или «Газонасыщенность»;
     ``labels`` — свои название графика (с ``{скважина}``) и подписи осей ``title``, ``x``, ``y``, ``y2`` (``atlas/chart_labels.py``)."""
+    if (style or {}).get('doc'):
+        from .engine.core.export import figure_bytes
+
+        return figure_bytes(format_figure(frame, well, style), 'png', dpi,
+                            round(FIG_INCHES[0] * 25.4), round(FIG_INCHES[1] * 25.4),
+                            font=font, font_size=style.get('font_size'), look=style.get('look', 'default'))
     import matplotlib
     matplotlib.use('Agg')
     import numpy as np

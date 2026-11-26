@@ -148,6 +148,7 @@ export interface Series {
   values_label?: string
   segments?: string[] | null                // подпись внутри каждого сегмента столбца стопки (число скважин)
   age?: number | null                       // свежесть кривой: 0 — самая свежая; по ней красит палитра «по свежести» (style.fresh_colors)
+  format_label?: string
   look?: Look                              // личный вид ряда из окна «Настройка» (только на клиенте)
 }
 /** Точки серии в видимом окне оси X (ответ /window): `window` — сколько их в окне до прореживания. */

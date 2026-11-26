@@ -65,7 +65,7 @@ export const markerSymbol = (shape: MarkerShape | undefined, fallback: string) =
 
 /** Ключ ряда в общем хранилище: группа или имя, и вид ряда. Не зависит от графика, заголовка и набора скважин:
  *  один и тот же год, сезон или группа получает один и тот же вид на всех графиках. */
-export const seriesLookKey = (s: Series) => `${s.group || s.name}|${s.kind}`
+export const seriesLookKey = (s: Series) => `${s.format_label || s.group || s.name}|${s.kind}`
 
 /** Год, по которому ряд узнаётся как год или сезон («2024», «2023/2024», «Сезон 2024»): цвет по умолчанию не зависит от набора рядов. */
 export const yearOfKey = (key: string): number | null => {
