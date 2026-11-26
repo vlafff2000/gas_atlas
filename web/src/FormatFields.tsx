@@ -279,12 +279,12 @@ const DATA_FITS: typeof FITS = [
   { value: 'data-exact', label: 'По реальным данным' },
 ]
 
-export function FitChoice({ value, fromZero, across, onChange }: {
-  value: AxisFormat['fit']; fromZero?: boolean; across?: boolean; onChange: (v: AxisFormat['fit']) => void
+export function FitChoice({ label = 'Подбор пределов', value, fromZero, across, onChange }: {
+  label?: string; value: AxisFormat['fit']; fromZero?: boolean; across?: boolean; onChange: (v: AxisFormat['fit']) => void
 }) {
   const selected = value ?? (fromZero ? 'zero' : undefined)
   const options = across ? FITS : [...DATA_FITS, ...FITS.filter(item => item.value !== 'auto' && item.value === selected)]
-  return <Choice label="Подбор пределов" value={selected} options={options} auto="как в разделе" onChange={onChange} />
+  return <Choice label={label} value={selected} options={options} auto="как в разделе" onChange={onChange} />
 }
 
 /** Шкала оси: границы, шаг, режим подбора, логарифм, обратное направление. Общее поле «Формат» и окна оси конструктора; пусто — авто.

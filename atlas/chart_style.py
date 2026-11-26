@@ -168,7 +168,7 @@ AXIS_FMT = {'color': 'color', 'decimals': ('int', 0, 8), 'date_format': DATE_FOR
             'category_names': 'names', 'category_wrap': ('int', 0, 80)}
 AXIS_STYLE_KEYS = tuple(k for k in AXIS_FMT if k != 'color')     # что из настроек оси ложится в ``Axis.style`` (цвет — в ``Axis.color``)
 AXIS_SCALE_KEYS = ('min', 'max', 'step', 'minor_step', 'calendar_step_n', 'calendar_minor_step_n', 'cross', 'break_from', 'break_to')  # границы и деления: текст, проверяется по виду оси (``bound``)
-CHART_FMT = {'y_intervals': ('int', 1, 150), 'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,
+CHART_FMT = {'y_fit': FITS, 'y_intervals': ('int', 1, 150), 'title_font': FONTS, 'title_size': ('num', 6, 48), 'title_bold': 'bool', 'title_color': 'color', 'title_align': ALIGNS,
              'font': FONTS, 'text_color': 'color', 'legend': LEGENDS, 'legend_font': FONTS, 'legend_size': ('num', 5, 30),
              'grid': GRIDS, 'grid_color': 'color', 'grid_width': ('num', 0.2, 4), 'minor_grid': MINOR_GRIDS, 'minor_grid_color': 'color',
              'minor_grid_width': ('num', 0.2, 4), 'background': 'color', 'plot_background': 'color',

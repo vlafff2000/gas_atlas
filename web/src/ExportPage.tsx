@@ -198,6 +198,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     doc: (form[`fmt_${module}_doc`] as FormatDoc | undefined) ?? {},
     onDoc: ({ chart, axes, series }: FormatDoc) => set(`fmt_${module}_doc`, { chart, axes, series }),
     label: `все графики ветки «${choices ? styleLabel(module, choices) : module}»`,
+    allYFit: module === 'response',
     seriesScopeHint: 'Изменения ряда применяются к одноимённым наборам данных этой ветки.',
     labels: choices && <details className="cs-templates">
       <summary>Названия графика, осей и легенды</summary>
@@ -232,6 +233,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   // Картинка выбранного графика (макет файла, 150 DPI при выбранной ширине).
   const shownPlan = plan && planKey === planned ? plan : null
   const previewModule = shownPlan?.charts.find(c => c.name === chart)?.module ?? ''
+  const previewExclusions = exclusions || previewModule === 'response'
   const extraSel = EXTRAS.includes(previewModule)   // у пакета и ГГХ только картинка файла
   const liveOn = live && !extraSel
   const legacyFormatKey = JSON.stringify(Object.entries(form).filter(([k]) =>
@@ -554,6 +556,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
           <Select {...F} field="font_size" label="Размер шрифта, пт" def={null}
             options={[[null, 'Авто (12)'], ...[8, 9, 10, 11, 12, 14, 16, 18].map(n => [n, String(n)] as [number, string])]} />
           <Check {...F} field="exclusions" label="Применять исключения точек проекта" def />
+          {modules.includes('response') && <small className="muted">В графиках реагирования исключения действуют всегда.</small>}
           <Check {...F} field="raw" label="Добавить нормализованные данные" def={false} />
           {(['points', 'legend', 'grid'] as const).map(f => (
             <Check key={f} {...F} field={'style_' + f} def={style[f] ?? true}
@@ -593,7 +596,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         const fmt = branchFormat(formatPreview.module)
         const example = applyFormat(formatPreview.chart, fmt.doc)
         return createPortal(<FormatPane chart={example} element={formatElement} onElement={setFormatElement}
-          scope="type" onScope={() => {}} scopeLabel={fmt.label} seriesScopeHint={fmt.seriesScopeHint} labels={fmt.labels}
+          scope="type" onScope={() => {}} scopeLabel={fmt.label} seriesScopeHint={fmt.seriesScopeHint} labels={fmt.labels} allYFit={fmt.allYFit}
           doc={fmt.doc} onDoc={fmt.onDoc} colorOf={colorOf(example)} looks={fmt.doc.series ?? {}}
           onLooks={series => fmt.onDoc({ ...fmt.doc, series })} onReplace={fmt.onDoc} onClose={() => setFormatPreview(null)} />, document.body)
       })()}
@@ -659,17 +662,17 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
                     <option value="live">Интерактивный график</option>
                   </select>
                 </label>}
-                {liveOn && exclusions && (
+                {liveOn && previewExclusions && (
                   <label className="toggle"><input type="checkbox" checked={excludeMode} onChange={e => setExcludeMode(e.target.checked)} /><span>Исключать точки кликом</span></label>
                 )}
               </div>
               {liveOn ? (
                 <>
-                  <p className="muted small-text">Интерактивный вид того же графика: масштаб, подсказки{exclusions ? ' и исключение точек кликом (исключения сохраняются в проекте и попадут в выгрузку)' : ''}.
-                    {!exclusions && ' Исключения проекта в этой выгрузке отключены, поэтому точки не выбираются.'}</p>
+                  <p className="muted small-text">Интерактивный вид того же графика: масштаб, подсказки{previewExclusions ? ' и исключение точек кликом (исключения сохраняются в проекте и попадут в выгрузку)' : ''}.
+                    {!previewExclusions && ' Исключения проекта в этой выгрузке отключены, поэтому точки не выбираются.'}</p>
                   {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее. Расчетные кривые и серые исключенные точки не выбираются.</div>}
                   {liveChart?.name === chart
-                    ? <ChartView key={liveChart.chart.id + chart} chart={liveChart.chart} format={branchFormat(previewModule)} excludeMode={excludeMode && exclusions} onExclude={excludePoint}
+                    ? <ChartView key={liveChart.chart.id + chart} chart={liveChart.chart} format={branchFormat(previewModule)} excludeMode={excludeMode && previewExclusions} onExclude={excludePoint}
                         onDownload={async () => { throw new Error('Файлы выгрузки создаются кнопками «Сформировать архив» и «Создать отчет Word».') }} />
                     : <p className="pulse">Построение графика…</p>}
                 </>

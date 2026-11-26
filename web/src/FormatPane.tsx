@@ -8,7 +8,7 @@ import { SeriesLookFields } from './ChartSettings'
 import { projectFormats, usePref } from './chartPrefs'
 import type { AxisFormat, AxisName, ChartFormat } from './chartFormat'
 import { seriesLookKey, type Look } from './chartStyle'
-import { AxisScaleFields, AxisStyleFields, ChartStyleFields, Commit, Num, SeriesExtraFields, compact } from './FormatFields'
+import { AxisScaleFields, AxisStyleFields, ChartStyleFields, Commit, FitChoice, Num, SeriesExtraFields, compact } from './FormatFields'
 import { pointKeys } from './labelPick'
 import type { FormatScope } from './projectLooks'
 
@@ -94,6 +94,7 @@ interface Props {
   onReplace: (doc: ChartFormat) => void
   /** Оформление одного графика (страница выгрузки): вместо выбора уровня показывается подпись. */
   scopeLabel?: string
+  allYFit?: boolean
   seriesScopeHint?: string
   labels?: ReactNode
   /** Тепловая карта, матрица, столбцы с подписями (рисуются в файле): оси не настраиваются, остальное — те же поля. */
@@ -113,7 +114,7 @@ function Brush({ kind, value, paste }: { kind: 'chart' | 'axis' | 'series'; valu
   </>
 }
 
-export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, onReplace, scopeLabel, seriesScopeHint, labels, plain, withAxes }: Props) {
+export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, onReplace, scopeLabel, seriesScopeHint, labels, plain, withAxes, allYFit }: Props) {
   const axes = plain && !withAxes ? [] : AXES.filter(n => n === 'x' || n === 'y' || chart[n])
   const [kind, id] = plain && !withAxes && element.startsWith('axis') ? ['chart', ''] : element.split(':')
   const axisName = (kind === 'axis' && axes.includes(id as AxisName) ? id : 'x') as AxisName
@@ -155,6 +156,15 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           {kind === 'chart' && <>
             <h3>График</h3>
             {labels}
+            {allYFit && <FitChoice label="Пределы всех осей Y" value={doc.chart?.y_fit} onChange={mode => {
+              const axes = { ...doc.axes }
+              for (const name of AXES) {
+                const spec = axes[name]
+                if (name !== 'x' && spec) axes[name] = compact({ ...spec, fit: undefined, from_zero: undefined,
+                  ...(mode ? { min: undefined, max: undefined } : {}) })
+              }
+              onDoc({ ...doc, axes, chart: compact({ ...doc.chart, y_fit: mode }) })
+            }} />}
             <ChartStyleFields value={doc.chart ?? {}} set={setChart} heat={!!chart.heat} strips={!!chart.strips} segments={chart.series.some(s => !!s.segments)} tableWells={!!chart.table?.wells?.length} fresh={chart.series.some(s => s.age !== undefined && s.age !== null)} />
             <div className="cs-actions">
               <Brush kind="chart" value={doc.chart} paste={v => setChart(v)} />

@@ -68,10 +68,10 @@ export function parseBound(text: string | number | undefined, time: boolean): nu
 }
 
 /** Ось с настройками документа (как chart_style.style_axis): то, что к оси не подходит, пропускается. */
-export function formatAxis(axis: Axis, spec: AxisFormat, values: number[]): Axis {
+export function formatAxis(axis: Axis, spec: AxisFormat, values: number[], freshBounds = false): Axis {
   const time = axis.scale === 'time'
   const out: Axis = { ...unfitted(axis), style: { ...axis.style } }
-  if (usesDataLimits(spec.fit)) {
+  if (freshBounds || usesDataLimits(spec.fit)) {
     out.minimum = out.maximum = out.step = null
   }
   if (spec.color) out.color = spec.color
@@ -114,11 +114,14 @@ export function applyFormat(chart: Chart, doc: ChartFormat | null | undefined): 
 function formatted(chart: Chart, doc: ChartFormat): Chart {
   let out: Chart = doc.chart && Object.keys(doc.chart).length ? { ...chart, style: { ...chart.style, ...doc.chart } } : chart
   for (const name of AXES) {
-    const spec = doc.axes?.[name], axis = out[name]
+    const branchFit = name !== 'x' ? doc.chart?.y_fit : undefined
+    const own = doc.axes?.[name]
+    const spec = branchFit ? { fit: branchFit, ...own } : own
+    const axis = out[name]
     if (!spec || !axis) continue
     const values = name === 'x' ? [] : out.series.filter(s => (s.axis ?? 'y') === name)
       .flatMap(s => s.y.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)))
-    out = { ...out, [name]: formatAxis(axis, spec, values) }
+    out = { ...out, [name]: formatAxis(axis, spec, values, !!branchFit) }
   }
   const looks = withFreshColors(out, out.style?.fresh_colors, doc.series)
   if (!looks) return out

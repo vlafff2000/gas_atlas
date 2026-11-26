@@ -741,6 +741,13 @@ def routes(projects: Projects) -> list[Route]:
             options, source, raw = options_from(form, data)
             if not options['modules'] or (not options['wells'] and not {'object_pressure', WATERFACTOR, GIS_TILES} & set(options['modules'])):
                 return options, None, data
+            if 'response' in options['modules']:
+                from .domain import DatasetKind
+                from .modules.an_report import object_pressure_of
+
+                # У этой ветки тот же отфильтрованный источник, что у интерактивного раздела.
+                source['response'] = data[DatasetKind.RESPONSE]
+                source['response_object_pressure'] = object_pressure_of(data)[0]
             return options, with_elpro(with_gis_tiles(with_water(reporting.plan(source, data.mapping, data.settings, options, raw), data, options), data, options), data, options), data
         return plans.get(key, build)
 
@@ -829,7 +836,10 @@ def routes(projects: Projects) -> list[Route]:
         job = next((j for j in plan.jobs if j.name == name), None)
         if job is None:
             raise Failure(404, 'График не найден. Обновите предпросмотр.')
-        return _chart_json(auto_chart(to_chart(job.render(fit=False), 'export-' + str(job.module or 'chart'), format_keys=for_format)))      # шкалы так же, как на экране разделов
+        fitted_response = job.module == 'response' and not for_format
+        rendered = job.render(fit=fitted_response)
+        result = to_chart(rendered, 'export-' + str(job.module or 'chart'), drawn_only=job.module == 'response', format_keys=for_format)
+        return _chart_json(result if fitted_response else auto_chart(result))
 
     def series(request, body):
         """Названия наборов данных в графиках каждого модуля — подсказки для правил оформления (по первым графикам модуля)."""

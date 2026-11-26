@@ -284,13 +284,20 @@ def separated_ranges(pressure,level,band='below'):
 
 @cached_chart
 def response_chart(df,working,metric='level',title=None,interactive=True,color_map=None,
-                   object_pressure=None,manometer_wells=None,by_well=False,pressure_horizons=None,level_band='overlay'):
+                   object_pressure=None,manometer_wells=None,by_well=False,pressure_horizons=None,level_band='overlay',data_limits=False):
     wells=ordered(df.well) if 'well' in df else []
     manometer=set(manometer_wells or [])
     pressure_horizons=set(pressure_horizons if pressure_horizons is not None else df.loc[df.pressure.notna(),'horizon'].unique() if 'pressure' in df else [])
     pressure_enabled=bool(set(df.horizon).intersection(pressure_horizons)) if not df.empty else False
+    reference = None
+    if pressure_enabled and metric in ('pressure', 'combined') and object_pressure is not None and not object_pressure.empty:
+        reference = object_pressure[object_pressure.date.between(df.date.min(), df.date.max())]
     dual=metric=='combined' and pressure_enabled
-    fig=base(title or well_title(wells),'Дата','Пластовое давление, кгс/см²' if metric=='pressure' or dual else 'Уровень жидкости, м')
+    pressure_axis = metric == 'pressure' or dual
+    if data_limits and metric == 'combined':
+        pressure_axis = pressure_enabled and (df.pressure.notna().any() or reference is not None and not reference.empty)
+        dual = pressure_axis and df.level.notna().any()
+    fig=base(title or well_title(wells),'Дата','Пластовое давление, кгс/см²' if pressure_axis else 'Уровень жидкости, м')
     fig.update_layout(meta={'module':'response','wells':wells,'horizons':ordered(df.horizon) if 'horizon' in df else [],'metric':metric})
     fig.update_xaxes(type='date')
     if df.empty:return fig
@@ -304,6 +311,9 @@ def response_chart(df,working,metric='level',title=None,interactive=True,color_m
             data=g.sort_values('date')
             if interactive:data=decimate(data,field)
             ids=data['_point_id'].map(lambda value:point_id('response',value,field)) if '_point_id' in data else pd.Series('',index=data.index)
+            if data_limits:
+                # NaN остаётся разрывом линии, но это уже не доступный для выбора замер.
+                ids = ids.where(data[field].notna(), '')
             unit='м' if field=='level' else 'кгс/см²'
             suffix='уровень жидкости' if field=='level' else 'давление (глубинный манометр)' if w in manometer else 'давление (пересчет)'
             color=('#32BDA4' if field=='level' else '#8B5CF6' if w in manometer else '#2563EB') if semantic else palette[w]
@@ -318,17 +328,16 @@ def response_chart(df,working,metric='level',title=None,interactive=True,color_m
                 customdata=np.column_stack([ids]),meta={'module':'response','metric':field,'selectable':True},
                 hovertemplate=f'{h} · скв. {w} · {suffix}<br>Дата: %{{x|%d.%m.%Y}}<br>Значение: %{{y:.2f}} {unit}<extra></extra>'))
             legends.add((h,w,field) if by_well else w)
-    if pressure_enabled and metric in ('pressure','combined') and object_pressure is not None and not object_pressure.empty:
-        data=object_pressure.sort_values('date')
-        data=data[data.date.between(df.date.min(),df.date.max())]
+    if reference is not None and not reference.empty:
+        data=reference.sort_values('date')
         if interactive:data=decimate(data,'pressure')
         if not data.empty:
             ids=data['_point_id'] if '_point_id' in data else pd.Series('',index=data.index)
             fig.add_trace(go.Scatter(x=data.date,y=data.pressure,mode='lines+markers',name='Пластовое давление объекта',
                 line={'color':'#DC3545','width':2,'dash':'solid'},marker={'size':5,'color':'#DC3545'},
-                meta={'module':'object_pressure','metric':'pressure','selectable':True},customdata=np.column_stack([ids]),
+                meta={'module':'object_pressure','metric':'pressure','selectable':'_point_id' in data},customdata=np.column_stack([ids]),
                 hovertemplate='Пластовое давление объекта<br>%{x|%d.%m.%Y}<br>%{y:.2f} кгс/см²<extra></extra>'))
-    if metric=='level' or (metric=='combined' and not dual):fig.update_layout(yaxis={'autorange':'reversed'})
+    if metric=='level' or (metric=='combined' and not pressure_axis):fig.update_layout(yaxis={'autorange':'reversed'})
     if dual:
         fig.update_layout(yaxis={'autorange':True,'title':'Пластовое давление, кгс/см²'},
             yaxis2={'title':'Уровень жидкости, м','overlaying':'y','side':'right','showgrid':False,'autorange':'reversed'},margin={'r':85})

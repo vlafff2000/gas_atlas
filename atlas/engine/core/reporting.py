@@ -149,6 +149,9 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
             d=frames[module];d=d[d.well.isin(ws)&d.horizon.isin(cfg.get('horizons',ordered(d.horizon)))];span=cfg.get('dates',[])
             if len(span)==2:d=d[d.date.between(pd.Timestamp(span[0]),pd.Timestamp(span[1]))]
             working=cfg.get('working',settings.get('working_horizons',[]));mode=cfg.get('mode','all')
+            use_atlas_data = 'response_object_pressure' in frames
+            object_pressure = frames.get('response_object_pressure' if use_atlas_data else 'object_pressure')
+            level_band = 'overlay' if use_atlas_data else cfg.get('level_band', 'overlay')
             # «control» — контрольные горизонты: все скважины горизонта на одном графике, только уровень;
             # «working» — рабочие горизонты: график на каждую скважину, уровень и давление на двух шкалах.
             sets_=[(d,cfg.get('split','horizon'),cfg.get('view','separate'),'')] if mode=='all' else []
@@ -162,7 +165,7 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
                         if metric!='combined' and (metric not in part or not part[metric].notna().any()):continue
                         if metric=='combined' and not any(col in part and part[col].notna().any() for col in ('level','pressure')):continue
                         name=tag+label+' · '+{'level':'уровень','pressure':'давление','combined':'уровень и давление'}[metric]
-                        add(name,charts.response_chart,part,working,metric,title=charts.response_title(ordered(part.well),label,split),interactive=False,color_map=charts.well_colors(raw_frames[module].well),object_pressure=frames.get('object_pressure'),manometer_wells=settings.get('manometer_wells',[]),by_well=split=='well',pressure_horizons=ordered(raw_frames[module].loc[raw_frames[module].pressure.notna(),'horizon']) if 'pressure' in raw_frames[module] else [],level_band=cfg.get('level_band','overlay'))
+                        add(name,charts.response_chart,part,working,metric,title=charts.response_title(ordered(part.well),label,split),interactive=False,color_map=charts.well_colors(raw_frames[module].well),object_pressure=object_pressure,manometer_wells=settings.get('manometer_wells',[]),by_well=split=='well',pressure_horizons=ordered(raw_frames[module].loc[raw_frames[module].pressure.notna(),'horizon']) if 'pressure' in raw_frames[module] else [],level_band=level_band, data_limits=use_atlas_data)
             tables['Реагирование']=response.statistics(d)
             if options.get('raw'):tables['Замеры']=exclusions.public_table(d)
         elif module=='object_pressure':add('Давление объекта',object_figure,frames[module]);tables['Давление_объекта']=exclusions.public_table(frames[module])
