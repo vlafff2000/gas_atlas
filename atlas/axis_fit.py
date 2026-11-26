@@ -48,6 +48,8 @@ WHY = {
     'mode-data': 'режим «по данным»',
     'data-zero': 'пределы по данным с включением нуля',
     'data-exact': 'пределы по минимуму и максимуму данных',
+    'integer-data': 'границы охватывают данные, основные деления целые',
+    'integer-zero': 'границы охватывают данные и ноль, основные деления целые',
     'flat': 'все значения равны — шкала вокруг значения',
     'manual': 'границы заданы вручную',
     'step': 'шаг задан вручную — границы кратны шагу',
@@ -66,6 +68,7 @@ class Need:
     maximum: float | None = None
     step: float | None = None
     inverse: bool = False
+    integer_ticks: bool = False
     margin: float = MARGIN           # запас срезанной шкалы со стороны нуля; у оси X — 0: точка на краю поля там обычна
 
 
@@ -98,14 +101,15 @@ def clean(value: float) -> float:
     return float(f'{value:.12g}')
 
 
-def _steps(raw: float) -> list[tuple[float, bool]]:
+def _steps(raw: float, integer: bool = False) -> list[tuple[float, bool]]:
     """Круглые шаги не меньше ``raw`` по возрастанию (две декады): (шаг, это 2,5 · 10^k)."""
+    raw = max(raw, 1) if integer else raw
     e = _exponent(raw)
     out = []
     for k in (e, e + 1, e + 2):
         for m in MULTS:
             s = m * _pow10(k)
-            if s >= raw * (1 - EPS):
+            if s >= raw * (1 - EPS) and (not integer or s == round(s)):
                 out.append((s, m == 2.5))
     return out
 
@@ -133,10 +137,10 @@ def _target(need: Need) -> tuple[float, float, bool, bool, str]:
         lo, hi = hi, lo
     flat = hi == lo
     span = hi - lo
-    if need.mode == 'zero':
-        zero, why = True, 'mode-zero'
-    elif need.mode == 'data':
-        zero, why = lo <= 0 <= hi, 'mode-data'
+    if need.mode in ('zero', 'data-zero'):
+        zero, why = True, 'integer-zero' if need.mode == 'data-zero' else 'mode-zero'
+    elif need.mode in ('data', 'data-exact'):
+        zero, why = lo <= 0 <= hi, 'integer-data' if need.mode == 'data-exact' else 'mode-data'
     elif need.anchor:
         zero, why = True, 'anchor'
     elif lo < 0 < hi:
@@ -157,10 +161,14 @@ def _free(need: Need, n: int) -> tuple[float, float, float, float, bool, str] | 
     """Лучшая шкала из ``n`` делений для шкалы без ручных границ: (низ, верх, шаг, заполнение, нуль, причина)."""
     a, b, zero, loose, why = _target(need)
     lo, hi = min(float(need.lo), float(need.hi)), max(float(need.lo), float(need.hi))      # type: ignore[arg-type]
-    pad = 0.0 if loose or zero else (b - a) * need.margin
+    pad = 0.0 if loose or zero or need.mode in DATA_LIMIT_MODES else (b - a) * need.margin
     low = max(a - pad, 0.0) if a > 0 else a          # срез со стороны нуля: запас, чтобы край данных не лежал на оси
     high = min(b + pad, 0.0) if b < 0 else b
-    for step, odd in _steps((b - a) / n):
+    if need.integer_ticks and n == 1 and low < 0 < high:
+        start = math.floor(low)
+        step, _ = _steps(high - start, True)[0]
+        return start, start + step, step, (b - a) / step, zero, why
+    for step, odd in _steps((b - a) / n, need.integer_ticks):
         first = math.ceil((high - n * step) / step - EPS)
         last = math.floor(low / step + EPS)
         if lo >= 0:
@@ -186,13 +194,13 @@ def _half(need: Need, n: int) -> tuple[float, float, float, float, bool, str]:
         start = float(need.minimum)
         top = max(b, start)
         width = top - start if top > start else max(abs(start) * 0.1, 1.0)
-        step, odd = _steps(width / n)[0]
+        step, odd = _steps(width / n, need.integer_ticks and start == round(start))[0]
         low, high = start, start + n * step
     else:
         end = float(need.maximum)                    # type: ignore[arg-type]
         bottom = min(a, end)
         width = end - bottom if end > bottom else max(abs(end) * 0.1, 1.0)
-        step, odd = _steps(width / n)[0]
+        step, odd = _steps(width / n, need.integer_ticks and end == round(end))[0]
         low, high = end - n * step, end
     cover = width / (n * step) - (ODD_PENALTY if odd else 0.0)
     return low, high, step, cover, low <= 0 <= high, 'manual'
@@ -205,8 +213,8 @@ def _fixed(need: Need, n: int) -> tuple[float, float, float, float, bool, str]:
     return low, high, step, 1.0 if is_nice(step) else ROUGH_FIXED, low <= 0 <= high, 'manual'
 
 
-def _empty(n: int) -> tuple[float, float, float, float, bool, str]:
-    step = nice_step(1.0 / n)
+def _empty(n: int, integer_ticks: bool = False) -> tuple[float, float, float, float, bool, str]:
+    step = 1 if integer_ticks else nice_step(1.0 / n)
     return 0.0, n * step, step, 1.0, True, 'empty'
 
 
@@ -251,7 +259,7 @@ def _kind(need: Need | None, count: int) -> str:
 
 def _zero_index(cands: dict, needs: Sequence[Need | None], kinds: Sequence[str], n: int) -> None:
     """Общая нулевая линия: шкалы без ручных границ, в которые входит нуль, получают его на одном делении."""
-    group = [i for i in cands if kinds[i] == 'free' and cands[i][4] and needs[i].mode != 'data']      # type: ignore[union-attr]
+    group = [i for i in cands if kinds[i] == 'free' and cands[i][4] and needs[i].mode not in ('data', 'data-exact')]      # type: ignore[union-attr]
     if len(group) < 2 or not any(cands[i][0] < 0 < cands[i][1] for i in group):
         return
     best = None
@@ -264,7 +272,7 @@ def _zero_index(cands: dict, needs: Sequence[Need | None], kinds: Sequence[str],
             if (a < 0 and below == 0) or (b > 0 and below == n):
                 break
             raw = max(-a / below if below else 0.0, b / (n - below) if below < n else 0.0)
-            step, odd = _steps(raw)[0]
+            step, odd = _steps(raw, need.integer_ticks)[0]
             trial[i] = (-below * step, (n - below) * step, step, (b - a) / (n * step) - (ODD_PENALTY if odd else 0.0), True, why)
         else:
             covers = [t[3] for t in trial.values()]
@@ -276,7 +284,7 @@ def _zero_index(cands: dict, needs: Sequence[Need | None], kinds: Sequence[str],
 
 
 def _data_limits(need: Need | None) -> Need | None:
-    if need is None or need.mode not in DATA_LIMIT_MODES or need.lo is None or need.hi is None:
+    if need is None or need.integer_ticks or need.mode not in DATA_LIMIT_MODES or need.lo is None or need.hi is None:
         return None
     if not math.isfinite(need.lo) or not math.isfinite(need.hi):
         return None
@@ -321,7 +329,7 @@ def fit_axes(needs: Sequence[Need | None], n_min: int = N_MIN, n_max: int = N_MA
         cands = {}
         for i in grid:
             need, kind = needs[i], kinds[i]
-            cand = _free(need, n) if kind == 'free' else _half(need, n) if kind == 'half' else _fixed(need, n) if kind == 'fixed' else _empty(n)      # type: ignore[arg-type]
+            cand = _free(need, n) if kind == 'free' else _half(need, n) if kind == 'half' else _fixed(need, n) if kind == 'fixed' else _empty(n, need.integer_ticks)      # type: ignore[arg-type]
             if cand is None:
                 break
             cands[i] = cand

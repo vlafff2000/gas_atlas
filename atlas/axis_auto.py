@@ -165,6 +165,7 @@ def need_of(chart: Chart, name: str) -> Need | None:
     if name != 'x' and not exact and not empty and _has_captions(chart, name):
         hi = hi + (hi - min(lo, 0.0)) * CAPTION_ROOM      # свой текст над столбцом (число и доля) не упирается в верх поля
     return Need(None if empty else lo, None if empty else hi, anchor, mode_of(axis), inverse=bool(axis.inverse),
+                integer_ticks=name != 'x' and chart.id == 'export-response',
                 **({'margin': 0.0} if name == 'x' else {}), **_manual(axis))
 
 

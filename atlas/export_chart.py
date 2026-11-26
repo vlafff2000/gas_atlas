@@ -267,14 +267,15 @@ def fit_figure(fig):
     requested = branch_fit in DATA_LIMIT_MODES or any(spec.get('fit') in DATA_LIMIT_MODES for name, spec in styles.items() if name != 'x')
     special = fig.layout.barmode in ('stack', 'relative')
     for t in drawn:
-        meta = t.meta if isinstance(t.meta, dict) else {}
+        trace_meta = t.meta if isinstance(t.meta, dict) else {}
         plain = type(t).__name__ in ('Scatter', 'Bar') and not getattr(t, 'stackgroup', None) and getattr(t, 'base', None) is None
         bars = getattr(t, 'error_y', None)
-        if not plain or meta.get('cat_stack') or meta.get('fill') or (bars is not None and (bars.array is not None or bars.value is not None)):
+        if not plain or trace_meta.get('cat_stack') or trace_meta.get('fill') or (bars is not None and (bars.array is not None or bars.value is not None)):
             special = True
     if special and not requested:
         return _keep_hand_ranges(fig)
-    chart = to_chart(fig, drawn_only=True, format_keys=requested and special)
+    chart_id = 'export-response' if meta.get('module') == 'response' else 'export-preview'
+    chart = to_chart(fig, chart_id, drawn_only=True, format_keys=requested and special)
     chart.style.update(chart_style)
     names = [*chart.axis_names(), 'x']
     manual = {name: _manual(fig, name, include_legacy=not branch_fit or name == 'x') for name in names}
