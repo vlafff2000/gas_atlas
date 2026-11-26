@@ -3,7 +3,7 @@
 import { errorSeries, trendSeries } from './trend'
 import type { Axis, AxisStyle, Chart, ChartStyle } from './api'
 import { parseStep } from './chartAxes'
-import { fitChart, unfitted } from './axisFit'
+import { fitChart, unfitted, usesDataLimits } from './axisFit'
 import { applyLooks, withFreshColors, type Look } from './chartStyle'
 
 export type AxisName = 'x' | 'y' | 'y2' | 'y3' | 'y4' | 'y5'
@@ -71,6 +71,9 @@ export function parseBound(text: string | number | undefined, time: boolean): nu
 export function formatAxis(axis: Axis, spec: AxisFormat, values: number[]): Axis {
   const time = axis.scale === 'time'
   const out: Axis = { ...unfitted(axis), style: { ...axis.style } }
+  if (usesDataLimits(spec.fit)) {
+    out.minimum = out.maximum = out.step = null
+  }
   if (spec.color) out.color = spec.color
   for (const k of STYLE_KEYS) if (spec[k] !== undefined) (out.style as Record<string, unknown>)[k] = spec[k]
   if (spec.inverse !== undefined) out.inverse = spec.inverse

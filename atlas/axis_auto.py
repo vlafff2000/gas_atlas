@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from .axis_fit import MODES, Need, fit_axes
+from .axis_fit import DATA_LIMIT_MODES, MODES, Need, fit_axes
 from .contract import Axis, Chart
 
 CAPTION_ROOM = 0.14      # запас сверху под подписи над столбцами, доля размаха
@@ -34,7 +34,7 @@ def _floats(values: Any) -> np.ndarray:
         return np.array([float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else math.nan for v in values], dtype=float)
 
 
-def extent(chart: Chart, name: str) -> tuple[float, float, bool] | None:
+def extent(chart: Chart, name: str, *, include_boxes: bool = False) -> tuple[float, float, bool] | None:
     """Наименьшее и наибольшее значения шкалы (стопки — суммы) и признак «нуль обязателен» (столбцы, области, стопки).
     ``None`` — на шкале ящики (подбор не нужен); без чисел — (nan, nan, признак)."""
     lo, hi, anchor = math.inf, -math.inf, False
@@ -43,7 +43,15 @@ def extent(chart: Chart, name: str) -> tuple[float, float, bool] | None:
         if (s.axis or 'y') != name:
             continue
         if s.kind == 'box':
-            return None
+            if not include_boxes:
+                return None
+            for values in s.y:
+                if values is not None:
+                    finite = _floats(values)
+                    finite = finite[np.isfinite(finite)]
+                    if finite.size:
+                        lo, hi = min(lo, float(finite.min())), max(hi, float(finite.max()))
+            continue
         anchor = anchor or s.kind == 'bar' or bool(s.fill) or bool(s.stack)
         y = _floats(s.y)
         y = np.where(np.isfinite(y), y, np.nan)
@@ -135,21 +143,26 @@ def axis_of(chart: Chart, name: str) -> Axis:
     return chart.x if name == 'x' else chart.axis_at(name)
 
 
+def _has_captions(chart: Chart, name: str) -> bool:
+    return any(s.kind == 'bar' and s.captions and any(s.captions) and (s.axis or 'y') == name for s in chart.series)
+
+
 def need_of(chart: Chart, name: str) -> Need | None:
     """Что нужно шкале ``name`` ('x', 'y', 'y2'…) от подбора; ``None`` — шкалу не трогаем."""
     axis = axis_of(chart, name)
     if axis.scale != 'value' or axis.style.get('min') is not None or axis.style.get('max') is not None:
         return None
+    exact = mode_of(axis) in DATA_LIMIT_MODES
     if name == 'x':
         span = x_extent(chart)
         found = None if span is None else (*span, False)
     else:
-        found = extent(chart, name)
+        found = extent(chart, name, include_boxes=exact)
     if found is None:
         return None
     lo, hi, anchor = found
     empty = math.isnan(lo)
-    if name != 'x' and not empty and any(s.kind == 'bar' and s.captions and any(s.captions) and (s.axis or 'y') == name for s in chart.series):
+    if name != 'x' and not exact and not empty and _has_captions(chart, name):
         hi = hi + (hi - min(lo, 0.0)) * CAPTION_ROOM      # свой текст над столбцом (число и доля) не упирается в верх поля
     return Need(None if empty else lo, None if empty else hi, anchor, mode_of(axis), inverse=bool(axis.inverse),
                 **({'margin': 0.0} if name == 'x' else {}), **_manual(axis))
@@ -184,6 +197,8 @@ def auto_chart(chart: Chart) -> Chart:
                 auto.update(step=fit.step, requested_step=manual['step'])
             auto.update(n=fit.n, zero=fit.zero, why=fit.why, lo=need.lo, hi=need.hi, anchor=need.anchor)      # type: ignore[union-attr]
             hint = outlier_hint(chart, name, need) if name != 'x' and all(v is None for v in manual.values()) else None      # type: ignore[arg-type]
+            if name != 'x' and need.mode not in DATA_LIMIT_MODES and need.lo is not None and need.hi is not None and _has_captions(chart, name):
+                auto['data_hi'] = (need.hi + CAPTION_ROOM * min(need.lo, 0.0)) / (1 + CAPTION_ROOM)
             if hint:
                 auto['hints'] = [hint]
             fresh = dataclasses.replace(axis, minimum=fit.minimum, maximum=fit.maximum, step=fit.step, auto=auto)

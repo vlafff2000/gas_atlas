@@ -62,5 +62,8 @@
   {"name": "ось X: годы 2019–2025", "needs": [{"lo": 2019, "hi": 2025, "margin": 0.0}], "expect": [{"min": 2019.0, "max": 2025.0, "step": 1.0, "n": 6, "why": "cut"}]},
   {"name": "ось X: накопленный объём 583–1086", "needs": [{"lo": 583.3, "hi": 1085.6, "margin": 0.0}], "expect": [{"min": 500.0, "max": 1100.0, "step": 100.0, "n": 6, "why": "cut"}]},
   {"name": "ось X: шаг задан модулем, от нуля", "needs": [{"lo": 4, "hi": 163, "margin": 0.0, "step": 50, "mode": "zero"}], "expect": [{"min": 0.0, "max": 200.0, "step": 50.0, "n": null, "why": "step"}]},
-  {"name": "ось X: глубины", "needs": [{"lo": -1200, "hi": -1100, "margin": 0.0}], "expect": [{"min": -1200.0, "max": -1100.0, "step": 20.0, "n": 5, "why": "cut"}]}
+  {"name": "ось X: глубины", "needs": [{"lo": -1200, "hi": -1100, "margin": 0.0}], "expect": [{"min": -1200.0, "max": -1100.0, "step": 20.0, "n": 5, "why": "cut"}]},
+  {"name": "реальные пределы на двух шкалах с общей сеткой", "needs": [{"lo": 44.3, "hi": 87.2, "mode": "data-exact"}, {"lo": 3.2, "hi": 6.4, "mode": "data-zero", "inverse": true}], "expect": [{"min": 44.3, "max": 87.2, "step": 8.58, "n": 5, "why": "data-exact"}, {"min": 0.0, "max": 6.4, "step": 1.28, "n": 5, "why": "data-zero"}]},
+  {"name": "реальные данные от нуля на отрицательной шкале", "needs": [{"lo": -18.75, "hi": -12.25, "mode": "data-zero"}], "expect": [{"min": -18.75, "max": 0.0, "step": 3.75, "n": 5, "why": "data-zero"}]},
+  {"name": "реальные данные сохраняют ручную границу", "needs": [{"lo": 44.3, "hi": 87.2, "mode": "data-exact", "minimum": 40.2}], "expect": [{"min": 40.2, "max": 87.2, "step": 9.4, "n": 5, "why": "data-exact"}]}
 ]
