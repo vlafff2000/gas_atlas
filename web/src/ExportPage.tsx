@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 import { ChartView, colorOf } from './ChartView'
 import { FormatPane, type FormatElement } from './FormatPane'
 import { applyFormat, type ChartFormat as FormatDoc } from './chartFormat'
-import { api, type Chart } from './api'
+import { api, type Chart, type Series } from './api'
 import { WordViewerPane } from './WordViewer'
 import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type LayoutCheck, type QualityReport, type WordPreview } from './api_projects'
 import { Toast, type PageProps } from './ProjectPage'
@@ -18,6 +18,30 @@ import type { AxisStyle, ChartStyle } from './api'
 import { ResizableFrame } from './ResizableFrame'
 import { PeriodDate } from './PeriodDate'
 import { Check, Num, Opt, Section, Select, SizePick, Text, type FieldProps as SharedFieldProps } from './exportFields'
+
+const RESPONSE_PRESSURE_SERIES: Series[] = [
+  ['Давление (глубинный манометр)', '#8B5CF6'],
+  ['Давление (пересчет)', '#2563EB'],
+].map(([name, color]) => ({
+  name, format_label: name, kind: 'line', group: name, color, x: [], y: [],
+  width: 2, dash: 'solid', dashed: false, legend: true, tooltip: '', symbol: 'diamond', hollow: false,
+  opacity: 1, ids: null, labels: null, dataset: null, markers: true, axis: 'y', total: 0, facets: null,
+}))
+
+function responseFormat(doc: FormatDoc): FormatDoc {
+  const series = { ...doc.series }
+  for (const kind of ['line', 'points']) {
+    const oldKey = 'Пластовое давление|' + kind
+    const legacy = series[oldKey]
+    if (!legacy) continue
+    delete series[oldKey]
+    for (const s of RESPONSE_PRESSURE_SERIES) {
+      const key = s.name + '|' + kind
+      series[key] = { ...legacy, ...series[key] }
+    }
+  }
+  return { ...doc, series }
+}
 
 /** Поля формы раздела «Экспорт»: общие поля получают ещё и перечень выбора (choices). */
 interface FieldProps extends SharedFieldProps { choices: ExportChoices }
@@ -195,8 +219,13 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     setFormatPreview({ module, chart: example })
   })
   const branchFormat = (module: string) => ({
-    doc: (form[`fmt_${module}_doc`] as FormatDoc | undefined) ?? {},
-    onDoc: ({ chart, axes, series }: FormatDoc) => set(`fmt_${module}_doc`, { chart, axes, series }),
+    doc: module === 'response' ? responseFormat((form.fmt_response_doc as FormatDoc | undefined) ?? {})
+      : (form[`fmt_${module}_doc`] as FormatDoc | undefined) ?? {},
+    onDoc: ({ chart, axes, series }: FormatDoc) => {
+      const next = { chart, axes, series }
+      set(`fmt_${module}_doc`, module === 'response' ? responseFormat(next) : next)
+    },
+    additionalSeries: module === 'response' ? RESPONSE_PRESSURE_SERIES : undefined,
     label: `все графики ветки «${choices ? styleLabel(module, choices) : module}»`,
     allYFit: module === 'response',
     seriesScopeHint: 'Изменения ряда применяются к одноимённым наборам данных этой ветки.',
@@ -596,7 +625,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         const fmt = branchFormat(formatPreview.module)
         const example = applyFormat(formatPreview.chart, fmt.doc)
         return createPortal(<FormatPane chart={example} element={formatElement} onElement={setFormatElement}
-          scope="type" onScope={() => {}} scopeLabel={fmt.label} seriesScopeHint={fmt.seriesScopeHint} labels={fmt.labels} allYFit={fmt.allYFit}
+          scope="type" onScope={() => {}} scopeLabel={fmt.label} seriesScopeHint={fmt.seriesScopeHint} labels={fmt.labels} allYFit={fmt.allYFit} additionalSeries={fmt.additionalSeries}
           doc={fmt.doc} onDoc={fmt.onDoc} colorOf={colorOf(example)} looks={fmt.doc.series ?? {}}
           onLooks={series => fmt.onDoc({ ...fmt.doc, series })} onReplace={fmt.onDoc} onClose={() => setFormatPreview(null)} />, document.body)
       })()}

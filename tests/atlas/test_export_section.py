@@ -823,3 +823,48 @@ def test_response_export_uses_filtered_series_and_fits_all_axes(env):
         chart_data = [archive.read(name) for name in names if name.endswith('.csv')]
         assert chart_data and all(forbidden not in payload for payload in chart_data
                                   for forbidden in (b'123456', b'234567', b'345678'))
+
+
+def test_response_pressure_sources_are_independently_formatted(env):
+    client, pid, _, store = env
+    dates = pd.date_range('2025-01-01', periods=2, freq='MS')
+    frame = pd.DataFrame({
+        'well': ['31', '31', '45', '45'], 'horizon': ['А'] * 4, 'date': list(dates) * 2,
+        'pressure': [50, 55, 70, 75], 'level': [9, 19, 29, 39],
+    })
+    settings = {**store.manifest(pid)['settings'], 'manometer_wells': ['45']}
+    store.commit(pid, frames={'response': frame}, settings=settings)
+    url = f'/api/projects/{pid}/export'
+    pressure_labels = {31: 'Давление (пересчет)', 45: 'Давление (глубинный манометр)'}
+    form = {
+        'modules': ['response'], 'response_split': 'well', 'response_view': 'pressure',
+        'formats': ['svg'], 'dpi': 300,
+        'fmt_response_doc': {'series': {
+            'Пластовое давление|line': {'color': '#aabbcc', 'width': 3},
+            pressure_labels[45] + '|line': {'color': '#ff1133'},
+        }},
+    }
+    chart_names = client.post(url + '/plan', json={'form': form}).json()['charts']
+    for entry, (well, expected) in zip(chart_names, pressure_labels.items(), strict=True):
+        assert entry['name'].startswith(f'{well} · ')
+        r = client.post(url + '/chart', json={'form': form, 'chart': entry['name'], 'module': 'response', 'for_format': True})
+        assert r.status_code == 200, r.text
+        assert [(s['name'], s['format_label']) for s in r.json()['series']] == [(expected, expected)]
+
+    download = client.post(url + '/archive', json={'form': form})
+    assert download.status_code == 200, download.text
+    assert not download.json()['errors']
+    with zipfile.ZipFile(store.path(pid) / 'exports' / download.json()['files'][0]) as archive:
+        svgs = sorted(name for name in archive.namelist() if name.endswith('.svg'))
+        assert len(svgs) == 2
+        for i, expected in enumerate((b'#aabbcc', b'#ff1133')):
+            svg = archive.read(svgs[i])
+            assert expected in svg
+            assert (b'#ff1133' if i == 0 else b'#aabbcc') not in svg
+            assert b'stroke-width: 1.8' in svg  # Толщина из прежнего общего оформления сохранена.
+
+    combined = {**form, 'response_split': 'horizon', 'response_view': 'combined'}
+    entry = client.post(url + '/plan', json={'form': combined}).json()['charts'][0]
+    r = client.post(url + '/chart', json={'form': combined, 'chart': entry['name'], 'module': 'response', 'for_format': True})
+    assert r.status_code == 200, r.text
+    assert {s['format_label'] for s in r.json()['series']} == {'Уровень жидкости', *pressure_labels.values()}

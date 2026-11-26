@@ -25,8 +25,8 @@ FORMAT_SRC = _text(*FORMAT_FILES)
 
 # Известные пробелы: настройка есть в модели и работает, но в окне «Формат» поля для неё нет (пока только «cross»). Убрать из списка, когда поле появится в «Формат».
 KNOWN_GAPS = {'cross', 'break_from', 'break_to', 'markerColor'}
-# markerColor и break_*: поле есть, но записывается не через set({...}) прямого вида (см. ChartSettings, разрыв оси в FormatPane)
-SPECIAL_OK = {'markerColor': 'markerColor', 'break_from': 'break_from', 'break_to': 'break_to'}
+# markerColor, break_* и y_fit: поле есть, но записывается не через set({...}) прямого вида (см. ChartSettings, разрыв оси в FormatPane)
+SPECIAL_OK = {'markerColor': 'markerColor', 'break_from': 'break_from', 'break_to': 'break_to', 'y_fit': 'y_fit'}
 
 
 def _reachable(key: str) -> bool:

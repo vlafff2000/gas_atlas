@@ -282,6 +282,12 @@ def separated_ranges(pressure,level,band='below'):
     nice_l=nice_axis(-float(l.max()),-float(l.min()),ll,lh)         # уровень растёт вниз: считаем по обратным значениям; запас шкалы за нулём подписан, как в образце
     return nice_p or exact_p,(-nice_l[1],-nice_l[0]) if nice_l else exact_l
 
+RESPONSE_PRESSURE_LABELS = {
+    'manometer': 'Давление (глубинный манометр)',
+    'recalculated': 'Давление (пересчет)',
+}
+
+
 @cached_chart
 def response_chart(df,working,metric='level',title=None,interactive=True,color_map=None,
                    object_pressure=None,manometer_wells=None,by_well=False,pressure_horizons=None,level_band='overlay',data_limits=False):
@@ -315,17 +321,20 @@ def response_chart(df,working,metric='level',title=None,interactive=True,color_m
                 # NaN остаётся разрывом линии, но это уже не доступный для выбора замер.
                 ids = ids.where(data[field].notna(), '')
             unit='м' if field=='level' else 'кгс/см²'
-            suffix='уровень жидкости' if field=='level' else 'давление (глубинный манометр)' if w in manometer else 'давление (пересчет)'
+            source = 'manometer' if w in manometer else 'recalculated'
+            series_label = 'Уровень жидкости' if field == 'level' else RESPONSE_PRESSURE_LABELS[source]
+            suffix = series_label.lower()
             color=('#32BDA4' if field=='level' else '#8B5CF6' if w in manometer else '#2563EB') if semantic else palette[w]
             marker={'size':6,'symbol':'circle' if field=='level' else 'diamond','color':color}
             if field=='level' and semantic:marker.update(color='white',line={'color':color,'width':1.8})
             fig.add_trace(go.Scatter(x=data.date,y=data[field],mode='lines+markers',
-                name=suffix.capitalize() if by_well and len(wells)==1 else '№ '+str(w),
+                name=series_label if by_well and len(wells)==1 else '№ '+str(w),
                 legendgroup=('well_'+str(w)+'_'+field+'_'+h if by_well else 'well_'+str(w)),
                 showlegend=(h,w,field) not in legends if by_well else w not in legends,
                 line={'color':color,'width':2,'dash':'solid'},marker=marker,
                 yaxis='y2' if dual and field=='level' else 'y',connectgaps=False,
-                customdata=np.column_stack([ids]),meta={'module':'response','metric':field,'selectable':True},
+                customdata=np.column_stack([ids]),meta={'module':'response','metric':field,'selectable':True,
+                                                           'response_format_label':series_label},
                 hovertemplate=f'{h} · скв. {w} · {suffix}<br>Дата: %{{x|%d.%m.%Y}}<br>Значение: %{{y:.2f}} {unit}<extra></extra>'))
             legends.add((h,w,field) if by_well else w)
     if reference is not None and not reference.empty:

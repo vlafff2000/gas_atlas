@@ -295,8 +295,17 @@ def configs(form: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
 def branch_formats(form: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
     """Документы «Формата» по веткам экспорта."""
     from .chart_style import clean_format
-    return {key[4:-4]: clean_format(value) for key, value in form.items()
+    docs = {key[4:-4]: clean_format(value) for key, value in form.items()
             if key.startswith('fmt_') and key.endswith('_doc') and len(key) > 8}
+    if series := docs.get('response', {}).get('series'):
+        from .engine.modules.charts import RESPONSE_PRESSURE_LABELS
+
+        for kind in ('line', 'points'):
+            if legacy := series.pop(f'Пластовое давление|{kind}', None):
+                for label in RESPONSE_PRESSURE_LABELS.values():
+                    key = f'{label}|{kind}'
+                    series[key] = {**legacy, **series.get(key, {})}
+    return docs
 
 
 def for_module(found: Mapping[str, Dict[str, Any]], module: str) -> Dict[str, Any]:
