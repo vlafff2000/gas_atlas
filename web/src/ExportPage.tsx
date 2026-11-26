@@ -2,7 +2,10 @@
 import { UndoButtons, useUndo, useUndoValue, type Undo } from './useUndo'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MultiSelect } from './MultiSelect'
-import { ChartView } from './ChartView'
+import { createPortal } from 'react-dom'
+import { ChartView, colorOf } from './ChartView'
+import { FormatPane, type FormatElement } from './FormatPane'
+import { applyFormat, type ChartFormat as FormatDoc } from './chartFormat'
 import { api, type Chart } from './api'
 import { WordViewerPane } from './WordViewer'
 import { exportApi, projectsApi, saveLink, type ExportChoices, type ExportPlan, type ExportResult, type Form, type LayoutCheck, type QualityReport, type WordPreview } from './api_projects'
@@ -59,7 +62,9 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   const [chart, setChart] = useState('')
   const [image, setImage] = useState<string | null>(null)
   const [live, setLive] = useState(false)                    // предпросмотр: картинка файла или интерактивный график
-  const [liveChart, setLiveChart] = useState<Chart | null>(null)
+  const [formatPreview, setFormatPreview] = useState<{ module: string; chart: Chart } | null>(null)
+  const [formatElement, setFormatElement] = useState<FormatElement>('chart')
+  const [liveChart, setLiveChart] = useState<{ name: string; chart: Chart } | null>(null)
   const [excludeMode, setExcludeMode] = useState(false)
   const [archive, setArchive] = useState<{ key: string; result: ExportResult } | null>(null)
   const [quality, setQuality] = useState<{ key: string; report: QualityReport } | null>(null)
@@ -180,6 +185,25 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     try { await work() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
   }
   const preview = () => run('preview', async () => { await prepare(); setShowPreview(true) })
+  const editBranchFormat = (module: string, name?: string) => run('preview', async () => {
+    const branch = name ?? (await prepare()).charts.find(c => c.module === module)?.name
+    if (!branch) throw new Error('В этой ветке нет графиков для выбранных данных.')
+    const example = await exportApi.chart(project.id, form, branch, module)
+    setChart(branch)
+    setShowPreview(true)
+    setFormatElement('chart')
+    setFormatPreview({ module, chart: example })
+  })
+  const branchFormat = (module: string) => ({
+    doc: (form[`fmt_${module}_doc`] as FormatDoc | undefined) ?? {},
+    onDoc: ({ chart, axes, series }: FormatDoc) => set(`fmt_${module}_doc`, { chart, axes, series }),
+    label: `все графики ветки «${choices ? styleLabel(module, choices) : module}»`,
+    seriesScopeHint: 'Изменения ряда применяются к одноимённым наборам данных этой ветки.',
+    labels: choices && <details className="cs-templates">
+      <summary>Названия графика, осей и легенды</summary>
+      <BranchLabels form={form} set={set} choices={choices} module={module} />
+    </details>,
+  })
   // Пакет по фонду и ГГХ строятся теми же кнопками «Сформировать архив» и «Создать отчет Word»; повторно с теми же параметрами не создаются.
   const makeExtras = async () => {
     if (modules.includes('pack') && pack?.key !== key) { setBusy('pack'); setPack({ key, result: await exportApi.pack(project.id, form) }) }
@@ -207,8 +231,11 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
 
   // Картинка выбранного графика (макет файла, 150 DPI при выбранной ширине).
   const shownPlan = plan && planKey === planned ? plan : null
-  const extraSel = EXTRAS.includes(shownPlan?.charts.find(c => c.name === chart)?.module ?? '')   // у пакета и ГГХ только картинка файла
+  const previewModule = shownPlan?.charts.find(c => c.name === chart)?.module ?? ''
+  const extraSel = EXTRAS.includes(previewModule)   // у пакета и ГГХ только картинка файла
   const liveOn = live && !extraSel
+  const legacyFormatKey = JSON.stringify(Object.entries(form).filter(([k]) =>
+    k.startsWith('label_') || (k.startsWith('fmt_') && !k.endsWith('_doc'))))
   useEffect(() => {
     if (!shownPlan || !showPreview || liveOn || !shownPlan.charts.length) return
     const name = shownPlan.charts.some(c => c.name === chart) ? chart : shownPlan.charts[0].name
@@ -236,12 +263,11 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
     const name = shownPlan.charts.some(c => c.name === chart) ? chart : shownPlan.charts[0].name
     if (name !== chart) { setChart(name); return }
     let alive = true
-    setLiveChart(null)
-    exportApi.chart(project.id, form, name).then(c => alive && setLiveChart(c))
+    exportApi.chart(project.id, form, name, previewModule).then(c => alive && setLiveChart({ name, chart: c }))
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart, liveOn, labelsKey])
+  }, [shownPlan, showPreview, chart, liveOn, legacyFormatKey, previewModule])
 
   const excludePoint = async (dataset: string, id: string) => {
     try {
@@ -553,9 +579,24 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
         </div>
       )}
 
-      <AllStylePanel form={form} set={set} />
-      <ChartFormat {...F} modules={modules} projectId={project.id} ready={readyPlan} />
-      <AxisSettings {...F} modules={modules} />
+      {modules.includes(current) && <div className="toolbar">
+        <button type="button" className="quiet" disabled={busy !== null || packNoSeasons}
+          onClick={() => editBranchFormat(current, previewModule === current ? chart : undefined)}>☀ Формат всей ветки</button>
+      </div>}
+      <details className="table-block">
+        <summary className="block-head"><h3>Общие настройки выгрузки и прежние правила оформления</h3></summary>
+        <AllStylePanel form={form} set={set} />
+        <ChartFormat {...F} modules={modules} projectId={project.id} ready={readyPlan} />
+        <AxisSettings {...F} modules={modules} />
+      </details>
+      {formatPreview && (() => {
+        const fmt = branchFormat(formatPreview.module)
+        const example = applyFormat(formatPreview.chart, fmt.doc)
+        return createPortal(<FormatPane chart={example} element={formatElement} onElement={setFormatElement}
+          scope="type" onScope={() => {}} scopeLabel={fmt.label} seriesScopeHint={fmt.seriesScopeHint} labels={fmt.labels}
+          doc={fmt.doc} onDoc={fmt.onDoc} colorOf={colorOf(example)} looks={fmt.doc.series ?? {}}
+          onLooks={series => fmt.onDoc({ ...fmt.doc, series })} onReplace={fmt.onDoc} onClose={() => setFormatPreview(null)} />, document.body)
+      })()}
 
       <ChartLabels {...F} modules={modules} projectId={project.id} ready={readyPlan} />
 
@@ -609,6 +650,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
                 </select>
               </label>
               <div className="toolbar">
+                {!liveOn && previewModule && <button type="button" className="quiet" disabled={busy !== null}
+                  onClick={() => editBranchFormat(previewModule, chart)}>☀ Формат всей ветки</button>}
                 {extraSel && <span className="muted small-text">Пакет по фонду и ГГХ показываются картинкой файла.</span>}
                 {!extraSel && <label className="inline-field">Вид
                   <select value={live ? 'live' : 'image'} onChange={e => { setLive(e.target.value === 'live'); setExcludeMode(false) }}>
@@ -625,8 +668,8 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
                   <p className="muted small-text">Интерактивный вид того же графика: масштаб, подсказки{exclusions ? ' и исключение точек кликом (исключения сохраняются в проекте и попадут в выгрузку)' : ''}.
                     {!exclusions && ' Исключения проекта в этой выгрузке отключены, поэтому точки не выбираются.'}</p>
                   {excludeMode && <div className="note info">Щелкните по измеренной точке, чтобы исключить ее. Расчетные кривые и серые исключенные точки не выбираются.</div>}
-                  {liveChart
-                    ? <ChartView key={liveChart.id + chart} chart={liveChart} module={shownPlan?.charts.find(c => c.name === chart)?.module} excludeMode={excludeMode && exclusions} onExclude={excludePoint}
+                  {liveChart?.name === chart
+                    ? <ChartView key={liveChart.chart.id + chart} chart={liveChart.chart} format={branchFormat(previewModule)} excludeMode={excludeMode && exclusions} onExclude={excludePoint}
                         onDownload={async () => { throw new Error('Файлы выгрузки создаются кнопками «Сформировать архив» и «Создать отчет Word».') }} />
                     : <p className="pulse">Построение графика…</p>}
                 </>
@@ -1166,26 +1209,28 @@ function ChartLabels({ form, set, choices, modules, projectId, ready }: FieldPro
         Легенда: по строке «что=на что» — фрагмент названия заменится; «что=» без замены убирает запись из легенды.
         Подписи действуют на предпросмотр, архив и Word.</p>
       <div className="param-bar flat">
-        {rows.map(m => {
-          const f = (name: string) => 'label_' + m + '_' + name
-          return (
-            <Section key={m} title={styleLabel(m, choices)}>
-              <Text {...{ form, set, choices }} field={f('title')} label="Название графика" def={shown(m).title ?? ''} />
-              <Text {...{ form, set, choices }} field={f('x')} label="Ось X" def={shown(m).x ?? ''} />
-              <Text {...{ form, set, choices }} field={f('y')} label="Ось Y" def={shown(m).y ?? ''} />
-              <Text {...{ form, set, choices }} field={f('y2')} label="Вторая ось Y (если есть)" def={shown(m).y2 ?? ''} />
-              {m === 'gdi' && <Text {...{ form, set, choices }} field={f('template')} label="Запись легенды: {дата}, {метод}, {исследование} (пусто — полная)" def="{дата}" wide />}
-              <label className="field wide">
-                <span className="field-label">Замены в легенде (по строке «что=на что»)</span>
-                <textarea rows={3} value={(form[f('legend')] as string | undefined) ?? ''} maxLength={2000}
-                  onChange={e => set(f('legend'), e.target.value)} />
-              </label>
-            </Section>
-          )
-        })}
+        {rows.map(m => <Section key={m} title={styleLabel(m, choices)}>
+          <BranchLabels form={form} set={set} choices={choices} module={m} defaults={shown(m)} />
+        </Section>)}
       </div>
     </details>
   )
+}
+
+function BranchLabels({ module, defaults = {}, ...fields }: FieldProps & { module: string; defaults?: Record<string, string> }) {
+  const f = (name: string) => 'label_' + module + '_' + name
+  return <>
+    <Text {...fields} field={f('title')} label="Название графика ({скважина})" def={defaults.title ?? ''} />
+    <Text {...fields} field={f('x')} label="Ось X" def={defaults.x ?? ''} />
+    <Text {...fields} field={f('y')} label="Ось Y" def={defaults.y ?? ''} />
+    <Text {...fields} field={f('y2')} label="Вторая ось Y (если есть)" def={defaults.y2 ?? ''} />
+    {module === 'gdi' && <Text {...fields} field={f('template')} label="Запись легенды: {дата}, {метод}, {исследование} (пусто — полная)" def="{дата}" wide />}
+    <label className="field wide">
+      <span className="field-label">Замены в легенде (по строке «что=на что»)</span>
+      <textarea rows={3} value={(fields.form[f('legend')] as string | undefined) ?? ''} maxLength={2000}
+        onChange={e => fields.set(f('legend'), e.target.value)} />
+    </label>
+  </>
 }
 
 interface SeriesRule { match: string; color?: string; width?: number | string; marker?: number | string; hide?: boolean; look?: Look }

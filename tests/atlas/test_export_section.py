@@ -681,3 +681,48 @@ def test_word_narrow_cell_uses_compact_chart(monkeypatch):
         word_export.render_png(fig, layout, 8.0)
     (w1, h1, c1), (w2, h2, c2) = seen[0], seen[1]
     assert not c1 and c2 and h2 and h2 / w2 <= word_export.COMPACT_ASPECT + 0.01
+
+
+def test_branch_format_applies_to_multiple_wells_and_saved_files(env):
+    client, pid, _, store = env
+    url = f'/api/projects/{pid}/export'
+    form = {
+        **FORM,
+        'fmt_response_doc': {'series': {'Уровень жидкости|line': {'color': '#a31bc8'}}},
+        'fmt_gdi_doc': {
+            'chart': {'plot_background': '#fcdda2'},
+            'axes': {'x': {'min': '0', 'max': '100', 'step': '25'}},
+            'series': {'Замеры|points': {'color': '#123abc', 'size': 12}},
+        },
+    }
+    plan = client.post(url + '/plan', json={'form': form}).json()
+    studies = [c for c in plan['charts'] if c['module'] == 'gdi']
+    assert len(studies) == 2
+    for c in studies:
+        r = client.post(url + '/chart', json={'form': form, 'chart': c['name'], 'module': 'gdi', 'for_format': True})
+        assert r.status_code == 200, r.text
+        assert any(s.get('format_label') == 'Замеры' and s['ids'] for s in r.json()['series'])
+    client.post(url + '/memory', json={'form': form, 'tab': 'gdi'}).raise_for_status()
+    assert client.get(url + '/memory').json()['form']['fmt_gdi_doc'] == form['fmt_gdi_doc']
+    response = client.post(url + '/archive', json={'form': form})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert not result['errors'], result['errors']
+    formatted = response_levels = unformatted = 0
+    for name in result['files']:
+        if not name.endswith('.zip'):
+            continue
+        with zipfile.ZipFile(store.path(pid) / 'exports' / name) as archive:
+            for member in archive.namelist():
+                if member.endswith('.svg'):
+                    svg = archive.read(member)
+                    if b'#fcdda2' in svg:
+                        assert b'#123abc' in svg
+                        formatted += 1
+                    elif b'#a31bc8' in svg:
+                        response_levels += 1
+                    else:
+                        unformatted += 1
+    assert formatted == len(studies)
+    assert response_levels == sum(c['module'] == 'response' and c['name'].endswith(' · уровень') for c in plan['charts'])
+    assert response_levels > 1 and unformatted

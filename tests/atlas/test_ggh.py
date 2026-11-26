@@ -120,6 +120,21 @@ def test_import_module_and_export_through_api(env):
     assert 'w:orient="landscape"' in xml and sum(n.startswith('word/media/') for n in z.namelist()) == 2
     assert z.read('word/media/ggh1.png')[:4] == b'\x89PNG'
 
+    url = f'/api/projects/{pid}/export'
+    form = {'modules': ['ggh'], 'ggh_wells': ['160'], 'ggh_dpi': 150,
+            'fmt_ggh_doc': {'chart': {'legend': 'top'}, 'series': {'Сумма УВ|line': {'color': '#abcdef'}}}}
+    chart_name = client.post(url + '/extras', json={'form': form}).json()['charts'][0]['name']
+    example = client.post(url + '/chart', json={'form': form, 'chart': chart_name, 'module': 'ggh', 'for_format': True})
+    assert example.status_code == 200, example.text
+    assert any(s['format_label'] == 'Сумма УВ' for s in example.json()['series'])
+    png = client.post(url + '/extras-preview', json={'form': form, 'chart': chart_name})
+    assert png.status_code == 200 and png.content[:4] == b'\x89PNG'
+    report = client.post(url + '/ggh', json={'form': form})
+    assert report.status_code == 200, report.text
+    output = client.get(f'/api/projects/{pid}/exports/' + report.json()['files'][0])
+    with zipfile.ZipFile(io.BytesIO(output.content)) as doc:
+        assert doc.read('word/media/ggh1.png') == png.content
+
 
 def test_export_without_data_is_a_clear_error(env):
     client, pid, _ = env

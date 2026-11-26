@@ -262,6 +262,11 @@ def apply_style(f, ax, rights: Mapping[str, Any], style: Mapping[str, Any], titl
         date = horizontal and date_axis
         if spec.get('scale') == 'log' and not date:
             (target.set_xscale if horizontal else target.set_yscale)('log')
+        if 'inverse' in spec:
+            axis.set_inverted(spec['inverse'])
+        if spec.get('from_zero') and not date and axis.get_scale() == 'linear':
+            low, high = sorted(target.get_xlim() if horizontal else target.get_ylim())
+            _set_limits(target, name, {'min': min(0, low), 'max': max(0, high)}, False)
         _set_limits(target, name, spec, date)
         step = spec.get('step')
         if step and not date and spec.get('scale') != 'log':

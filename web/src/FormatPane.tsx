@@ -1,7 +1,7 @@
 // Панель «Формат» (как «Формат диаграммы» в Excel): один компонент для всех графиков Атласа. Слева выбор элемента — график,
 // оси, ряды; справа его настройки. Меняет график сразу. Оформление графика и осей пишется на выбранный уровень (раздел или
 // весь проект), вид рядов — в тему проекта по ключу ряда (один и тот же год или группа выглядит одинаково везде).
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Axis, Chart, Series } from './api'
 import { Dialog } from './BuilderDialogs'
 import { SeriesLookFields } from './ChartSettings'
@@ -94,6 +94,8 @@ interface Props {
   onReplace: (doc: ChartFormat) => void
   /** Оформление одного графика (страница выгрузки): вместо выбора уровня показывается подпись. */
   scopeLabel?: string
+  seriesScopeHint?: string
+  labels?: ReactNode
   /** Тепловая карта, матрица, столбцы с подписями (рисуются в файле): оси не настраиваются, остальное — те же поля. */
   plain?: boolean
   withAxes?: boolean      // «простой» вид, но оси настраиваются (столбцы с подписями в сегментах)
@@ -111,7 +113,7 @@ function Brush({ kind, value, paste }: { kind: 'chart' | 'axis' | 'series'; valu
   </>
 }
 
-export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, onReplace, scopeLabel, plain, withAxes }: Props) {
+export function FormatPane({ chart, element, onElement, scope, onScope, doc, onDoc, colorOf, looks, onLooks, onClose, onReplace, scopeLabel, seriesScopeHint, labels, plain, withAxes }: Props) {
   const axes = plain && !withAxes ? [] : AXES.filter(n => n === 'x' || n === 'y' || chart[n])
   const [kind, id] = plain && !withAxes && element.startsWith('axis') ? ['chart', ''] : element.split(':')
   const axisName = (kind === 'axis' && axes.includes(id as AxisName) ? id : 'x') as AxisName
@@ -121,11 +123,12 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
   const setLook = (patch: Partial<Look>) => { if (s) { const k = seriesLookKey(s); onLooks({ ...looks, [k]: compact({ ...looks[k], ...patch }) }) } }
   const axis: Axis | null | undefined = chart[axisName]
   const look: Look = (s && looks[seriesLookKey(s)]) || {}
+  const formatKeys = new Set<string>()
 
   return (
     <Dialog title="Формат" subtitle={chart.title} onClose={onClose} dockRight>
       <div className="cs-scope">
-        Оформление графика и осей действует на:
+        {seriesScopeHint ? 'Оформление действует на:' : 'Оформление графика и осей действует на:'}
         {scopeLabel ? <b>{scopeLabel}</b> : (
           <select value={scope} onChange={e => onScope(e.target.value as FormatScope)} aria-label="Уровень оформления">
             <option value="chart">только этот график</option>
@@ -140,13 +143,18 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
           {axes.map(n => (
             <li key={n}><button type="button" aria-pressed={kind === 'axis' && axisName === n} onClick={() => onElement('axis:' + n)}>
               <i style={{ background: chart[n]?.color ?? 'var(--line)' }} /><span>{AXIS_TITLE[n]}</span></button></li>))}
-          {chart.series.map((item, i) => (
-            <li key={'s' + i}><button type="button" aria-pressed={kind === 'series' && s === item} onClick={() => onElement('series:' + i)} title={item.name}>
-              <i style={{ background: colorOf(item) }} /><span>{item.name}</span></button></li>))}
+          {chart.series.map((item, i) => {
+            const key = seriesLookKey(item)
+            if (item.format_label && formatKeys.has(key)) return null
+            formatKeys.add(key)
+            return <li key={'s' + i}><button type="button" aria-pressed={kind === 'series' && (item.format_label ? !!s && seriesLookKey(s) === key : s === item)} onClick={() => onElement('series:' + i)} title={item.name}>
+              <i style={{ background: colorOf(item) }} /><span>{item.format_label || item.name}</span></button></li>
+          })}
         </ul>
         <div className="cs-editor">
           {kind === 'chart' && <>
             <h3>График</h3>
+            {labels}
             <ChartStyleFields value={doc.chart ?? {}} set={setChart} heat={!!chart.heat} strips={!!chart.strips} segments={chart.series.some(s => !!s.segments)} tableWells={!!chart.table?.wells?.length} fresh={chart.series.some(s => s.age !== undefined && s.age !== null)} />
             <div className="cs-actions">
               <Brush kind="chart" value={doc.chart} paste={v => setChart(v)} />
@@ -172,10 +180,10 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
             </div>
           </>}
           {s && <>
-            <h3>{s.name} <small>{KIND[s.kind]}</small></h3>
+            <h3>{s.format_label || s.name} <small>{KIND[s.kind]}</small></h3>
             <SeriesLookFields s={s} color={colorOf(s)} look={look} onChange={setLook} />
             <SeriesExtraFields value={look} set={setLook} marker={s.kind === 'points' || (s.kind === 'line' && !s.fill)} labels={s.kind !== 'box'} trend={s.kind === 'points' || s.kind === 'line'} hatch={s.kind === 'bar'} points={pointKeys(s)} />
-            <p className="cs-hint">Вид ряда общий для проекта: тот же год, сезон или группа выглядит так же на всех графиках.</p>
+            <p className="cs-hint">{seriesScopeHint ?? 'Вид ряда общий для проекта: тот же год, сезон или группа выглядит так же на всех графиках.'}</p>
             <div className="cs-actions">
               <Brush kind="series" value={looks[seriesLookKey(s)]} paste={v => setLook(v as Partial<Look>)} />
               <button type="button" disabled={!looks[seriesLookKey(s)]}
@@ -183,7 +191,7 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
             </div>
           </>}
           <div className="cs-actions">
-            <button type="button" onClick={() => { onDoc({}); onLooks({}) }}>Сбросить всё: график, оси и ряды</button>
+            <button type="button" onClick={() => { if (seriesScopeHint) onReplace({}); else { onDoc({}); onLooks({}) } }}>Сбросить всё: график, оси и ряды</button>
           </div>
         </div>
       </div>

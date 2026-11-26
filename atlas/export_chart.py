@@ -5,8 +5,11 @@
 """
 from __future__ import annotations
 
+import datetime as dt
+import re
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .contract import Axis, Chart, Series
@@ -43,13 +46,34 @@ def _values(values, scale: str) -> list[Any]:
     return list(values)
 
 
-def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False) -> Chart:
+def format_series_label(trace) -> str:
+    meta = trace.meta if isinstance(trace.meta, dict) else {}
+    name = str(trace.name or '')
+    if meta.get('export_format_series'):
+        return meta['export_format_series']
+    if meta.get('module') == 'response':
+        return 'Уровень жидкости' if meta.get('metric') == 'level' else 'Пластовое давление'
+    if meta.get('module') == 'gdi' and trace.legendgroup:
+        role = {'расчет': 'Расчётная кривая', 'БД': 'Кривая БД', 'по коэффициентам': 'Кривая по коэффициентам'}
+        group = trace.legendgroup
+        suffix = name[len(group):].removeprefix(' · ') if name.startswith(group) else ''
+        prefix = next((p + ' · ' for p in ('до КРС', 'после КРС') if group.startswith(p + ' · ')), '')
+        return prefix + role.get(suffix, 'Замеры' if meta.get('selectable') else 'Кривая')
+    return re.sub(r'^№\s*[^\s]+\s*·\s*', '', name)
+
+
+def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False, format_keys: bool = False) -> Chart:
     """``drawn_only`` — без скрытых рядов (``visible`` False или «только в легенде»): то, что попадёт в файл."""
     layout = fig.layout
     x, y = _axis(layout.xaxis), _axis(layout.yaxis)
+    if layout.xaxis.type is None and any(
+        isinstance(next(iter(t.x), None), (dt.date, np.datetime64))
+        for t in fig.data if getattr(t, 'x', None) is not None
+    ):
+        x.scale = 'time'
     right = {}
     for n, name in enumerate(('y2', 'y3', 'y4', 'y5'), start=2):      # правые шкалы подряд: без пропусков
-        if not any(t.yaxis == name for t in fig.data):
+        if not any(getattr(t, 'yaxis', None) == name for t in fig.data):
             break
         right[name] = _axis(getattr(layout, 'yaxis' + str(n)))
     y2, y3 = right.get('y2'), right.get('y3')
@@ -58,7 +82,7 @@ def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False) ->
     for t in fig.data:
         meta = t.meta if isinstance(t.meta, dict) else {}
         kind = type(t).__name__
-        if kind not in ('Scatter', 'Bar') or (drawn_only and t.visible in (False, 'legendonly')):
+        if kind not in ('Scatter', 'Scattergl', 'Bar', 'Box') or (drawn_only and t.visible in (False, 'legendonly')):
             continue
         color = ''
         symbol = str(getattr(t.marker, 'symbol', None) or 'circle') if t.marker is not None else 'circle'      # у столбцов символа нет
@@ -69,6 +93,10 @@ def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False) ->
                 break
         if kind == 'Bar':
             mark = 'bar'
+        elif kind == 'Box':
+            if not format_keys:
+                continue
+            mark = 'box'
         elif t.mode == 'markers':
             mark = 'points'
         else:
@@ -78,15 +106,94 @@ def to_chart(fig, chart_id: str = 'export-preview', drawn_only: bool = False) ->
             ids = [str(row[0]) if hasattr(row, '__len__') and not isinstance(row, str) else str(row) for row in t.customdata]
             dataset = DatasetKind(meta['module'])
         xs = _values(t.x, x.scale)
+        ys = list(t.y) if t.y is not None else []
+        if mark == 'box':
+            values = pd.to_numeric(pd.Series(ys), errors='coerce').dropna()
+            xs = [xs[0] if xs else t.name or '']
+            ys = [np.percentile(values, [0, 25, 50, 75, 100]).tolist() if len(values) else None]
         series.append(Series(
-            name=t.name or '', x=xs, y=list(t.y) if t.y is not None else [], kind=mark, group=t.name or '',
+            name=t.name or '', x=xs, y=ys, kind=mark, group=t.name or '',
             dash=_DASH.get(line.dash if line is not None and line.dash else 'solid', 'solid') if mark == 'line' else '',
             width=float(line.width) if mark == 'line' and line is not None and line.width else 0.0,
             legend=t.showlegend is not False, color=color, opacity=float(t.opacity if t.opacity is not None else 1.0),
             symbol=_SYMBOL.get(symbol.replace('-open', ''), 'circle'), hollow='open' in symbol,
             markers=mark == 'line' and 'markers' in (t.mode or ''), axis=t.yaxis if t.yaxis in right else 'y',
-            ids=ids, dataset=dataset))
+            ids=ids, dataset=dataset, format_label=format_series_label(t) if format_keys else ''))
     return Chart(id=chart_id, title=_text(layout.title), x=x, y=y, y2=y2, y3=y3, y4=y4, y5=y5, series=series)
+
+
+def apply_branch_format(figure, doc):
+    """Общий «Формат» на исходной фигуре. Сохраняем аннотации, шкалы и данные задания."""
+    from copy import deepcopy
+    from dataclasses import replace
+
+    from .chart_format import _look
+    from .chart_style import apply_format, merge_formats, series_key
+    from .render import WIDTH_PT, style_meta, to_plotly
+
+    fig = deepcopy(figure)
+    chart = to_chart(fig, format_keys=True)
+    formatted = apply_format(chart, doc)
+    converted = style_meta(formatted)
+    axes = {}
+    for name, spec in doc.get('axes', {}).items():
+        if name not in converted['axes']:
+            continue
+        axis = formatted.x if name == 'x' else formatted.axis_at(name)
+        fields = converted['axes'][name]
+        # Стиль оси поверх прежнего диапазона. Границы передаются лишь при ручном вводе.
+        axes[name] = {k: v for k, v in fields.items() if k not in ('min', 'max', 'step', 'color') or k in spec}
+        if 'inverse' in spec:
+            axes[name]['inverse'] = axis.inverse
+        if 'from_zero' in spec and axis.scale == 'value':
+            axes[name]['from_zero'] = axis.from_zero
+
+    meta = dict(fig.layout.meta) if isinstance(fig.layout.meta, dict) else {}
+    meta['style'] = merge_formats(meta.get('style'), {'chart': formatted.style, 'axes': axes})
+    if 'legend' in formatted.style:
+        meta['format'] = {**(meta.get('format') or {}), 'legend': formatted.style['legend']}
+    fig.layout.meta = meta
+
+    looks = doc.get('series') or {}
+    traces = [t for t in fig.data if t.type in ('scatter', 'scattergl', 'bar', 'box')]
+    for trace, series in zip(traces, chart.series):
+        look = looks.get(series_key(series))
+        if not look:
+            continue
+        tmeta = dict(trace.meta) if isinstance(trace.meta, dict) else {}
+        own = set(tmeta.get('own', ()))
+        if 'color' in look:
+            trace.marker.color = look['color']
+            if trace.type in ('scatter', 'scattergl'):
+                trace.line.color = look['color']
+            own.add('color')
+        if 'opacity' in look:
+            trace.opacity = look['opacity']
+            own.add('alpha')
+        if trace.type in ('scatter', 'scattergl'):
+            mode = trace.mode or 'lines'
+            line = look.get('line', 'lines' in mode) and series.kind == 'line'
+            marker = look.get('marker', 'markers' in mode)
+            if not line and not marker:
+                trace.visible = False
+            else:
+                trace.mode = '+'.join(part for part, enabled in (('lines', line), ('markers', marker)) if enabled)
+            if 'width' in look:
+                trace.line.width = round(look['width'] * WIDTH_PT, 2)
+                own.add('width')
+            if 'size' in look:
+                trace.marker.size = look['size']
+                own.add('size')
+        if look.get('valueLabels') is False:
+            tmeta.pop('value_labels', None)
+        trace.meta = tmeta
+        _look(trace, [look], own)
+        trace.meta = {**trace.meta, 'own': sorted(own)}
+
+    derived = formatted.series[len(chart.series):]
+    if derived:
+        fig.add_traces(list(to_plotly(replace(formatted, series=derived)).data))
+    return fig
 
 
 def _manual(fig, name: str) -> dict[str, Any]:
@@ -142,6 +249,8 @@ def fit_figure(fig):
     вышла бы линия уровня или подпись, не трогаются — рисуются, как раньше. Меняет и возвращает ту же фигуру."""
     from .axis_auto import auto_chart, axis_of
     from .render import align_y_axes
+    meta = fig.layout.meta if isinstance(fig.layout.meta, dict) else {}
+    styles = (meta.get('style') or {}).get('axes') or {}
     drawn = [t for t in fig.data if t.visible not in (False, 'legendonly')]
     if not drawn:
         return fig
@@ -158,6 +267,15 @@ def fit_figure(fig):
     manual = {name: _manual(fig, name) for name in names}
     for name in names:
         axis = axis_of(chart, name)
+        spec = styles.get(name) or {}
+        if 'fit' in spec:
+            axis.style['fit'] = spec['fit']
+        if 'inverse' in spec:
+            axis.inverse = spec['inverse']
+        if 'from_zero' in spec:
+            axis.from_zero = spec['from_zero']
+        if spec.get('scale') == 'log':
+            axis.scale = 'log'
         for field, value in manual[name].items():
             setattr(axis, field, value)
     chart = auto_chart(chart)

@@ -373,7 +373,7 @@ def clean_checks(raw: Any) -> dict[str, Any]:
 
 def series_key(s: Series) -> str:
     """Ключ ряда в документе — тот же, что на экране (``seriesLookKey``): группа или имя, и вид ряда."""
-    return f'{s.group or s.name}|{s.kind}'
+    return f'{s.format_label or s.group or s.name}|{s.kind}'
 
 
 def clean_format(raw: Any) -> dict[str, Any]:

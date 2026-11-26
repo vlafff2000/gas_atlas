@@ -562,9 +562,13 @@ def captions_from(form: Mapping[str, Any], modules) -> dict[str, dict]:
     return out
 
 
+PACK_PREFIX = 'Пакет · '
+
+
 def pack_form(form: Mapping[str, Any]) -> dict[str, Any]:
     """Форма для пакета по фонду: свои оформление и подписи пакета (``fmt_pack_*``, ``label_pack_*``) заменяют настройки «Производительности»."""
     out = dict(form)
+    out.pop('fmt_production_doc', None)
     for key, value in form.items():
         for prefix in ('fmt_', 'label_'):
             if key.startswith(prefix + 'pack_') and value not in (None, ''):
@@ -575,7 +579,7 @@ def pack_form(form: Mapping[str, Any]) -> dict[str, Any]:
 def ggh_style(form: Mapping[str, Any], font_size) -> dict[str, Any]:
     """Оформление графика ГГХ: наборы данных и оси (``fmt_ggh_*``), подписи (``label_ggh_*``), шрифт и вид."""
     return {**chart_format.for_module(chart_format.configs(form), 'ggh'), 'labels': chart_labels.configs(form).get('ggh', {}),
-            'font_size': font_size, 'look': look_from(form)}
+            'font_size': font_size, 'look': look_from(form), 'doc': chart_format.branch_formats(form).get('ggh')}
 
 
 def font_from(form: Mapping[str, Any]) -> tuple[str, Any]:
@@ -805,11 +809,27 @@ def routes(projects: Projects) -> list[Route]:
         from .contract import _chart_json
         from .axis_auto import auto_chart
         from .export_chart import to_chart
-        _, plan, _ = need_plan(request.path_params['pid'], form_of(body))
-        job = next((j for j in plan.jobs if j.name == body.get('chart')), None)
+        pid, form = request.path_params['pid'], form_of(body)
+        name = str(body.get('chart') or '')
+        for_format = body.get('for_format') is True
+        if for_format:
+            form = {k: v for k, v in form.items() if not (k.startswith('fmt_') and k.endswith('_doc'))}
+        if body.get('module') == 'ggh':
+            from .ggh_report import format_figure
+            well = name.removeprefix('ГГХ · ')
+            frames = ggh_items(pid, form)
+            if well not in frames:
+                raise Failure(404, 'График не найден. Обновите предпросмотр.')
+            return _chart_json(to_chart(format_figure(frames[well], well, ggh_style(form, None)), 'export-ggh', format_keys=True))
+        if body.get('module') == 'pack':
+            plan = pack_plan(pid, form)
+            name = name.removeprefix(PACK_PREFIX)
+        else:
+            _, plan, _ = need_plan(pid, form)
+        job = next((j for j in plan.jobs if j.name == name), None)
         if job is None:
             raise Failure(404, 'График не найден. Обновите предпросмотр.')
-        return _chart_json(auto_chart(to_chart(job.render(fit=False), 'export-' + str(job.module or 'chart'))))      # шкалы так же, как на экране разделов
+        return _chart_json(auto_chart(to_chart(job.render(fit=False), 'export-' + str(job.module or 'chart'), format_keys=for_format)))      # шкалы так же, как на экране разделов
 
     def series(request, body):
         """Названия наборов данных в графиках каждого модуля — подсказки для правил оформления (по первым графикам модуля)."""
@@ -1295,6 +1315,7 @@ def routes(projects: Projects) -> list[Route]:
         return chart_labels.labelled(reporting.plan(source, data.mapping, data.settings, options, raw), pack_form(form))
 
     def ggh_items(pid, form):
+        from .domain import DatasetKind
         from .modules._ggh import MIN_POINTS, well_horizon, wells_of
         data = projects.data(pid)
         if DatasetKind.GGH not in data or data[DatasetKind.GGH].empty:
@@ -1311,7 +1332,7 @@ def routes(projects: Projects) -> list[Route]:
         wanted = form.get('modules') or []
         charts = []
         if 'pack' in wanted:
-            charts += [{'name': 'Пакет · ' + j.name, 'module': 'pack'} for j in pack_plan(pid, form).jobs]
+            charts += [{'name': PACK_PREFIX + j.name, 'module': 'pack'} for j in pack_plan(pid, form).jobs]
         if 'ggh' in wanted:
             charts += [{'name': 'ГГХ · ' + w, 'module': 'ggh'} for w in ggh_items(pid, form)]
         return {'charts': charts}
@@ -1329,7 +1350,7 @@ def routes(projects: Projects) -> list[Route]:
                 raise Failure(404, 'График не найден. Обновите предпросмотр.')
             style = ggh_style(form, font_size)
             return Response(ggh_report.figure_png(frames[well], well, 150, font if font != 'default' else 'times', style), media_type='image/png')
-        job = next((j for j in pack_plan(pid, form).jobs if 'Пакет · ' + j.name == name), None)
+        job = next((j for j in pack_plan(pid, form).jobs if PACK_PREFIX + j.name == name), None)
         if job is None:
             raise Failure(404, 'График не найден. Обновите предпросмотр.')
         try:

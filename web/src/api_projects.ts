@@ -174,7 +174,7 @@ export const exportApi = {
   extras: (pid: string, form: Form) => request<{ charts: { name: string; module: string }[] }>(`${P(pid)}/export/extras`, json('POST', { form })),
   extrasPreview: async (pid: string, form: Form, chart: string) =>
     URL.createObjectURL(await (await send(`${P(pid)}/export/extras-preview`, json('POST', { form, chart }))).blob()),
-  chart: (pid: string, form: Form, chart: string) => request<Chart>(`${P(pid)}/export/chart`, json('POST', { form, chart })),
+  chart: (pid: string, form: Form, chart: string, module?: string) => request<Chart>(`${P(pid)}/export/chart`, json('POST', { form, chart, module, for_format: !!module })),
   series: (pid: string, form: Form, chart?: string) => request<{ series: Record<string, string[]>; labels: Record<string, Record<string, string>>; chart: string[] }>(`${P(pid)}/export/series`, json('POST', { form, chart })),
   quality: (pid: string, form: Form) => request<QualityReport>(`${P(pid)}/export/quality`, json('POST', { form })),
   archive: (pid: string, form: Form) => request<ExportResult>(`${P(pid)}/export/archive`, json('POST', { form })),
