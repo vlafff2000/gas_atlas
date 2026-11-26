@@ -19,6 +19,7 @@ from ._production import x_step
 from ._gdi_due_metrics import METRIC_COLUMNS, season_order, productivity_intervals, well_curves, cumulative, dynamics, kru_response, last_two, withdrawal_days
 from .gdi import well_key
 from atlas import well_funds
+from ._repairs import repairs, with_group
 from .gdi_trend import VERDICTS, histories, rating
 
 GDI, PRODUCTION, PRIORITY_K, ELPRO = DatasetKind.GDI, DatasetKind.PRODUCTION, DatasetKind.KRS_PRIORITY, DatasetKind.ELPRO
@@ -118,6 +119,8 @@ def build(data: Data, params: dict[str, Any]) -> pd.DataFrame:
         down = trend[trend.verdict.eq(VERDICTS['down'])].drop_duplicates('well').set_index('well')
         table['verdict'] = table.well.map(lambda w: VERDICTS['down'] if w in down.index else '')
     today = pd.Timestamp(params.get('today') or pd.Timestamp.today().normalize())
+    rep = repairs(data.get(DatasetKind.KRS_WORKS), data.get(DatasetKind.KRS_PLAN))
+    table['repair_group'] = with_group(table.assign(date=pd.to_datetime(table.last_gdi).fillna(today)), rep)          # группа по ремонту на дату последнего ГДИ (нет ГДИ — на сегодня)
     table['years'] = (today - pd.to_datetime(table.last_gdi)).dt.days / 365.25
     # расход относительно группы
     flows = relative_drop(season_flows(prod, params.get('season')), group_of)
@@ -308,7 +311,7 @@ class GdiDueModule(Module):
         group='Исследования скважин',
         description='Комплексный анализ снижения продуктивности (ГДИ, ревизии КРУ, КРС, суточные расходы): список скважин для планирования исследований: давность надёжного ГДИ, расход против группы, динамика ГДИ, приоритет КР; с причинами и ручной правкой.',
         needs=(),
-        optional=(GDI, PRODUCTION, PRIORITY_K, ELPRO, PROGRAM),
+        optional=(GDI, PRODUCTION, PRIORITY_K, ELPRO, PROGRAM, DatasetKind.KRS_WORKS, DatasetKind.KRS_PLAN),
         order=36,
         params=(
             Param('sensitivity', 'Чувствительность списка', 'choice', default='normal', section=SECTION,
@@ -411,7 +414,7 @@ class GdiDueModule(Module):
         if PRODUCTION not in data or data[PRODUCTION].empty or table.change.notna().sum() == 0:
             result.notes.append(Note('Сравнить расход с группой не удалось: нужны данные двух сезонов отбора.'))
         result.tables.append(Table('gdi-due', 'Скважины: комплексный анализ продуктивности', table, [
-            Column('well', 'Скважина'), Column('group', 'Группа'), Column('state', 'Решение'),
+            Column('well', 'Скважина'), Column('group', 'Группа'), Column('repair_group', 'Группа по ремонту'), Column('state', 'Решение'),
             Column('score', 'Признаков', kind='number', decimals=0), Column('reason', 'Причины'), Column('program', 'Программа ГДИ'),
             Column('last_gdi', 'Последнее надёжное ГДИ', kind='date'), Column('years', 'Лет назад', 'лет', 1, 'number'),
             Column('last', 'Расход, посл. сезон', 'тыс. м³/сут', 1, 'number'), Column('prev', 'Расход, пред. сезон', 'тыс. м³/сут', 1, 'number'),
@@ -431,7 +434,7 @@ class GdiDueModule(Module):
         stale = choose(st, st.stale, add, remove)
         stale = stale.sort_values(['in_table', 'years_any'], ascending=[False, False], na_position='first', kind='stable')
         result.tables.append(Table('gdi-no-5y', f'ГДИ: скважины без исследований дольше {params["years"]:g} лет', stale, [
-            Column('well', 'Скважина'), Column('group', 'Группа'), Column('state', 'Решение'),
+            Column('well', 'Скважина'), Column('group', 'Группа'), Column('repair_group', 'Группа по ремонту'), Column('state', 'Решение'),
             Column('last_any', 'Последнее ГДИ (любое)', kind='date'), Column('years_any', 'Лет назад', 'лет', 1, 'number'),
             Column('n_all', 'Исследований всего', kind='number', decimals=0), Column('method', 'Метод'), Column('study', 'Исследование'),
             Column('a_calc', 'a (расчёт)', decimals=5, kind='number'), Column('b_calc', 'b (расчёт)', decimals=5, kind='number'),
@@ -451,7 +454,7 @@ class GdiDueModule(Module):
         dt = drop_table(table, params)
         drop = choose(dt, dt.flag, add, remove).sort_values(['in_table', 'signals'], ascending=[False, False], kind='stable')
         result.tables.append(Table('gdi-productivity', 'ГДИ: скважины со снижением продуктивности', drop, [
-            Column('well', 'Скважина'), Column('group', 'Группа'), Column('state', 'Решение'),
+            Column('well', 'Скважина'), Column('group', 'Группа'), Column('repair_group', 'Группа по ремонту'), Column('state', 'Решение'),
             Column('signals', 'Сигналов', kind='number', decimals=0), Column('reason', 'Причины'), Column('int_last', 'Последний интервал снижения'),
             Column('cum_gap', 'Накопл.: отставание от группы', 'п.п.', 0, 'number'), Column('sync_obj', 'Совпадение с объектом', '%', 0, 'number'),
             Column('eff_gap', 'Отдача КРУ: отставание от группы', 'п.п.', 0, 'number'), Column('last_gdi', 'Последнее надёжное ГДИ', kind='date')],
