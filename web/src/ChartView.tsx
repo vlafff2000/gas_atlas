@@ -420,7 +420,8 @@ function toOption(chart: Chart, excludeMode: boolean, tk: ChartTokens, custom: b
   const xMinor = minorDates ?? numericMinor(xMain, xSpec?.minor_step)
   const xConfigured = { ...xMain, ...(minorDates ? { min: dateLo, max: dateHi } : {}),
     ...(majorDates ? { axisLabel: { ...xMain.axisLabel, customValues: majorDates,
-      formatter: xSpec?.date_format ? xMain.axisLabel.formatter : timeStep?.unit === 'year' ? '{yyyy}' : timeStep?.unit === 'month' ? '{MM}.{yyyy}' : '{dd}.{MM}.{yyyy}' }, axisTick: { ...xMain.axisTick, customValues: majorDates },
+      formatter: xSpec?.date_format?.replace(/(dd|MM|yyyy)/g, '{$1}') ??
+        (timeStep?.unit === 'year' ? '{yyyy}' : timeStep?.unit === 'month' ? '{MM}.{yyyy}' : '{dd}.{MM}.{yyyy}') }, axisTick: { ...xMain.axisTick, customValues: majorDates },
       splitLine: { ...xMain.splitLine, customValues: majorDates } } : {}),
     ...(xMinor ? { minorTick: { show: false }, minorSplitLine: undefined } : {}) }
   const yMain = yAxesOf(chart).map((a, i) => axis(a, Y_NAMES[i]))
