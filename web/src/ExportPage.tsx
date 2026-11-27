@@ -255,9 +255,23 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
   // Автоматическое обновление предпросмотра (как флажок 5.8).
   useEffect(() => {
     if (!form.auto || !ready) return
-    const timer = setTimeout(() => { fetchPlan(form).then(p => { setPlan(p); setPlanKey(planned); setShowPreview(true) }).catch(() => undefined) }, 400)
-    return () => clearTimeout(timer)
+    let alive = true
+    const timer = setTimeout(() => { fetchPlan(form).then(p => { if (alive) { setPlan(p); setPlanKey(planned); setShowPreview(true) } }).catch(() => undefined) }, 400)
+    return () => { alive = false; clearTimeout(timer) }
   }, [form, key, planned, project.id, ready])
+
+  // Открытый предпросмотр реагирования сразу следует за изменением периода.
+  const responseDates = JSON.stringify(form.response_dates ?? null)
+  useEffect(() => {
+    if (form.auto || !showPreview || !ready || !modules.includes('response') || !form.response_dates) return
+    let alive = true
+    const timer = window.setTimeout(() => {
+      fetchPlan(form).then(p => { if (alive) { setPlan(p); setPlanKey(planned) } })
+        .catch(e => { if (alive) setError((e as Error).message) })
+    }, 400)
+    return () => { alive = false; window.clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [responseDates, project.id])
 
   // Картинка выбранного графика (макет файла, 150 DPI при выбранной ширине).
   const shownPlan = plan && planKey === planned ? plan : null

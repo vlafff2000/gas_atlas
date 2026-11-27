@@ -881,3 +881,41 @@ def test_response_pressure_sources_are_independently_formatted(env):
     r = client.post(url + '/chart', json={'form': legacy, 'chart': entry['name'], 'module': 'response', 'for_format': True})
     assert r.status_code == 200, r.text
     assert {s['format_label'] for s in r.json()['series'] if s['color'] == '#ff1133'} == {pressure_labels[45]}
+
+
+def test_response_export_date_filter_applies_to_object_pressure(env):
+    client, pid, _, store = env
+    dates = pd.date_range('2025-01-01', periods=6, freq='MS')
+    frames = {
+        'response': pd.DataFrame({'well': ['31'] * 3, 'horizon': ['А'] * 3, 'date': dates[1:4],
+                                  'pressure': [50, 55, 60], 'level': [10, 11, 12]}),
+        'pressure_survey': pd.DataFrame({'well': ['45'] * 6, 'group': ['ГСП-1'] * 6,
+                                         'date': dates, 'p_res': [71, 72, 73, 74, 75, 76]}),
+    }
+    store.commit(pid, frames=frames, settings=store.manifest(pid)['settings'])
+    url = f'/api/projects/{pid}/export'
+    form = {'modules': ['response'], 'response_wells': ['31'], 'response_split': 'well',
+            'response_view': 'pressure', 'formats': ['csv'],
+            'response_dates': ['2025-02-01', '2025-04-01']}
+
+    def get_chart(values):
+        plan = client.post(url + '/plan', json={'form': values})
+        assert plan.status_code == 200, plan.text
+        name = plan.json()['charts'][0]['name']
+        reply = client.post(url + '/chart', json={'form': values, 'chart': name, 'module': 'response', 'for_format': True})
+        assert reply.status_code == 200, reply.text
+        return reply.json()
+
+    chart = get_chart(form)
+    object_series = next(s for s in chart['series'] if s['name'] == 'Пластовое давление объекта')
+    assert object_series['y'] == [72, 73, 74]
+    narrower = {**form, 'response_dates': ['2025-03-01', '2025-04-01']}
+    chart = get_chart(narrower)
+    for series in chart['series']:
+        assert all('2025-03-01' <= str(x)[:10] <= '2025-04-01' for x in series['x'])
+    assert next(s for s in chart['series'] if s['name'] == 'Пластовое давление объекта')['y'] == [73, 74]
+    result = client.post(url + '/archive', json={'form': narrower})
+    assert result.status_code == 200 and not result.json()['errors']
+    with zipfile.ZipFile(store.path(pid) / 'exports' / result.json()['files'][0]) as archive:
+        csv = next(archive.read(name).decode('utf-8-sig') for name in archive.namelist() if name.endswith('.csv'))
+        assert '2025-02-01' not in csv and '2025-05-01' not in csv
