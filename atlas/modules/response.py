@@ -402,7 +402,10 @@ class ResponseModule(Module):
         pressure_horizons = set(ordered(raw.loc[raw.pressure.notna(), 'horizon'])) if 'pressure' in raw else set()
         palette = well_colors(sel.df.well)
         manometer = {str(w) for w in data.settings.get('manometer_wells', [])}
-        object_pressure = object_pressure_of(data)[0]      # единый способ: среднее по скважинам с ГСП из «БД давлений по замерам»
+        # Давление объекта считается по всему проекту, независимо от фильтра скважин вкладки.
+        object_pressure = object_pressure_of(data.unfiltered or data)[0]
+        if object_pressure is not None:
+            object_pressure = between(object_pressure, sel.start, sel.end)
         column = 'horizon' if split == 'horizon' else 'well'
         sets = ({'Все выбранные': f} if split == 'all' else    # естественный порядок: 31, 45, 132
                 {label: f[f[column].astype(str).eq(label)] for label in ordered(f[column])})

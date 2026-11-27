@@ -374,3 +374,41 @@ def test_object_pressure_export_matches_module_and_excludes_clicked_point(env):
     assert (exported['x'], exported['y'], exported['ids']) == (current['x'], current['y'], current['ids'])
     result = client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'object_pressure', 'remove': [point]})
     assert result.status_code == 200 and result.json()['removed'] == 1
+
+
+def test_object_pressure_matches_export_with_well_filter_and_date_range(env):
+    client, pid, projects = env
+    dates = pd.to_datetime(['2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01'])
+    response = pd.DataFrame({'well': ['31'] * 4, 'horizon': ['А'] * 4, 'date': dates,
+                             'pressure': [50, 51, 52, 53], 'level': [10, 11, 12, 13]})
+    survey = pd.DataFrame({'well': ['31'] * 4 + ['45'] * 4, 'date': list(dates) * 2,
+                           'group': ['ГСП-1'] * 4 + ['ГСП-2'] * 4,
+                           'p_res': [60, 62, 64, 66, 100, 102, 104, 106]})
+    store = projects.store
+    store.commit(pid, frames={'response': response, 'pressure_survey': survey}, settings=store.manifest(pid)['settings'])
+    params = {'wells': ['31'], 'view': 'pressure', 'split': 'well', 'date_from': '2025-02-01',
+              'date_to': '2025-03-01', 'well_filter': {'wells': ['31']}}
+    module = run(client, pid, **params)['charts'][0]
+    expected = next(s for s in module['series'] if s['name'] == 'Пластовое давление объекта')
+    form = {'modules': ['response'], 'response_wells': ['31'], 'response_view': 'pressure',
+            'response_split': 'well', 'response_dates': ['2025-02-01', '2025-03-01']}
+    url = f'/api/projects/{pid}/export'
+    name = client.post(url + '/plan', json={'form': form}).json()['charts'][0]['name']
+    exported = client.post(url + '/chart', json={'form': form, 'chart': name, 'module': 'response', 'for_format': True})
+    assert exported.status_code == 200, exported.text
+    actual = next(s for s in exported.json()['series'] if s['name'] == 'Пластовое давление объекта')
+    assert actual['y'] == expected['y'] == [82.0, 84.0]
+    assert actual['x'] == expected['x']
+    assert actual['ids'] == expected['ids']
+
+    # Исключённый исходный замер меняет среднее одинаково на экране и в экспорте.
+    source_id = projects.data(pid).raw[DatasetKind.PRESSURE_SURVEY].loc[
+        lambda frame: frame.well.eq('45') & frame.date.eq(dates[1]), '_point_id'].item()
+    result = client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'pressure_survey', 'add': [source_id]})
+    assert result.status_code == 200 and result.json()['added'] == 1
+    module = run(client, pid, **params)['charts'][0]
+    expected = next(s for s in module['series'] if s['name'] == 'Пластовое давление объекта')
+    exported = client.post(url + '/chart', json={'form': form, 'chart': name, 'module': 'response', 'for_format': True})
+    actual = next(s for s in exported.json()['series'] if s['name'] == 'Пластовое давление объекта')
+    assert actual['y'] == expected['y'] == [62.0, 84.0]
+    assert actual['x'] == expected['x'] and actual['ids'] == expected['ids']
