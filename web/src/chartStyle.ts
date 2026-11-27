@@ -65,7 +65,14 @@ export const markerSymbol = (shape: MarkerShape | undefined, fallback: string) =
 
 /** Ключ ряда в общем хранилище: группа или имя, и вид ряда. Не зависит от графика, заголовка и набора скважин:
  *  один и тот же год, сезон или группа получает один и тот же вид на всех графиках. */
-export const seriesLookKey = (s: Series) => `${s.format_label || s.group || s.name}|${s.kind}`
+export const seriesGroupLookKey = (s: Series) => `${s.group || s.name}|${s.kind}`
+export const seriesLookKey = (s: Series) => s.format_label ? `${s.format_label}|${s.kind}` : seriesGroupLookKey(s)
+
+export function lookForSeries(s: Series, looks: Record<string, Look>): Look | undefined {
+  const own = looks[seriesLookKey(s)]
+  const legacy = s.format_label ? looks[seriesGroupLookKey(s)] : undefined
+  return legacy && legacy !== own ? { ...legacy, ...own } : own
+}
 
 /** Год, по которому ряд узнаётся как год или сезон («2024», «2023/2024», «Сезон 2024»): цвет по умолчанию не зависит от набора рядов. */
 export const yearOfKey = (key: string): number | null => {
@@ -75,7 +82,8 @@ export const yearOfKey = (key: string): number | null => {
 
 /** Личный вид, относящийся к рядам этого графика: из общего хранилища берутся только его ключи. */
 export function looksOf(chart: Chart, all: Record<string, Look>): Record<string, Look> {
-  return Object.fromEntries(chart.series.map(seriesLookKey).filter(k => all[k]).map(k => [k, all[k]]))
+  const keys = new Set(chart.series.flatMap(s => [seriesLookKey(s), seriesGroupLookKey(s)]))
+  return Object.fromEntries([...keys].filter(k => all[k]).map(k => [k, all[k]]))
 }
 
 /** Палитра «по свежести»: кривая со свежестью (``Series.age``: 0 — самая свежая) красится цветом с её номером по кругу.
@@ -95,7 +103,7 @@ export function withFreshColors(chart: Chart, palette: string[] | undefined, loo
 export function applyLooks(chart: Chart, looks: Record<string, Look> | undefined): Chart {
   if (!looks || Object.keys(looks).length === 0) return chart
   const series = chart.series.map(s => {
-    const own = looks[seriesLookKey(s)]
+    const own = lookForSeries(s, looks)
     if (!own) return s
     const look = { ...s.look, ...own }      // вид из макета (конструктор) дополняется личным видом браузера
     return { ...s, look, ...(look.opacity !== undefined ? { opacity: look.opacity } : {}) }

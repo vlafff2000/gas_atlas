@@ -343,10 +343,10 @@ def apply(figure, cfg: Mapping[str, Any]):
         mode = (trace.mode or '') if line else ''     # у столбцов и ящиков поля ``mode`` нет: цвет и скрытие к ним применяются, толщина и маркеры — нет
         width = size = None
         color = None
-        name = ' '.join(str(x) for x in (trace.name, trace.legendgroup) if x).lower()
-        for rule in rules:                  # правила наборов данных перекрывают настройки типа графика
-            if rule['match'] not in name:
-                continue
+        meta_label = trace.meta.get('response_format_label') if isinstance(trace.meta, dict) else None
+        name = ' '.join(str(x) for x in (trace.name, trace.legendgroup, meta_label) if x).lower()
+        matching = [rule for rule in rules if rule['match'] in name]
+        for rule in matching:              # правила наборов данных перекрывают настройки типа графика
             if rule.get('hide'):
                 trace.visible = False
             color = rule.get('color', color)
@@ -375,7 +375,7 @@ def apply(figure, cfg: Mapping[str, Any]):
                 own.add('color')
         elif color:
             trace.marker.color = color
-        _look(trace, [r['look'] for r in rules if r['match'] in name and r.get('look')], own)
+        _look(trace, [r['look'] for r in matching if r.get('look')], own)
         if own:
             tmeta = dict(trace.meta) if isinstance(trace.meta, dict) else {}
             tmeta['own'] = sorted(own)

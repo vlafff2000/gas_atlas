@@ -868,3 +868,16 @@ def test_response_pressure_sources_are_independently_formatted(env):
     r = client.post(url + '/chart', json={'form': combined, 'chart': entry['name'], 'module': 'response', 'for_format': True})
     assert r.status_code == 200, r.text
     assert {s['format_label'] for s in r.json()['series']} == {'Уровень жидкости', *pressure_labels.values()}
+
+    separate = {**form, 'response_view': 'separate'}
+    choices = client.post(url + '/series', json={'form': separate}).json()
+    assert set(pressure_labels.values()) <= set(choices['series']['response'])
+
+    # В сводном графике название легенды — номер скважины, правило выбирает источник давления.
+    choices = client.post(url + '/series', json={'form': combined, 'chart': entry['name']}).json()
+    assert set(pressure_labels.values()) <= set(choices['chart'])
+    legacy = {k: v for k, v in combined.items() if k != 'fmt_response_doc'}
+    legacy['fmt_response_series'] = json.dumps([{'match': pressure_labels[45], 'color': '#ff1133'}])
+    r = client.post(url + '/chart', json={'form': legacy, 'chart': entry['name'], 'module': 'response', 'for_format': True})
+    assert r.status_code == 200, r.text
+    assert {s['format_label'] for s in r.json()['series'] if s['color'] == '#ff1133'} == {pressure_labels[45]}

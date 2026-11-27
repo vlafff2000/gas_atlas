@@ -13,7 +13,7 @@ import threading
 from typing import Any, Mapping
 
 from . import chart_qc, chart_special, chart_view, render
-from .chart_style import FONTS, apply_format, clean_axes, clean_chart, clean_format
+from .chart_style import FONTS, apply_format, clean_axes, clean_chart, clean_format, series_key
 from .contract import Chart, Note, ParamError
 
 DPIS = (150, 200, 250, 300, 600, 1200)
@@ -37,12 +37,14 @@ def kind_of(chart: Chart) -> str:
 def series_items(chart: Chart) -> list[dict[str, Any]]:
     """Ряды графика для настройки вида: ключ (тот же, что у экрана), имя, группа, вид и цвет, с которым ряд рисуется сейчас."""
     palette = render.group_colors(chart)
-    out: dict[str, dict[str, Any]] = {}
+    out: dict[tuple[str, str], dict[str, Any]] = {}
     for s in chart.series:
-        key = chart_view.series_key(s)
-        if key not in out:
-            color = (s.look or {}).get('color') or (render.series_color(s.color) if s.color else palette[s.group or s.name])
-            out[key] = {'key': key, 'name': s.name, 'group': s.group or s.name, 'kind': s.kind, 'color': color}
+        group = s.group or s.name
+        key = series_key(s)
+        entry = (key, group)
+        if entry not in out:
+            color = (s.look or {}).get('color') or (render.series_color(s.color) if s.color else palette[group])
+            out[entry] = {'key': key, 'name': s.name, 'group': group, 'kind': s.kind, 'color': color}
     return list(out.values())
 
 

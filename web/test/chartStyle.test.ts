@@ -28,6 +28,13 @@ test('вид подставляется только к своему ряду', 
   assert.deepEqual((out.series[1] as { look: unknown }).look, { color: '#000000', size: 12 })
 })
 
+test('настройка источника давления дополняет прежний вид по скважине', () => {
+  const pressure = { name: '№ 45', group: '№ 45', kind: 'line', format_label: 'Давление (глубинный манометр)' }
+  const c = { ...(chart as object), series: [series('№ 45'), pressure] } as never
+  const looks = looksOf(c, { '№ 45|line': { width: 5 }, 'Давление (глубинный манометр)|line': { color: '#ff1133' } })
+  assert.deepEqual(applyLooks(c, looks).series.map(s => s.look), [{ width: 5 }, { width: 5, color: '#ff1133' }])
+})
+
 test('форма без выбора — из модуля, с выбором — из набора', () => {
   assert.equal(markerSymbol(undefined, 'rect'), 'rect')
   assert.equal(markerSymbol('square', 'circle'), 'rect')
