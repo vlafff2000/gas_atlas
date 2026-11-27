@@ -385,6 +385,12 @@ class Projects:
         """Как ``PointControls.change`` в 5.8: одна операция — одна запись журнала с состоянием до и после."""
         m = self.manifest(pid)
         raw = self._raw_frames(pid, m)
+        if dataset is DatasetKind.OBJECT_PRESSURE:
+            from .modules.an_report import object_pressure_of
+            derived = object_pressure_of(self.data(pid))[0]
+            if derived is not None:
+                original = raw.get('object_pressure')
+                raw['object_pressure'] = pd.concat([original, derived], ignore_index=True) if original is not None else derived
         before = m.get('settings', {})
         cfg = copy.deepcopy(before)
         items = cfg.setdefault('excluded_points', {})

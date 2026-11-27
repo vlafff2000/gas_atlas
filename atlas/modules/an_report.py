@@ -152,6 +152,12 @@ def object_pressure_of(data: Data, source: str | None = None) -> tuple[pd.DataFr
     if reference is None:
         return None, None, ''
     pressure = survey_object_pressure(reference)
+    from atlas.engine.core.exclusions import identify
+    pressure = identify(pressure, 'object_pressure')
+    pressure['_point_id'] = pressure['_point_id'].str.replace('object_pressure:', 'response_object_pressure:', n=1, regex=False)
+    pressure = pressure.loc[~pressure['_point_id'].isin(data.excluded)].copy()
+    if pressure.empty:
+        return None, reference, ''
     low, high = int(pressure.wells.min()), int(pressure.wells.max())
     count = f'{low}' if low == high else f'от {low} до {high}'
     return pressure, reference, (f'«БД давлений по замерам», среднее по эксплуатационным скважинам (с ГСП): всего '

@@ -169,7 +169,7 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
                                       [''] * len(data), gap_days)
             chart.series.append(Series(
                 'Пластовое давление объекта', x, yv, 'line',
-                color=OBJECT_COLOR, dash='solid', width=2.0, markers=True, ids=ids))
+                color=OBJECT_COLOR, dash='solid', width=2.0, markers=True, ids=ids, dataset=OBJECT))
     if dual:      # шкалы разнесены автоматически: кривая уровня стоит отдельной полосой, а не поверх давлений (charts.separated_ranges)
         apart = separated_ranges([v for s in chart.series if s.axis != 'y2' for v in s.y],
                                  [v for s in chart.series if s.axis == 'y2' for v in s.y], level_band)
