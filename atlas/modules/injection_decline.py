@@ -16,7 +16,7 @@ from ..domain import DatasetKind
 from . import _seasonal as S
 from ._rows import rows_of
 from ._production import PRODUCTION
-from .an_report import object_pressure_of, pressure_near
+from .an_report import object_pressure_of, pressure_sample_near
 
 P_UNIT = 'кгс/см²'
 Q_UNIT = 'тыс. м³/сут'
@@ -87,21 +87,34 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
     press = shown[shown.date <= end] if shown is not None else None
     basis = []
     basis.append('граница: вручную' if entry.get('start') or entry.get('end') else 'граница: проект')
+    max_sample = None
     if press is not None and not press.empty:
         if entry.get('max_date'):
             max_date = _date(entry, 'max_date', row.period, None)
-            pmax = pressure_near(pressure, max_date)
+            max_sample = pressure_sample_near(pressure, max_date)
             basis.append('максимум: вручную')
+            if max_sample is not None and max_sample[0] != max_date:
+                basis.append(f'замер максимума {max_sample[0]:%d.%m.%Y}')
         else:
             top = press.loc[press.pressure.idxmax()]
-            max_date, pmax = top.date, float(top.pressure)
+            max_date = top.date
+            max_sample = max_date, float(top.pressure)
             basis.append('максимум: наибольший замер в сезоне')
             if (end - max_date).days <= END_WINDOW_DAYS:
                 basis.append('максимум у конца сезона: проверьте, не обрезана ли закачка')
     else:
-        max_date, pmax = None, None
-    p_end, end_basis = _pressure_at_end(pressure, end)
+        max_date = None
+    end_sample, end_basis = _pressure_at_end(pressure, end)
     basis.append(end_basis)
+    pmax = max_sample[1] if max_sample is not None else None
+    p_end = end_sample[1] if end_sample is not None else None
+    overlay = shown
+    sample_dates = [point[0] for point in (max_sample, end_sample) if point is not None]
+    if sample_dates:
+        last_shown = end + pd.Timedelta(days=AFTER_END_DAYS)
+        lower, upper = min(start, *sample_dates), max(last_shown, *sample_dates)
+        if lower < start or upper > last_shown:
+            overlay = pressure[pressure.date.between(lower, upper)].dropna(subset=['pressure'])
     w_start = _date(entry, 'w_start', row.period, withdrawal_start)
     basis.append('отбор: вручную' if entry.get('w_start') else ('отбор: проект' if w_start is not None else 'следующий отбор не найден'))
     p_w, p_w_date, w_note = _before_withdrawal(pressure, end, w_start)
@@ -121,7 +134,8 @@ def _season(df: pd.DataFrame, row: Any, pressure: pd.DataFrame | None, last_days
         'since_max': (end - max_date).days if max_date is not None else np.nan,
         'volume': float(flow.sum()) / 1e6, 'last_volume': float(last.sum()) / 1e6, 'last_mean': mean_last,
         'last_share': mean_last / mean_season * 100.0 if mean_season else np.nan, 'mean_season': mean_season,
-        'basis': '; '.join(basis), 'daily': daily, 'press': press, 'shown': shown, 'last_from': last_from,
+        'basis': '; '.join(basis), 'daily': daily, 'press': press, 'shown': shown, 'overlay': overlay, 'max_sample': max_sample, 'end_sample': end_sample,
+        'last_from': last_from,
         'in_fit': entry.get('fit', True) is not False,
         'w_start': w_start, 'neutral_days': (w_start - end).days if w_start is not None else np.nan,
         'p_w': p_w, 'p_w_date': p_w_date,
@@ -145,7 +159,7 @@ def _before_withdrawal(pressure: pd.DataFrame | None, end: pd.Timestamp, w_start
     return float(top.pressure), top.date, note
 
 
-def _pressure_at_end(pressure: pd.DataFrame | None, end: pd.Timestamp) -> tuple[float | None, str]:
+def _pressure_at_end(pressure: pd.DataFrame | None, end: pd.Timestamp) -> tuple[tuple[pd.Timestamp, float] | None, str]:
     """Давление на конец закачки: замер на ближайшую дату после её окончания (до AFTER_END_DAYS суток), иначе ближайший в пределах 30 сут."""
     if pressure is None or pressure.empty:
         return None, 'давления нет'
@@ -153,11 +167,12 @@ def _pressure_at_end(pressure: pd.DataFrame | None, end: pd.Timestamp) -> tuple[
     after = valid[valid.date.between(end, end + pd.Timedelta(days=AFTER_END_DAYS))].sort_values('date')
     if not after.empty:
         top = after.iloc[0]
-        return float(top.pressure), f'давление на конец: замер {top.date:%d.%m.%Y}, через {(top.date - end).days} сут после конца'
-    value = pressure_near(pressure, end)
-    if value is None:
+        return (top.date, float(top.pressure)), f'давление на конец: замер {top.date:%d.%m.%Y}, через {(top.date - end).days} сут после конца'
+    sample = pressure_sample_near(pressure, end)
+    if sample is None:
         return None, f'давления на конец нет: замеров в {AFTER_END_DAYS} сут после конца нет, в пределах 30 сут тоже'
-    return value, f'давление на конец: замеров в {AFTER_END_DAYS} сут после конца нет, взят ближайший в пределах 30 сут'
+    return sample, (f'давление на конец: замеров в {AFTER_END_DAYS} сут после конца нет, '
+                    f'взят ближайший {sample[0]:%d.%m.%Y} в пределах 30 сут')
 
 
 def _hold_fit(rows: list[dict[str, Any]]) -> dict[str, float] | None:
@@ -307,26 +322,30 @@ class InjectionDeclineModule(Module):
             overlay = Chart('decline-overlay', 'Давление в сезонах закачки: наложение ' + ('по дням до конца закачки' if by_end else 'по дням с начала'),
                             Axis('Дней до конца закачки (0 = конец)' if by_end else 'Сутки с начала закачки', 'сут', from_zero=not by_end),
                             Axis('Давление', P_UNIT))
-            shown = [r for r in rows if r['shown'] is not None and not r['shown'].empty]
-            lo = min((float(r['shown'].pressure.min()) for r in shown), default=0.0)
-            hi = max((float(r['shown'].pressure.max()) for r in shown), default=0.0)
+            shown = [r for r in rows if r['overlay'] is not None and not r['overlay'].empty]
+            lo = min((float(r['overlay'].pressure.min()) for r in shown), default=0.0)
+            hi = max((float(r['overlay'].pressure.max()) for r in shown), default=0.0)
             for r in shown:
                 origin = r['end'] if by_end else r['start']
-                x = (r['shown'].date - origin).dt.days.to_numpy(float)
-                overlay.series.append(Series(f'сезон {r["period"]}', x, r['shown'].pressure.to_numpy(float), 'line', group=r['period'],
-                                             markers=True, labels=[d.strftime('%d.%m.%Y') for d in r['shown'].date]))
+                samples = r['overlay']
+                x = (samples.date - origin).dt.days.to_numpy(float)
+                overlay.series.append(Series(f'сезон {r["period"]}', x, samples.pressure.to_numpy(float), 'line', group=r['period'],
+                                             markers=True, labels=[d.strftime('%d.%m.%Y') for d in samples.date]))
                 if not by_end:   # конец закачки каждого сезона — пунктирная вертикаль в цвете кривой
                     end_x = float((r['end'] - r['start']).days)
                     overlay.series.append(Series(f'конец {r["period"]}', [end_x, end_x], [lo, hi], 'line', group=r['period'], dashed=True,
                                                  legend=False, labels=[f'Конец закачки {r["end"]:%d.%m.%Y}'] * 2))
-                if not pd.isna(r['p_end']):   # давление на конец закачки — квадрат на оси конца
-                    overlay.series.append(Series(f'на конец {r["period"]}', [float((r['end'] - origin).days)], [r['p_end']], 'points',
+                if r['end_sample'] is not None:
+                    date, value = r['end_sample']
+                    overlay.series.append(Series(f'на конец {r["period"]}', [float((date - origin).days)], [value], 'points',
                                                  group=r['period'], symbol='square', legend=False,
-                                                 labels=[f'Давление на конец закачки {r["end"]:%d.%m.%Y}: {r["p_end"]:.1f}']))
-                if r['max_date'] is not None:
-                    overlay.series.append(Series(f'максимум {r["period"]}', [float((r['max_date'] - origin).days)], [r['pmax']], 'points',
+                                                 labels=[f'Давление на конец закачки {r["end"]:%d.%m.%Y}: {value:.1f} '
+                                                         f'(замер {date:%d.%m.%Y})']))
+                if r['max_sample'] is not None:
+                    date, value = r['max_sample']
+                    overlay.series.append(Series(f'максимум {r["period"]}', [float((date - origin).days)], [value], 'points',
                                                  group=r['period'], symbol='diamond', legend=False,
-                                                 labels=[f'Максимум {r["max_date"]:%d.%m.%Y}: {r["pmax"]:.1f}']))
+                                                 labels=[f'Максимум давления: {value:.1f} (замер {date:%d.%m.%Y})']))
             out.append(overlay)
         rate = Chart('decline-rate', 'Суточная закачка по сезонам', Axis('Сутки с начала закачки', 'сут', from_zero=True),
                      Axis('Закачка', Q_UNIT, from_zero=True))
