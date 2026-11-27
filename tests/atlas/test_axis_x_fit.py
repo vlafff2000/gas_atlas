@@ -76,3 +76,14 @@ def test_fractional_x_step_keeps_its_decimals_in_file():
     """Шаг 2,5 по оси X: подписи 0; 2,5; 5 … — а не округлённые до целых 0; 2; 5; 8."""
     labels = _drawn(to_plotly(_chart([0.4, 5.0, 9.6], minimum=0.0, maximum=10.0, step=2.5)))['labels']
     assert [t.replace('.', ',') for t in labels] == ['0', '2,5', '5', '7,5', '10']      # десятичный знак в файлах — отдельная правка
+
+
+def test_file_keeps_module_time_bounds_without_explicit_format():
+    import pandas as pd
+    from matplotlib.dates import date2num
+
+    start, end = pd.Timestamp('2024-01-01'), pd.Timestamp('2025-12-31')
+    chart = _chart(['2025-01-01', '2025-03-01'], scale='time',
+                   minimum=start.value / 10**6, maximum=end.value / 10**6)
+    lo, hi = _drawn(to_plotly(chart))['lim']
+    assert (lo, hi) == (date2num(start.to_pydatetime()), date2num(end.to_pydatetime()))

@@ -412,3 +412,66 @@ def test_object_pressure_matches_export_with_well_filter_and_date_range(env):
     actual = next(s for s in exported.json()['series'] if s['name'] == 'Пластовое давление объекта')
     assert actual['y'] == expected['y'] == [62.0, 84.0]
     assert actual['x'] == expected['x'] and actual['ids'] == expected['ids']
+
+
+def test_module_downloads_omit_excluded_measurements(env, monkeypatch):
+    import io
+    import zipfile
+    from atlas import render
+
+    client, pid, projects = env
+    dates = pd.date_range('2025-01-01', periods=5, freq='MS')
+    response = pd.DataFrame({'well': ['31'] * 5, 'horizon': ['А'] * 5, 'date': dates,
+                             'pressure': [50, 51, 999999, 53, 54], 'level': [10, 11, 12, 13, 14]})
+    projects.store.commit(pid, frames={'response': response}, settings=projects.store.manifest(pid)['settings'])
+    params = {'wells': ['31'], 'view': 'pressure', 'split': 'well'}
+    before = run(client, pid, **params)['charts'][0]
+    point = before['series'][0]['ids'][2]
+    result = client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'response', 'add': [point]})
+    assert result.status_code == 200 and result.json()['added'] == 1
+    after = run(client, pid, **params)['charts'][0]
+    assert after['series'][0]['y'] == [50, 51, None, 53, 54]
+
+    rendered = []
+    figure_bytes = render.figure_bytes
+    def capture(figure, *args, **kwargs):
+        rendered.append(list(figure.data[0].y))
+        return figure_bytes(figure, *args, **kwargs)
+    monkeypatch.setattr(render, 'figure_bytes', capture)
+    body = {'project': pid, 'params': params, 'target': 'chart', 'id': after['id'], 'dpi': 150}
+    for fmt in ('csv', 'svg'):
+        download = client.post('/api/modules/response/export', json={**body, 'format': fmt})
+        assert download.status_code == 200, download.text
+        assert b'999999' not in download.content
+
+    charts = client.post('/api/modules/response/export', json={**body, 'target': 'charts', 'layout': 'zip'})
+    assert charts.status_code == 200, charts.text
+    with zipfile.ZipFile(io.BytesIO(charts.content)) as archive:
+        assert archive.namelist()
+    assert len(rendered) == 2
+    for values in rendered:
+        assert np.allclose(values, [50, 51, np.nan, 53, 54], equal_nan=True)
+
+
+def test_long_module_series_keeps_exclusions_in_full_resolution_export(env):
+    import io
+    client, pid, projects = env
+    dates = pd.date_range('2005-01-01', periods=5100, freq='D')
+    pressure = np.full(len(dates), 50.)
+    pressure[2500] = 999999
+    frame = pd.DataFrame({'well': '31', 'horizon': 'А', 'date': dates, 'pressure': pressure, 'level': 10.})
+    projects.store.commit(pid, frames={'response': frame}, settings=projects.store.manifest(pid)['settings'])
+    params = {'wells': ['31'], 'view': 'pressure', 'split': 'well'}
+    point = projects.data(pid).raw[RESPONSE].iloc[2500]['_point_id'] + ':pressure'
+    r = client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'response', 'add': [point]})
+    assert r.status_code == 200 and r.json()['added'] == 1
+    chart = run(client, pid, **params)['charts'][0]
+    series = chart['series'][0]
+    assert series['total'] == 5100 and len(series['y']) < 5100
+    assert 999999 not in series['y']
+    body = {'project': pid, 'params': params, 'target': 'chart', 'id': chart['id'], 'format': 'csv'}
+    download = client.post('/api/modules/response/export', json=body)
+    assert download.status_code == 200, download.text
+    exported = pd.read_csv(io.BytesIO(download.content), sep=';', decimal=',')
+    assert len(exported) == 5100
+    assert pd.isna(exported.loc[2500, 'Y']) and 999999 not in exported['Y'].values
