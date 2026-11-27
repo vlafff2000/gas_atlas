@@ -151,6 +151,8 @@ def _plan(frames,mapping,settings,options,raw_frames=None):
             working=cfg.get('working',settings.get('working_horizons',[]));mode=cfg.get('mode','all')
             use_atlas_data = 'response_object_pressure' in frames
             object_pressure = frames.get('response_object_pressure' if use_atlas_data else 'object_pressure')
+            if use_atlas_data and cfg.get('dates_explicit') and len(span)==2 and object_pressure is not None:
+                object_pressure = object_pressure[object_pressure.date.between(pd.Timestamp(span[0]),pd.Timestamp(span[1]))]
             level_band = 'overlay' if use_atlas_data else cfg.get('level_band', 'overlay')
             # «control» — контрольные горизонты: все скважины горизонта на одном графике, только уровень;
             # «working» — рабочие горизонты: график на каждую скважину, уровень и давление на двух шкалах.

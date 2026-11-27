@@ -290,6 +290,8 @@ def options_from(form: Mapping[str, Any], data: Data) -> tuple[dict, dict, dict]
             cfg['working'] = pick('response_working', hs, [h for h in settings.get('working_horizons', []) if h in hs])
             dates = form.get('response_dates') or ([r.date.min(), r.date.max()] if not r.empty else [])
             cfg['dates'] = [_date(v) for v in dates]
+            if form.get('response_dates'):
+                cfg['dates_explicit'] = True
             cfg['view'] = form.get('response_view', 'separate')
             cfg['split'] = form.get('response_split', 'horizon')
             cfg['level_band'] = 'auto'      # ≈ 5.8: уровень на двух шкалах стоит отдельной полосой, положение подбирается по данным
