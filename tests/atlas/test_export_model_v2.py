@@ -149,3 +149,19 @@ def test_positive_numbers_change_file_with_negative_axis():
         f.update_layout(yaxis=dict(range=[-40, 0]), meta={'style': {'axes': {'y': spec}}} if spec else {})
         return png(f)
     assert neg({'positive': True}) != neg(None)
+
+
+def test_marker_border_width_preserves_hollow_marker_color():
+    import plotly.graph_objects as go
+    from atlas.export_chart import apply_branch_format
+
+    figure = go.Figure(go.Scatter(
+        x=[1, 2], y=[2, 3], mode='lines+markers', name='Уровень',
+        line={'color': '#32bda4'},
+        marker={'color': 'white', 'symbol': 'circle', 'line': {'color': '#32bda4', 'width': 1.8}},
+    ))
+    styled = apply_branch_format(figure, {'series': {'Уровень|line': {'marker_border_width': 2}}})
+    assert styled.data[0].mode == 'lines+markers'
+    assert styled.data[0].marker.color == 'white'
+    assert styled.data[0].marker.line.color == '#32bda4'
+    assert styled.data[0].marker.line.width == 2

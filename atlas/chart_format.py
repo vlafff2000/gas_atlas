@@ -420,7 +420,7 @@ def _look(trace, looks: List[Dict[str, Any]], own: set) -> None:
         if marked and 'markerColor' in look:
             trace.marker.color = look['markerColor']
         if marked and ('marker_border' in look or 'marker_border_width' in look):
-            trace.marker.line = {'color': look.get('marker_border') or look.get('markerColor') or trace.marker.color,
+            trace.marker.line = {'color': look.get('marker_border') or look.get('markerColor') or trace.marker.line.color or trace.line.color or trace.marker.color,
                                  'width': look.get('marker_border_width', 1)}
         if 'opacity' in look:
             trace.opacity = look['opacity']
