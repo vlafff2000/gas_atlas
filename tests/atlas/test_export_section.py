@@ -773,7 +773,7 @@ def test_response_export_uses_filtered_series_and_fits_all_axes(env):
     for exclusions in (True, False):
         selected = {**form, 'exclusions': exclusions}
         ranges_with_seven = []
-        for name, expected in zip(names, (((10, 17), (9, 29)), ((30, 44), (90, 120)))):
+        for name, expected in zip(names, (((10, 44), (9, 29)), ((14, 44), (90, 120)))):
             shown = chart(name, selected)
             ranges = []
             for side, limits in zip(('y', 'y2'), expected):
@@ -790,7 +790,7 @@ def test_response_export_uses_filtered_series_and_fits_all_axes(env):
         series = chart(names[0], selected)['series']
         assert all(point + ':pressure' not in (s['ids'] or []) for s in series)
         assert any(point + ':level' in (s['ids'] or []) and 19 in s['y'] for s in series)
-        assert next(s['y'] for s in series if s['name'] == 'Пластовое давление объекта') == [14, 16]
+        assert next(s['y'] for s in series if s['name'] == 'Пластовое давление объекта') == [14, 16, 39, 42, 44]
 
     auto = chart(names[0], {**form, 'fmt_response_doc': {'chart': {'y_fit': 'auto', 'y_intervals': 6}}})
     for name in ('y', 'y2'):

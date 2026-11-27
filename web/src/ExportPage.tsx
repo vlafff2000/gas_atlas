@@ -298,7 +298,7 @@ export function ExportPage({ project, onProject, view = 'export' }: PageProps & 
       .catch(e => alive && setError('Не удалось отобразить этот график: ' + (e as Error).message))
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownPlan, showPreview, chart, liveOn, legacyFormatKey, previewModule])
+  }, [shownPlan, showPreview, chart, liveOn, legacyFormatKey, previewModule, project.revision])
 
   const excludePoint = async (dataset: string, id: string) => {
     try {

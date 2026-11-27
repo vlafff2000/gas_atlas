@@ -297,7 +297,7 @@ def response_chart(df,working,metric='level',title=None,interactive=True,color_m
     pressure_enabled=bool(set(df.horizon).intersection(pressure_horizons)) if not df.empty else False
     reference = None
     if pressure_enabled and metric in ('pressure', 'combined') and object_pressure is not None and not object_pressure.empty:
-        reference = object_pressure[object_pressure.date.between(df.date.min(), df.date.max())]
+        reference = object_pressure if data_limits else object_pressure[object_pressure.date.between(df.date.min(), df.date.max())]
     dual=metric=='combined' and pressure_enabled
     pressure_axis = metric == 'pressure' or dual
     if data_limits and metric == 'combined':
@@ -342,7 +342,11 @@ def response_chart(df,working,metric='level',title=None,interactive=True,color_m
         if interactive:data=decimate(data,'pressure')
         if not data.empty:
             ids=data['_point_id'] if '_point_id' in data else pd.Series('',index=data.index)
-            fig.add_trace(go.Scatter(x=data.date,y=data.pressure,mode='lines+markers',name='Пластовое давление объекта',
+            x,y=data.date,data.pressure
+            if data_limits:
+                from atlas.modules.response import GAP_DAYS, with_gaps
+                x,y,ids,_=with_gaps(data.date,data.pressure,ids.tolist(),['']*len(data),GAP_DAYS)
+            fig.add_trace(go.Scatter(x=x,y=y,mode='lines+markers',name='Пластовое давление объекта',
                 line={'color':'#DC3545','width':2,'dash':'solid'},marker={'size':5,'color':'#DC3545'},
                 meta={'module':'object_pressure','metric':'pressure','selectable':'_point_id' in data},customdata=np.column_stack([ids]),
                 hovertemplate='Пластовое давление объекта<br>%{x|%d.%m.%Y}<br>%{y:.2f} кгс/см²<extra></extra>'))

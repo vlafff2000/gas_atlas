@@ -125,7 +125,7 @@ def test_semantic_colors_and_object_pressure(env):
     assert [s['name'] for s in series] == ['Уровень жидкости', 'Давление (глубинный манометр)',
                                            'Пластовое давление объекта']
     assert [s['color'] for s in series] == ['#32BDA4', '#8B5CF6', '#DC3545']
-    assert series[0]['hollow'] and series[0]['axis'] == 'y2' and series[2]['dataset'] is None
+    assert series[0]['hollow'] and series[0]['axis'] == 'y2' and series[2]['dataset'] == 'object_pressure'
 
 
 def test_grouped_response_formats_pressure_by_source(env):
@@ -346,3 +346,31 @@ def test_all_charts_share_x_range(env):
     body = run(client, pid, wells=WELLS, view='separate', split='well')
     ranges = {(c['x']['minimum'], c['x']['maximum']) for c in body['charts']}
     assert len(body['charts']) > 1 and len(ranges) == 1 and None not in next(iter(ranges))
+
+
+def test_object_pressure_export_matches_module_and_excludes_clicked_point(env):
+    client, pid, projects = env
+    params = {'wells': ['45'], 'view': 'pressure', 'split': 'well'}
+    module = run(client, pid, **params)['charts'][0]
+    expected = next(s for s in module['series'] if s['name'] == 'Пластовое давление объекта')
+    url = f'/api/projects/{pid}/export'
+    form = {'modules': ['response'], 'response_wells': ['45'], 'response_view': 'pressure',
+            'response_split': 'well', 'formats': ['svg']}
+    entries = client.post(url + '/plan', json={'form': form}).json()['charts']
+    chart = client.post(url + '/chart', json={'form': form, 'chart': entries[0]['name'],
+                                               'module': 'response', 'for_format': True}).json()
+    actual = next(s for s in chart['series'] if s['name'] == 'Пластовое давление объекта')
+    assert (actual['x'], actual['y'], actual['ids'], actual['dataset']) == (expected['x'], expected['y'], expected['ids'], expected['dataset'])
+    point = next(i for i in actual['ids'] if i)
+    result = client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'object_pressure', 'add': [point]})
+    assert result.status_code == 200, result.text
+    assert result.json()['added'] == 1
+    again = run(client, pid, **params)['charts'][0]
+    current = next(s for s in again['series'] if s['name'] == 'Пластовое давление объекта')
+    assert point not in current['ids']
+    updated = client.post(url + '/chart', json={'form': form, 'chart': entries[0]['name'],
+                                                'module': 'response', 'for_format': True}).json()
+    exported = next(s for s in updated['series'] if s['name'] == 'Пластовое давление объекта')
+    assert (exported['x'], exported['y'], exported['ids']) == (current['x'], current['y'], current['ids'])
+    result = client.post(f'/api/projects/{pid}/exclusions', json={'dataset': 'object_pressure', 'remove': [point]})
+    assert result.status_code == 200 and result.json()['removed'] == 1
