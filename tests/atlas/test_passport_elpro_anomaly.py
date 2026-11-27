@@ -49,3 +49,21 @@ def test_chart_and_table_use_common_core():
     chart, table = passport_blocks.elpro_pressure_chart(data), passport_blocks.elpro_anomaly_table(data)
     assert chart.id == 'passport-elpro-p' and chart.style['annotations'][0]['kind'] == 'vband' and table.id == 'passport-elpro-anomalies'
     assert [s.name for s in chart.series][:2] == ['Давление ЭЛПРО скважины', 'Давление ЭЛПРО: медиана по группе']
+
+
+def test_passport_opens_when_rate_baseline_is_zero(tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+    from atlas.api import create_app
+    from atlas.projects import Projects
+
+    daily = make(well_drop=5.0, group_drop=0.0)
+    daily.loc[:, ['q', 'grp_q', 'obj_q']] = 0.0
+    daily.loc[daily.index[80]:, ['q', 'grp_q', 'obj_q']] = 100.0
+    monkeypatch.setattr(an, 'series', lambda *args: daily)
+    projects = Projects(tmp_path)
+    pid = projects.create_demo()
+    response = TestClient(create_app(projects), raise_server_exceptions=False).get(
+        f'/api/projects/{pid}/passport/card', params={'well': '31'})
+    assert response.status_code == 200, response.text
+    events = response.json()['elpro_p']['rows']
+    assert events and all(event['dq'] is None for event in events)

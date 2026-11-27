@@ -87,6 +87,7 @@ def _endpoint(work):
             return _error(400, 'Тело запроса должно быть объектом JSON')
         try:
             out = await run_in_threadpool(work, request, body)
+            return out if isinstance(out, Response) else JSONResponse(out)
         except ParamError as e:
             return _error(400, str(e))
         except (MissingData, Conflict) as e:
@@ -96,7 +97,6 @@ def _endpoint(work):
         except Exception:
             log.exception('Сбой запроса %s', request.url.path)
             return _error(500, internal_error_text())
-        return out if isinstance(out, Response) else JSONResponse(out)
     return handler
 
 
