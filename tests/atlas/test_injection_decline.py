@@ -159,3 +159,43 @@ def test_neutral_flags_pressure_taken_before_end():
     row = [t for t in run().tables if t.id == 'decline-neutral-table'][0].frame.set_index('period').loc['2022']
     assert row.p_w == pytest.approx(111.0) and 'нейтральном периоде замеров нет' in row.basis
     assert list([t for t in run().tables if t.id == 'decline-neutral-table'][0].frame.period) == ['2022']  # после 2023 отбора нет
+
+
+@pytest.mark.parametrize(('mode', 'end_x', 'max_x'), [('start', 61.0, 40.0), ('end', 2.0, -19.0)])
+def test_overlay_markers_use_the_dates_of_selected_measurements(mode, end_x, max_x):
+    from atlas.render import to_plotly
+
+    pres = pd.concat([pressure(), pd.DataFrame({'date': [pd.Timestamp('2022-07-01')], 'pressure': [108.0]})], ignore_index=True)
+    manual = {'2022': {'max_date': '2022-06-11'}}
+    result = run({'x_mode': mode, 'periods': ['2022']}, pres=pres, manual=manual)
+    overlay = next(c for c in result.charts if c.id == 'decline-overlay')
+    traces = {s.name: s for s in overlay.series}
+    square, diamond = traces['на конец 2022'], traces['максимум 2022']
+    assert (square.x[0], square.y[0], square.symbol) == (end_x, 108, 'square')
+    assert (diamond.x[0], diamond.y[0], diamond.symbol) == (max_x, 108, 'diamond')
+    assert 'замер 01.07.2022' in square.labels[0] and 'замер 10.06.2022' in diamond.labels[0]
+    assert table(result).loc['2022'].max_date == pd.Timestamp('2022-06-11')
+
+    # Те же координаты передаются статическому экспорту, и обе метки стоят на кривой.
+    file_traces = {s.name: s for s in to_plotly(overlay).data}
+    curve = file_traces['сезон 2022']
+    samples = set(zip(curve.x, curve.y))
+    assert {(end_x, 108), (max_x, 108)} <= samples
+    for name, point in [('на конец 2022', (end_x, 108)), ('максимум 2022', (max_x, 108))]:
+        trace = file_traces[name]
+        assert (trace.x[0], trace.y[0]) == point
+
+
+def test_overlay_includes_end_measurement_outside_regular_window():
+    pres = pd.DataFrame({'date': pd.to_datetime(['2022-05-01', '2022-06-10', '2022-07-07']),
+                         'pressure': [100.0, 120.0, 110.0]})
+    result = run({'periods': ['2022'], 'x_mode': 'end'}, pres=pres)
+    overlay = next(c for c in result.charts if c.id == 'decline-overlay')
+    tail = next(c for c in result.charts if c.id == 'decline-tail')
+    traces = {s.name: s for s in overlay.series}
+    end = traces['на конец 2022']
+    curve = traces['сезон 2022']
+    assert (end.x[0], end.y[0]) == (8, 110)
+    assert (end.x[0], end.y[0]) in zip(curve.x, curve.y)
+    assert max(next(s for s in tail.series if s.name == 'сезон 2022').x) < 0
+    assert table(result).loc['2022'].fall == 10

@@ -97,8 +97,8 @@ def class_scheme(prod: pd.DataFrame, kind: str, periods: list[str], params: Mapp
                        'Это подсказка: при необходимости перенесите границы в ручной режим.')
 
 
-def pressure_near(pressure: pd.DataFrame | None, when: Any) -> float | None:
-    """Давление объекта на дату ``when`` или на ближайшую к ней в пределах ``GAP_DAYS``; при равной разнице берётся более ранняя дата."""
+def pressure_sample_near(pressure: pd.DataFrame | None, when: Any) -> tuple[pd.Timestamp, float] | None:
+    """Ближайший замер давления в пределах GAP_DAYS; при равном расстоянии берётся более ранняя дата."""
     if pressure is None or pressure.empty:
         return None
     p = pressure.dropna(subset=['pressure']).sort_values('date', kind='stable')
@@ -107,7 +107,14 @@ def pressure_near(pressure: pd.DataFrame | None, when: Any) -> float | None:
     gap = (p.date - pd.Timestamp(when)).abs()
     if gap.min() > pd.Timedelta(days=GAP_DAYS):
         return None
-    return float(p.loc[gap.idxmin(), 'pressure'])
+    point = p.iloc[int(gap.argmin())]
+    return point.date, float(point.pressure)
+
+
+def pressure_near(pressure: pd.DataFrame | None, when: Any) -> float | None:
+    """Значение ближайшего замера давления."""
+    point = pressure_sample_near(pressure, when)
+    return point[1] if point is not None else None
 
 
 SURVEY = DatasetKind.PRESSURE_SURVEY
