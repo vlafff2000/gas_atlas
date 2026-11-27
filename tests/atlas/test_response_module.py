@@ -4,6 +4,8 @@ import pandas as pd
 import pytest
 from starlette.testclient import TestClient
 
+from atlas.chart_style import apply_format
+from atlas.chart_view import apply_view
 from atlas.engine.core import exclusions
 from atlas.engine.core.config import ordered
 from atlas.engine.core.demo import demo_frames
@@ -13,6 +15,7 @@ from atlas.engine.modules.response import statistics
 from atlas.api import create_app
 from atlas.contract import Param, ParamError
 from atlas.domain import DatasetKind
+from atlas.modules.response import ResponseModule
 from atlas.projects import Projects
 
 RESPONSE = DatasetKind.RESPONSE
@@ -123,6 +126,25 @@ def test_semantic_colors_and_object_pressure(env):
                                            'Пластовое давление объекта']
     assert [s['color'] for s in series] == ['#32BDA4', '#8B5CF6', '#DC3545']
     assert series[0]['hollow'] and series[0]['axis'] == 'y2' and series[2]['dataset'] is None
+
+
+def test_grouped_response_formats_pressure_by_source(env):
+    client, pid, projects = env
+    body = run(client, pid, wells=['31', '45'], view='combined', split='all')
+    series = body['charts'][0]['series']
+    pressure = {s['name']: s['format_label'] for s in series if s.get('format_label')}
+    assert pressure == {'№ 31': 'Давление (пересчет)', '№ 45': 'Давление (глубинный манометр)'}
+
+    module = ResponseModule()
+    data = projects.data(pid)
+    params = module.spec.coerce({'wells': ['31', '45'], 'view': 'combined', 'split': 'all'})
+    chart = module.run(data, params).charts[0]
+    looks = {'№ 45|line': {'width': 5}, pressure['№ 45'] + '|line': {'color': '#ff1133'}}
+    for styled in (apply_format(chart, {'series': looks}), apply_view(chart, {'looks': looks})):
+        assert [(s.name, s.format_label, s.look) for s in styled.series if s.look] == [
+            ('№ 45', '', {'width': 5}),
+            ('№ 45', pressure['№ 45'], {'width': 5, 'color': '#ff1133'}),
+        ]
 
 
 def test_wells_follow_horizons_and_natural_order(env):

@@ -385,9 +385,18 @@ def clean_checks(raw: Any) -> dict[str, Any]:
     return {'skip': keys} if keys else {}
 
 
-def series_key(s: Series) -> str:
-    """Ключ ряда в документе — тот же, что на экране (``seriesLookKey``): группа или имя, и вид ряда."""
-    return f'{s.format_label or s.group or s.name}|{s.kind}'
+def series_key(s: Series, *, use_label: bool = True) -> str:
+    """Ключ ряда в документе: роль в «Формате», группа или имя и вид ряда."""
+    label = s.format_label if use_label else ''
+    return f'{label or s.group or s.name}|{s.kind}'
+
+
+def look_for_series(s: Series, looks: Mapping[str, Any]) -> Mapping[str, Any]:
+    own = looks.get(series_key(s))
+    if s.format_label and (legacy := looks.get(series_key(s, use_label=False))):
+        if isinstance(legacy, Mapping):
+            return {**legacy, **(own if isinstance(own, Mapping) else {})}
+    return own if isinstance(own, Mapping) else {}
 
 
 def clean_format(raw: Any) -> dict[str, Any]:
@@ -460,7 +469,7 @@ def apply_format(chart: Chart, doc: Mapping[str, Any] | None, notes: list[Note] 
     if looks or fresh:
         series = []
         for s in out.series:
-            own = looks.get(series_key(s))
+            own = look_for_series(s, looks)
             if fresh and s.age is not None and not (own or {}).get('color') and not (s.look or {}).get('color'):
                 own = {**(own or {}), 'color': fresh[s.age % len(fresh)]}
             if own:

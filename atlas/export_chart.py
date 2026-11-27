@@ -134,7 +134,7 @@ def apply_branch_format(figure, doc):
     from dataclasses import replace
 
     from .chart_format import _look
-    from .chart_style import apply_format, merge_formats, series_key
+    from .chart_style import apply_format, look_for_series, merge_formats
     from .render import WIDTH_PT, style_meta, to_plotly
 
     fig = deepcopy(figure)
@@ -163,7 +163,7 @@ def apply_branch_format(figure, doc):
     looks = doc.get('series') or {}
     traces = [t for t in fig.data if t.type in ('scatter', 'scattergl', 'bar', 'box')]
     for trace, series in zip(traces, chart.series):
-        look = looks.get(series_key(series))
+        look = look_for_series(series, looks)
         if not look:
             continue
         tmeta = dict(trace.meta) if isinstance(trace.meta, dict) else {}

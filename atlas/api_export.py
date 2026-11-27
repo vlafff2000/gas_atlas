@@ -844,6 +844,18 @@ def routes(projects: Projects) -> list[Route]:
     def series(request, body):
         """Названия наборов данных в графиках каждого модуля — подсказки для правил оформления (по первым графикам модуля)."""
         import re
+        from .engine.modules.charts import RESPONSE_PRESSURE_LABELS
+
+        def series_names(figure):
+            for trace in figure.data:
+                if trace.visible is False:
+                    continue
+                meta = trace.meta if isinstance(trace.meta, dict) else {}
+                name = meta.get('response_format_label') or trace.name or ''
+                text = re.sub(r'^(№\s*\d+[^\s]*\s*·\s*|№\s*\d+\s*$)', '', str(name)).strip()
+                if text:
+                    yield text
+
         form = {k: v for k, v in form_of(body).items() if not k.startswith(('fmt_', 'label_'))}
         try:
             _, plan, _ = need_plan(request.path_params['pid'], form)
@@ -870,18 +882,12 @@ def routes(projects: Projects) -> list[Route]:
                     'title': title.replace(wells, '{скважина}') if wells and wells in title else title,
                     'x': str(lay.xaxis.title.text or ''), 'y': str(lay.yaxis.title.text or ''),
                     'y2': str(lay.yaxis2.title.text or '') if 'yaxis2' in lay else ''}
-            names = found.setdefault(module, [])
-            for trace in figure.data:
-                text = re.sub(r'^(№\s*\d+[^\s]*\s*·\s*|№\s*\d+\s*$)', '', str(trace.name or '')).strip()
-                if text and text not in names and trace.visible is not False:
-                    names.append(text)
+            names = found.setdefault(module, list(RESPONSE_PRESSURE_LABELS.values()) if module == 'response' else [])
+            names.extend(name for name in dict.fromkeys(series_names(figure)) if name not in names)
         own = []         # наборы данных выбранного графика (для вкладки «Отдельные графики»)
         job = next((j for j in jobs if j.name == body.get('chart')), None) if body.get('chart') else None
         if job is not None:
-            for trace in job.render().data:
-                text = re.sub(r'^(№\s*\d+[^\s]*\s*·\s*|№\s*\d+\s*$)', '', str(trace.name or '')).strip()
-                if text and text not in own and trace.visible is not False:
-                    own.append(text)
+            own = list(dict.fromkeys(series_names(job.render())))
         from .modules._ggh import GAS, PARAMS
         found['ggh'] = [label for label, _, _ in PARAMS.values()] + [GAS[1]]
         return {'series': {m: v[:40] for m, v in found.items() if v}, 'labels': labels, 'chart': own[:40]}

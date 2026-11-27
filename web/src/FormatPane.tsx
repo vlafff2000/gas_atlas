@@ -7,7 +7,7 @@ import { Dialog } from './BuilderDialogs'
 import { SeriesLookFields } from './ChartSettings'
 import { projectFormats, usePref } from './chartPrefs'
 import type { AxisFormat, AxisName, ChartFormat } from './chartFormat'
-import { seriesLookKey, type Look } from './chartStyle'
+import { lookForSeries, seriesLookKey, type Look } from './chartStyle'
 import { AxisScaleFields, AxisStyleFields, ChartStyleFields, Commit, FitChoice, Num, SeriesExtraFields, compact } from './FormatFields'
 import { pointKeys } from './labelPick'
 import type { FormatScope } from './projectLooks'
@@ -119,15 +119,15 @@ export function FormatPane({ chart, element, onElement, scope, onScope, doc, onD
   const axes = plain && !withAxes ? [] : AXES.filter(n => n === 'x' || n === 'y' || chart[n])
   const [kind, id] = plain && !withAxes && element.startsWith('axis') ? ['chart', ''] : element.split(':')
   const axisName = (kind === 'axis' && axes.includes(id as AxisName) ? id : 'x') as AxisName
-  const available = additionalSeries && new Set(chart.series.map(item => item.format_label || item.name))
+  const available = additionalSeries && new Set(chart.series.map(seriesLookKey))
   const series = additionalSeries && available
-    ? [...chart.series, ...additionalSeries.filter(item => !available.has(item.format_label || item.name))] : chart.series
+    ? [...chart.series, ...additionalSeries.filter(item => !available.has(seriesLookKey(item)))] : chart.series
   const s = kind === 'series' ? series[Math.min(Number(id) || 0, series.length - 1)] : undefined
   const setChart = (patch: object) => onDoc({ ...doc, chart: compact({ ...doc.chart, ...patch }) })
   const setAxis = (patch: Partial<AxisFormat>) => onDoc({ ...doc, axes: { ...doc.axes, [axisName]: compact({ ...doc.axes?.[axisName], ...patch }) } })
   const setLook = (patch: Partial<Look>) => { if (s) { const k = seriesLookKey(s); onLooks({ ...looks, [k]: compact({ ...looks[k], ...patch }) }) } }
   const axis: Axis | null | undefined = chart[axisName]
-  const look: Look = (s && looks[seriesLookKey(s)]) || {}
+  const look: Look = (s && lookForSeries(s, looks)) || {}
   const formatKeys = new Set<string>()
 
   return (

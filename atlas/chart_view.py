@@ -11,15 +11,10 @@ import dataclasses
 import math
 from typing import Any, Mapping
 
-from .chart_style import clean_look
+from .chart_style import clean_look, look_for_series
 from .contract import Axis, Chart, ParamError, Series
 
 AXES = ('y', 'y2', 'y3', 'y4', 'y5')
-
-
-def series_key(s: Series) -> str:
-    """Тот же ключ, что в интерфейсе (``seriesLookKey``): группа или имя, и вид ряда."""
-    return f'{s.group or s.name}|{s.kind}'
 
 
 def _range(raw: Any) -> tuple[float, float] | None:
@@ -65,8 +60,8 @@ def apply_view(chart: Chart, view: Any) -> Chart:
         if (s.group or s.name) in hidden | gone:
             continue
         keep.append(i)
-        own = looks.get(series_key(s))
-        if isinstance(own, Mapping) and own:
+        own = look_for_series(s, looks)
+        if own:
             try:
                 look = {**(s.look or {}), **clean_look(own, len(series) + 1)}
             except ParamError:       # неверное поле вида из браузера не должно ломать выгрузку

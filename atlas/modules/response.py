@@ -15,7 +15,7 @@ import pandas as pd
 
 from atlas.engine.core import exclusions
 from atlas.engine.core.config import ordered
-from atlas.engine.modules.charts import separated_ranges, tight_axis, well_colors, well_title
+from atlas.engine.modules.charts import RESPONSE_PRESSURE_LABELS, separated_ranges, tight_axis, well_colors, well_title
 
 from ..contract import (Axis, Chart, Column, Data, Module, ModuleSpec, Note, Option, Param, Result, Series, Source,
                         Stat, Table, TableAction)
@@ -143,11 +143,12 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
             data = g.sort_values('date')
             ids = (data['_point_id'].map(lambda v: exclusions.point_id('response', v, field)).tolist()
                    if '_point_id' in data else None)
-            suffix = ('уровень жидкости' if field == 'level' else
-                      'давление (глубинный манометр)' if w in manometer else 'давление (пересчет)')
+            pressure_label = RESPONSE_PRESSURE_LABELS['manometer' if w in manometer else 'recalculated'] if field == 'pressure' else ''
+            label = pressure_label or LEVEL_AXIS.label
+            suffix = label.lower()
             color = ((LEVEL_COLOR if field == 'level' else MANOMETER_COLOR if w in manometer else RECALC_COLOR)
                      if semantic else palette[w])
-            name = suffix.capitalize() if by_well and len(wells) == 1 else f'№ {w}'
+            name = label if by_well and len(wells) == 1 else f'№ {w}'
             legend_key = (h, w, field) if by_well else w
             x, yv, ids, labels = with_gaps(data.date, data[field], ids, [f'{h} · скв. {w} · {suffix}'] * len(data), gap_days)
             chart.series.append(Series(
@@ -155,7 +156,7 @@ def response_chart(part: pd.DataFrame, metric: str, title: str, chart_id: str, p
                 dash='solid', width=2.0, markers=True, symbol='circle' if field == 'level' else 'diamond',
                 hollow=field == 'level' and semantic, legend=legend_key not in legends,
                 axis='y2' if dual and field == 'level' else 'y',
-                labels=labels, ids=ids, dataset=RESPONSE))
+                labels=labels, ids=ids, dataset=RESPONSE, format_label=pressure_label))
             legends.add(legend_key)
     gis_on = gis is not None and not gis.empty and (metric == 'pressure' or dual)
     if gis_on:

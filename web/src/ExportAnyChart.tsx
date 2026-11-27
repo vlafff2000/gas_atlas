@@ -77,7 +77,8 @@ function legacyToDoc(s: AnySettings): { settings: AnySettings; moved: boolean } 
 
 function screenView(chart: AnyChartInfo): Dict {
   const all = seriesLooks.get()
-  const looks = Object.fromEntries(chart.items.filter(it => all[it.key]).map(it => [it.key, all[it.key]]))
+  const keys = new Set(chart.items.flatMap(it => [it.key, `${it.group}|${it.kind}`]))
+  const looks = Object.fromEntries([...keys].filter(k => all[k]).map(k => [k, all[k]]))
   const saved = chart.range_key !== undefined ? savedRanges.get()[chart.range_key] ?? {} : {}
   const ranges = Object.fromEntries(Object.entries(saved).filter(([, r]) => Array.isArray(r)))
   return { ...(Object.keys(looks).length ? { looks } : {}), ...(Object.keys(ranges).length ? { ranges } : {}) }
@@ -296,6 +297,7 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
     return put(v, 'hidden', hide ? [...list, group] : list.length ? list : '')
   })
   const fromScreen = chart ? screenView(chart) : {}
+  const visibilityItems = [...new Map(chart?.items.map(it => [`${it.group}|${it.kind}`, it])).values()]
   // рядам с экрана — их вид поверх уже заданного здесь; границы осей — как на экране
   const takeScreen = () => setView(v => ({ ...v, ...fromScreen,
     ...(fromScreen.looks ? { looks: { ...(v.looks as Dict | undefined), ...(fromScreen.looks as Dict) } } : {}) }))
@@ -500,14 +502,14 @@ export function ExportAnyChart({ project, onProject }: { project: Project; onPro
               </div>
             </section>
           )}
-          {chart.items.length > 1 && (
+          {visibilityItems.length > 1 && (
             <details className="table-block">
-              <summary className="block-head"><h3>Какие ряды выгружать ({chart.items.length})</h3></summary>
+              <summary className="block-head"><h3>Какие ряды выгружать ({visibilityItems.length})</h3></summary>
               <p className="muted pad">Снятая галочка убирает ряд из файла. Цвет, линия и маркеры рядов — в панели «Формат» живого графика.</p>
               <div className="pad">
-                {chart.items.slice(0, 200).map(it => {
+                {visibilityItems.slice(0, 200).map(it => {
                   const hidden = (((settings.view as Dict | undefined)?.hidden as string[] | undefined) ?? []).includes(it.group)
-                  return <Tick key={it.key} label={it.name || it.group} value={!hidden} onChange={v => setHidden(it.group, !v)} />
+                  return <Tick key={`${it.group}|${it.kind}`} label={it.name || it.group} value={!hidden} onChange={v => setHidden(it.group, !v)} />
                 })}
               </div>
             </details>
