@@ -304,7 +304,8 @@ def to_plotly(chart: Chart):
                 trace.name = s.look['legend_name']
     module = chart.id.split('-', 1)[0]
     meta: dict = {'module': module}
-    if chart.id.startswith('builder') or chart.style or any(a.style for a in (chart.x, chart.y, *(a for _, a in chart.right_axes()))):
+    if (chart.id.startswith('builder') or chart.style or any(a.style for a in (chart.x, chart.y, *(a for _, a in chart.right_axes())))
+            or chart.x.scale == 'time' and (chart.x.minimum is not None or chart.x.maximum is not None)):
         meta['style'] = style_meta(chart)
         if chart.style.get('legend'):
             meta['format'] = {'legend': chart.style['legend']}
