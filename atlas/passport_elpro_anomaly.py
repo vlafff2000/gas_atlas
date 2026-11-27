@@ -39,7 +39,7 @@ def _shift(x: pd.Series) -> pd.Series:
 
 def _rel(x: pd.Series) -> pd.Series:
     base = x.rolling(BASE, min_periods=MIN_BASE).median().shift(WINDOW)
-    return (_med(x) / base - 1) * 100
+    return ((_med(x) / base.where(base != 0) - 1) * 100).replace([np.inf, -np.inf], np.nan)
 
 
 def series(elpro: pd.DataFrame | None, production: pd.DataFrame | None, pressure: pd.DataFrame | None, well: str, group_of: dict[str, str]) -> pd.DataFrame:
